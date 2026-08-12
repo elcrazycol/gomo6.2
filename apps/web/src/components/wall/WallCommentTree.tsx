@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
+import { isEditableElement } from "@/lib/mobileKeyboard";
 import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
 import { WallCommentComposer } from "./WallCommentComposer";
@@ -41,8 +43,97 @@ export const WallCommentTree = ({
   const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
   const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const composerAnchorRef = useRef<HTMLDivElement>(null);
   const hasLoadedRef = useRef(false);
   const firstLoadFiredRef = useRef(false);
+
+  // While the composer is focused the on-screen keyboard is (about to be) up.
+  // position:sticky would let the composer scroll away with the comment list;
+  // position:fixed pins it above the keyboard no matter how the page scrolls.
+  // Only the focused composer gets pinned — focus tracking is per-tree, so
+  // other posts' composers on the same wall stay in flow.
+  const { isTouch, isOpen: keyboardOpen } = useMobileKeyboard();
+  const [composerActive, setComposerActive] = useState(false);
+  // keyboardOpen differs by platform: on iOS it is true while the keyboard is
+  // up (and stays true through the ~280ms dismissal slide); on Android with
+  // resizes-content the layout shrinks so the delta is ~0 and it stays false
+  // even while typing. The focusout handler needs the live value, hence the ref.
+  const keyboardOpenRef = useRef(keyboardOpen);
+  keyboardOpenRef.current = keyboardOpen;
+
+  useEffect(() => {
+    const anchor = composerAnchorRef.current;
+    if (!anchor) return;
+    const onFocusIn = (e: FocusEvent) => {
+      if (anchor.contains(e.target as Node)) setComposerActive(true);
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      const related = e.relatedTarget;
+      // Hand-off to another editable (an inline comment editor) → release the
+      // pin; that editor owns the keyboard now.
+      if (related instanceof HTMLElement && !anchor.contains(related) && isEditableElement(related)) {
+        setComposerActive(false);
+        return;
+      }
+      // Focus moving INSIDE the composer (toolbar buttons, cancel…) keeps it
+      // pinned. Leaving the composer unpins immediately when the keyboard is
+      // already gone or never tracked (Android tap-outside → keyboard hides
+      // right away). On iOS a scroll-to-dismiss blur keeps it pinned while the
+      // keyboard slides away; the keyboardOpen effect below releases it once
+      // the keyboard is fully gone.
+      if (!keyboardOpenRef.current) {
+        setComposerActive(false);
+      }
+    };
+    anchor.addEventListener("focusin", onFocusIn);
+    anchor.addEventListener("focusout", onFocusOut);
+    return () => {
+      anchor.removeEventListener("focusin", onFocusIn);
+      anchor.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
+
+  // Release the pin once the keyboard has fully closed (after the dismissal
+  // slide, or the user dismissed it via the keyboard itself) so the composer
+  // returns to the document flow at the end of the comment list.
+  useEffect(() => {
+    if (!keyboardOpen) setComposerActive(false);
+  }, [keyboardOpen]);
+
+  const pinned = composerActive && isTouch;
+  const padActive = pinned;
+
+  // A position:fixed element cannot inherit its container's width, so while the
+  // composer is pinned we measure the comment tree's content width and mirror
+  // it (re-measuring on rotation / window resize). This keeps the pinned
+  // composer pixel-aligned with the post column in every layout (profile
+  // column, standalone post page, embedded cards).
+  useEffect(() => {
+    const anchor = composerAnchorRef.current;
+    const root = rootRef.current;
+    if (!anchor || !root) return;
+    if (!pinned) {
+      anchor.style.width = "";
+      return;
+    }
+    const applyWidth = () => {
+      anchor.style.width = `${root.clientWidth}px`;
+    };
+    applyWidth();
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(applyWidth);
+      observer.observe(root);
+    }
+    window.addEventListener("resize", applyWidth);
+    window.addEventListener("orientationchange", applyWidth);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", applyWidth);
+      window.removeEventListener("orientationchange", applyWidth);
+      anchor.style.width = "";
+    };
+  }, [pinned]);
   // Keep onFirstLoad in a ref so loadComments stays identity-stable — if the
   // parent passed an inline function, the [loadComments] effect below would
   // refetch (and flash the skeleton) on every parent re-render.
@@ -389,7 +480,14 @@ export const WallCommentTree = ({
 
   return (
     <WallCommentTreeContext.Provider value={contextValue}>
-      <div ref={rootRef} className="space-y-3 border-t border-border/60 pt-4">
+      {/* wall-comments-pad reserves scroll room below the last comment while
+          the composer is pinned: without it the final comment can never be
+          scrolled above the keyboard (iOS keeps the layout viewport full
+          height), so it would sit hidden behind the keyboard/composer. */}
+      <div
+        ref={rootRef}
+        className={`space-y-3 border-t border-border/60 pt-4 ${padActive ? "wall-comments-pad" : ""}`}
+      >
         {loading ? (
           <div className="space-y-3 py-2">
             {[1, 2, 3].map((i) => (
@@ -426,10 +524,16 @@ export const WallCommentTree = ({
         {currentUserId && (
           // Floating, backgroundless composer: lifted off the bottom edge so
           // the panel reads as a clean input, not a docked bar. kb-bottom-8
-          // adds the keyboard inset to the sticky offset, so on iOS the bar
-          // floats above the keyboard instead of under it (the layout
-          // viewport never shrinks there).
-          <div className="sticky kb-bottom-8 z-20">
+          // adds the keyboard inset to the offset, so on iOS the bar floats
+          // above the keyboard instead of under it (the layout viewport never
+          // shrinks there). While the composer is focused the bar switches to
+          // position:fixed — sticky would let it scroll away with the comment
+          // list, which is exactly the "composer rides off who-knows-where"
+          // bug. The width is measured and applied inline (see above).
+          <div
+            ref={composerAnchorRef}
+            className={`${pinned ? "wall-composer-fixed" : "sticky"} kb-bottom-8 z-20`}
+          >
             <WallCommentComposer
               focusToExpand
               autoFocus

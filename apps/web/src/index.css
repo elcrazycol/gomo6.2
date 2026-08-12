@@ -972,3 +972,31 @@ html.kb-open body {
     bottom: calc(1.5rem + var(--kb-inset, 0px));
   }
 }
+
+/* ── Wall comment composer: pin above the keyboard while focused ────────────
+
+   The composer is position:sticky by default, which only sticks while the
+   comment list (its containing block) is in view — scrolling the comments
+   would drag the composer along with them, so it ends up "who-knows-where"
+   and subsequent opens land at random scroll offsets. While the composer is
+   focused (keyboard up) WallCommentTree switches it to .wall-composer-fixed:
+   position:fixed pins it above the keyboard no matter how the page scrolls,
+   exactly like the thread composer. The width is measured from the container
+   and applied inline (a fixed element cannot inherit its parent's width), and
+   .wall-comments-pad reserves scroll room so the last comment can still be
+   scrolled above the keyboard/composer. */
+
+.wall-composer-fixed {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+}
+
+.wall-comments-pad {
+  /* Expanded composer height (~13rem) + the kb-bottom-8 offset (2rem) + air.
+     No transition: --kb-inset is already animated by mobileKeyboard's
+     dismissal rAF, so the pad follows the keyboard exactly; a CSS transition
+     here would lag every frame of that animation. */
+  padding-bottom: calc(var(--kb-inset, 0px) + 16rem);
+}
