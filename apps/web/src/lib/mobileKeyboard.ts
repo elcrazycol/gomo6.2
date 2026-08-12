@@ -703,6 +703,12 @@ function scheduleScrollIntoView(delay: number) {
 export function scrollEditableIntoView() {
   const el = focusedEditable;
   if (!el || !el.isConnected || !state.isTouch) return;
+  // Only steer the page for the element that actually owns focus. focusedEditable
+  // is kept across blur on purpose (the keyboard still animates closed), but a
+  // late resize/timer must never yank the page back to an editor the user has
+  // already left (e.g. they tapped a Reply button on a comment).
+  const active = document.activeElement;
+  if (active !== el && !(active instanceof Node && el.contains(active))) return;
 
   const vv = typeof window !== "undefined" ? window.visualViewport : null;
   const visibleHeight = vv ? vv.height : window.innerHeight;

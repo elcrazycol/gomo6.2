@@ -1,7 +1,7 @@
-import { useEffect, useState, type FocusEvent } from "react";
+import { useEffect, useRef, useState, type FocusEvent } from "react";
 import { Loader2, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { GomoRichEditor } from "@/components/GomoRichEditor";
+import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 
 interface WallCommentComposerProps {
   placeholder: string;
@@ -73,6 +73,7 @@ export const WallCommentComposer = ({
 }: WallCommentComposerProps) => {
   const [expanded, setExpanded] = useState(!focusToExpand);
   const [closing, setClosing] = useState(false);
+  const editorRef = useRef<GomoRichEditorHandle>(null);
   const isExpanded = !focusToExpand || expanded || Boolean(text.trim());
 
   const finishCollapse = () => {
@@ -94,6 +95,17 @@ export const WallCommentComposer = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replyTo?.id]);
+
+  // Tapping "Reply" on a comment must drop the user straight into typing:
+  // autoFocus only fires on mount, but the composer stays mounted, so wake it
+  // up by moving focus explicitly once the editor box has expanded. This is
+  // what opens the keyboard on mobile.
+  useEffect(() => {
+    if (replyTo && expanded) {
+      editorRef.current?.focus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyTo?.id, expanded]);
 
   // After a successful submit the parent clears the draft and bumps resetKey —
   // fold the composer back into its quiet one-line prompt (animated).
@@ -172,6 +184,7 @@ export const WallCommentComposer = ({
               </div>
             )}
             <GomoRichEditor
+              ref={editorRef}
               autoFocus={autoFocus}
               resetKey={resetKey}
               maxLength={maxLength}
