@@ -339,8 +339,26 @@ export const WallCommentTree = ({
     });
     // Only focus when actually starting a reply — a toggle-off (cancel) must
     // not pop the keyboard back open.
-    if (nextId) composerEditorRef.current?.focus();
-  }, []);
+    if (nextId) {
+      const editor = composerEditorRef.current;
+      // iOS performs its focus-scroll the moment focus() lands: the browser
+      // scrolls the page to reveal the freshly focused editor. At that instant
+      // the composer is still sticky — the focusin-driven applyPin fires only
+      // after the native scroll already started — so the scroll drags the
+      // composer up with the page WHILE it opens (the "page scrolls and the
+      // composer flies away during open" bug). Pin it BEFORE focusing:
+      // position:fixed is in place from the very first frame of the
+      // focus-scroll, so the composer cannot move at all — the page may scroll
+      // underneath, the composer stays nailed above the keyboard. Only pin
+      // when the editor is actually reachable: if it were not, no focusin
+      // would ever confirm the pin and the composer would stay stuck fixed.
+      if (isTouchRef.current && editor) {
+        setComposerActive(true);
+        applyPin();
+      }
+      editor?.focus();
+    }
+  }, [applyPin]);
 
   // The reply target the floating composer answers (or null → plain comment).
   const replyTarget = activeReplyId ? comments.find((c) => c.id === activeReplyId) ?? null : null;
