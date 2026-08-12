@@ -899,6 +899,152 @@ func TestUniversalDelete_WallComments_OwnershipScope(t *testing.T) {
 	}
 }
 
+// ─── C1: SQL injection via JSON body column names (CWE-89) ───────────────────
+
+// TestUniversalPut_RejectsInjectedColumnName proves the exact C1 payload is
+// rejected before any SQL is built: a body key that smuggles a scalar subquery
+// into the SET clause (absorbing its bind parameter in the trailing ` = $N`)
+// must yield 400. sqlmock has no expectations, so any DB access would fail the
+// test via ExpectationsWereMet in cleanup.
+func TestUniversalPut_RejectsInjectedColumnName(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
+		"role = (SELECT password_hash FROM users WHERE username='victim'), updated_at": "x",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPut_RejectsCommentInjection covers the `--` comment variant that
+// would otherwise comment out the bind parameter and the WHERE clause.
+func TestUniversalPut_RejectsCommentInjection(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
+		"role = 'moderator' -- ": "x",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPut_RejectsParenthesizedColumn covers breaking out of the SET
+// clause with closing parens / commas.
+func TestUniversalPut_RejectsParenthesizedColumn(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
+		"role, updated_at = now())": "x",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPost_RejectsInjectedColumnName covers the same defect on the
+// INSERT column list (handlePost).
+func TestUniversalPost_RejectsInjectedColumnName(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/polls", map[string]string{
+		"question) VALUES (1)--": "x",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPost_RejectsInjectionBeforeUpsert proves the validation also
+// runs on upsert-routed tables (user_daily_visits) and fires before the
+// ownership enforcement (the request carries no claims, yet 400 comes from the
+// column-name gate, not a 401).
+func TestUniversalPost_RejectsInjectionBeforeUpsert(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/user_daily_visits", map[string]string{
+		"visit_date, extra = 1": "2025-01-01",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPut_ValidUnusualColumnPassesGate guards the mirror-image
+// regression: the C1 gate must not be over-restrictive. Legitimate snake_case
+// identifiers beyond the trivial ones (has_custom_message, _-prefixed, digits)
+// must still reach the DB and not be rejected as "invalid column name".
+func TestUniversalPut_ValidUnusualColumnPassesGate(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// handlePut does NOT sort SET columns (map iteration order is random), so
+	// the regex must not assume an order. No ownership scope applies to
+	// user_roles — only the query filter is in the WHERE clause.
+	mock.ExpectQuery(`(?s).*UPDATE user_roles SET has_custom_message = \$[0-9]+, role = \$[0-9]+ WHERE user_id = \$[0-9]+ RETURNING \*`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "role"}).
+			AddRow("1", "u1", "moderator"))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
+		"role":               "moderator",
+		"has_custom_message": "true",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestValidateBodyColumnNames unit-tests the gate directly: legitimate column
+// names pass, anything that could alter SQL grammar is rejected.
+func TestValidateBodyColumnNames(t *testing.T) {
+	valid := []map[string]interface{}{
+		{"user_id": "u1", "role": "admin"},
+		{"content_json": 1},
+		{"updated_at": "2025-01-01T00:00:00Z"},
+		{"_private": true},
+		{"has_custom_message": false},
+	}
+	for _, data := range valid {
+		if err := validateBodyColumnNames(data); err != nil {
+			t.Errorf("valid payload %v rejected: %v", data, err)
+		}
+	}
+
+	invalid := []string{
+		"role = (SELECT password_hash FROM users), updated_at",
+		"role = 'moderator' -- ",
+		"role, updated_at = now()",
+		"a) VALUES (1)--",
+		"col; DROP TABLE users",
+		"col--",
+		"col.",
+		"col ",
+		" col",
+		"1col",
+		"col-name",
+		"",
+		strings.Repeat("a", 64),
+	}
+	for _, key := range invalid {
+		if err := validateBodyColumnNames(map[string]interface{}{key: "x"}); err == nil {
+			t.Errorf("malicious key %q was accepted", key)
+		}
+	}
+}
+
 // ─── invalidateCacheForTableResult (posts → board thread list) ───────────────
 
 // TestInvalidatePostClearsBoardThreadList verifies that a post write

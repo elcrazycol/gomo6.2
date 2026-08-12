@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -228,6 +229,24 @@ func isValidColumnName(name string) bool {
 		}
 	}
 	return true
+}
+
+// validateBodyColumnNames rejects any JSON body key that is not a safe SQL
+// identifier (CWE-89, C1 regression guard). The generic write handlers
+// interpolate body keys directly into INSERT column lists and UPDATE SET
+// clauses, so an unvalidated key could smuggle arbitrary SQL into the
+// statement (e.g. `accepted_at = (SELECT password_hash FROM users), updated_at`
+// produced a working expression because the trailing ` = $N` absorbed the
+// bind parameter). Values are parameterized, but the identifier itself must
+// still be constrained: a valid column name can never contain SQL syntax, so
+// enforcing the same shape as isValidColumnName is sufficient.
+func validateBodyColumnNames(data map[string]interface{}) error {
+	for key := range data {
+		if !isValidColumnName(key) {
+			return fmt.Errorf("invalid column name %q in request body", key)
+		}
+	}
+	return nil
 }
 
 func buildFilterClause(column, rawValue string, argIndex int) (string, []interface{}, int) {

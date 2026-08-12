@@ -884,6 +884,13 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
+	// C1 (security audit): body keys are interpolated into the INSERT column
+	// list verbatim. Reject any key that is not a safe SQL identifier before
+	// any other logic sees the payload.
+	if err := validateBodyColumnNames(data); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
 	if tableName == "custom_emojis" {
 		if err := validateCustomEmojiTriggers(data); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -1163,6 +1170,13 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		return
 	}
 	if err := normalizeJSONValuesForDB(data); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+	// C1 (security audit): body keys are interpolated into the UPDATE SET
+	// clause verbatim. Reject any key that is not a safe SQL identifier before
+	// any other logic sees the payload.
+	if err := validateBodyColumnNames(data); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
