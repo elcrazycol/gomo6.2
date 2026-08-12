@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, useCallback, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { motion, useScroll, useMotionValueEvent } from "framer-motion";
+import { motion, useScroll, useMotionValueEvent, useMotionValue, useTransform, animate } from "framer-motion";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,10 +67,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const lastProgressUpdateRef = useRef<number>(0);
   const [volume, setVolume] = useState(1);
   const storedVolumeRef = useRef<number | null>(null);
-  const [isDesktop, setIsDesktop] = useState<boolean>(false);
-  const [contentPad, setContentPad] = useState<number>(60);
   const lastTrackRef = useRef<{ id: string; title: string; src?: string } | null>(null);
-  const lastHeaderToggleRef = useRef(0);
   const [restored, setRestored] = useState(false);
   const controlRef = useRef<(action: "prev" | "next" | "toggle" | "mute") => void>(() => {});
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,6 +83,27 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const isBackgroundResumeRef = useRef(false);
   const { scrollY } = useScroll();
   const [showDropsShop, setShowDropsShop] = useState(false);
+
+  // ── Header hide/show animation ─────────────────────────────────────────────
+  // The header is position:fixed, so the content below it is padded to
+  // compensate. The old implementation animated the header translate and
+  // flipped the content padding through two independent mechanisms (React state
+  // + its own animation), so the content jumped the instant the state changed
+  // while the header was still sliding — the visible jank. The padding was also
+  // a hardcoded guess at the header height, which caused the off-by-a-few-
+  // pixels offset. Now BOTH the header translate and the content padding derive
+  // from a single animated motion value (`headerProgress`) and the real,
+  // measured header height, so they move in perfect lockstep and the animation
+  // cancels/reverses cleanly when the scroll direction flips.
+  const [headerHeight, setHeaderHeight] = useState(60);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const isHeaderVisibleRef = useRef(true);
+  const prefersReducedMotionRef = useRef(false);
+  const headerProgress = useMotionValue(1); // 1 = fully visible, 0 = hidden
+  const nowPlayingPadPx = nowPlaying && !nowPlayingHidden ? 52 : 0;
+  const headerY = useTransform(headerProgress, (p) => -headerHeight * (1 - p));
+  const contentPad = useTransform(headerProgress, (p) => 24 + (headerHeight - 24) * p + nowPlayingPadPx);
+  const nowPlayingTop = useTransform(headerProgress, (p) => 12 + headerHeight * p);
 
   useTabTitle();
 
@@ -258,7 +276,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
-  // Header animation logic
+  // Direction-based hide/show with a small dead zone. No cooldown needed: the
+  // animation below is a single cancellable motion value, so rapid direction
+  // flips just reverse the slide instead of stuttering.
   useMotionValueEvent(scrollY, "change", (latest) => {
     const previous = scrollY.getPrevious();
     if (previous === undefined) return;
@@ -267,44 +287,55 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
     const clampedLatest = Math.min(Math.max(latest, 0), maxScroll);
     const delta = latest - previous;
-    if (Math.abs(delta) < 6) return;
-
-    const now = performance.now();
-    if (now - lastHeaderToggleRef.current < 120) return;
+    if (Math.abs(delta) < 4) return;
 
     const atTop = clampedLatest <= 4;
-    const nearBottom = clampedLatest >= maxScroll - 28;
+    // Stay clear of the bottom by more than the padding collapse
+    // (headerHeight − 24) plus margin: hiding any closer would shrink main,
+    // clamp scrollTop, and the resulting synthetic upward scroll would
+    // immediately re-show the header — a visible hide/show flicker.
+    const nearBottom = clampedLatest >= maxScroll - Math.max(headerHeight + 8, 56);
 
+    // Always show at the very top...
     if (atTop) {
-      if (!isHeaderVisible) {
-        setIsHeaderVisible(true);
-        lastHeaderToggleRef.current = now;
-      }
+      if (!isHeaderVisibleRef.current) setIsHeaderVisible(true);
       return;
     }
-
-    // Hard guard near page bottom: avoid header animation jitter on overscroll/bounce.
+    // ...and never animate near the bottom (overscroll/bounce jitter).
     if (nearBottom) return;
 
-    if (delta > 0 && latest > 120 && isHeaderVisible) {
+    if (delta > 0 && clampedLatest > 120 && isHeaderVisibleRef.current) {
       setIsHeaderVisible(false);
-      lastHeaderToggleRef.current = now;
       return;
     }
-
-    if (delta < 0 && !isHeaderVisible) {
+    if (delta < 0 && !isHeaderVisibleRef.current) {
       setIsHeaderVisible(true);
-      lastHeaderToggleRef.current = now;
     }
   });
 
-  // Global audio handling: keep a queue of players and expose transport controls.
+  // One shared, cancellable animation drives the header slide, the content
+  // padding and the now-playing bar position in perfect sync.
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 640px)");
-    const updateMatch = () => setIsDesktop(mq.matches);
-    updateMatch();
-    mq.addEventListener("change", updateMatch);
-    return () => mq.removeEventListener("change", updateMatch);
+    isHeaderVisibleRef.current = isHeaderVisible;
+    if (prefersReducedMotionRef.current) {
+      headerProgress.set(isHeaderVisible ? 1 : 0);
+      return;
+    }
+    const controls = animate(headerProgress, isHeaderVisible ? 1 : 0, {
+      duration: 0.32,
+      ease: [0.32, 0.72, 0, 1],
+    });
+    return () => controls.stop();
+  }, [isHeaderVisible, headerProgress]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      prefersReducedMotionRef.current = mq.matches;
+    };
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
   }, []);
 
   // Restore last audio session on load (paused) and volume from storage
@@ -712,12 +743,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     };
   }, [nowPlaying?.id]);
 
-  useEffect(() => {
-    const headerPad = isHeaderVisible ? (isDesktop ? 60 : mobileSearchOpen ? 120 : 68) : 24;
-    const nowPlayingPad = nowPlaying && !nowPlayingHidden ? 52 : 0;
-    setContentPad(headerPad + nowPlayingPad);
-  }, [isDesktop, isHeaderVisible, nowPlaying, nowPlayingHidden, mobileSearchOpen]);
-
   const handleNowPlayingControl = useCallback((action: "prev" | "next" | "toggle" | "mute") => {
     if (!nowPlaying) return;
 
@@ -925,11 +950,26 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const isMessengerPage = location.pathname.startsWith('/messages');
   const hideChrome = isSpecialPage || hideMessengerChrome;
 
+  // Measure the real header height (it grows with the mobile search row, wraps
+  // on narrow screens, changes when fonts load...) so the content padding always
+  // matches it exactly instead of a hardcoded guess. Re-measures when the
+  // header mounts/unmounts (messenger mobile chat toggles hideChrome).
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.offsetHeight;
+      if (h > 0) setHeaderHeight(h);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hideChrome]);
+
   if (isSpecialPage) {
     return <>{children}</>;
   }
-
-  const nowPlayingTop = isHeaderVisible ? (isDesktop ? 72 : 62) : 12;
 
   return (
     <div className="bg-background min-h-screen flex flex-col">
@@ -942,11 +982,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <AchievementToastListener />
       {!hideChrome ? (
       <motion.header
+        ref={headerRef}
         data-app-layout-header="true"
         className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border fixed top-0 left-0 right-0 z-50"
-        initial={{ y: 0 }}
-        animate={{ y: isHeaderVisible ? 0 : -100 }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
+        style={{ y: headerY, willChange: "transform" }}
       >
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-between gap-2 sm:gap-3">
@@ -1163,9 +1202,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       {!hideChrome && nowPlaying && !nowPlayingHidden && (
         <motion.div
           className="fixed left-0 right-0 z-40 px-2 sm:px-4"
-          initial={false}
-          animate={{ y: isHeaderVisible ? 0 : -8, top: nowPlayingTop }}
-          transition={{ type: "spring", stiffness: 260, damping: 26 }}
+          style={{ top: nowPlayingTop }}
         >
           <div className="max-w-5xl mx-auto bg-card/95 backdrop-blur border border-border shadow-md rounded-md px-3 py-1 flex flex-col gap-1">
             <div className="flex items-center gap-2 text-sm">
@@ -1339,14 +1376,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         </motion.div>
       )}
 
-      <main
+      <motion.main
         id="main-content"
         tabIndex={-1}
         className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}`}
         style={{ paddingTop: hideChrome ? 0 : contentPad }}
       >
         {children}
-      </main>
+      </motion.main>
 
       {!hideChrome && !isMessengerPage ? (
       <div className="mt-auto" data-app-layout-footer="true">

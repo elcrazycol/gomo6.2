@@ -4,8 +4,9 @@ import { AppLayout } from "./AppLayout";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-const { mockAuth, mockProfileCache, mockSearchGlobal, mockEventManager } = vi.hoisted(() => {
+const { mockAuth, mockProfileCache, mockSearchGlobal, mockEventManager, mockAnimate } = vi.hoisted(() => {
   return {
+    mockAnimate: vi.fn(() => ({ stop: vi.fn() })),
     mockAuth: {
       user: null as any,
       isLoading: false,
@@ -81,14 +82,23 @@ vi.mock("@/utils/globalSearch", () => ({
   searchGlobal: mockSearchGlobal,
 }));
 
-// framer-motion: replace motion components with plain divs
+// framer-motion: replace motion components with plain elements. The scroll
+// machinery is mocked so tests can drive the header hide/show handler directly
+// via __scrollHandler (latest) with the previous scroll position in
+// __scrollPrevious, and assert the resulting animation target on mockAnimate.
 vi.mock("framer-motion", () => ({
   motion: {
     header: ({ children, ...props }: any) => <div data-testid="motion-header" {...props}>{children}</div>,
+    main: ({ children, ...props }: any) => <main {...props}>{children}</main>,
     div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
   },
-  useScroll: () => ({ scrollY: { getPrevious: () => 0 } }),
-  useMotionValueEvent: () => {},
+  useScroll: () => ({ scrollY: { getPrevious: () => (globalThis as any).__scrollPrevious ?? 0 } }),
+  useMotionValueEvent: (_mv: any, _ev: any, cb: any) => {
+    (globalThis as any).__scrollHandler = cb;
+  },
+  useMotionValue: (initial: any) => ({ get: () => initial, set: () => {} }),
+  useTransform: () => "0px",
+  animate: mockAnimate,
 }));
 
 // Sub-components
@@ -140,6 +150,8 @@ beforeEach(() => {
   });
   mockProfileCache.getProfile.mockReturnValue(null);
   (globalThis as any).__profileInvalidationCb = null;
+  (globalThis as any).__scrollHandler = null;
+  (globalThis as any).__scrollPrevious = 0;
   localStorage.clear();
   document.body.classList.remove("messenger-mobile-chat-active");
 });
@@ -401,6 +413,54 @@ describe("AppLayout", () => {
       await waitFor(() => {
         expect(screen.getAllByText("Восстановленный").length).toBeGreaterThanOrEqual(1);
       });
+    });
+  });
+
+  describe("header hide/show on scroll", () => {
+    // Drive the captured useMotionValueEvent handler directly.
+    function scrollTo(latest: number, previous: number) {
+      (globalThis as any).__scrollPrevious = previous;
+      const handler = (globalThis as any).__scrollHandler;
+      act(() => handler(latest));
+    }
+
+    let origInnerHeight = 0;
+
+    beforeEach(() => {
+      origInnerHeight = window.innerHeight;
+      Object.defineProperty(document.documentElement, "scrollHeight", { value: 3000, configurable: true });
+      window.innerHeight = 800;
+      renderLayout();
+      mockAnimate.mockClear();
+    });
+
+    afterEach(() => {
+      delete (document.documentElement as any).scrollHeight;
+      window.innerHeight = origInnerHeight;
+    });
+
+    it("hides the header when scrolling down past the threshold", () => {
+      scrollTo(500, 0);
+      expect(mockAnimate).toHaveBeenCalledWith(expect.anything(), 0, expect.anything());
+    });
+
+    it("shows the header again when scrolling up", () => {
+      scrollTo(500, 0); // hide
+      mockAnimate.mockClear();
+      scrollTo(300, 500); // scroll up
+      expect(mockAnimate).toHaveBeenCalledWith(expect.anything(), 1, expect.anything());
+    });
+
+    it("keeps the header visible at the top and within the first 120px", () => {
+      scrollTo(4, 0); // at top — never hides
+      expect(mockAnimate).not.toHaveBeenCalled();
+      scrollTo(100, 4); // below the hide threshold
+      expect(mockAnimate).not.toHaveBeenCalled();
+    });
+
+    it("does not animate the header near the page bottom", () => {
+      scrollTo(2999, 0); // near bottom (maxScroll = 2200)
+      expect(mockAnimate).not.toHaveBeenCalled();
     });
   });
 
