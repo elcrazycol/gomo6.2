@@ -183,7 +183,7 @@
 - BFF (Backend-for-Frontend) паттерн
 
 ### 3. Токен в WebSocket URL
-**Риск:** JWT токен в query string может быть записан в access-логи nginx/Caddy и логи браузера.
+**Риск:** JWT токен в query string может быть записан в access-логи Caddy (edge reverse proxy) и логи браузера.
 
 **Митигация:**
 - Настроить reverse proxy на исключение query string из логов
@@ -200,7 +200,7 @@
 ### 5. Отсутствие CSP заголовков
 **Риск:** Без Content Security Policy браузер не ограничен в выполнении скриптов — XSS-уязвимость в одной библиотеке может скомпрометировать всё приложение.
 
-**Решение:** Добавить CSP заголовки в Caddyfile/nginx.
+**Решение:** Добавить CSP заголовки в Caddyfile (источник истины — edge reverse proxy; актуальная политика — в разделе «Production настройки» ниже).
 
 ### 6. Нерасшифровываемые сообщения
 **Риск:** Сообщения, зашифрованные до ротации ключа (или повреждённые), не могут быть расшифрованы текущим ключом. Ранее клиенту возвращался сырой ciphertext; теперь вместо него отдаётся placeholder `crypto.DecryptionFailedPlaceholder`, чтобы зашифрованный blob не покидал сервер.
@@ -255,10 +255,16 @@ CSP задаётся **без** `unsafe-eval`; `connect-src` ограничен 
 
 **Исключение для dev-панели (dev.*):** dev-панель логинится как OAuth-клиент основного сайта — после consent её callback обменивает код кросс-доменно (`dev.*` → `https://{$DOMAIN}/oauth/token`, `/oauth/userinfo`). Строгий `connect-src 'self' wss: ...` без `{$DOMAIN}` блокировал этот обмен (в консоли браузера: CSP violation + `NetworkError when attempting to fetch resource` → «Ошибка входа» на dev-панели). В Caddyfile для dev.* задан отдельный CSP (матчер `@devCsp`, применяется только к `dev.{$DOMAIN}`) — та же политика плюс `http://{$DOMAIN}` и `https://{$DOMAIN}` в `connect-src`. Основной сайт и docs сохраняют строгую политику. При изменении общей политики синхронизируйте dev-версию (в Caddyfile есть комментарий-предупреждение).
 
-6. **Включите rate limiting на уровне reverse proxy:**
-```nginx
-limit_req_zone $binary_remote_addr zone=api:10m rate=30r/s;
-limit_req zone=api burst=50 nodelay;
+6. **Включите rate limiting:**
+Rate limiting уже реализован на уровне Go-бэкенда (auth, messenger 300/60 req/min, PreAuthLimiter для WebSocket upgrade). Дополнительно можно ограничить на edge — директива Caddy `rate_limit`:
+```caddy
+rate_limit {
+    zone api {
+        key {remote_host}
+        events 30
+        window 1s
+    }
+}
 ```
 
 7. **Мониторинг:**

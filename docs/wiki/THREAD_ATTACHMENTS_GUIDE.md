@@ -205,11 +205,22 @@ const postData = data.data || data;
 
 ### Issue: "Presign failed: 500" error
 
-**Cause:** Garage S3 not accessible from nginx proxy
+**Historical note:** This issue belongs to the removed `presign-upload` flow
+(browser → presigned PUT to Garage). That flow was deleted — all files now go
+through the authenticated Go proxy (`POST /storage/v1/upload`, see "File
+Upload Flow" above), so this error can no longer occur.
 
-**Fix:** 
+**Old cause:** Garage S3 not accessible from the nginx proxy
+
+**Old fix:**
 - Changed `garage.toml` to bind to `0.0.0.0:3900` instead of `[::]:3900`
-- Restarted garage-proxy container
+- Restarted the garage-proxy container
+
+**Current equivalent:** if attachments fail to display, verify Garage is
+reachable through the authenticated Go proxy (`curl .../storage/v1/object/...`,
+see Debugging Commands below). Public reads go Browser → Caddy → Garage
+directly; private `uploads`/`wall` reads go through the Go proxy with access
+checks.
 
 ### Issue: Duplicate posts appearing
 
@@ -245,7 +256,6 @@ const postData = data.data || data;
 ### Configuration
 - `/apps/backend-go/garage.toml` - **шаблон** S3-конфига (плейсхолдеры `__GARAGE_RPC_SECRET__` / `__GARAGE_ADMIN_TOKEN__`, секретов в Git нет)
 - `scripts/generate-garage-config.sh` - рендер runtime `.garage.toml` из `.env` (mode 600)
-- `apps/backend-go/garage-nginx-proxy.conf` - Proxy settings
 - `docker-compose.yml` - Service orchestration (порты Garage/DB/Redis наружу не публикуются)
 
 ## Debugging Commands
