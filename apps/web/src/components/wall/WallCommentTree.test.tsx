@@ -718,4 +718,140 @@ describe("WallCommentTree", () => {
       view.unmount();
     });
   });
+
+  it("pins the composer as fixed above the keyboard on touch while focused", async () => {
+    // Simulate a coarse-pointer device so the keyboard handling (and the pin)
+    // is active; everything else reports false.
+    const matchMediaMock = vi.fn((query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.stubGlobal("matchMedia", matchMediaMock);
+    const { initMobileKeyboard } = await import("@/lib/mobileKeyboard");
+    const dispose = initMobileKeyboard();
+
+    try {
+      const view = renderTree({ comments: [] });
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
+      });
+
+      // Expand the pill, then focus the editor the way a tap would.
+      await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
+      const textarea = screen.getByPlaceholderText("Напишите комментарий");
+      act(() => {
+        textarea.focus();
+      });
+
+      // The composer anchor must pin synchronously: fixed above the keyboard,
+      // and gestures starting on it must not dismiss the keyboard.
+      const anchor = view.container.querySelector(".sticky");
+      expect(anchor).toBeTruthy();
+      await waitFor(() => {
+        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
+        expect(anchor!.getAttribute("data-kb-locked")).toBe("true");
+      });
+      // The scroll-room pad kicks in while the composer is pinned.
+      expect(view.container.querySelector(".wall-comments-pad")).toBeTruthy();
+
+      // Leaving the composer releases the pin and the pad.
+      act(() => {
+        textarea.blur();
+      });
+      await waitFor(() => {
+        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
+        expect(anchor!.getAttribute("data-kb-locked")).toBeNull();
+      });
+      expect(view.container.querySelector(".wall-comments-pad")).toBeNull();
+    } finally {
+      dispose();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the composer docked while the keyboard is up even after focus leaves", async () => {
+    const matchMediaMock = vi.fn((query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.stubGlobal("matchMedia", matchMediaMock);
+    // Fake a visual viewport that reports the keyboard covering 300px so the
+    // global keyboard state reads as OPEN.
+    const vv = { height: 500, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    const { initMobileKeyboard } = await import("@/lib/mobileKeyboard");
+    const dispose = initMobileKeyboard();
+    window.dispatchEvent(new Event("resize"));
+
+    try {
+      const view = renderTree({ comments: [] });
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
+      const textarea = screen.getByPlaceholderText("Напишите комментарий");
+      act(() => {
+        textarea.focus();
+      });
+      const anchor = view.container.querySelector(".sticky");
+      await waitFor(() => {
+        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
+      });
+
+      // Focus leaves to a NON-editable (e.g. a reply button on a comment)
+      // while the keyboard is still up — the dock must NOT be released.
+      const outsideButton = document.createElement("button");
+      document.body.appendChild(outsideButton);
+      act(() => {
+        outsideButton.focus();
+      });
+      expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
+      expect(view.container.querySelector(".wall-comments-pad")).toBeTruthy();
+
+      // Simulate the keyboard closing: the visual viewport returns to full
+      // height, and focus is outside → the dock releases.
+      Object.defineProperty(window, "visualViewport", { value: { ...vv, height: 800 }, configurable: true });
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      await waitFor(() => {
+        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
+      });
+
+      // Re-focus the editor, then hand the keyboard over to ANOTHER editable
+      // (e.g. a comment's inline edit box) — the dock must release immediately
+      // via the document-level focusin listener.
+      act(() => {
+        textarea.focus();
+      });
+      await waitFor(() => {
+        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
+      });
+      const otherEditor = document.createElement("textarea");
+      document.body.appendChild(otherEditor);
+      act(() => {
+        otherEditor.focus();
+      });
+      expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
+    } finally {
+      dispose();
+      vi.unstubAllGlobals();
+      delete (window as any).visualViewport;
+      delete (window as any).innerHeight;
+    }
+  });
 });

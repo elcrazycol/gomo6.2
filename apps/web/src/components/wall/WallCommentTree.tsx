@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
+import { isEditableElement } from "@/lib/mobileKeyboard";
 import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
@@ -49,41 +50,145 @@ export const WallCommentTree = ({
   const hasLoadedRef = useRef(false);
   const firstLoadFiredRef = useRef(false);
 
-  // Mobile keyboard state — used to detect if we're on touch device
-  const { isTouch } = useMobileKeyboard();
-  
-  // Simple state: is the composer focused (keyboard up)?
-  const [composerFocused, setComposerFocused] = useState(false);
-  const composerFocusedRef = useRef(composerFocused);
-  composerFocusedRef.current = composerFocused;
+  // Mobile keyboard state — used to detect if we're on touch device and
+  // whether the software keyboard is actually up.
+  const { isTouch, isOpen: keyboardOpen } = useMobileKeyboard();
+  const isTouchRef = useRef(isTouch);
+  isTouchRef.current = isTouch;
+  const keyboardOpenRef = useRef(keyboardOpen);
+  keyboardOpenRef.current = keyboardOpen;
+  const prevKeyboardOpenRef = useRef(keyboardOpen);
 
-  // Simple focus tracking for the composer
+  // Simple state: is the composer docked (focused or the keyboard is up)?
+  const [composerFocused, setComposerFocused] = useState(false);
+
+  // Pin the composer as position:fixed above the keyboard. MUST run
+  // SYNCHRONOUSLY inside the focus event: React state renders a frame later,
+  // and in that window iOS performs its focus-scroll on the still-sticky
+  // composer, dragging it (and the page) up — the "composer flies up on
+  // re-tap" bug. A fixed element is never focus-scrolled and never detaches
+  // from the bottom, so the scroll-room pad below it stays invisible instead
+  // of showing as a gaping empty area.
+  const applyPin = useCallback(() => {
+    const anchor = composerAnchorRef.current;
+    if (!anchor || !isTouchRef.current) return;
+    // Measure the in-flow geometry BEFORE switching to fixed: a fixed element
+    // measures against the viewport, so mirroring the same rect keeps the bar
+    // pixel-aligned with the comment column in every layout.
+    const rect = anchor.getBoundingClientRect();
+    anchor.classList.add("wall-composer-pinned");
+    anchor.setAttribute("data-kb-locked", "true");
+    anchor.style.left = `${rect.left}px`;
+    anchor.style.width = `${rect.width}px`;
+  }, []);
+
+  const clearPin = useCallback(() => {
+    const anchor = composerAnchorRef.current;
+    if (!anchor) return;
+    anchor.classList.remove("wall-composer-pinned");
+    anchor.removeAttribute("data-kb-locked");
+    anchor.style.left = "";
+    anchor.style.width = "";
+  }, []);
+
+  // Focus tracking for the composer. The bar is docked while its editor owns
+  // the keyboard, and released only when the keyboard is really gone AND the
+  // focus left — never on the blur that precedes a reply-button tap (which
+  // would flash the docked bar out of place), and never mid-dismissal (the bar
+  // must ride the keyboard down, not teleport back into the flow).
   useEffect(() => {
     const anchor = composerAnchorRef.current;
     if (!anchor) return;
-    
+
     const onFocusIn = (e: FocusEvent) => {
-      if (anchor.contains(e.target as Node)) {
-        setComposerFocused(true);
-      }
+      if (!anchor.contains(e.target as Node)) return;
+      setComposerFocused(true);
+      applyPin();
     };
-    
+
     const onFocusOut = (e: FocusEvent) => {
-      // Check if focus moved outside the composer
+      // Focus moving INSIDE the composer (toolbar buttons, cancel…) keeps the
+      // pin — the keyboard is still up and the bar must stay docked.
       const related = e.relatedTarget as HTMLElement | null;
-      if (!related || !anchor.contains(related)) {
+      if (related && anchor.contains(related)) return;
+      // Left the composer. If the keyboard is still up (e.g. focus went to a
+      // reply button — startReply re-focuses the editor within the same tap),
+      // stay docked; the keyboard-closed effect or a focus landing on another
+      // editor will release the bar.
+      if (!keyboardOpenRef.current) {
         setComposerFocused(false);
+        clearPin();
       }
     };
-    
+
+    // Another editor anywhere took the keyboard (a comment's inline edit box,
+    // the header search…) — hand over the dock immediately.
+    const onDocFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || !isEditableElement(target) || anchor.contains(target)) return;
+      setComposerFocused(false);
+      clearPin();
+    };
+
     anchor.addEventListener("focusin", onFocusIn);
     anchor.addEventListener("focusout", onFocusOut);
-    
+    document.addEventListener("focusin", onDocFocusIn);
+
+    // autoFocus fires during commit, before this effect's listeners attach —
+    // re-check the live focus and pin right away so the composer never starts
+    // out sticky (which iOS focus-scrolls off-screen).
+    if (isTouchRef.current && anchor.contains(document.activeElement)) {
+      setComposerFocused(true);
+      applyPin();
+    }
+
     return () => {
       anchor.removeEventListener("focusin", onFocusIn);
       anchor.removeEventListener("focusout", onFocusOut);
+      document.removeEventListener("focusin", onDocFocusIn);
+      clearPin();
     };
-  }, []);
+  }, [applyPin, clearPin]);
+
+  // Release the dock once the keyboard has fully closed and the focus has left
+  // the composer. The keyboard-closed state lags the blur by the whole
+  // dismissal animation — keeping the pin during that window makes the bar
+  // ride the keyboard down (in sync with --kb-inset) instead of jumping back
+  // into the comment flow mid-animation.
+  useEffect(() => {
+    const wasOpen = prevKeyboardOpenRef.current;
+    prevKeyboardOpenRef.current = keyboardOpen;
+    if (!wasOpen || keyboardOpen) return;
+    const anchor = composerAnchorRef.current;
+    // Keyboard dismissed while the editor kept focus (e.g. the keyboard's own
+    // hide button): stay docked — tapping the editor again reopens the
+    // keyboard without firing a new focusin, so the bar must not have moved.
+    if (anchor && anchor.contains(document.activeElement)) return;
+    setComposerFocused(false);
+    clearPin();
+  }, [keyboardOpen, clearPin]);
+
+  // While pinned, keep the fixed bar aligned with the comment column when the
+  // viewport changes (orientation change, iOS URL bar show/hide, rotation).
+  useEffect(() => {
+    if (!composerFocused || !isTouch) return;
+    const realign = () => {
+      const anchor = composerAnchorRef.current;
+      const root = rootRef.current;
+      if (!anchor || !root || !anchor.classList.contains("wall-composer-pinned")) return;
+      const rect = root.getBoundingClientRect();
+      anchor.style.left = `${rect.left}px`;
+      anchor.style.width = `${rect.width}px`;
+    };
+    window.addEventListener("resize", realign);
+    window.addEventListener("orientationchange", realign);
+    window.visualViewport?.addEventListener("resize", realign);
+    return () => {
+      window.removeEventListener("resize", realign);
+      window.removeEventListener("orientationchange", realign);
+      window.visualViewport?.removeEventListener("resize", realign);
+    };
+  }, [composerFocused, isTouch]);
   // Keep onFirstLoad in a ref so loadComments stays identity-stable — if the
   // parent passed an inline function, the [loadComments] effect below would
   // refetch (and flash the skeleton) on every parent re-render.
@@ -448,8 +553,8 @@ export const WallCommentTree = ({
     <WallCommentTreeContext.Provider value={contextValue}>
       {/* wall-comments-pad reserves scroll room below the last comment while
           the composer is pinned: without it the final comment can never be
-          scrolled above the keyboard (iOS keeps the layout viewport full
-          height), so it would sit hidden behind the keyboard/composer. */}
+          scrolled above the keyboard/composer (iOS keeps the layout viewport
+          full height), so it would sit hidden behind them. */}
       <div
         ref={rootRef}
         className={`space-y-3 border-t border-border/60 pt-4 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}
@@ -488,7 +593,10 @@ export const WallCommentTree = ({
         )}
 
         {currentUserId && (
-          // Sticky composer at bottom, switches to fixed when focused on mobile.
+          // Sticky composer at the end of the comments; on touch it is pinned
+          // as position:fixed above the keyboard the moment its editor gets
+          // focus (wall-composer-pinned, applied synchronously in the focus
+          // handler) and released back into the flow on blur.
           <div
             ref={composerAnchorRef}
             className="sticky kb-bottom-8 z-20"

@@ -973,39 +973,37 @@ html.kb-open body {
   }
 }
 
-/* ── Wall comment composer: fixed above keyboard on mobile ─────────────────
+/* ── Wall comment composer: pinned above the keyboard on mobile ─────────────
 
-   The composer is ALWAYS position:fixed at the bottom of the screen on mobile.
-   --kb-inset (published by lib/mobileKeyboard.ts) lifts it above the keyboard.
-   On desktop it falls back to normal document flow (sticky).
+   In the comment list the composer is `sticky` (it floats at the end of the
+   comments). The moment its editor is focused on a touch device,
+   WallCommentTree pins it by adding this class SYNCHRONOUSLY inside the focus
+   handler: position:fixed + bottom:--kb-inset floats it exactly above the
+   keyboard (iOS never resizes the layout viewport, so --kb-inset is the only
+   reliable offset), and left/width are mirrored from the comment column via
+   inline styles so it stays pixel-aligned with the post.
 
-   Key: NO switching between sticky/fixed on mobile — that causes scroll jumps. */
+   Why fixed and not sticky: a sticky `bottom` bar detaches the moment its
+   in-flow position scrolls above the sticky line — the composer drifts away
+   from the bottom and the pad under it reads as a huge empty area, and iOS
+   focus-scrolling yanks the page on re-tap. A fixed bar never detaches and
+   browsers skip focus-scrolling for it entirely. On blur the class is removed
+   and the composer returns to the sticky in-flow position at the end of the
+   comments. */
 
-.wall-composer-fixed {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  /* Keyboard-aware bottom offset: composer sits exactly above the keyboard */
-  padding-bottom: var(--kb-inset, 0px);
-  /* Safe area for iOS home indicator */
-  padding-bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px));
+.wall-composer-pinned {
+  position: fixed !important;
+  top: auto !important;
+  left: 0 !important;
+  right: auto !important;
+  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 40 !important;
 }
 
-/* When composer is pinned, reserve space so comments can scroll above it */
+/* When the composer is pinned, reserve scroll room so the last comment can be
+   scrolled above the bar (the pinned bar occupies the bottom ~15rem of the
+   screen; --kb-inset covers the keyboard on iOS where the layout viewport
+   never resizes). */
 .wall-comments-pad {
-  /* Keyboard inset + expanded composer height (~8rem) + offset */
-  padding-bottom: calc(var(--kb-inset, 0px) + 10rem);
-}
-
-/* Desktop: composer stays in normal flow */
-@media (min-width: 768px) {
-  .wall-composer-fixed {
-    position: sticky;
-    bottom: 0;
-    left: auto;
-    right: auto;
-    padding-bottom: 0;
-  }
+  padding-bottom: calc(var(--kb-inset, 0px) + 16rem);
 }
