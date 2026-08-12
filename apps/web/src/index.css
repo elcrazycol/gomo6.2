@@ -995,8 +995,8 @@ html.kb-open body {
 
 /* When composer is pinned, reserve space so comments can scroll above it */
 .wall-comments-pad {
-  /* ~13rem for expanded composer + 2rem offset + keyboard inset + air */
-  padding-bottom: calc(var(--kb-inset, 0px) + 16rem);
+  /* Keyboard inset + expanded composer height (~8rem) + offset */
+  padding-bottom: calc(var(--kb-inset, 0px) + 10rem);
 }
 
 /* Desktop: composer stays in normal flow */

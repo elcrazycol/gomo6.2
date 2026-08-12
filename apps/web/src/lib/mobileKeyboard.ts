@@ -345,6 +345,10 @@ export function getScrollContext(el: HTMLElement): ScrollContext {
   while (node && node !== document.body && node !== document.documentElement) {
     const style = getComputedStyle(node);
     if (style.position === "fixed") return { mode: "fixed", scroller: null };
+    // Sticky containers are managed by the browser — never scroll the page
+    // for elements inside them (e.g. wall comment composer). The browser
+    // already keeps sticky elements visible.
+    if (style.position === "sticky") return { mode: "fixed", scroller: null };
     const overflowY = style.overflowY;
     if (
       (overflowY === "auto" || overflowY === "scroll") &&
