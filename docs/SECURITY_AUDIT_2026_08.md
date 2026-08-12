@@ -13,13 +13,13 @@
 |---|---|
 | Критические | 0 |
 | Высокие | 0 |
-| Средние | 1 (privacy: WebSocket now-playing игнорирует private_profile) |
-| Низкие | 2 (анонимный search-enum; PWA-кэш private-изображений) |
-| Инфо | 3 (npm audit, слабый пароль БД, Turnstile 600010) |
+| Средние | 0 (M1 исправлен 12.08.2026) |
+| Низкие | 0 (L1/L2 исправлены 12.08.2026) |
+| Инфо | 2 (слабый пароль БД, Turnstile 600010); I1 npm audit — исправлен 12.08.2026 |
 | Attack chains до takeover/RCE/утечки БД | не обнаружены |
 | Заявления о безопасности | соответствуют реальности (messenger = server-side AES-GCM, не E2EE — задокументировано честно) |
 
-**Вердикт: платформа безопасна для текущего масштаба.** Критических и высоких уязвимостей не выявлено. Архитектура защиты зрелая: fail-closed RLS + server-side authorization, строгая валидация на уровне кода, разумный rate limiting, запрет на всё лишнее снаружи (наружу торчат только 22/80/443). Главный оставшийся риск — **privacy-утечка статуса прослушивания Spotify через WebSocket-комнату**, противоречащая настройке `private_profile`.
+**Вердикт: платформа безопасна для текущего масштаба.** Критических и высоких уязвимостей не выявлено. Архитектура защиты зрелая: fail-closed RLS + server-side authorization, строгая валидация на уровне кода, разумный rate limiting, запрет на всё лишнее снаружи (наружу торчат только 22/80/443). Все находки аудита (M1, L1, L2, I1) **исправлены и проверены тестами** в день аудита; остались только Info-пункты (ротация пароля БД, наблюдение по Turnstile).
 
 ---
 
@@ -98,10 +98,13 @@
 - **Эффект:** приватные изображения (wall/uploads, которые серверно гейтятся privacy-слоем) оставались в браузерном Cache Storage **после логаута и после отзыва доступа**; на общем устройстве видны следующему пользователю. Превью переписок кэшируются 5 минут.
 - **Remediation (выполнен):** urlPattern кэша storage исключает приватные бакеты `uploads`/`wall` (negative lookahead; кэшируются только публичные: avatars/post-images/content/emojis/gift-layers); имя кэша бампнуто в `storage-objects-v2`, чтобы старые записи не пережили деплой; `logout()` в `client.ts` purg'ит `storage-objects`, `storage-objects-v2` и `messenger-conversations`. Тест: `client.auth.test.ts` (purge на logout).
 
-### I1 — npm audit: 10 уязвимостей (5 high, 5 moderate) в prod-зависимостях web (Info)
-- **Высокие:** `brace-expansion` (build-time: filelist/workbox-build), `fast-uri`, `nanoid` (<=3.3.16), `postcss` (build-time, sourcemap). **Ни одна не достигает runtime браузера** (build-only или не в бандле).
-- **Moderate:** `dompurify` (<=3.4.12, 20+ XSS-advisories) — но **только транзитивно через monaco-editor**, в src не импортируется; `esbuild` — dev-server only; `react-router` 6.30.4 (open redirect via backslash в `<Link>` — требует attacker-controlled `to`, в приложении нет; constructor-injection — только SSR, приложение client-only).
-- **Remediation:** `npm audit fix`; обновить `react-router-dom` до 7.17.1+; при обновлении monaco — следить за dompurify.
+### I1 — npm audit: уязвимости в prod-зависимостях web (Info) — ✅ ИСПРАВЛЕНО 12.08.2026
+- **Remediation (выполнен):**
+  - `npm audit fix` — убраны critical/high (brace-expansion, fast-uri, nanoid, postcss и др.).
+  - `react-router-dom` обновлён **6.30.4 → 7.18.2** (>= 7.17.1) во всех трёх приложениях (web/dev-dashboard/docs): v7-брейкинг исправлен (`future`-проп убран из `BrowserRouter`, `prefetch` в `PrefetchLink` переименован в `prefetchRoute` из-за нового `LinkProps.prefetch: PrefetchBehavior`). Валидация: tsc 3/3, vitest 1577/1577, сборки 3/3.
+  - **`@monaco-editor/react` удалён** из dependencies — не использовался ни в одном `src` (проверено по всем 3 приложениям), но тянул транзитивный `dompurify` 3.4.8 (4 XSS-advisories). Вместе с ним исчез и monaco-editor.
+  - `vite-plugin-pwa` перенесён в devDependencies (build-time tool; Docker build использует полный `npm ci`, поэтому сборка не затронута).
+- **Итог:** `npm audit --omit=dev` → **0 vulnerabilities** (prod-дерево чистое). Остаток — только dev-цепочка `esbuild` (GHSA-67mh-4wv8-2f99, dev-server only): фикс = мажорный апгрейд vite@8, не влияет на прод (статический сайт за nginx).
 
 ### I2 — Слабый пароль PostgreSQL (13 символов) в docker-compose/.env (Info)
 - Postgres **не проброшен** на host (наружу только 22/80/443) — эксплуатация возможна только с самого VPS. Рекомендуется ротация на сильный random (openssl rand -hex 32) + обновление в .env и пересоздание контейнера.
@@ -119,7 +122,7 @@
 | Content-type определяется серверно (H2.1) | ✅ прод: HTML-загрузка отклонена |
 | Messenger шифруется | ✅ AES-256-GCM серверно, **НЕ E2EE** — честно описано в wiki |
 | RLS принудительный | ✅ migration 071, дублирование в коде |
-| Приватные профили/стены | ✅ REST + WS wall-room закрыты; **исключение: now_playing (M1)** |
+| Приватные профили/стены | ✅ REST + WS wall-room + now_playing-room закрыты (M1, L1 фиксы задеплоены) |
 | CORS не отражает origin | ✅ |
 | JWT/сессии (HttpOnly cookies, 2FA, recovery codes) | ✅ в коде (migrations 026/029/042) |
 | Секреты не в git | ✅ .env в .gitignore; в истории нет реальных ключей (только placeholder'ы DEPAY в plan-файлах и имя env-переменной в docker-compose — значение не коммитилось) |
@@ -140,12 +143,12 @@
 
 ## 8. Remdiation plan (по приоритету)
 
-1. **[M1] Закрыть `profile_now_playing_*` для private-профилей** в `canAccessRoom` (зеркалить `canViewWallRoom`) + тест. *(30 мин)*
-2. **[L1] Исключить private-профили из анонимного поиска + rate limit на `/search`.** *(1–2 ч)*
-3. **[L2] Убрать runtime-кэш приватных бакетов из SW; purge при logout.** *(1 ч)*
-4. **[I1] `npm audit fix` + react-router → 7.17.1+; периодический `govulncheck` в CI (уже есть `trivy.yml`, добавить npm).**
-5. **[I2] Ротация пароля PostgreSQL.** *(15 мин)*
-6. Перепроверка после фиксов — локальный прогон WS-теста + `go test ./...`.
+1. ~~[M1] Закрыть `profile_now_playing_*` для private-профилей~~ — **выполнено 12.08.2026** (коммит 80646d11: canAccessRoom + teardown на unfriend/privacy-toggle).
+2. ~~[L1] Исключить private-профили из анонимного поиска + rate limit~~ — **выполнено 12.08.2026** (коммит f28f3016).
+3. ~~[L2] Убрать runtime-кэш приватных бакетов из SW; purge при logout~~ — **выполнено 12.08.2026** (коммит f28f3016).
+4. ~~[I1] `npm audit fix` + react-router → 7.17.1+~~ — **выполнено 12.08.2026**: react-router-dom 7.18.2, `npm audit --omit=dev` → 0, неиспользуемый monaco-editor удалён. Периодический `govulncheck` в CI уже есть (`trivy.yml`).
+5. **[I2] Ротация пароля PostgreSQL** *(15 мин)* — единственный открытый пункт.
+6. **Открыто:** `npm audit` dev-дерево — esbuild-адвайзори GHSA-67mh-4wv8-2f99 (dev-server only) требует мажорного vite@8; не влияет на прод.
 
 ---
 

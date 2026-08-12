@@ -1,16 +1,19 @@
 import { Link, LinkProps } from "react-router-dom";
 import { useEffect, useState } from "react";
 
+// prefetchRoute is a component-local flag (manual route-module prefetch). It
+// is deliberately NOT named `prefetch`: react-router v7's LinkProps gained its
+// own `prefetch: PrefetchBehavior` prop, so a boolean here would shadow it.
 interface PrefetchLinkProps extends LinkProps {
-  prefetch?: boolean;
+  prefetchRoute?: boolean;
   children: React.ReactNode;
 }
 
-export const PrefetchLink = ({ prefetch = true, to, children, ...props }: PrefetchLinkProps) => {
+export const PrefetchLink = ({ prefetchRoute = true, to, children, ...props }: PrefetchLinkProps) => {
   const [isPrefetched, setIsPrefetched] = useState(false);
 
   const handleMouseEnter = () => {
-    if (prefetch && !isPrefetched && typeof to === 'string') {
+    if (prefetchRoute && !isPrefetched && typeof to === 'string') {
       // Prefetch the route
       const route = to.split('/')[1]; // Get first part of path
       switch (route) {
