@@ -31,25 +31,29 @@ func (j *JSONB) Scan(value interface{}) error {
 
 // User with federation support
 type User struct {
-	ID              string          `json:"id" db:"id"`
-	Username        string          `json:"username" db:"username"`
-	DisplayName     *string         `json:"display_name" db:"display_name"`
-	NicknameEmojiID *string         `json:"nickname_emoji_id,omitempty" db:"nickname_emoji_id"`
-	Email           *string         `json:"email" db:"email"`
-	Domain          string          `json:"domain" db:"domain"`
-	AvatarURL       *string         `json:"avatar_url" db:"avatar_url"`
-	Bio             *string         `json:"bio" db:"bio"`
-	BioJSON         json.RawMessage `json:"bio_json,omitempty" db:"bio_json"`
-	Garma           *int            `json:"garma" db:"garma"`
-	Drops           *int            `json:"drops" db:"drops"`
-	WalletAddress   string          `json:"wallet_address" db:"wallet_address"`
-	PostCount       *int            `json:"post_count" db:"post_count"`
-	ThreadCount     *int            `json:"thread_count" db:"thread_count"`
-	IsOnline        bool            `json:"is_online" db:"is_online"`
-	LastSeen        *time.Time      `json:"last_seen,omitempty" db:"last_seen_at"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
-	IsRemote        bool            `json:"is_remote" db:"is_remote"`
-	IsAnonymous     bool            `json:"is_anonymous" db:"is_anonymous"`
+	ID                 string          `json:"id" db:"id"`
+	Username           string          `json:"username" db:"username"`
+	DisplayName        *string         `json:"display_name" db:"display_name"`
+	NicknameEmojiID    *string         `json:"nickname_emoji_id,omitempty" db:"nickname_emoji_id"`
+	Email              *string         `json:"email" db:"email"`
+	Domain             string          `json:"domain" db:"domain"`
+	AvatarURL          *string         `json:"avatar_url" db:"avatar_url"`
+	Bio                *string         `json:"bio" db:"bio"`
+	BioJSON            json.RawMessage `json:"bio_json,omitempty" db:"bio_json"`
+	Garma              *int            `json:"garma" db:"garma"`
+	Drops              *int            `json:"drops" db:"drops"`
+	WalletAddress      string          `json:"wallet_address" db:"wallet_address"`
+	PostCount          *int            `json:"post_count" db:"post_count"`
+	ThreadCount        *int            `json:"thread_count" db:"thread_count"`
+	WallPostCount      *int            `json:"wall_post_count" db:"wall_post_count"`
+	CommentCount       *int            `json:"comment_count" db:"comment_count"`
+	LikesReceivedCount *int            `json:"likes_received_count" db:"likes_received_count"`
+	LikesGivenCount    *int            `json:"likes_given_count" db:"likes_given_count"`
+	IsOnline           bool            `json:"is_online" db:"is_online"`
+	LastSeen           *time.Time      `json:"last_seen,omitempty" db:"last_seen_at"`
+	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
+	IsRemote           bool            `json:"is_remote" db:"is_remote"`
+	IsAnonymous        bool            `json:"is_anonymous" db:"is_anonymous"`
 }
 
 // Board (local boards)

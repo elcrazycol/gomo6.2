@@ -19,15 +19,19 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { processProfileBio } from "@/utils/profileBio";
+import { pluralRu } from "@/utils/pluralRu";
 import { UserBadge } from "@/components/UserBadge";
 import { AdminBadge } from "@/components/AdminBadge";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 
+// Ключ 'post_count' сохранён для обратной совместимости с сохранёнными
+// user_placeholders, но теперь рендерит объединённое «записи» (треды + стена).
 const PRESET_PLACEHOLDERS = [
   { value: '', label: 'Не выбрано' },
   { value: 'bio', label: 'Описание профиля' },
   { value: 'created_at', label: 'Дата регистрации' },
-  { value: 'post_count', label: 'Количество постов' },
+  { value: 'post_count', label: 'Количество записей' },
+  { value: 'comment_count', label: 'Количество комментариев' },
   { value: 'thread_count', label: 'Количество тредов' },
   { value: 'account_number', label: 'Номер аккаунта' },
   { value: 'id', label: 'ID пользователя' },
@@ -46,6 +50,8 @@ const Placeholders = () => {
     created_at: string;
     post_count?: number;
     thread_count?: number;
+    wall_post_count?: number;
+    comment_count?: number;
     account_number?: number;
     id: string;
     avatar_url?: string | null;
@@ -91,7 +97,7 @@ const Placeholders = () => {
         .single();
 
       if (profileData) {
-        setProfile(profileData as { username?: string; display_name?: string | null; nickname_emoji_id?: string | null; bio?: string | null; created_at: string; post_count?: number; thread_count?: number; account_number?: number; id: string; avatar_url?: string | null });
+        setProfile(profileData as { username?: string; display_name?: string | null; nickname_emoji_id?: string | null; bio?: string | null; created_at: string; post_count?: number; thread_count?: number; wall_post_count?: number; comment_count?: number; account_number?: number; id: string; avatar_url?: string | null });
       }
 
       // Load customization
@@ -140,7 +146,9 @@ const Placeholders = () => {
       case 'created_at':
         return format(safeDate(profile.created_at), "dd.MM.yyyy", { locale: ru });
       case 'post_count':
-        return `${profile.post_count || 0} ${profile.post_count === 1 ? 'пост' : (profile.post_count ?? 0) < 5 ? 'поста' : 'постов'}`;
+        return pluralRu((profile.thread_count || 0) + (profile.wall_post_count || 0), 'запись', 'записи', 'записей');
+      case 'comment_count':
+        return pluralRu(profile.comment_count || 0, 'комментарий', 'комментария', 'комментариев');
       case 'thread_count':
         return `${profile.thread_count || 0} ${profile.thread_count === 1 ? 'тред' : (profile.thread_count ?? 0) < 5 ? 'треда' : 'тредов'}`;
       case 'account_number':

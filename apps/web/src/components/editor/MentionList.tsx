@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
 import { Loader2, User } from "lucide-react";
+import { pluralRu } from "@/utils/pluralRu";
 import type { SuggestionKeyDownProps } from "@tiptap/suggestion";
 import type { ProfileSearchResult } from "@/utils/searchProfiles";
 
@@ -94,7 +95,7 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
                   @{user.username}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {user.post_count || 0} постов
+                  {pluralRu((user.thread_count || 0) + (user.wall_post_count || 0), "запись", "записи", "записей")}
                   {user.account_number ? ` • №${user.account_number}` : ""}
                 </div>
               </div>

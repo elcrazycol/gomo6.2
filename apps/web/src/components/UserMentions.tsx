@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { User } from "lucide-react";
+import { pluralRu } from "@/utils/pluralRu";
 import { searchProfiles, type ProfileSearchResult } from "@/utils/searchProfiles";
 
 interface User {
@@ -8,6 +9,8 @@ interface User {
   username: string;
   account_number?: number;
   post_count?: number;
+  thread_count?: number;
+  wall_post_count?: number;
 }
 
 interface UserMentionsProps {
@@ -321,7 +324,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
                   {user.username}
                 </div>
                 <div className="text-xs text-muted-foreground truncate">
-                  {user.post_count || 0} постов • ID: {user.id.slice(0, 8)}
+                  {pluralRu((user.thread_count || 0) + (user.wall_post_count || 0), "запись", "записи", "записей")} • ID: {user.id.slice(0, 8)}
                   {user.account_number ? ` (${user.account_number})` : null}
                 </div>
               </div>

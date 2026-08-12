@@ -24,6 +24,9 @@ interface ProfileSummary {
   garma: number;
   post_count: number;
   thread_count: number;
+  wall_post_count: number;
+  comment_count: number;
+  likes_received_count: number;
 }
 interface Privacy {
   show_profile_stats: boolean;
@@ -104,6 +107,17 @@ const filterByRange = (series: StatPoint[], range: Range) => {
   return series.filter((p) => p.ts >= cutoff);
 };
 
+// mergeSeries combines multiple series into one by summing values on the same
+// timestamp (used for the unified metrics: Записи = треды + стена, etc.).
+const mergeSeries = (series: StatPoint[]): StatPoint[] => {
+  const map = new Map<number, { value: number; ts: number; label: string }>();
+  series.forEach((p) => {
+    const prev = map.get(p.ts);
+    map.set(p.ts, prev ? { ...prev, value: prev.value + p.value } : { value: p.value, ts: p.ts, label: p.label });
+  });
+  return Array.from(map.values()).sort((a, b) => a.ts - b.ts);
+};
+
 export default function Stats() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -116,6 +130,8 @@ export default function Stats() {
   const [timeStats, setTimeStats] = useState<TimeStats | null>(null);
   const [postsTs, setPostsTs] = useState<string[]>([]);
   const [threadsTs, setThreadsTs] = useState<string[]>([]);
+  const [wallPostsTs, setWallPostsTs] = useState<string[]>([]);
+  const [wallCommentsTs, setWallCommentsTs] = useState<string[]>([]);
   const [postLikesTs, setPostLikesTs] = useState<string[]>([]);
   const [threadLikesTs, setThreadLikesTs] = useState<string[]>([]);
   const [repliesTs, setRepliesTs] = useState<string[]>([]);
@@ -140,10 +156,13 @@ export default function Stats() {
 
       const rpcHeaders: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      const [profileRes, postsRes, threadsRes, postLikesRes, threadLikesRes, repliesRes, timeRes, privacyRes] = await Promise.all([
+      const [profileRes, postsRes, threadsRes, wallPostsRes, wallCommentsRes, postLikesRes, threadLikesRes, repliesRes, timeRes, privacyRes] = await Promise.all([
         fetch(`/api/v1/profiles?id=eq.${targetUserId}`).then(r => r.json()),
         fetch(`/api/v1/posts?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
         fetch(`/api/v1/threads?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
+        // Wall reads require auth — the wall handler 401s anonymous requests.
+        fetch(`/api/v1/profile_wall_posts?author_id=eq.${targetUserId}&order=created_at.asc&limit=10000`, { headers: rpcHeaders }).then(r => r.json()),
+        fetch(`/api/v1/profile_wall_post_comments?user_id=eq.${targetUserId}&order=created_at.asc&limit=10000`, { headers: rpcHeaders }).then(r => r.json()),
         fetch(`/api/rpc/get_user_post_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
         fetch(`/api/rpc/get_user_thread_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
         fetch(`/api/rpc/get_user_thread_reply_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
@@ -171,6 +190,8 @@ export default function Stats() {
 
       setPostsTs((postsRes.data as Array<{ created_at: string }>)?.map((p) => p.created_at) || []);
       setThreadsTs((threadsRes.data as Array<{ created_at: string }>)?.map((t) => t.created_at) || []);
+      setWallPostsTs((wallPostsRes.data as Array<{ created_at: string }>)?.map((w) => w.created_at) || []);
+      setWallCommentsTs((wallCommentsRes.data as Array<{ created_at: string }>)?.map((w) => w.created_at) || []);
       setPostLikesTs((postLikesRes.data as Array<{ created_at: string }>)?.map((l) => l.created_at) || []);
       setThreadLikesTs((threadLikesRes.data as Array<{ created_at: string }>)?.map((l) => l.created_at) || []);
       setRepliesTs((repliesRes.data as Array<{ created_at: string }>)?.map((r) => r.created_at) || []);
@@ -186,6 +207,8 @@ export default function Stats() {
 
   const postsDaily = useMemo(() => groupByInterval(postsTs, "day"), [postsTs]);
   const threadsDaily = useMemo(() => groupByInterval(threadsTs, "day"), [threadsTs]);
+  const wallPostsDaily = useMemo(() => groupByInterval(wallPostsTs, "day"), [wallPostsTs]);
+  const wallCommentsDaily = useMemo(() => groupByInterval(wallCommentsTs, "day"), [wallCommentsTs]);
   const postLikesDaily = useMemo(() => groupByInterval(postLikesTs, "day"), [postLikesTs]);
   const threadLikesDaily = useMemo(() => groupByInterval(threadLikesTs, "day"), [threadLikesTs]);
   const repliesDaily = useMemo(() => groupByInterval(repliesTs, "day"), [repliesTs]);
@@ -214,9 +237,14 @@ export default function Stats() {
           },
         ]
       : [];
+    // Wall likes have no timestamp endpoint yet — their weight is folded into
+    // the series only via scaleSeries below, which anchors the total to the
+    // real profile.garma (wall likes are already part of that number).
     const merged = [
       ...applyWeight(postsDaily, 0.5),
       ...applyWeight(threadsDaily, 4),
+      ...applyWeight(wallPostsDaily, 0.5),
+      ...applyWeight(wallCommentsDaily, 0.5),
       ...applyWeight(postLikesDaily, 2),
       ...applyWeight(threadLikesDaily, 3),
       ...applyWeight(repliesDaily, 0.25),
@@ -231,7 +259,7 @@ export default function Stats() {
     );
     const target = profile?.garma ?? (acc.length ? acc[acc.length - 1].value : 0);
     return scaleSeries(acc, target);
-  }, [postsDaily, threadsDaily, postLikesDaily, threadLikesDaily, repliesDaily, timeStats, profile]);
+  }, [postsDaily, threadsDaily, wallPostsDaily, wallCommentsDaily, postLikesDaily, threadLikesDaily, repliesDaily, timeStats, profile]);
 
   const currentSeries = useMemo(() => {
     const interval = pickInterval(range);
@@ -242,10 +270,32 @@ export default function Stats() {
     };
 
     switch (metric) {
-      case "posts":
+      // Unified «Записи» = треды + записи стены.
+      case "posts": {
+        const combined = mergeSeries([...threadsDaily, ...wallPostsDaily]);
+        const combinedTs = [...threadsTs, ...wallPostsTs];
         return mode === "cumulative"
-          ? scaleSeries(filterByRange(accumulate(postsDaily), range), profile?.post_count || 0)
-          : build(postsTs);
+          ? scaleSeries(filterByRange(accumulate(combined), range), (profile?.thread_count || 0) + (profile?.wall_post_count || 0))
+          : build(combinedTs);
+      }
+      // Unified «Комментарии» = посты в тредах + комментарии на стене.
+      case "comments": {
+        const combined = mergeSeries([...postsDaily, ...wallCommentsDaily]);
+        const combinedTs = [...postsTs, ...wallCommentsTs];
+        return mode === "cumulative"
+          ? scaleSeries(filterByRange(accumulate(combined), range), profile?.comment_count || 0)
+          : build(combinedTs);
+      }
+      // Unified «Лайки» = все типы лайков. Таймстампы лайков стены пока не
+      // отдаются RPC, поэтому серия (посты+треды) масштабируется до полного
+      // числа полученных лайков (включая стену) — форма приблизительная.
+      case "likes": {
+        const combined = mergeSeries([...postLikesDaily, ...threadLikesDaily]);
+        const combinedTs = [...postLikesTs, ...threadLikesTs];
+        return mode === "cumulative"
+          ? scaleSeries(filterByRange(accumulate(combined), range), profile?.likes_received_count || 0)
+          : build(combinedTs);
+      }
       case "threads":
         return mode === "cumulative"
           ? scaleSeries(filterByRange(accumulate(threadsDaily), range), profile?.thread_count || 0)
@@ -284,11 +334,15 @@ export default function Stats() {
     metric,
     postsDaily,
     threadsDaily,
+    wallPostsDaily,
+    wallCommentsDaily,
     postLikesDaily,
     threadLikesDaily,
     repliesDaily,
     postsTs,
     threadsTs,
+    wallPostsTs,
+    wallCommentsTs,
     postLikesTs,
     threadLikesTs,
     repliesTs,
@@ -296,34 +350,46 @@ export default function Stats() {
     range,
     profile?.post_count,
     profile?.thread_count,
+    profile?.wall_post_count,
+    profile?.comment_count,
+    profile?.likes_received_count,
     mode,
   ]);
 
   const garmaBreakdown = useMemo(() => {
     const sum = (arr: StatPoint[]) => arr.reduce((s, p) => s + p.value, 0);
-    const postsVal = sum(postsDaily) * 0.5;
+    // Комментарии (посты в тредах + комменты стены) имеют одинаковый вес 0.5.
+    const commentsVal = (sum(postsDaily) + sum(wallCommentsDaily)) * 0.5;
     const threadsVal = sum(threadsDaily) * 4;
+    const wallPostsVal = sum(wallPostsDaily) * 0.5;
     const postLikesVal = sum(postLikesDaily) * 2;
     const threadLikesVal = sum(threadLikesDaily) * 3;
+    // Лайки стены = все полученные лайки минус лайки постов/тредов. Вес 2
+    // (как лайк поста) — приближение: лайки комментов стены стоят 1, но их
+    // таймстампы не отдаются RPC, поэтому раскладка не делит их на два бара.
+    const knownLikes = sum(postLikesDaily) + sum(threadLikesDaily);
+    const wallLikesVal = Math.max(0, (profile?.likes_received_count || 0) - knownLikes) * 2;
     const repliesVal = sum(repliesDaily) * 0.25;
     const timeVal = timeStats ? Math.floor(timeStats.total_minutes / 30) : 0;
-    const total = postsVal + threadsVal + postLikesVal + threadLikesVal + repliesVal + timeVal;
+    const total = commentsVal + threadsVal + wallPostsVal + postLikesVal + threadLikesVal + wallLikesVal + repliesVal + timeVal;
     const target = profile?.garma && profile.garma > 0 ? profile.garma : total;
     const k = total > 0 ? target / total : 1;
     return [
+      { label: "Треды", value: threadsVal * k, color: "#a855f7" },
+      { label: "Записи на стене", value: wallPostsVal * k, color: "#f59e0b" },
+      { label: "Комментарии", value: commentsVal * k, color: "#f97316" },
       { label: "Лайки постов", value: postLikesVal * k, color: "#22c55e" },
       { label: "Лайки тредов", value: threadLikesVal * k, color: "#3b82f6" },
-      { label: "Посты", value: postsVal * k, color: "#f59e0b" },
-      { label: "Треды", value: threadsVal * k, color: "#a855f7" },
+      { label: "Лайки стены", value: wallLikesVal * k, color: "#14b8a6" },
       { label: "Ответы в моих тредах", value: repliesVal * k, color: "#ef4444" },
       { label: "Время на сайте", value: timeVal * k, color: "#0ea5e9" },
     ];
-  }, [postsDaily, threadsDaily, postLikesDaily, threadLikesDaily, repliesDaily, timeStats, profile]);
+  }, [postsDaily, threadsDaily, wallPostsDaily, wallCommentsDaily, postLikesDaily, threadLikesDaily, repliesDaily, timeStats, profile]);
 
   // Инициализируем метрику из query-параметра
   useEffect(() => {
     const m = searchParams.get("metric");
-    const allowed = new Set(["garma", "posts", "threads", "postLikes", "threadLikes", "replies"]);
+    const allowed = new Set(["garma", "posts", "comments", "likes", "threads", "postLikes", "threadLikes", "replies"]);
     if (m && allowed.has(m)) {
       setMetric(m);
     }
@@ -355,8 +421,15 @@ export default function Stats() {
 
   const isOwn = viewedUserId && selfId ? viewedUserId === selfId : false;
   const canViewDetailed = isOwn || (privacy?.show_detailed_stats ?? false);
-  const metricAllowed = (m: string) =>
-    isOwn || (canViewDetailed && (privacy?.stats_visibility?.[m] ?? false));
+  const metricAllowed = (m: string) => {
+    if (isOwn) return true;
+    if (!canViewDetailed) return false;
+    const vis = privacy?.stats_visibility || {};
+    // Новые объединённые метрики наследуют ближайший легаси-переключатель
+    // видимости: «Комментарии» → «Посты», «Лайки» → «Лайки постов».
+    const key = m === "comments" ? "posts" : m === "likes" ? "postLikes" : m;
+    return vis[key] ?? false;
+  };
   const summaryAllowed = isOwn || (privacy?.show_profile_stats ?? false);
 
   if (!isOwn && !canViewDetailed) {
@@ -376,18 +449,22 @@ export default function Stats() {
         <h1 className="text-2xl font-bold">Статистика {profile.username}</h1>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
         <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Текущая gарма</CardTitle></CardHeader>
         <CardContent className="flex items-center gap-2 text-2xl font-bold"><TrendingUp className="h-5 w-5 text-primary" />{profile.garma}</CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Постов</CardTitle></CardHeader>
-          <CardContent className="flex items-center gap-2 text-2xl font-bold"><MessageSquare className="h-5 w-5 text-primary" />{profile.post_count}</CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Записи</CardTitle></CardHeader>
+          <CardContent className="flex items-center gap-2 text-2xl font-bold"><MessageSquare className="h-5 w-5 text-primary" />{(profile.thread_count || 0) + (profile.wall_post_count || 0)}</CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Тредов</CardTitle></CardHeader>
-          <CardContent className="flex items-center gap-2 text-2xl font-bold">{profile.thread_count}</CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Комментарии</CardTitle></CardHeader>
+          <CardContent className="flex items-center gap-2 text-2xl font-bold">{profile.comment_count || 0}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Лайков получено</CardTitle></CardHeader>
+          <CardContent className="flex items-center gap-2 text-2xl font-bold"><ThumbsUp className="h-5 w-5 text-primary" />{profile.likes_received_count || 0}</CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Время на сайте</CardTitle></CardHeader>
@@ -409,7 +486,9 @@ export default function Stats() {
               <SelectTrigger className="w-[200px] sm:w-[220px]"><SelectValue placeholder="Метрика" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="garma">gарма (накопительно)</SelectItem>
-                <SelectItem value="posts">Посты</SelectItem>
+                <SelectItem value="posts">Записи (треды + стена)</SelectItem>
+                <SelectItem value="comments">Комментарии</SelectItem>
+                <SelectItem value="likes">Лайки полученные</SelectItem>
                 <SelectItem value="threads">Треды</SelectItem>
                 <SelectItem value="postLikes">Лайки постов</SelectItem>
                 <SelectItem value="threadLikes">Лайки тредов</SelectItem>

@@ -135,7 +135,8 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
 		SELECT id, username, display_name, nickname_emoji_id, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
+		       thread_count, wall_post_count, comment_count, likes_received_count, likes_given_count,
+		       is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 	`
 
@@ -236,7 +237,8 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		err := rows.Scan(
 			&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 			&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
-			&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
+			&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount,
+			&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 			&profile.IsRemote, &profile.IsAnonymous,
 		)
 		if err != nil {
@@ -275,6 +277,10 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			profiles[i].Garma = nil
 			profiles[i].PostCount = nil
 			profiles[i].ThreadCount = nil
+			profiles[i].WallPostCount = nil
+			profiles[i].CommentCount = nil
+			profiles[i].LikesReceivedCount = nil
+			profiles[i].LikesGivenCount = nil
 			profiles[i].IsOnline = false
 			profiles[i].LastSeen = nil
 			continue
@@ -295,6 +301,10 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 					profiles[i].Garma = nil
 					profiles[i].PostCount = nil
 					profiles[i].ThreadCount = nil
+					profiles[i].WallPostCount = nil
+					profiles[i].CommentCount = nil
+					profiles[i].LikesReceivedCount = nil
+					profiles[i].LikesGivenCount = nil
 					profiles[i].IsOnline = false
 					profiles[i].LastSeen = nil
 				}
@@ -323,7 +333,8 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 
 	query := `
 		SELECT id, username, display_name, nickname_emoji_id, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
+		       thread_count, wall_post_count, comment_count, likes_received_count, likes_given_count,
+		       is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 		WHERE id = $1
 	`
@@ -333,7 +344,8 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	err := h.db.QueryRow(query, id).Scan(
 		&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 		&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
-		&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
+		&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount,
+		&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 		&profile.IsRemote, &profile.IsAnonymous,
 	)
 
@@ -371,6 +383,10 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		profile.Garma = nil
 		profile.PostCount = nil
 		profile.ThreadCount = nil
+		profile.WallPostCount = nil
+		profile.CommentCount = nil
+		profile.LikesReceivedCount = nil
+		profile.LikesGivenCount = nil
 		profile.IsOnline = false
 		profile.LastSeen = nil
 	} else if err == nil && !ps.PrivateProfile && viewerID != id {
@@ -388,6 +404,10 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 				profile.Garma = nil
 				profile.PostCount = nil
 				profile.ThreadCount = nil
+				profile.WallPostCount = nil
+				profile.CommentCount = nil
+				profile.LikesReceivedCount = nil
+				profile.LikesGivenCount = nil
 				profile.IsOnline = false
 				profile.LastSeen = nil
 			}

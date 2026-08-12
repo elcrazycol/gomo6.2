@@ -237,10 +237,10 @@ describe("ProfileHoverCard", () => {
     });
   });
 
-  it("shows post count placeholder", async () => {
+  it("shows unified записи placeholder (треды + стена)", async () => {
     mockUseQuery.mockReturnValue({
       data: {
-        profile: { username: "testuser", id: "user-1", post_count: 42 },
+        profile: { username: "testuser", id: "user-1", post_count: 42, thread_count: 40, wall_post_count: 2 },
         avatarUrl: null,
         usernameColor: "",
         customization: null,
@@ -258,7 +258,7 @@ describe("ProfileHoverCard", () => {
     await user.hover(screen.getByText("Hover me"));
 
     await waitFor(() => {
-      expect(screen.getByText(/42.*пост/)).toBeInTheDocument();
+      expect(screen.getByText(/42 запис/)).toBeInTheDocument();
     });
   });
 

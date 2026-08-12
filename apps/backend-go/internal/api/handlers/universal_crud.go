@@ -229,6 +229,39 @@ func (h *UniversalHandler) invalidateCommentLikesCache(c *gin.Context, commentID
 	h.invalidateWallListCache(c, postID)
 }
 
+// recomputeStatsForWallPostLike refreshes the unified stats of everyone whose
+// counters a wall-post like changes: the post's author (likes_received) and
+// the liker (likes_given). The author is resolved from the DB because the
+// generic CRUD result only carries the like's foreign key.
+func (h *UniversalHandler) recomputeStatsForWallPostLike(c *gin.Context, postID, likerID string) {
+	if postID != "" {
+		var authorID string
+		if err := h.db.QueryRowContext(c.Request.Context(),
+			"SELECT author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&authorID); err == nil && authorID != "" {
+			RecomputeUserProfileStats(h.db, authorID)
+		}
+	}
+	if likerID != "" {
+		RecomputeUserProfileStats(h.db, likerID)
+	}
+}
+
+// recomputeStatsForWallCommentLike — same as recomputeStatsForWallPostLike but
+// for likes on wall comments: the comment's author (likes_received) and the
+// liker (likes_given).
+func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, commentID, likerID string) {
+	if commentID != "" {
+		var authorID string
+		if err := h.db.QueryRowContext(c.Request.Context(),
+			"SELECT user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&authorID); err == nil && authorID != "" {
+			RecomputeUserProfileStats(h.db, authorID)
+		}
+	}
+	if likerID != "" {
+		RecomputeUserProfileStats(h.db, likerID)
+	}
+}
+
 // ─── GET ────────────────────────────────────────────────────────────────────
 
 func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
@@ -956,6 +989,14 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			}
 		}
 
+		// Unified profile stats: a wall like changes the likes_received counter
+		// of the post's author and the likes_given counter of the liker.
+		if tableName == "profile_wall_post_likes" {
+			if postID, ok := result["post_id"].(string); ok {
+				h.recomputeStatsForWallPostLike(c, postID, rowUserID(result["user_id"]))
+			}
+		}
+
 		// Invalidate profile customization cache on upsert
 		if tableName == "profile_customization" && h.redis != nil {
 			if userID, ok := result["user_id"].(string); ok {
@@ -1066,6 +1107,29 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	if tableName == "profile_wall_comment_likes" {
 		if commentID, ok := result["comment_id"].(string); ok {
 			h.invalidateCommentLikesCache(c, commentID)
+		}
+	}
+
+	// Unified profile stats: wall content contributes to the AUTHOR's counters
+	// (a post written on someone else's wall counts for the author). This must
+	// run BEFORE tryRespondProfileWallEnriched — that helper writes the enriched
+	// response and returns early for wall posts and wall comments.
+	switch tableName {
+	case "profile_wall_posts":
+		if uid := rowUserID(result["author_id"]); uid != "" {
+			RecomputeUserProfileStats(h.db, uid)
+		}
+	case "profile_wall_post_comments":
+		if uid := rowUserID(result["user_id"]); uid != "" {
+			RecomputeUserProfileStats(h.db, uid)
+		}
+	case "profile_wall_post_likes":
+		if postID, ok := result["post_id"].(string); ok {
+			h.recomputeStatsForWallPostLike(c, postID, rowUserID(result["user_id"]))
+		}
+	case "profile_wall_comment_likes":
+		if commentID, ok := result["comment_id"].(string); ok {
+			h.recomputeStatsForWallCommentLike(c, commentID, rowUserID(result["user_id"]))
 		}
 	}
 
@@ -1496,6 +1560,26 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	if tableName == "profile_wall_comment_likes" {
 		if commentID, ok := result["comment_id"].(string); ok {
 			h.invalidateCommentLikesCache(c, commentID)
+		}
+	}
+
+	// Unified profile stats: deleted wall content drops the author's counters.
+	switch tableName {
+	case "profile_wall_posts":
+		if uid := rowUserID(result["author_id"]); uid != "" {
+			RecomputeUserProfileStats(h.db, uid)
+		}
+	case "profile_wall_post_comments":
+		if uid := rowUserID(result["user_id"]); uid != "" {
+			RecomputeUserProfileStats(h.db, uid)
+		}
+	case "profile_wall_post_likes":
+		if postID, ok := result["post_id"].(string); ok {
+			h.recomputeStatsForWallPostLike(c, postID, rowUserID(result["user_id"]))
+		}
+	case "profile_wall_comment_likes":
+		if commentID, ok := result["comment_id"].(string); ok {
+			h.recomputeStatsForWallCommentLike(c, commentID, rowUserID(result["user_id"]))
 		}
 	}
 

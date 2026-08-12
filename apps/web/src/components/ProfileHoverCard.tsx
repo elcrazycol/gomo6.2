@@ -9,6 +9,7 @@ import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomi
 import { AdminBadge } from "./AdminBadge";
 import { NicknameEmoji } from "./NicknameEmoji";
 import { processProfileBio } from "@/utils/profileBio";
+import { pluralRu } from "@/utils/pluralRu";
 import { storageUrl } from "@/utils/storage";
 import { OnlineStatus } from "./OnlineStatus";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
@@ -294,8 +295,14 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
                       return p.bio ? processProfileBio(p.bio as string) : null;
                     case 'created_at':
                       return p.created_at ? format(safeDate(p.created_at as string), "dd.MM.yyyy", { locale: ru }) : null;
-                    case 'post_count':
-                      return p.post_count != null ? `${p.post_count} ${p.post_count === 1 ? 'пост' : (p.post_count as number) < 5 ? 'поста' : 'постов'}` : null;
+                    case 'post_count': {
+                      // Unified «записи» = треды + записи стены (ключ сохранён
+                      // для обратной совместимости с user_placeholders).
+                      const records = Number(p.thread_count || 0) + Number(p.wall_post_count || 0);
+                      return pluralRu(records, 'запись', 'записи', 'записей');
+                    }
+                    case 'comment_count':
+                      return p.comment_count != null ? pluralRu(Number(p.comment_count), 'комментарий', 'комментария', 'комментариев') : null;
                     case 'thread_count':
                       return p.thread_count != null ? `${p.thread_count} ${p.thread_count === 1 ? 'тред' : (p.thread_count as number) < 5 ? 'треда' : 'тредов'}` : null;
                     case 'account_number':

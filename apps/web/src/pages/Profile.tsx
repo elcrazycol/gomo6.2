@@ -56,9 +56,11 @@ interface Profile {
   is_anonymous: boolean;
   thread_count: number;
   post_count: number;
+  wall_post_count: number;
+  comment_count: number;
+  likes_received_count: number;
   garma: number;
   drops: number;
-  thread_likes_received_count: number;
   created_at: string;
   avatar_url?: string | null;
   account_number?: number | null;
@@ -156,7 +158,6 @@ const Profile = () => {
   const [achievements, setAchievements] = useState<AchievementData[]>([]);
   const [pinnedAchievements, setPinnedAchievements] = useState<AchievementData[]>([]);
   const [regularAchievements, setRegularAchievements] = useState<AchievementData[]>([]);
-  const [likesReceived, setLikesReceived] = useState(0);
   const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState("");
@@ -305,22 +306,14 @@ const Profile = () => {
     const data = profileResult.data?.[0];
 
     if (data) {
-      // Load thread likes count (protected RPC)
-      let threadLikesCount = 0;
-      if (token) {
-        try {
-          const tlr = await fetch(`/api/rpc/get_user_thread_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
-          const tlrResult = await tlr.json();
-          threadLikesCount = (tlrResult.data as number) || 0;
-        } catch { /* ignore */ }
-      }
-
       setProfile({
         ...data,
         bio_json: (data as { bio_json?: unknown }).bio_json ?? undefined,
         garma: data.garma ?? 0,
         drops: data.drops ?? 0,
-        thread_likes_received_count: threadLikesCount
+        wall_post_count: data.wall_post_count ?? 0,
+        comment_count: data.comment_count ?? 0,
+        likes_received_count: data.likes_received_count ?? 0,
       });
       setUsername(data.username);
       setBio(data.bio || "");
@@ -387,14 +380,6 @@ const Profile = () => {
       setCustomization(custom);
       setNicknameEmojiId((data as { nickname_emoji_id?: string | null }).nickname_emoji_id || null);
 
-      // Load likes received count (protected RPC)
-      if (token) {
-        try {
-          const lr = await fetch(`/api/rpc/get_user_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
-          const lrResult = await lr.json();
-          setLikesReceived((lrResult.data as number) || 0);
-        } catch { /* ignore */ }
-      }
     }
   }, [userId]);
 
@@ -1152,27 +1137,27 @@ const Profile = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
                     <button
                       type="button"
-                      onClick={() => navigate(`/stats?metric=threads&user=${userId}`)}
-                      className="text-left"
-                    >
-                      <p className="text-xs sm:text-sm text-muted-foreground">Тредов</p>
-                      <p className="text-xl sm:text-2xl font-bold">{profile.thread_count}</p>
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => navigate(`/stats?metric=posts&user=${userId}`)}
                       className="text-left"
                     >
-                      <p className="text-xs sm:text-sm text-muted-foreground">Постов</p>
-                      <p className="text-xl sm:text-2xl font-bold">{profile.post_count}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Записи</p>
+                      <p className="text-xl sm:text-2xl font-bold">{(profile.thread_count ?? 0) + (profile.wall_post_count ?? 0)}</p>
                     </button>
                     <button
                       type="button"
-                      onClick={() => navigate(`/stats?metric=postLikes&user=${userId}`)}
+                      onClick={() => navigate(`/stats?metric=comments&user=${userId}`)}
+                      className="text-left"
+                    >
+                      <p className="text-xs sm:text-sm text-muted-foreground">Комментарии</p>
+                      <p className="text-xl sm:text-2xl font-bold">{profile.comment_count ?? 0}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/stats?metric=likes&user=${userId}`)}
                       className="text-left"
                     >
                       <p className="text-xs sm:text-sm text-muted-foreground">Лайков</p>
-                      <p className="text-xl sm:text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
+                      <p className="text-xl sm:text-2xl font-bold">{profile.likes_received_count ?? 0}</p>
                     </button>
                     <button
                       type="button"

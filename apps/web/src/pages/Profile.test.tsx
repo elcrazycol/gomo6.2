@@ -112,8 +112,9 @@ describe("Profile", () => {
           json: () => Promise.resolve({
             data: [{
               id: "profile-user-1", username: "testuser", bio: "Hello world",
-              is_anonymous: false, thread_count: 5, post_count: 42, garma: 100,
-              thread_likes_received_count: 10, created_at: "2025-01-01T00:00:00Z",
+              is_anonymous: false, thread_count: 5, post_count: 42,
+              wall_post_count: 3, comment_count: 7, likes_received_count: 25,
+              garma: 100, created_at: "2025-01-01T00:00:00Z",
               avatar_url: null, is_online: false, last_seen_at: null,
             }],
           }),
