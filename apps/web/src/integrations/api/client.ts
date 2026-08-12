@@ -461,6 +461,22 @@ class ApiClient {
       });
     } finally {
       this.clearTokens();
+      // L2 (security audit): purge privacy-sensitive PWA runtime caches on
+      // logout — storage-objects(-v2) may hold private wall/uploads images
+      // and messenger-conversations carries decrypted message previews.
+      // Without this, a shared device would keep the previous user's data in
+      // Cache Storage after they log out. The legacy 'storage-objects' name
+      // is deleted too, so entries cached by pre-fix service workers are
+      // removed on the first logout after the upgrade. Best-effort: the
+      // guards skip environments without the Cache Storage API, and
+      // allSettled absorbs individual deletion failures.
+      if (typeof caches !== 'undefined' && 'caches' in window) {
+        await Promise.allSettled([
+          caches.delete('storage-objects'),
+          caches.delete('storage-objects-v2'),
+          caches.delete('messenger-conversations'),
+        ]);
+      }
       window.dispatchEvent(new CustomEvent('auth:expired'));
     }
   }

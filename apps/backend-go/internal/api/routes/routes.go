@@ -248,8 +248,16 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// for anonymous (env-tunable). See global_rate_limit.go.
 		rest.Use(middleware.GlobalRateLimitMiddleware(globalRateLimiter))
 
-		// Search endpoint (full-text, public)
-		rest.GET("/search", searchHandler.Search)
+		// Search endpoint (full-text, public). A stricter IP-keyed limiter sits
+		// on top of the global per-IP budget because anonymous search is a
+		// username enumeration surface (L1). Authenticated callers are keyed by
+		// user ID instead. The "search" Redis prefix keeps this budget separate
+		// from the auth limiters' (login/register/auth-me), so searching can
+		// never deplete a user's login budget or vice versa. Repeated identical
+		// queries are served from the data cache (applied above), so this
+		// budget only burns on distinct searches.
+		searchRateLimiter := middleware.NewAuthRateLimiterWithPrefix("search", redis, 120, time.Minute)
+		rest.GET("/search", middleware.IPRateLimitMiddleware(searchRateLimiter), searchHandler.Search)
 
 		// Unified personalized feed (threads + wall posts, scored per viewer).
 		// Rides the optional-auth + data-cache middleware above, so personalized

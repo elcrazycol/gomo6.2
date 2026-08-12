@@ -16,14 +16,26 @@ type AuthRateLimiter struct {
 	redis       *redis.Client
 	maxRequests int
 	window      time.Duration
+	prefix      string
 }
 
 // NewAuthRateLimiter creates a new Redis-backed rate limiter for auth endpoints.
 func NewAuthRateLimiter(redisClient *redis.Client, maxRequests int, window time.Duration) *AuthRateLimiter {
+	return NewAuthRateLimiterWithPrefix("auth", redisClient, maxRequests, window)
+}
+
+// NewAuthRateLimiterWithPrefix creates a rate limiter whose Redis keys are
+// namespaced under the given prefix. The prefix must be unique per endpoint
+// family: every limiter built with NewAuthRateLimiter shares the "auth"
+// namespace, so a non-auth limiter (e.g. the IP-keyed /search limiter) must
+// use its own prefix — otherwise its INCR would deplete the login/register/
+// auth-me budgets of the same IP or user.
+func NewAuthRateLimiterWithPrefix(prefix string, redisClient *redis.Client, maxRequests int, window time.Duration) *AuthRateLimiter {
 	return &AuthRateLimiter{
 		redis:       redisClient,
 		maxRequests: maxRequests,
 		window:      window,
+		prefix:      prefix,
 	}
 }
 
@@ -41,7 +53,7 @@ func (rl *AuthRateLimiter) Allow(userID string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	key := fmt.Sprintf("ratelimit:auth:%s", userID)
+	key := fmt.Sprintf("ratelimit:%s:%s", rl.prefix, userID)
 
 	// INCR atomically increments and returns the new value
 	count, err := rl.redis.Incr(ctx, key).Result()

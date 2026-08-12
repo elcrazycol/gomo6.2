@@ -82,14 +82,26 @@ export default defineConfig(() => ({
         navigateFallbackDenylist: [/^\/api\//, /^\/oauth\//],
         runtimeCaching: [
           {
+            // L2 (security audit): the conversation list carries decrypted
+            // message previews — never persist it offline; NetworkFirst only
+            // falls back to the cache when the network is unreachable, and the
+            // entry is purged on logout (see client.ts logout()).
             urlPattern: /^https:\/\/.*\/api\/v1\/messenger\/conversations$/,
             handler: "NetworkFirst",
             options: { cacheName: "messenger-conversations", expiration: { maxEntries: 1, maxAgeSeconds: 300 } },
           },
           {
-            urlPattern: /^https:\/\/.*\/storage\/v1\/object\//,
+            // L2 (security audit): only PUBLIC buckets may be cached. The
+            // "uploads" and "wall" buckets are privacy-gated server-side
+            // (per-wall authorization) — caching them client-side would keep
+            // private images in the browser Cache Storage after logout or
+            // access revocation. The negative lookahead keeps CacheFirst for
+            // avatars/post-images/content/emojis/gift-layers only. The -v2
+            // cache name forces a clean cache on deploy: entries cached under
+            // the previous all-buckets regex must not survive the upgrade.
+            urlPattern: /^https:\/\/.*\/storage\/v1\/object\/(?!uploads\/|wall\/)/,
             handler: "CacheFirst",
-            options: { cacheName: "storage-objects", expiration: { maxEntries: 50, maxAgeSeconds: 86400 * 30 } },
+            options: { cacheName: "storage-objects-v2", expiration: { maxEntries: 50, maxAgeSeconds: 86400 * 30 } },
           },
         ],
       },

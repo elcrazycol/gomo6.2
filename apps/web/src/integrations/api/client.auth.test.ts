@@ -249,6 +249,32 @@ describe("ApiClient auth methods", () => {
 
       expect(apiClient.getToken()).toBeNull();
     });
+
+    it("purges privacy-sensitive PWA caches (L2)", async () => {
+      apiClient.setToken("test-token");
+      mockFetch({ success: true, data: { ok: true } });
+
+      // Simulate the browser Cache Storage API. jsdom exposes neither
+      // window.caches nor globalThis.caches by default, so both must be
+      // stubbed for the guard in logout() to run.
+      const deleteMock = vi.fn().mockResolvedValue(true);
+      const cachesStub = { delete: deleteMock };
+      (globalThis as any).caches = cachesStub;
+      Object.defineProperty(window, "caches", {
+        value: cachesStub,
+        configurable: true,
+      });
+
+      try {
+        await apiClient.logout();
+      } finally {
+        delete (globalThis as any).caches;
+      }
+
+      expect(deleteMock).toHaveBeenCalledWith("storage-objects");
+      expect(deleteMock).toHaveBeenCalledWith("storage-objects-v2");
+      expect(deleteMock).toHaveBeenCalledWith("messenger-conversations");
+    });
   });
 
   // ─── setToken / clearToken / getToken ───────────────────────────────────────

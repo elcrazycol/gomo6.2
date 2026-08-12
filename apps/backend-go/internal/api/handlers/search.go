@@ -61,8 +61,12 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	}
 
 	// ── Users (profiles) ──────────────────────────────────────────────
-	// Anonymous ($2 IS NULL) → strip avatar for private profiles.
-	// Authenticated non-friend → strip avatar unless owner or mutual friend.
+	// L1 (security audit): private profiles must not be enumerable through
+	// search. A private-profile user appears in results only for the owner
+	// themself or a mutual friend; anonymous visitors and non-friends never
+	// see them — mirroring the profiles endpoint, which hides the same rows.
+	// The avatar CASE additionally strips avatars of private_hide_avatar
+	// profiles from everyone but the owner or a mutual friend.
 	result.Users = h.searchTable(
 		`SELECT u.id, u.username, u.display_name,
 		        CASE WHEN ps.private_profile IS TRUE AND ps.private_hide_avatar IS TRUE
@@ -74,7 +78,17 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		             THEN NULL ELSE u.avatar_url END AS avatar_url
 		 FROM users u
 		 LEFT JOIN privacy_settings ps ON ps.user_id = u.id
-		 WHERE u.is_remote = false AND u.search_vector @@ plainto_tsquery('russian', $1)
+		 WHERE u.is_remote = false
+		   AND u.search_vector @@ plainto_tsquery('russian', $1)
+		   AND (COALESCE(ps.private_profile, false) = false
+		        OR ($2::uuid IS NOT NULL AND (
+		            u.id = $2::uuid
+		            OR EXISTS (
+		                SELECT 1 FROM friendships f
+		                WHERE (f.user1_id = u.id AND f.user2_id = $2::uuid)
+		                   OR (f.user1_id = $2::uuid AND f.user2_id = u.id)
+		            )
+		        )))
 		 ORDER BY ts_rank(u.search_vector, plainto_tsquery('russian', $1)) DESC
 		 LIMIT 24`, q, viewerID)
 

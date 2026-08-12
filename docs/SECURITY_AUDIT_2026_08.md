@@ -88,15 +88,15 @@
 - **Remediation (выполнен):** `canAccessRoom` → `canViewNowPlayingRoom`: владелец всегда, публичный профиль — всем авторизованным, private — только друзьям (зеркалит `canViewWallRoom`), nil-DB и DB-error → fail-closed. Общий хелпер `areFriends` (DRY). Добавлен `ForceUnsubscribeFromNowPlayingRooms`, вызывается из `RemoveFriend` в обе стороны (экс-друг перестаёт получать события). Тесты: 7 на доступ + 4 на `areFriends` + 2 на teardown (все проходят, `go test ./...` зелёный).
 - **Остаточный edge-case (закрыт 12.08.2026):** перевод `private_profile`/`private_hide_wall` на приватный при уже живой подписке постороннего рвёт её через `RevokeProfileRoomSubscriptionsFromNonFriends` (владелец/друзья остаются), вызываемый из `handlePost`/`handlePut` universal CRUD (`revokeSubscriptionsAfterPrivacyChange`). Трёхфазная реализация (снапшот под RLock → проверка дружбы вне лока → удаление под Lock), nil-DB → fail-closed. Тесты: 5 в `hub_db_test.go` + 3 в `handlers/privacy_ws_test.go`.
 
-### L1 — Анонимный username-enumeration через `/api/v1/search?type=users` (Low)
-- **Где:** public search; анонимно возвращает `id`, `username`, `display_name`, `avatar_url` по любому запросу (`q=admin` → данные). Не уважает `private_profile`.
+### L1 — Анонимный username-enumeration через `/api/v1/search?type=users` (Low) — ✅ ИСПРАВЛЕНО 12.08.2026
+- **Где:** public search; анонимно возвращал `id`, `username`, `display_name`, `avatar_url` по любому запросу (`q=admin` → данные). Не уважал `private_profile`.
 - **Эффект:** лёгкий enumeration пользователей и UUID. На соцсети username — публичные данные, поэтому Low.
-- **Remediation:** исключать пользователей с `private_profile=true` из анонимного поиска (и из поиска не-друзьями); добавить rate limit на `/search`.
+- **Remediation (выполнен):** users-запрос в `search.go` теперь исключает `private_profile=true` для анонимов и не-друзей (владелец/взаимные друзья видят); добавлен IP-лимитер `IPRateLimitMiddleware` на `/api/v1/search` (120/мин, Redis-префикс `search` — не пересекается с auth-бюджетами). Тесты: `search_test.go` (аноним + авторизованный), `ip_rate_limit.go`.
 
-### L2 — PWA Service Worker кэширует приватные storage-объекты (Low, privacy/retention)
+### L2 — PWA Service Worker кэширует приватные storage-объекты (Low, privacy/retention) — ✅ ИСПРАВЛЕНО 12.08.2026
 - **Где:** `apps/web/vite.config.ts` → `runtimeCaching`: `/storage/v1/object/*` — CacheFirst, 50 записей, **30 дней**; `messenger/conversations` — NetworkFirst, 5 мин.
-- **Эффект:** приватные изображения (wall/uploads, которые серверно гейтятся privacy-слоем) остаются в браузерном Cache Storage **после логаута и после отзыва доступа**; на общем устройстве видны следующему пользователю. Превью переписок кэшируются 5 минут.
-- **Remediation:** не кэшировать runtime-ом приватные бакеты (или отдельный кэш только для публичных), purge кэша при logout (`caches.delete('storage-objects')` в logout flow), либо короткий maxAge.
+- **Эффект:** приватные изображения (wall/uploads, которые серверно гейтятся privacy-слоем) оставались в браузерном Cache Storage **после логаута и после отзыва доступа**; на общем устройстве видны следующему пользователю. Превью переписок кэшируются 5 минут.
+- **Remediation (выполнен):** urlPattern кэша storage исключает приватные бакеты `uploads`/`wall` (negative lookahead; кэшируются только публичные: avatars/post-images/content/emojis/gift-layers); имя кэша бампнуто в `storage-objects-v2`, чтобы старые записи не пережили деплой; `logout()` в `client.ts` purg'ит `storage-objects`, `storage-objects-v2` и `messenger-conversations`. Тест: `client.auth.test.ts` (purge на logout).
 
 ### I1 — npm audit: 10 уязвимостей (5 high, 5 moderate) в prod-зависимостях web (Info)
 - **Высокие:** `brace-expansion` (build-time: filelist/workbox-build), `fast-uri`, `nanoid` (<=3.3.16), `postcss` (build-time, sourcemap). **Ни одна не достигает runtime браузера** (build-only или не в бандле).
