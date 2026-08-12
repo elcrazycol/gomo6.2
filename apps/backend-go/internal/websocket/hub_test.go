@@ -319,6 +319,66 @@ func TestHub_ForceUnsubscribeFromWallRooms(t *testing.T) {
 	}
 }
 
+// M1: revoking a friendship must also tear down live now-playing room
+// subscriptions, so an ex-friend stops receiving a private-profile user's
+// realtime Spotify now-playing events without reconnecting.
+func TestHub_ForceUnsubscribeFromNowPlayingRooms(t *testing.T) {
+	hub := NewHub(nil, nil)
+	exFriend := newTestClient(hub, "user-b", "Bob")
+	otherViewer := newTestClient(hub, "user-c", "Carol")
+	owner := newTestClient(hub, "user-a", "Alice")
+
+	// Both Bob and Carol are subscribed to Alice's now-playing room; Alice is
+	// subscribed to Bob's now-playing room (reverse direction).
+	hub.SubscribeToRoom(exFriend, "profile_now_playing_user-a")
+	hub.SubscribeToRoom(otherViewer, "profile_now_playing_user-a")
+	hub.SubscribeToRoom(owner, "profile_now_playing_user-b")
+
+	// Alice removes Bob from friends.
+	hub.ForceUnsubscribeFromNowPlayingRooms("user-b", "user-a")
+	hub.ForceUnsubscribeFromNowPlayingRooms("user-a", "user-b")
+
+	hub.mu.RLock()
+	_, exInRoom := hub.rooms["profile_now_playing_user-a"][exFriend]
+	_, otherInRoom := hub.rooms["profile_now_playing_user-a"][otherViewer]
+	_, ownerInReverse := hub.rooms["profile_now_playing_user-b"][owner]
+	hub.mu.RUnlock()
+
+	if exInRoom {
+		t.Error("ex-friend Bob must be removed from Alice's now-playing room")
+	}
+	if !otherInRoom {
+		t.Error("Carol (still authorized) must remain subscribed to Alice's now-playing room")
+	}
+	if ownerInReverse {
+		t.Error("Alice must be removed from Bob's now-playing room after unfriending Bob")
+	}
+	if exFriend.Rooms["profile_now_playing_user-a"] {
+		t.Error("client.Rooms must not keep the revoked now-playing room")
+	}
+	if !otherViewer.Rooms["profile_now_playing_user-a"] {
+		t.Error("Carol's client.Rooms must keep the now-playing room")
+	}
+}
+
+func TestHub_ForceUnsubscribeFromNowPlayingRooms_UnknownUsersNoop(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-b", "Bob")
+	hub.SubscribeToRoom(client, "profile_now_playing_user-a")
+
+	// Empty or unrelated IDs must not panic or remove anything.
+	hub.ForceUnsubscribeFromNowPlayingRooms("", "user-a")
+	hub.ForceUnsubscribeFromNowPlayingRooms("user-b", "")
+	hub.ForceUnsubscribeFromNowPlayingRooms("user-x", "user-a")
+
+	hub.mu.RLock()
+	_, stillIn := hub.rooms["profile_now_playing_user-a"][client]
+	hub.mu.RUnlock()
+	if !stillIn {
+		t.Error("Bob must remain subscribed when the call targets other users")
+	}
+}
+
 func TestHub_ForceUnsubscribeFromWallRooms_UnknownUsersNoop(t *testing.T) {
 	hub := NewHub(nil, nil)
 	client := newTestClient(hub, "user-b", "Bob")

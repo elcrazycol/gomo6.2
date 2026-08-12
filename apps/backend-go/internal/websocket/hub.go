@@ -631,7 +631,8 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 		targetID := strings.TrimPrefix(room, "profile_wall_")
 		return targetID != "" && h.canViewWallRoom(userID, targetID)
 	case strings.HasPrefix(room, "profile_now_playing_"):
-		return true
+		targetID := strings.TrimPrefix(room, "profile_now_playing_")
+		return targetID != "" && h.canViewNowPlayingRoom(userID, targetID)
 	default:
 		// Thread/board rooms are public realtime content, but arbitrary room
 		// names must not become an implicit broadcast subscription primitive.
@@ -667,8 +668,48 @@ func (h *Hub) canViewWallRoom(userID, targetID string) bool {
 	if !private && !hideWall {
 		return true
 	}
+	return h.areFriends(userID, targetID)
+}
+
+// canViewNowPlayingRoom reports whether userID may receive realtime Spotify
+// now-playing events for targetID. The owner is always allowed; other users
+// may subscribe while the target profile is public, and friends of a private
+// profile stay allowed (mirroring wall visibility). A stranger must not be
+// able to track the music listening of a private-profile user in real time.
+func (h *Hub) canViewNowPlayingRoom(userID, targetID string) bool {
+	if h.db == nil {
+		return false
+	}
+	if userID == targetID {
+		return true
+	}
+	var private bool
+	err := h.db.QueryRow(
+		"SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", targetID,
+	).Scan(&private)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// No privacy settings row means the profile is public.
+			return true
+		}
+		return false
+	}
+	if !private {
+		return true
+	}
+	return h.areFriends(userID, targetID)
+}
+
+// areFriends reports whether a bidirectional friendship exists between userID
+// and targetID. Returns false on DB error or nil DB (fail-closed). Shared by
+// the wall and now-playing room visibility rules so friendship semantics stay
+// consistent in both.
+func (h *Hub) areFriends(userID, targetID string) bool {
+	if h.db == nil {
+		return false
+	}
 	var friend bool
-	err = h.db.QueryRow(`SELECT EXISTS(
+	err := h.db.QueryRow(`SELECT EXISTS(
 		SELECT 1 FROM friendships
 		WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
 	)`, userID, targetID).Scan(&friend)
@@ -753,6 +794,115 @@ func (h *Hub) ForceUnsubscribeFromWallRooms(viewerID, targetID string) {
 	}
 	if len(roomClients) == 0 {
 		delete(h.rooms, room)
+	}
+}
+
+// ForceUnsubscribeFromNowPlayingRooms revokes every live subscription of
+// viewerID to the now-playing room of targetID (profile_now_playing_<targetID>).
+// A now-playing subscription is authorized once at subscribe time based on the
+// friendship that existed then; when that friendship is destroyed (RemoveFriend)
+// the subscription must be torn down, otherwise the ex-friend keeps receiving
+// realtime Spotify now-playing events of a private-profile user until they
+// reconnect.
+func (h *Hub) ForceUnsubscribeFromNowPlayingRooms(viewerID, targetID string) {
+	if viewerID == "" || targetID == "" {
+		return
+	}
+	room := fmt.Sprintf("profile_now_playing_%s", targetID)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	roomClients, ok := h.rooms[room]
+	if !ok {
+		return
+	}
+	for client := range roomClients {
+		if client.UserID != viewerID {
+			continue
+		}
+		delete(roomClients, client)
+		delete(client.Rooms, room)
+		log.Printf("[WebSocket] Client %s force-unsubscribed from %s (friendship revoked)", client.Username, room)
+	}
+	if len(roomClients) == 0 {
+		delete(h.rooms, room)
+	}
+}
+
+// RevokeProfileRoomSubscriptionsFromNonFriends revokes live subscriptions to
+// targetID's profile_wall_ and/or profile_now_playing_ rooms from every viewer
+// who is not the owner and not a mutual friend. Called when privacy settings
+// make those rooms friends-only (private_profile / private_hide_wall), so
+// viewers who subscribed while the profile was public stop receiving wall /
+// now-playing events without reconnecting — a subscription authorized once at
+// subscribe time must not outlive the privacy change. The caller (privacy
+// settings write handler) invokes this only after the privacy change has
+// committed, so any viewer who (re)subscribes concurrently is already denied
+// by canAccessRoom at subscribe time. Rooms that carry no such viewers are
+// left untouched; the method is a no-op when the hub has no DB or no matching
+// rooms.
+func (h *Hub) RevokeProfileRoomSubscriptionsFromNonFriends(targetID string, revokeWall, revokeNowPlaying bool) {
+	if targetID == "" || (!revokeWall && !revokeNowPlaying) {
+		return
+	}
+	rooms := make([]string, 0, 2)
+	if revokeWall {
+		rooms = append(rooms, fmt.Sprintf("profile_wall_%s", targetID))
+	}
+	if revokeNowPlaying {
+		rooms = append(rooms, fmt.Sprintf("profile_now_playing_%s", targetID))
+	}
+
+	// Phase 1: snapshot candidate viewers (excluding the owner) under a short
+	// read lock.
+	h.mu.RLock()
+	type roomClient struct {
+		room   string
+		client *Client
+	}
+	var candidates []roomClient
+	for _, room := range rooms {
+		for client := range h.rooms[room] {
+			if client.UserID != "" && client.UserID != targetID {
+				candidates = append(candidates, roomClient{room: room, client: client})
+			}
+		}
+	}
+	h.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	// Phase 2: decide friendship outside the hub lock (DB round trips).
+	keep := make(map[*Client]bool, len(candidates))
+	for _, rc := range candidates {
+		if h.areFriends(rc.client.UserID, targetID) {
+			keep[rc.client] = true
+		}
+	}
+
+	// Phase 3: remove the non-friends under the write lock. A viewer who was
+	// already removed (disconnect/re-subscribe race) is skipped.
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, rc := range candidates {
+		if keep[rc.client] {
+			continue
+		}
+		roomClients, ok := h.rooms[rc.room]
+		if !ok {
+			continue
+		}
+		if _, present := roomClients[rc.client]; !present {
+			continue
+		}
+		delete(roomClients, rc.client)
+		delete(rc.client.Rooms, rc.room)
+		log.Printf("[WebSocket] Client %s force-unsubscribed from %s (privacy settings restrict this content)", rc.client.Username, rc.room)
+		if len(roomClients) == 0 {
+			delete(h.rooms, rc.room)
+		}
 	}
 }
 

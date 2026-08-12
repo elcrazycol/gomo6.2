@@ -514,9 +514,14 @@ func (h *FriendsHandler) RemoveFriend(c *gin.Context) {
 	// private wall events (full content + image URLs) after the friendship is
 	// destroyed. Both directions are torn down because either side may have
 	// been subscribed to the other's wall.
+	// M1: the Spotify now-playing room is likewise gated on friendship for
+	// private profiles, so an ex-friend's live subscription must be torn down
+	// too, otherwise they keep receiving realtime now-playing events.
 	if h.hub != nil {
 		h.hub.ForceUnsubscribeFromWallRooms(claims.UserID, targetUserID)
 		h.hub.ForceUnsubscribeFromWallRooms(targetUserID, claims.UserID)
+		h.hub.ForceUnsubscribeFromNowPlayingRooms(claims.UserID, targetUserID)
+		h.hub.ForceUnsubscribeFromNowPlayingRooms(targetUserID, claims.UserID)
 	}
 
 	// Invalidate caches for both users

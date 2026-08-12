@@ -1167,7 +1167,35 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	// Invalidate cache for the created record
 	h.invalidateCacheForTableResult(c, tableName, result)
 
+	// M1: a privacy change that makes previously-public content friends-only
+	// must revoke the live room subscriptions of non-friend viewers, otherwise
+	// a viewer who subscribed while the profile was public keeps receiving
+	// wall / now-playing events until they reconnect.
+	h.revokeSubscriptionsAfterPrivacyChange(tableName, result)
+
 	c.JSON(http.StatusOK, models.SuccessResponse(result))
+}
+
+// revokeSubscriptionsAfterPrivacyChange tears down live WebSocket
+// subscriptions when a privacy_settings write restricts previously-public
+// content. private_profile → both the wall and the now-playing room become
+// friends-only; private_hide_wall alone → only the wall room becomes
+// friends-only. Calls on other tables or without a hub are no-ops.
+func (h *UniversalHandler) revokeSubscriptionsAfterPrivacyChange(tableName string, result map[string]interface{}) {
+	if tableName != "privacy_settings" || h.hub == nil {
+		return
+	}
+	uid, _ := result["user_id"].(string)
+	if uid == "" {
+		return
+	}
+	private, _ := result["private_profile"].(bool)
+	hideWall, _ := result["private_hide_wall"].(bool)
+	if private {
+		h.hub.RevokeProfileRoomSubscriptionsFromNonFriends(uid, true, true)
+	} else if hideWall {
+		h.hub.RevokeProfileRoomSubscriptionsFromNonFriends(uid, true, false)
+	}
 }
 
 // ─── PUT ────────────────────────────────────────────────────────────────────
@@ -1431,6 +1459,10 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	// Invalidate cache for the updated record
 	h.invalidateCacheForTableResult(c, tableName, result)
+
+	// M1: same privacy-change teardown as the POST path (see
+	// revokeSubscriptionsAfterPrivacyChange).
+	h.revokeSubscriptionsAfterPrivacyChange(tableName, result)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
