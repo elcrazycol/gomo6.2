@@ -324,12 +324,22 @@ export const WallCommentTree = ({
   }, [comments]);
 
   const startReply = useCallback((commentId: string) => {
+    // Pin BEFORE anything mounts. GomoRichEditor's autoFocus effect focuses
+    // the editor DURING the flushSync commit below — if the composer were
+    // still sticky at that instant, iOS's native focus-scroll would scroll
+    // the page down to the composer's natural position (the end of the
+    // comment list) and everything would fly up. position:fixed from the very
+    // first frame makes that focus-scroll a no-op, while the keyboard still
+    // opens because the focus happens inside the tap's call stack.
+    const isTouch = isTouchRef.current;
+    if (isTouch) {
+      setComposerActive(true);
+      applyPin();
+    }
     // iOS only opens the keyboard for a focus() call that runs synchronously
     // inside the tap's call stack. React state updates are deferred, so flush
     // the reply-target change NOW (mounting the editor box — showBox forces it
     // open for replyTo) and focus immediately, all within the tap handler.
-    // Otherwise the composer expands with no keyboard, and iOS's own
-    // focus-scroll yanks the page around instead.
     let nextId: string | null = null;
     flushSync(() => {
       setActiveReplyId((prev) => {
@@ -337,28 +347,20 @@ export const WallCommentTree = ({
         return nextId;
       });
     });
-    // Only focus when actually starting a reply — a toggle-off (cancel) must
-    // not pop the keyboard back open.
     if (nextId) {
-      const editor = composerEditorRef.current;
-      // iOS performs its focus-scroll the moment focus() lands: the browser
-      // scrolls the page to reveal the freshly focused editor. At that instant
-      // the composer is still sticky — the focusin-driven applyPin fires only
-      // after the native scroll already started — so the scroll drags the
-      // composer up with the page WHILE it opens (the "page scrolls and the
-      // composer flies away during open" bug). Pin it BEFORE focusing:
-      // position:fixed is in place from the very first frame of the
-      // focus-scroll, so the composer cannot move at all — the page may scroll
-      // underneath, the composer stays nailed above the keyboard. Only pin
-      // when the editor is actually reachable: if it were not, no focusin
-      // would ever confirm the pin and the composer would stay stuck fixed.
-      if (isTouchRef.current && editor) {
-        setComposerActive(true);
-        applyPin();
-      }
-      editor?.focus();
+      // Only focus when actually starting a reply — a toggle-off (cancel) must
+      // not pop the keyboard back open. The pin above is already in place;
+      // focusin re-applies it idempotently.
+      composerEditorRef.current?.focus();
+    } else if (isTouch && !keyboardOpenRef.current) {
+      // Toggle-off (cancel): undo the optimistic pin so the bar returns to
+      // the document flow. When the keyboard is still open, leave the pin in
+      // place — the keyboardOpen effect releases it once the keyboard fully
+      // closes (unpinning mid-open would drop the bar behind the keyboard).
+      setComposerActive(false);
+      clearPin();
     }
-  }, [applyPin]);
+  }, [applyPin, clearPin]);
 
   // The reply target the floating composer answers (or null → plain comment).
   const replyTarget = activeReplyId ? comments.find((c) => c.id === activeReplyId) ?? null : null;
