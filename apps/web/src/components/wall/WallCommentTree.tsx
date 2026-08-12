@@ -188,7 +188,9 @@ export const WallCommentTree = ({
       });
     });
     if (nextId) {
-      // Focus the editor to open the keyboard
+      // Focus the editor to open the keyboard.
+      // The editor's focus method uses preventScroll:true to avoid
+      // browser auto-scroll which causes the composer to jump.
       composerEditorRef.current?.focus();
     }
   }, []);
@@ -450,7 +452,7 @@ export const WallCommentTree = ({
           height), so it would sit hidden behind the keyboard/composer. */}
       <div
         ref={rootRef}
-        className={`space-y-3 border-t border-border/60 pt-4 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}
+        className={`space-y-3 border-t border-border/60 pt-4 ${isTouch ? "wall-comments-pad" : ""}`}
       >
         {loading ? (
           <div className="space-y-3 py-2">
@@ -486,11 +488,12 @@ export const WallCommentTree = ({
         )}
 
         {currentUserId && (
-          // Fixed composer at bottom on mobile, sticky on desktop.
-          // Uses wall-composer-fixed class for position:fixed with --kb-inset
+          // Fixed composer at bottom on mobile (ALWAYS, not just when focused).
+          // This prevents scroll jumps when switching between reply targets.
+          // Desktop uses sticky.
           <div
             ref={composerAnchorRef}
-            className={`${isTouch && composerFocused ? 'wall-composer-fixed' : 'sticky kb-bottom-8'} z-20`}
+            className={`${isTouch ? 'wall-composer-fixed' : 'sticky kb-bottom-8'} z-20`}
           >
             <WallCommentComposer
               focusToExpand

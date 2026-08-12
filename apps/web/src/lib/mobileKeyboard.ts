@@ -467,6 +467,10 @@ function handleFocusIn(e: FocusEvent) {
   }
   dismissUntil = 0;
   if (!state.isTouch) return;
+  // Skip scroll-into-view for elements inside a wall-composer-fixed container.
+  // Those composers are position:fixed at the bottom and should never be
+  // scrolled — doing so causes them to jump on repeated reply taps.
+  if (el.closest('.wall-composer-fixed')) return;
   scheduleScrollIntoView(0);
   if (state.isOpen) {
     scheduleScrollIntoView(80);
@@ -709,6 +713,10 @@ export function scrollEditableIntoView() {
   // already left (e.g. they tapped a Reply button on a comment).
   const active = document.activeElement;
   if (active !== el && !(active instanceof Node && el.contains(active))) return;
+
+  // Skip scroll for wall-composer-fixed elements — they are position:fixed
+  // at the bottom and should never be scrolled.
+  if (el.closest('.wall-composer-fixed')) return;
 
   const vv = typeof window !== "undefined" ? window.visualViewport : null;
   const visibleHeight = vv ? vv.height : window.innerHeight;

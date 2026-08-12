@@ -975,9 +975,11 @@ html.kb-open body {
 
 /* ── Wall comment composer: fixed above keyboard on mobile ─────────────────
 
-   The composer is always position:fixed at the bottom of the screen on mobile.
+   The composer is ALWAYS position:fixed at the bottom of the screen on mobile.
    --kb-inset (published by lib/mobileKeyboard.ts) lifts it above the keyboard.
-   On desktop it falls back to normal document flow. */
+   On desktop it falls back to normal document flow (sticky).
+
+   Key: NO switching between sticky/fixed on mobile — that causes scroll jumps. */
 
 .wall-composer-fixed {
   position: fixed;
