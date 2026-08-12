@@ -96,7 +96,7 @@ FROM (
          INNER JOIN threads th2 ON th2.id = p2.thread_id
          WHERE th2.user_id = $1 AND p2.user_id <> $1) * 0.25 +
       COALESCE(
-        (SELECT FLOOR((total_minutes)::numeric / 30) FROM user_session_time WHERE user_id = $1),
+        (SELECT FLOOR(SUM(total_minutes)::numeric / 30) FROM user_session_time WHERE user_id = $1),
         0
       )::numeric +
       COALESCE(

@@ -63,7 +63,7 @@ UPDATE users u SET garma = GREATEST(0, LEAST(2147483647, FLOOR(
   (SELECT COUNT(*)::numeric FROM profile_wall_post_likes wl JOIN profile_wall_posts wpp ON wpp.id = wl.post_id WHERE wpp.author_id = u.id) * 2 +
   (SELECT COUNT(*)::numeric FROM profile_wall_comment_likes cl JOIN profile_wall_post_comments wcc ON wcc.id = cl.comment_id WHERE wcc.user_id = u.id) * 1 +
   (SELECT COUNT(*)::numeric FROM posts p2 JOIN threads th2 ON th2.id = p2.thread_id WHERE th2.user_id = u.id AND p2.user_id <> u.id) * 0.25 +
-  COALESCE((SELECT FLOOR((total_minutes)::numeric / 30) FROM user_session_time st WHERE st.user_id = u.id), 0) +
+  COALESCE((SELECT FLOOR(SUM(total_minutes)::numeric / 30) FROM user_session_time st WHERE st.user_id = u.id), 0) +
   COALESCE((SELECT SUM(CAST(COALESCE(a.reward_value, '0') AS integer))
             FROM user_achievements ua JOIN achievements a ON a.id = ua.achievement_id
             WHERE ua.user_id = u.id AND a.reward_type = 'garma'), 0)
