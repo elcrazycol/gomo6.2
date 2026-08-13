@@ -54,10 +54,20 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		u.username, u.nickname_emoji_id, u.avatar_url
 	`
 
-	query := `SELECT ` + baseSelect + `
+	// H1 (security audit): posts must inherit the visibility of their parent
+	// thread's board and channel. The thread surface (threads.go) gates private
+	// boards and private channels, but /api/v1/posts previously only applied
+	// the is_private DM flag — so posts from private boards/channels were
+	// readable by UUID. The FROM clause below joins threads + boards + channels
+	// so the same predicate can be applied here (see viewerVisibilityCond).
+	const postsBaseFrom = `
 		FROM posts p
 		LEFT JOIN users u ON p.user_id = u.id
+		LEFT JOIN threads t ON p.thread_id = t.id
+		LEFT JOIN boards b ON t.board_id = b.id
+		LEFT JOIN channels ch ON t.channel_id = ch.id
 	`
+	query := `SELECT ` + baseSelect + postsBaseFrom
 
 	var args []interface{}
 	var conditions []string
@@ -138,6 +148,27 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	conditions = append(conditions, privacyCond)
 	args = append(args, viewerID, viewerID)
 
+	// H1 (security audit): private boards and private channels must hide their
+	// posts from guests and non-members — the same predicate threads.go applies
+	// to thread listings. Private boards/channels are visible only to the board
+	// owner and gomosub members (basic read access, matching canAccessChannel's
+	// read branch). Guests (viewerID == "") only ever match the public
+	// branches; the ::text casts keep empty-viewer comparisons from tripping
+	// the uuid type.
+	if viewerID != "" {
+		p1 := strconv.Itoa(len(args) + 1)
+		p2 := strconv.Itoa(len(args) + 2)
+		boardCond := "(b.visibility != 'private' OR b.owner_id::text = $" + p1 +
+			" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $" + p2 + "))"
+		channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $" + p1 +
+			" OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $" + p2 + "))"
+		conditions = append(conditions, boardCond, channelCond)
+		args = append(args, viewerID, viewerID)
+	} else {
+		conditions = append(conditions,
+			"b.visibility != 'private'",
+			"(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false)")
+	}
 	// Apply WHERE conditions to non-latest query.
 	// For latest=true, query is rebuilt as a DISTINCT ON subquery below.
 	if !latest && len(conditions) > 0 {
@@ -185,10 +216,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			}
 			args = append(args, cursor)
 			// Rebuild WHERE with cursor condition
-			query = `SELECT ` + baseSelect + `
-		FROM posts p
-		LEFT JOIN users u ON p.user_id = u.id
-		`
+			query = `SELECT ` + baseSelect + postsBaseFrom
 			if len(conditions) > 0 {
 				query += " WHERE " + conditions[0]
 				for i := 1; i < len(conditions); i++ {
@@ -209,6 +237,9 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		// Wrap in subquery, then apply user ordering (or default) on outer.
 		query = "SELECT * FROM (SELECT DISTINCT ON (p.thread_id) " + baseSelect +
 			" FROM posts p LEFT JOIN users u ON p.user_id = u.id" +
+			" LEFT JOIN threads t ON p.thread_id = t.id" +
+			" LEFT JOIN boards b ON t.board_id = b.id" +
+			" LEFT JOIN channels ch ON t.channel_id = ch.id" +
 			" WHERE " + conditions[0]
 		for i := 1; i < len(conditions); i++ {
 			query += " AND " + conditions[i]
@@ -345,21 +376,44 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 		viewerID = claims.UserID
 	}
 
+	// H1 (security audit): single-post reads enforce the same board/channel
+	// visibility as GetPosts — a post on a private board or in a private channel
+	// is indistinguishable from a nonexistent post (404). The predicate mirrors
+	// threads.go GetThread: owner or gomosub member may read; guests and
+	// non-members cannot. The ::text casts keep the empty anonymous viewerID
+	// from tripping the uuid type.
+	visibilityCond := "b.visibility != 'private'"
+	channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false)"
+	if viewerID != "" {
+		visibilityCond = "(b.visibility != 'private' OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $3))"
+		channelCond = "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $3))"
+	}
+
 	query := `
 		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
 		       u.username, u.nickname_emoji_id, u.avatar_url
 		FROM posts p
 		LEFT JOIN users u ON p.user_id = u.id
+		LEFT JOIN threads t ON p.thread_id = t.id
+		LEFT JOIN boards b ON t.board_id = b.id
+		LEFT JOIN channels ch ON t.channel_id = ch.id
 		WHERE p.id = $1
 		  AND (COALESCE(p.is_private, false) = false OR p.user_id::text = $2 OR p.private_recipient_id::text = $2)
+		  AND ` + visibilityCond + `
+		  AND ` + channelCond + `
 	`
 
 	var post models.Post
 	var username, nicknameEmojiID, avatarURL sql.NullString
 	var contentJSON []byte
 
-	err := h.db.QueryRow(query, id, viewerID).Scan(
+	args := []interface{}{id, viewerID}
+	if viewerID != "" {
+		args = append(args, viewerID)
+	}
+
+	err := h.db.QueryRow(query, args...).Scan(
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
