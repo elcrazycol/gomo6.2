@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { storageUrl, giftImageUrl, getPublicUrl, uploadFile, removeFile } from "./storage";
 
 const mockFetch = vi.fn();
@@ -39,6 +39,39 @@ describe("storageUrl", () => {
     expect(result).toContain("/storage/v1/object/content/");
     expect(result).toContain("user123");
     expect(result).toContain("photo.jpg");
+  });
+
+  describe("wall bucket for anonymous viewers", () => {
+    afterEach(() => {
+      // Clear the session-hint cookie so tests do not leak into each other.
+      document.cookie = "gomo6_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+    });
+
+    it("routes wall image paths through the public /og/wall proxy for guests", () => {
+      expect(storageUrl("content", "/storage/v1/object/wall/u1/photo.jpg"))
+        .toBe("/og/wall/u1/photo.jpg");
+    });
+
+    it("keeps the storage route for wall images when signed in", () => {
+      document.cookie = "gomo6_csrf=abc123";
+      expect(storageUrl("content", "/storage/v1/object/wall/u1/photo.jpg"))
+        .toBe("/storage/v1/object/wall/u1/photo.jpg");
+    });
+
+    it("routes bare wall bucket keys through /og/wall for guests", () => {
+      expect(storageUrl("wall", "u1/photo.jpg")).toBe("/og/wall/u1/photo.jpg");
+    });
+
+    it("keeps bare wall bucket keys on the storage route when signed in", () => {
+      document.cookie = "gomo6_csrf=abc123";
+      expect(storageUrl("wall", "u1/photo.jpg"))
+        .toContain("/storage/v1/object/wall/u1/photo.jpg");
+    });
+
+    it("does not rewrite non-wall storage paths for guests", () => {
+      expect(storageUrl("content", "/storage/v1/object/post-images/u1/av.jpg"))
+        .toBe("/storage/v1/object/post-images/u1/av.jpg");
+    });
   });
 
   it("encodes key segments", () => {

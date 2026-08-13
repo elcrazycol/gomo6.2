@@ -22,8 +22,21 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 const isHttpUrl = (v: string) => /^https?:\/\//i.test(v);
 
 /**
+ * A logged-in browser session is signaled by the CSRF cookie the backend sets
+ * next to the HttpOnly auth cookies (the same hint the API client uses to
+ * decide whether to attempt a refresh). Its absence means anonymous.
+ */
+const hasSessionCookie = (): boolean => apiClient.getCSRFToken() !== null;
+
+/**
  * Convert a (bucket, key) pair into a backend URL for displaying files.
  * If the value already looks like an absolute URL, returns it unchanged.
+ *
+ * Wall media lives in a private bucket: the /storage/v1/object/wall route
+ * requires an authenticated session, so anonymous visitors would get 401 on
+ * every wall photo. Guests are served the public /og/wall proxy instead,
+ * which enforces the exact same per-wall visibility predicate (private walls
+ * stay unreadable even with a known key) and is IP-rate-limited.
  */
 export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | null => {
   if (!keyOrUrl) return null;
@@ -35,7 +48,12 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
   if (isHttpUrl(v)) return bucket === "uploads" ? null : v;
 
   // Already a relative API path
-  if (v.startsWith("/storage/v1/")) return `${API_BASE_URL}${v}`;
+  if (v.startsWith("/storage/v1/")) {
+    if (v.startsWith("/storage/v1/object/wall/") && !hasSessionCookie()) {
+      return `${API_BASE_URL}${v.replace("/storage/v1/object/wall/", "/og/wall/")}`;
+    }
+    return `${API_BASE_URL}${v}`;
+  }
   if (v.startsWith(`${API_BASE_URL}/storage/v1/`)) return v;
 
   const encodedKey = v
@@ -45,6 +63,9 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
     .map((seg) => encodeURIComponent(seg))
     .join("/");
 
+  if (bucket === "wall" && !hasSessionCookie()) {
+    return `${API_BASE_URL}/og/wall/${encodedKey}`;
+  }
   return `${API_BASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedKey}`;
 };
 

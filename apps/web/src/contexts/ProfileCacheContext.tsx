@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { api } from '@/integrations/api/compat';
+import { apiClient } from '@/integrations/api/client';
 
 // Listen for external invalidation events (e.g. from CustomProfile save)
 const INVALIDATE_EVENT = 'profile-cache:invalidate';
@@ -105,6 +106,19 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
           }
         };
 
+        // user_roles is protected and viewer-scoped: for an anonymous caller
+        // viewing a foreign profile it would 401 (the toFallback wrapper above
+        // already swallows that). Guests never need the viewed profile's roles
+        // — isAdmin only matters for the signed-in owner — so skip the request
+        // entirely instead of firing a doomed 401.
+        const isGuest = !apiClient.getCSRFToken();
+        const rolesResPromise = isGuest
+          ? Promise.resolve({ data: [] as { role: string }[], error: null })
+          : toFallback(
+              () => api.from('user_roles').select('role').eq('user_id', uid),
+              { data: [], error: null }
+            );
+
         const [profileRes, achievementsRes, rolesRes, customizationRes] = await Promise.all([
           toFallback(
             () => api.from('profiles').select('username, avatar_url, nickname_emoji_id').eq('id', uid).single(),
@@ -120,10 +134,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
             `).eq('user_id', uid),
             { data: [], error: null }
           ),
-          toFallback(
-            () => api.from('user_roles').select('role').eq('user_id', uid),
-            { data: [], error: null }
-          ),
+          rolesResPromise,
           toFallback(
             () => api.from('profile_customization').select('*').eq('user_id', uid).single(),
             { data: null, error: null }

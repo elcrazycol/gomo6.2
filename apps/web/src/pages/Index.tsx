@@ -83,24 +83,32 @@ const Index = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await api.auth.getSession();
-      setUser(session?.user ?? null);
+      try {
+        const { data: { session } } = await api.auth.getSession();
+        setUser(session?.user ?? null);
 
-      if (session?.user) {
-        const [profileData, termsRes] = await Promise.all([
-          loadProfile(session.user.id),
-          api.from("user_terms_acceptance").select("*").eq("user_id", session.user.id).maybeSingle(),
-        ]);
+        if (session?.user) {
+          const [profileData, termsRes] = await Promise.all([
+            loadProfile(session.user.id),
+            api.from("user_terms_acceptance").select("*").eq("user_id", session.user.id).maybeSingle(),
+          ]);
 
-        setIsModerator(profileData.isAdmin);
-        setCurrentUserUsername(profileData.username);
-        setCurrentUserColor(profileData.color);
+          setIsModerator(profileData.isAdmin);
+          setCurrentUserUsername(profileData.username);
+          setCurrentUserColor(profileData.color);
 
-        if (!termsRes.data) {
-          setShowTerms(true);
-        } else {
-          setTermsAccepted(true);
+          if (!termsRes.data) {
+            setShowTerms(true);
+          } else {
+            setTermsAccepted(true);
+          }
         }
+      } catch (error) {
+        // A stale/expired session makes the protected user_terms_acceptance
+        // call 401 — never let that surface as an unhandled rejection (guest
+        // browsing). The feed still renders; only the mod flag/terms dialog
+        // are skipped for this visit.
+        console.error('Error loading auth data:', error);
       }
     };
     checkAuth();
@@ -142,20 +150,28 @@ const Index = () => {
           .sort(() => Math.random() - 0.5)
           .slice(0, 3);
         setGomoSubs(randomized);
-        const counts = await Promise.all(
-          randomized.map(async (sub) => {
-            const { count } = await api
-              .from("gomosub_memberships")
-              .select("*", { count: "exact", head: true })
-              .eq("board_id", sub.id);
-            return { id: sub.id, count: count ?? 0 };
-          })
-        );
-        const nextMap: Record<string, number> = {};
-        counts.forEach((item) => {
-          nextMap[item.id] = item.count;
-        });
-        setGomoSubsMembers(nextMap);
+
+        // gomosub_memberships is a protected table — anonymous callers get a
+        // 401 that the API client surfaces as an unhandled rejection (guest
+        // browsing). Fetch member counts only for signed-in viewers; guests
+        // see the random subs without the count instead.
+        const { data: { session } } = await api.auth.getSession();
+        if (session?.user) {
+          const counts = await Promise.all(
+            randomized.map(async (sub) => {
+              const { count } = await api
+                .from("gomosub_memberships")
+                .select("*", { count: "exact", head: true })
+                .eq("board_id", sub.id);
+              return { id: sub.id, count: count ?? 0 };
+            })
+          );
+          const nextMap: Record<string, number> = {};
+          counts.forEach((item) => {
+            nextMap[item.id] = item.count;
+          });
+          setGomoSubsMembers(nextMap);
+        }
       }
     };
 
@@ -537,9 +553,11 @@ const Index = () => {
                         g/{sub.slug}
                         <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                       </div>
-                      <div className="text-xs text-muted-foreground mb-1">
-                        участников: {gomoSubsMembers[sub.id] ?? 0}
-                      </div>
+                      {user && (
+                        <div className="text-xs text-muted-foreground mb-1">
+                          участников: {gomoSubsMembers[sub.id] ?? 0}
+                        </div>
+                      )}
                       <div className="text-sm text-muted-foreground line-clamp-2">
                         {sub.name}
                       </div>

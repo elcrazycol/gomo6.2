@@ -57,66 +57,74 @@ const Index = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await api.auth.getSession();
-      setUser((session?.user ?? null) as LocalUser | null);
-      
-      if (session?.user) {
-        const { data: roles } = await api
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id);
+      try {
+        const { data: { session } } = await api.auth.getSession();
+        setUser((session?.user ?? null) as LocalUser | null);
         
-        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
+        if (session?.user) {
+          const { data: roles } = await api
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", session.user.id);
+        
+          setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
-        // Load current user profile and color
-        const { data: profile } = await api
-          .from("profiles")
-          .select("username")
-          .eq("id", session.user.id)
-          .single();
+          // Load current user profile and color
+          const { data: profile } = await api
+            .from("profiles")
+            .select("username")
+            .eq("id", session.user.id)
+            .single();
 
-        if (profile) {
-          setCurrentUserUsername((profile as Record<string, unknown>).username as string);
-        }
+          if (profile) {
+            setCurrentUserUsername((profile as Record<string, unknown>).username as string);
+          }
 
-        // Load current user color
-        const { data: achievements } = await api
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", session.user.id);
+          // Load current user color
+          const { data: achievements } = await api
+            .from("user_achievements")
+            .select(`
+              achievement_id,
+              achievements (
+                reward_type,
+                reward_value
+              )
+            `)
+            .eq("user_id", session.user.id);
 
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
-            .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
+          if (achievements) {
+            const colorRewards = achievements
+              .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
+              .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
 
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
+            const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+            for (const p of priority) {
+              if (colorRewards.includes(p)) {
+                setCurrentUserColor(p);
+                break;
+              }
             }
           }
+          
+          // Check if user has accepted terms
+          const { data: termsData } = await api
+            .from("user_terms_acceptance")
+            .select("*")
+            .eq("user_id", session.user.id)
+            .maybeSingle();
+          
+          if (!termsData) {
+            setShowTerms(true);
+          } else {
+            setTermsAccepted(true);
+          }
         }
-        
-        // Check if user has accepted terms
-        const { data: termsData } = await api
-          .from("user_terms_acceptance")
-          .select("*")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
-        
-        if (!termsData) {
-          setShowTerms(true);
-        } else {
-          setTermsAccepted(true);
-        }
+      } catch (error) {
+        // A stale/expired session makes the protected user_roles / terms calls
+        // 401 — never let that surface as an unhandled rejection (guest
+        // browsing). The page still renders; only the mod flag/terms dialog
+        // are skipped for this visit.
+        console.error('Error loading auth data:', error);
       }
     };
     checkAuth();

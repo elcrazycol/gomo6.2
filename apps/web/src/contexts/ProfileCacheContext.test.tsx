@@ -10,6 +10,16 @@ vi.mock("@/integrations/api/compat", () => ({
   },
 }));
 
+// The profile cache skips the protected user_roles request for guests (no
+// session CSRF cookie). Tests default to a signed-in viewer so the full
+// 4-request path is exercised; the guest path is covered explicitly below.
+const mockGetCSRFToken = vi.fn(() => "mock-csrf-token");
+vi.mock("@/integrations/api/client", () => ({
+  apiClient: {
+    getCSRFToken: () => mockGetCSRFToken(),
+  },
+}));
+
 function makeChain<T>(resolveValue: T): any {
   const p = Promise.resolve(resolveValue) as any;
   p.select = () => p;
@@ -35,6 +45,7 @@ function defaultMocks() {
 describe("ProfileCacheContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetCSRFToken.mockReturnValue("mock-csrf-token");
     vi.useFakeTimers();
     defaultMocks();
   });
@@ -159,6 +170,23 @@ describe("ProfileCacheContext", () => {
       await result.current.loadProfile("user-1");
     });
     expect(mockFrom).toHaveBeenCalled();
+  });
+
+  it("skips user_roles for guests (no session cookie)", async () => {
+    mockGetCSRFToken.mockReturnValue(null);
+
+    const { result } = renderHook(() => useProfileCache(), { wrapper });
+
+    let data: any;
+    await act(async () => {
+      data = await result.current.loadProfile("user-1");
+    });
+
+    // profiles + user_achievements + profile_customization — NO user_roles.
+    const calledTables = mockFrom.mock.calls.map((c) => c[0]);
+    expect(calledTables).not.toContain("user_roles");
+    expect(calledTables).toHaveLength(3);
+    expect(data.isAdmin).toBe(false);
   });
 
   it("detects admin role", async () => {
