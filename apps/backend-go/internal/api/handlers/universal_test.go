@@ -898,11 +898,13 @@ func TestUniversalDelete_WallComments_OwnershipScope(t *testing.T) {
 
 	// Deleting a wall comment is a SOFT delete: the row (and with it the reply
 	// subtree) survives as a "Комментарий удалён" placeholder — the content is
-	// wiped and is_deleted is flagged instead of removing the row. The WHERE
-	// keeps the ownership scope (user_id = caller) plus the id filter.
-	mock.ExpectQuery(`(?s).*UPDATE profile_wall_post_comments SET content = NULL, content_json = NULL, is_deleted = TRUE, updated_at = NOW\(\) WHERE user_id = \$[0-9]+ AND id = \$[0-9]+ RETURNING \*`).
+	// wiped, user_id is nulled (M-3: the author must be gone forever, not just
+	// hidden by the UI) and is_deleted is flagged instead of removing the row.
+	// The WHERE keeps the ownership scope (user_id = caller) plus the id
+	// filter — it reads the pre-update row, so the delete itself is unaffected.
+	mock.ExpectQuery(`(?s).*UPDATE profile_wall_post_comments SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, updated_at = NOW\(\) WHERE user_id = \$[0-9]+ AND id = \$[0-9]+ RETURNING \*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "is_deleted"}).
-			AddRow("c1", "post1", "u1", true))
+			AddRow("c1", "post1", nil, true))
 
 	c, w := newUniversalRequestContext("DELETE", "/api/v1/profile_wall_post_comments?id=eq.c1", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)

@@ -23,6 +23,24 @@ const profileWallAuthorJSON = `COALESCE(
   '{}'::json
 ) AS author`
 
+// profileWallCommentAuthorJSON — the author embed for wall comments. For
+// soft-deleted comments (is_deleted = TRUE) the author is scrubbed from the
+// API response entirely (M-3 from the 2026-08-14 audit): the UI already
+// renders "Автор неизвестен", but the API used to return the author's
+// profile forever. The comment queries also null out c.user_id with the same
+// CASE so no identity survives the deletion on any read path. The users join
+// is harmless for deleted rows (the CASE never references u).
+const profileWallCommentAuthorJSON = `CASE WHEN c.is_deleted THEN '{}'::json ELSE COALESCE(
+  json_build_object(
+    'username', u.username,
+    'display_name', u.display_name,
+    'nickname_emoji_id', u.nickname_emoji_id,
+    'is_anonymous', COALESCE(u.is_anonymous, false),
+    'avatar_url', u.avatar_url
+  ),
+  '{}'::json
+) END AS author`
+
 // wallPostCountsSQL returns the correlated-subquery columns that embed the
 // interaction state of every wall post. The {viewer} placeholder is replaced
 // with the authenticated viewer's parameter reference by
@@ -68,11 +86,16 @@ func (h *UniversalHandler) handleProfileWallPostCommentsGet(c *gin.Context) {
 	// NULL, so COALESCE(NULL, false) = false makes the predicate pass and the
 	// orphan comment becomes readable by every authenticated user. An INNER
 	// JOIN drops such orphans entirely.
+	// M-3: a soft-deleted comment must not leak its author — the author embed
+	// AND the user_id column are scrubbed when is_deleted (the UI placeholder
+	// "Автор неизвестен" must no longer be a lie at the API level).
 	query := `
-SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
+SELECT c.id, c.post_id,
+       CASE WHEN c.is_deleted THEN NULL ELSE c.user_id END AS user_id,
+       c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
        c.is_deleted,
        ` + wallCommentCountsSQL + `
-       ` + profileWallAuthorJSON + `
+       ` + profileWallCommentAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
 INNER JOIN profile_wall_posts wp ON wp.id = c.post_id
@@ -274,10 +297,12 @@ WHERE p.id = $1`
 
 func (h *UniversalHandler) fetchProfileWallCommentWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
 	q := `
-SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
+SELECT c.id, c.post_id,
+       CASE WHEN c.is_deleted THEN NULL ELSE c.user_id END AS user_id,
+       c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
        c.is_deleted,
        ` + wallCommentCountsSQL + `
-       ` + profileWallAuthorJSON + `
+       ` + profileWallCommentAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
 WHERE c.id = $1`

@@ -806,6 +806,54 @@ func TestUniversalPut_ProfileWallComment_CannotTouchIsDeleted(t *testing.T) {
 	}
 }
 
+// TestHandleProfileWallPostCommentsGet_DeletedComment_AuthorScrubbed proves
+// M-3 (2026-08-14 audit): a soft-deleted comment must not leak its author
+// through the API. The SELECT CASE-scrubs user_id and the author embed when
+// is_deleted, so the response carries no identity — the UI's "Автор
+// неизвестен" placeholder is no longer a lie at the API level.
+func TestHandleProfileWallPostCommentsGet_DeletedComment_AuthorScrubbed(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s)SELECT c\.id, c\.post_id.*CASE WHEN c\.is_deleted THEN NULL ELSE c\.user_id END AS user_id.*` +
+		`CASE WHEN c\.is_deleted THEN '\{\}'::json.*AS author.*FROM profile_wall_post_comments c.*`).
+		WithArgs("post-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "post_id", "user_id", "parent_id", "content", "content_json",
+			"created_at", "updated_at", "is_deleted", "likes_count", "liked_by_viewer", "author",
+		}).AddRow("c1", "post-1", nil, nil, nil, nil,
+			"2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", true, int64(0), false, []byte(`{}`)))
+
+	c, w := newUniversalRequestContext("GET",
+		"/api/v1/profile_wall_post_comments?post_id=eq.post-1&order=created_at.asc", nil, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	data, ok := resp.Data.([]interface{})
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected 1 comment row, got %#v", resp.Data)
+	}
+	row, ok := data[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected row object, got %#v", data[0])
+	}
+	if row["user_id"] != nil {
+		t.Fatalf("deleted comment leaked user_id: %#v", row["user_id"])
+	}
+	author, ok := row["author"].(map[string]interface{})
+	if !ok || len(author) != 0 {
+		t.Fatalf("deleted comment leaked author: %#v", row["author"])
+	}
+	if row["is_deleted"] != true {
+		t.Fatalf("expected is_deleted true, got %#v", row["is_deleted"])
+	}
+}
+
 // ─── Profile Wall Likes: GET ─────────────────────────────────────────────────
 
 func TestUniversalGet_ProfileWallPostLikes(t *testing.T) {

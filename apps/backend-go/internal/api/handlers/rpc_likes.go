@@ -14,6 +14,63 @@ import (
 
 // ─── Like-related RPC handlers ──────────────────────────────────────────────
 
+// rpcLikesViewerID returns the authenticated viewer ID for the public likes
+// RPC surface, or "" for anonymous callers. Guests only ever match the public
+// branches of the visibility predicate below.
+func rpcLikesViewerID(c *gin.Context) string {
+	if claims := getClaims(c); claims != nil {
+		return claims.UserID
+	}
+	return ""
+}
+
+// rpcLikesVisibilityPredicate builds the board/channel visibility predicate
+// for the likes RPC surface (M-1 from the 2026-08-14 audit): likes and likers
+// of posts/threads on private boards or in private channels must be hidden
+// from guests and non-members, exactly like the posts/threads surface
+// (posts.go GetPosts/GetPost). The enclosing query must expose the aliases
+// t (threads), b (boards) and ch (channels); argIndex is the next free bind
+// parameter. Returns the SQL clause plus the viewer args to append (nil for
+// anonymous callers).
+func rpcLikesVisibilityPredicate(viewerID string, argIndex int) (string, []interface{}) {
+	if viewerID == "" {
+		return "(b.visibility != 'private' AND (t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false))", nil
+	}
+	p1 := strconv.Itoa(argIndex)
+	p2 := strconv.Itoa(argIndex + 1)
+	boardCond := "(b.visibility != 'private' OR b.owner_id::text = $" + p1 +
+		" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $" + p2 + "))"
+	channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $" + p1 +
+		" OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $" + p2 + "))"
+	return boardCond + " AND " + channelCond, []interface{}{viewerID, viewerID}
+}
+
+// postLikesVisibilityJoins links a post_likes row to its post's board/channel.
+const postLikesVisibilityJoins = `
+	LEFT JOIN posts p ON pl.post_id = p.id
+	LEFT JOIN threads t ON p.thread_id = t.id
+	LEFT JOIN boards b ON t.board_id = b.id
+	LEFT JOIN channels ch ON t.channel_id = ch.id`
+
+// threadLikesVisibilityJoins links a thread_likes row to its board/channel.
+const threadLikesVisibilityJoins = `
+	LEFT JOIN threads t ON tl.thread_id = t.id
+	LEFT JOIN boards b ON t.board_id = b.id
+	LEFT JOIN channels ch ON t.channel_id = ch.id`
+
+// postVisibilityExtraJoins extends a query that already joins posts p with the
+// thread's board/channel chain so the visibility predicate can be applied.
+const postVisibilityExtraJoins = `
+	LEFT JOIN threads t ON p.thread_id = t.id
+	LEFT JOIN boards b ON t.board_id = b.id
+	LEFT JOIN channels ch ON t.channel_id = ch.id`
+
+// threadVisibilityExtraJoins extends a query that already joins threads t with
+// the board/channel chain.
+const threadVisibilityExtraJoins = `
+	LEFT JOIN boards b ON t.board_id = b.id
+	LEFT JOIN channels ch ON t.channel_id = ch.id`
+
 // GetPostLikesCount returns the number of likes for a post.
 //
 // GetPostLikesCount godoc
@@ -38,8 +95,18 @@ func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
 		return
 	}
 
+	// M-1: likes of posts on private boards/channels must not leak to guests
+	// and non-members — the count query filters by the same visibility
+	// predicate as the posts surface, so an invisible post reports 0.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 2)
+	args := []interface{}{postID}
+	args = append(args, predArgs...)
+
 	var count int
-	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE post_id = $1", postID).Scan(&count)
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM post_likes pl`+postLikesVisibilityJoins+
+		`
+		WHERE pl.post_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -72,8 +139,16 @@ func (h *RPCHandler) GetThreadLikesCount(c *gin.Context) {
 		return
 	}
 
+	// M-1: same visibility gate as GetPostLikesCount.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 2)
+	args := []interface{}{threadID}
+	args = append(args, predArgs...)
+
 	var count int
-	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE thread_id = $1", threadID).Scan(&count)
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM thread_likes tl`+threadLikesVisibilityJoins+
+		`
+		WHERE tl.thread_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -116,9 +191,17 @@ func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
 		return
 	}
 
+	// M-1: the boolean must not reveal likes on private boards/channels — an
+	// invisible post is indistinguishable from one nobody liked (false).
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 3)
+	args := []interface{}{postID, userID}
+	args = append(args, predArgs...)
+
 	var exists bool
-	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)",
-		postID, userID).Scan(&exists)
+	err = h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM post_likes pl`+postLikesVisibilityJoins+
+		`
+		WHERE pl.post_id = $1 AND pl.user_id = $2 AND `+pred+`)`, args...).Scan(&exists)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -161,9 +244,16 @@ func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
 		return
 	}
 
+	// M-1: same visibility gate as HasUserLikedPost.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 3)
+	args := []interface{}{threadID, userID}
+	args = append(args, predArgs...)
+
 	var exists bool
-	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_likes WHERE thread_id = $1 AND user_id = $2)",
-		threadID, userID).Scan(&exists)
+	err = h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM thread_likes tl`+threadLikesVisibilityJoins+
+		`
+		WHERE tl.thread_id = $1 AND tl.user_id = $2 AND `+pred+`)`, args...).Scan(&exists)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -232,12 +322,18 @@ func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
 		return
 	}
 
+	// M-1: the received count must exclude likes on posts that live on private
+	// boards/channels for this viewer — an anonymous caller must not learn
+	// engagement on another user's private content.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 2)
+	args := []interface{}{userID}
+	args = append(args, predArgs...)
+
 	var count int
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM post_likes pl 
-		JOIN posts p ON pl.post_id = p.id 
-		WHERE p.user_id = $1
-	`, userID).Scan(&count)
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM post_likes pl
+		JOIN posts p ON pl.post_id = p.id`+postVisibilityExtraJoins+`
+		WHERE p.user_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -306,12 +402,16 @@ func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
 		return
 	}
 
+	// M-1: same visibility gate as GetUserLikesReceivedCount.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 2)
+	args := []interface{}{userID}
+	args = append(args, predArgs...)
+
 	var count int
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM thread_likes tl 
-		JOIN threads t ON tl.thread_id = t.id 
-		WHERE t.user_id = $1
-	`, userID).Scan(&count)
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM thread_likes tl
+		JOIN threads t ON tl.thread_id = t.id`+threadVisibilityExtraJoins+`
+		WHERE t.user_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -353,16 +453,22 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 		}
 	}
 
+	// M-1: likers of posts on private boards/channels are PII (usernames,
+	// ids, avatars) — the list must be empty for guests and non-members.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 3)
 	query := `
 		SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
 		FROM post_likes pl
-		JOIN users u ON pl.user_id = u.id
-		WHERE pl.post_id = $1
+		JOIN users u ON pl.user_id = u.id` + postLikesVisibilityJoins + `
+		WHERE pl.post_id = $1 AND ` + pred + `
 		ORDER BY pl.created_at DESC
 		LIMIT $2
 	`
 
-	rows, err := h.db.Query(query, postID, limit)
+	args := []interface{}{postID, limit}
+	args = append(args, predArgs...)
+	rows, err := h.db.Query(query, args...)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -439,16 +545,21 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 		}
 	}
 
+	// M-1: same visibility gate as GetRecentPostLikers.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 3)
 	query := `
 		SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
 		FROM thread_likes tl
-		JOIN users u ON tl.user_id = u.id
-		WHERE tl.thread_id = $1
+		JOIN users u ON tl.user_id = u.id` + threadLikesVisibilityJoins + `
+		WHERE tl.thread_id = $1 AND ` + pred + `
 		ORDER BY tl.created_at DESC
 		LIMIT $2
 	`
 
-	rows, err := h.db.Query(query, threadID, limit)
+	args := []interface{}{threadID, limit}
+	args = append(args, predArgs...)
+	rows, err := h.db.Query(query, args...)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -603,9 +714,21 @@ func (h *RPCHandler) GetPostLikesBatch(c *gin.Context) {
 	}
 	ph := strings.Join(placeholders, ",")
 
+	// M-1: invisible posts (private board/channel for this viewer) are
+	// filtered out by the visibility predicate, so they report count 0 and
+	// is_liked false — the response keeps every requested ID (stable shape).
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, len(postIDs)+1)
+	countArgs := make([]interface{}, 0, len(postIDs)+len(predArgs))
+	countArgs = append(countArgs, args...)
+	countArgs = append(countArgs, predArgs...)
+
 	// Bulk like counts
-	countQuery := `SELECT post_id, COUNT(*) FROM post_likes WHERE post_id IN (` + ph + `) GROUP BY post_id`
-	countRows, err := h.db.Query(countQuery, args...)
+	countQuery := `SELECT pl.post_id, COUNT(*) FROM post_likes pl` + postLikesVisibilityJoins +
+		`
+		WHERE pl.post_id IN (` + ph + `) AND ` + pred + `
+		GROUP BY pl.post_id`
+	countRows, err := h.db.Query(countQuery, countArgs...)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -635,7 +758,11 @@ func (h *RPCHandler) GetPostLikesBatch(c *gin.Context) {
 				uArgs = append(uArgs, id)
 			}
 			uPh := strings.Join(uPlaceholders, ",")
-			likedQuery := `SELECT post_id FROM post_likes WHERE user_id = $1 AND post_id IN (` + uPh + `)`
+			lPred, lPredArgs := rpcLikesVisibilityPredicate(viewerID, len(postIDs)+2)
+			uArgs = append(uArgs, lPredArgs...)
+			likedQuery := `SELECT pl.post_id FROM post_likes pl` + postLikesVisibilityJoins +
+				`
+				WHERE pl.user_id = $1 AND pl.post_id IN (` + uPh + `) AND ` + lPred
 			likedRows, err := h.db.Query(likedQuery, uArgs...)
 			if err == nil {
 				defer likedRows.Close()
@@ -720,9 +847,19 @@ func (h *RPCHandler) GetThreadLikesBatch(c *gin.Context) {
 	}
 	ph := strings.Join(placeholders, ",")
 
+	// M-1: same visibility gate as GetPostLikesBatch.
+	viewerID := rpcLikesViewerID(c)
+	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, len(threadIDs)+1)
+	countArgs := make([]interface{}, 0, len(threadIDs)+len(predArgs))
+	countArgs = append(countArgs, args...)
+	countArgs = append(countArgs, predArgs...)
+
 	// Bulk like counts
-	countQuery := `SELECT thread_id, COUNT(*) FROM thread_likes WHERE thread_id IN (` + ph + `) GROUP BY thread_id`
-	countRows, err := h.db.Query(countQuery, args...)
+	countQuery := `SELECT tl.thread_id, COUNT(*) FROM thread_likes tl` + threadLikesVisibilityJoins +
+		`
+		WHERE tl.thread_id IN (` + ph + `) AND ` + pred + `
+		GROUP BY tl.thread_id`
+	countRows, err := h.db.Query(countQuery, countArgs...)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return
@@ -752,7 +889,11 @@ func (h *RPCHandler) GetThreadLikesBatch(c *gin.Context) {
 				uArgs = append(uArgs, id)
 			}
 			uPh := strings.Join(uPlaceholders, ",")
-			likedQuery := `SELECT thread_id FROM thread_likes WHERE user_id = $1 AND thread_id IN (` + uPh + `)`
+			lPred, lPredArgs := rpcLikesVisibilityPredicate(viewerID, len(threadIDs)+2)
+			uArgs = append(uArgs, lPredArgs...)
+			likedQuery := `SELECT tl.thread_id FROM thread_likes tl` + threadLikesVisibilityJoins +
+				`
+				WHERE tl.user_id = $1 AND tl.thread_id IN (` + uPh + `) AND ` + lPred
 			likedRows, err := h.db.Query(likedQuery, uArgs...)
 			if err == nil {
 				defer likedRows.Close()

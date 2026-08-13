@@ -1497,8 +1497,13 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	// and RETURNING * contract as the generic DELETE path below.
 	query := "DELETE FROM " + tableName
 	if tableName == "profile_wall_post_comments" {
+		// M-3 (security audit): the author must be gone forever, not just
+		// hidden by the UI. user_id is nulled here (migration 093 dropped the
+		// NOT NULL) so no read path — current or future — can recover the
+		// identity of a deleted comment. The WHERE scope (user_id = caller)
+		// still sees the pre-update row, so the delete itself is unaffected.
 		query = `UPDATE profile_wall_post_comments
-SET content = NULL, content_json = NULL, is_deleted = TRUE, updated_at = NOW()`
+SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, updated_at = NOW()`
 	}
 	var args []interface{}
 	var clauses []string
