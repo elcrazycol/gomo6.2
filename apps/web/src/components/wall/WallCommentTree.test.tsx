@@ -474,8 +474,9 @@ describe("WallCommentTree", () => {
     const { container } = renderTree({ comments: [deletedComment, replyToDeleted] });
 
     await waitFor(() => {
-      expect(screen.getByText("Комментарий удалён")).toBeInTheDocument();
+      // The author slot shows "Автор неизвестен", the body — "Комментарий удалён".
       expect(screen.getByText("Автор неизвестен")).toBeInTheDocument();
+      expect(screen.getByText("Комментарий удалён")).toBeInTheDocument();
     });
 
     // The reply subtree underneath the deleted comment stays intact.

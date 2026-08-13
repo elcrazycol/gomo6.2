@@ -186,7 +186,7 @@ export const WallCommentNode = ({
             <div className="min-w-0 flex-1">
               {isDeleted ? (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span className="text-sm font-medium italic text-muted-foreground">Комментарий удалён</span>
+                  <span className="text-sm font-medium italic text-muted-foreground">Автор неизвестен</span>
                   <span className="text-xs text-muted-foreground">
                     {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
                   </span>
@@ -231,7 +231,7 @@ export const WallCommentNode = ({
                   />
                 </div>
               ) : isDeleted ? (
-                <div className="mt-1.5 text-sm italic leading-6 text-muted-foreground/70">Автор неизвестен</div>
+                <div className="mt-1.5 text-sm italic leading-6 text-muted-foreground/70">Комментарий удалён</div>
               ) : (
                 <div className="mt-1.5 max-w-[68ch] break-words text-sm leading-6 text-foreground/95">
                   <ProcessedContent
