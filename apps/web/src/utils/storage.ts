@@ -193,6 +193,25 @@ export const getPublicUrl = (bucket: string, key: string): { publicUrl: string }
   return { publicUrl: url || "" };
 };
 
+// The admin dashboard uploads gift catalog images and upgrade layers to the
+// admin-managed `gift-layers` bucket under keys like `gifts/<id>/base.png`,
+// and stores the literal placeholder "pending" while an upload is in flight
+// (and on upload failures). Treat that placeholder as "no image" so the UI
+// never fires a request for it.
+const GIFT_PENDING_PLACEHOLDER = "pending";
+
+/**
+ * Resolve a gift catalog image / upgrade-layer key to a display URL.
+ * Returns null when there is no usable image (empty, whitespace, or the
+ * admin's "pending" placeholder) — callers should render their fallback.
+ */
+export const giftImageUrl = (keyOrUrl?: string | null): string | null => {
+  if (!keyOrUrl) return null;
+  const v = keyOrUrl.trim();
+  if (!v || v.toLowerCase() === GIFT_PENDING_PLACEHOLDER) return null;
+  return storageUrl("gift-layers", v) || v;
+};
+
 /**
  * Delete a file from S3-compatible storage.
  *

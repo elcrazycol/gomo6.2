@@ -56,6 +56,21 @@ func NewStorageHandler(client *storage.StorageClient, db ...*sql.DB) *StorageHan
 	return &StorageHandler{client: client, db: database}
 }
 
+// isAdmin reports whether the user holds the platform 'admin' role. Used to
+// gate writes to the admin-managed gift-layers bucket, whose keys are NOT
+// namespaced by user ID (e.g. gifts/<id>/base.png). Fails closed when the DB
+// is unavailable — a nil db only occurs in validation-only unit tests.
+func (h *StorageHandler) isAdmin(userID string) bool {
+	if h.db == nil {
+		return false
+	}
+	var count int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, userID).Scan(&count); err != nil {
+		return false
+	}
+	return count > 0
+}
+
 // readUploadFile reads and validates a single file from multipart form.
 // Returns file data, original header, and any error.
 func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *multipart.FileHeader, err error) {
@@ -195,7 +210,7 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 // @Produce      json
 // @Param        file formData file true "File to upload (max 10MB)"
 // @Param        bucket formData string true "Bucket: uploads, content, post-images, avatars, wall, emojis"
-// @Param        key formData string true "Object key — must start with <userID>/ (or <userID>/messenger/ for uploads)"
+// @Param        key formData string true "Object key — must start with <userID>/ (or <userID>/messenger/ for uploads). gift-layers is admin-managed and accepts keys like gifts/<id>/base.png"
 // @Success      200 {object} models.APIResponse
 // @Failure      400 {object} models.APIResponse
 // @Failure      401 {object} models.APIResponse
@@ -238,13 +253,21 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	// every other user-uploaded object under <userID>/... . Keys are guessable
 	// (e.g. <userID>/avatar_<ts>.jpg), so an authenticated user must never be
 	// allowed to write into another user's namespace and overwrite their files.
+	// The admin-managed gift-layers bucket is exempt: gift images/layers are
+	// uploaded by the dev-dashboard under keys like gifts/<id>/base.png, which
+	// carry no user ID. Access there is gated by the platform admin role.
 	claimsValue, exists := c.Get("claims")
 	claims, claimsOK := claimsValue.(*auth.Claims)
 	if !exists || !claimsOK || claims == nil || claims.UserID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
-	if bucket == "uploads" {
+	if bucket == "gift-layers" {
+		if !h.isAdmin(claims.UserID) {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
+			return
+		}
+	} else if bucket == "uploads" {
 		if !strings.HasPrefix(key, claims.UserID+"/messenger/") {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("Invalid attachment key"))
 			return
@@ -391,13 +414,20 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	// the sender of an attachment row. Public-bucket objects are user-scoped by
 	// key (<userID>/...), so deleting outside your own namespace is forbidden —
 	// object keys are guessable enough to make an unauthorised DELETE dangerous.
+	// gift-layers is admin-managed (keys like gifts/<id>/base.png), so its
+	// deletions require the platform admin role instead of a user prefix.
 	claimsValue, exists := c.Get("claims")
 	claims, claimsOK := claimsValue.(*auth.Claims)
 	if !exists || !claimsOK || claims == nil || claims.UserID == "" {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
-	if bucket == "uploads" {
+	if bucket == "gift-layers" {
+		if !h.isAdmin(claims.UserID) {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+	} else if bucket == "uploads" {
 		// A derivative is never a user-facing attachment target. Rejecting it
 		// before the ownership query also prevents attachmentKeyForLookup from
 		// authorizing a preview delete as if it were the original object.

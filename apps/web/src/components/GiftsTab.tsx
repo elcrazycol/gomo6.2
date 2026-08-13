@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Gift, Send, User, Sparkles } from "lucide-react";
 import { DropsBalance } from "@/components/DropsBalance";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, giftImageUrl } from "@/utils/storage";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { UpgradedGiftCard } from "@/components/UpgradedGiftCard";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
@@ -179,10 +179,14 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
     }
   };
 
-  const giftImageUrl = (url?: string) => {
+  // Sender avatars live in the public post-images bucket — NOT the gift-layers
+  // bucket that gift images/upgrade layers use.
+  const avatarUrl = (url?: string) => {
     if (!url) return null;
     return storageUrl("post-images", url) || url;
   };
+
+  const sendDialogImage = selectedCatalogGift ? giftImageUrl(selectedCatalogGift.image_url) : null;
 
   return (
     <div className="relative">
@@ -200,7 +204,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
         <div className="space-y-3">
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2">
             {gifts.map((gift) => {
-              const senderImg = !gift.is_anonymous ? giftImageUrl(gift.sender_avatar_url) : null;
+              const senderImg = !gift.is_anonymous ? avatarUrl(gift.sender_avatar_url) : null;
               // Use UpgradedGiftCard for upgraded or upgradable gifts
               if (gift.is_upgraded || gift.is_gift_upgradable) {
                 return (
@@ -307,7 +311,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
               giftName={detailGift.gift_name}
               senderId={detailGift.sender_id}
               senderUsername={detailGift.sender_username}
-              senderAvatarUrl={giftImageUrl(detailGift.sender_avatar_url)}
+              senderAvatarUrl={avatarUrl(detailGift.sender_avatar_url)}
               isAnonymous={detailGift.is_anonymous}
               price={detailGift.gift_price}
               message={detailGift.message}
@@ -331,38 +335,41 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
             </div>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">
-            {giftCatalog.map((gift) => (
-              <button
-                key={gift.id}
-                onClick={() => {
-                  setSelectedCatalogGift(gift);
-                  setShowCatalog(false);
-                  setShowSendDialog(true);
-                }}
-                className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
-              >
-                <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden relative">
-                  {gift.image_url ? (
-                    <img
-                      src={giftImageUrl(gift.image_url) || gift.image_url}
-                      alt={gift.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Gift className="w-8 h-8 text-muted-foreground" />
-                  )}
-                  {gift.is_upgradable && (
-                    <div className="absolute top-0 right-0 w-4 h-4 bg-amber-500 rounded-bl-lg flex items-center justify-center">
-                      <Sparkles className="w-2.5 h-2.5 text-white" />
-                    </div>
-                  )}
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium">{gift.name}</p>
-                  <p className="text-xs text-muted-foreground">{gift.price} {formatDropsLabel(gift.price)}</p>
-                </div>
-              </button>
-            ))}
+            {giftCatalog.map((gift) => {
+              const catImg = giftImageUrl(gift.image_url);
+              return (
+                <button
+                  key={gift.id}
+                  onClick={() => {
+                    setSelectedCatalogGift(gift);
+                    setShowCatalog(false);
+                    setShowSendDialog(true);
+                  }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden relative">
+                    {catImg ? (
+                      <img
+                        src={catImg}
+                        alt={gift.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Gift className="w-8 h-8 text-muted-foreground" />
+                    )}
+                    {gift.is_upgradable && (
+                      <div className="absolute top-0 right-0 w-4 h-4 bg-amber-500 rounded-bl-lg flex items-center justify-center">
+                        <Sparkles className="w-2.5 h-2.5 text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium">{gift.name}</p>
+                    <p className="text-xs text-muted-foreground">{gift.price} {formatDropsLabel(gift.price)}</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
@@ -380,8 +387,8 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
             <div className="space-y-4">
               <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
                 <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0 relative">
-                  {selectedCatalogGift.image_url ? (
-                    <img src={giftImageUrl(selectedCatalogGift.image_url) || selectedCatalogGift.image_url} alt={selectedCatalogGift.name} className="w-full h-full object-cover" />
+                  {sendDialogImage ? (
+                    <img src={sendDialogImage} alt={selectedCatalogGift.name} className="w-full h-full object-cover" />
                   ) : (
                     <Gift className="w-8 h-8 text-muted-foreground" />
                   )}

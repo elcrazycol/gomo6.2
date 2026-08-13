@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, giftImageUrl } from "@/utils/storage";
 
 interface UpgradedGiftCardProps {
   id: string;
@@ -43,10 +43,9 @@ export function UpgradedGiftCard({
     return storageUrl("gift-layers", url);
   };
 
-  // Base gift images are in post-images bucket, not gift-layers
-  const baseImg = fallbackImageUrl
-    ? storageUrl("post-images", fallbackImageUrl) || fallbackImageUrl
-    : null;
+  // Base gift images live in the gift-layers bucket (same as layers); the
+  // helper also treats the admin's "pending" placeholder as "no image".
+  const baseImg = giftImageUrl(fallbackImageUrl);
 
   // Upgraded — 3-layer composition
   if (isUpgraded) {

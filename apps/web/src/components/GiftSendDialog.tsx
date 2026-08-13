@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { storageUrl } from "@/utils/storage";
+import { giftImageUrl } from "@/utils/storage";
 import { Gift, Loader2 } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import type { GiftCatalogItem } from "@/components/GiftCard";
@@ -74,7 +74,7 @@ export function GiftSendDialog({ gift, recipientId, recipientUsername, open, onO
 
   if (!gift) return null;
 
-  const imageUrl = storageUrl("post-images", gift.image_url) || gift.image_url;
+  const imageUrl = giftImageUrl(gift.image_url);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -199,7 +199,10 @@ const GiftAdmin = () => {
           });
           gift.image_url = key;
         } catch (err: any) {
-          toast.error(`Картинка не загрузилась: ${err.message}`);
+          // Roll back the just-created gift so a broken "pending" entry never
+          // stays in the catalog when the image could not be stored.
+          await api.fetch(`/api/v1/admin/gifts/${gift.id}`, { method: "DELETE" }).catch(() => {});
+          throw new Error(`Картинка не загрузилась: ${err.message}`);
         }
       }
 

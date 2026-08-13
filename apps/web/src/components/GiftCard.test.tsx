@@ -5,6 +5,7 @@ import type { GiftCatalogItem, UserGiftItem } from './GiftCard';
 
 vi.mock('@/utils/storage', () => ({
   storageUrl: (_bucket: string, key: string) => key ? `https://example.com/${key}` : null,
+  giftImageUrl: (key: string) => (key && key !== 'pending' ? `https://example.com/${key}` : null),
 }));
 
 vi.mock('date-fns', () => ({

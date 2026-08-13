@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift, FileUp } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, giftImageUrl } from "@/utils/storage";
 import { useMessengerStore, selectSelectedConversation, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
 import { formatPresence, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
@@ -298,7 +298,7 @@ export const ChatView = memo(function ChatView({
       const giftData = parseGiftContent(msg.content);
 
       if (giftData) {
-        const imgSrc = giftData.imageUrl ? storageUrl("post-images", giftData.imageUrl) || giftData.imageUrl : null;
+        const imgSrc = giftImageUrl(giftData.imageUrl);
         return (
           <div data-message-id={msg.id}>
             {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}

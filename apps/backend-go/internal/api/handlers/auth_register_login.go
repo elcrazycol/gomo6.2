@@ -102,7 +102,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain, &user.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create user"))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create user: "+err.Error()))
 		return
 	}
 

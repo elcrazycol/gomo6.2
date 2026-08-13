@@ -5,7 +5,7 @@ import { Users, MessageSquare, ArrowRight, FileText, Image as ImageIcon, Mic, Vi
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/integrations/api/compat";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, giftImageUrl } from "@/utils/storage";
 import {
   getAttachmentAspectRatio,
   getAttachmentDisplayWidth,
@@ -265,7 +265,9 @@ interface GiftDetailItem {
   symbol_layer_rarity?: number;
 }
 
-const giftImageUrl = (url?: string) => {
+// Sender avatars live in the public post-images bucket — NOT the gift-layers
+// bucket that gift images/upgrade layers use.
+const avatarUrl = (url?: string) => {
   if (!url) return null;
   return storageUrl("post-images", url) || url;
 };
@@ -302,7 +304,7 @@ export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { 
             giftName={gift.gift_name}
             senderId={gift.sender_id}
             senderUsername={gift.sender_username}
-            senderAvatarUrl={giftImageUrl(gift.sender_avatar_url)}
+            senderAvatarUrl={avatarUrl(gift.sender_avatar_url)}
             isAnonymous={gift.is_anonymous}
             price={gift.gift_price}
             message={gift.message}

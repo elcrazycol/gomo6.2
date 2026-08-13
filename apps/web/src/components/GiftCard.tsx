@@ -1,4 +1,4 @@
-import { storageUrl } from "@/utils/storage";
+import { giftImageUrl } from "@/utils/storage";
 import { Gift } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -46,8 +46,8 @@ export function GiftCard({ gift, variant = "catalog", onSend }: GiftCardProps) {
   const userGift = !isCatalog ? (gift as UserGiftItem) : null;
 
   const imageUrl = isCatalog
-    ? storageUrl("post-images", catalogGift!.image_url) || catalogGift!.image_url
-    : storageUrl("post-images", userGift!.gift_image_url || "") || userGift!.gift_image_url || "";
+    ? giftImageUrl(catalogGift!.image_url)
+    : giftImageUrl(userGift!.gift_image_url);
   const name = isCatalog ? catalogGift!.name : userGift!.gift_name || "Подарок";
   const price = isCatalog ? catalogGift!.price : userGift!.gift_price || 0;
 

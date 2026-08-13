@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { storageUrl, getPublicUrl, uploadFile, removeFile } from "./storage";
+import { storageUrl, giftImageUrl, getPublicUrl, uploadFile, removeFile } from "./storage";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -50,6 +50,37 @@ describe("storageUrl", () => {
   it("strips leading slashes from key", () => {
     const result = storageUrl("bucket", "/leading/slash.jpg");
     expect(result).not.toContain("//leading");
+  });
+});
+
+describe("giftImageUrl", () => {
+  it("returns null for null input", () => {
+    expect(giftImageUrl(null)).toBeNull();
+  });
+
+  it("returns null for undefined input", () => {
+    expect(giftImageUrl(undefined)).toBeNull();
+  });
+
+  it("returns null for empty and whitespace-only strings", () => {
+    expect(giftImageUrl("")).toBeNull();
+    expect(giftImageUrl("   ")).toBeNull();
+  });
+
+  it("returns null for the admin 'pending' placeholder", () => {
+    expect(giftImageUrl("pending")).toBeNull();
+    expect(giftImageUrl("PENDING")).toBeNull();
+    expect(giftImageUrl("  pending  ")).toBeNull();
+  });
+
+  it("constructs a gift-layers URL from a key", () => {
+    const result = giftImageUrl("gifts/abc/base.png");
+    expect(result).toContain("/storage/v1/object/gift-layers/");
+    expect(result).toContain("gifts/abc/base.png");
+  });
+
+  it("passes absolute URLs through unchanged", () => {
+    expect(giftImageUrl("https://example.com/gift.png")).toBe("https://example.com/gift.png");
   });
 });
 

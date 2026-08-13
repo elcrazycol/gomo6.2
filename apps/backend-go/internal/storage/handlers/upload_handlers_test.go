@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -261,6 +262,122 @@ func TestUploadFileWithKey_UploadsBucket_Success(t *testing.T) {
 	}
 	if _, ok := f.get("uploads", "user-1/messenger/photo.png"); !ok {
 		t.Error("encrypted messenger object was not stored")
+	}
+}
+
+// ─── gift-layers (admin-managed) ──────────────────────────────────────────────
+
+func TestUploadFileWithKey_GiftLayers_AdminAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	h, f := setupStorageHandlerWithS3(t, db)
+
+	// Gift keys are not user-namespaced — an admin must be able to write them.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+		WithArgs("admin-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := newMultipartUploadRequest(t, "file", "base.png", testPNG(t, 64, 64), map[string]string{
+		"bucket": "gift-layers",
+		"key":    "gifts/e9671c88-8c47-4037-bd9b-4bef453f17b0/base.png",
+	})
+	c, w := storageContext(t, req, &auth.Claims{UserID: "admin-1"})
+
+	h.UploadFileWithKey(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, ok := f.get("gift-layers", "gifts/e9671c88-8c47-4037-bd9b-4bef453f17b0/base.png"); !ok {
+		t.Error("gift object was not stored")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestUploadFileWithKey_GiftLayers_NonAdmin_Forbidden(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	h, _ := setupStorageHandlerWithS3(t, db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	req := newMultipartUploadRequest(t, "file", "base.png", testPNG(t, 64, 64), map[string]string{
+		"bucket": "gift-layers",
+		"key":    "gifts/whatever/base.png",
+	})
+	c, w := storageContext(t, req, &auth.Claims{UserID: "user-1"})
+
+	h.UploadFileWithKey(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestDeleteFile_GiftLayers_AdminAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	h, f := setupStorageHandlerWithS3(t, db)
+	f.put("gift-layers", "gifts/abc/base.png", []byte("png-bytes"), "image/png")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+		WithArgs("admin-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	c, w := newStoragePathContext(http.MethodDelete, "/storage/v1/object/gift-layers/gifts/abc/base.png",
+		map[string]string{"bucket": "gift-layers", "key": "gifts/abc/base.png"}, &auth.Claims{UserID: "admin-1"})
+
+	h.DeleteFile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, ok := f.get("gift-layers", "gifts/abc/base.png"); ok {
+		t.Error("gift object must be deleted")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestDeleteFile_GiftLayers_NonAdmin_Forbidden(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	h, _ := setupStorageHandlerWithS3(t, db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	c, w := newStoragePathContext(http.MethodDelete, "/storage/v1/object/gift-layers/gifts/abc/base.png",
+		map[string]string{"bucket": "gift-layers", "key": "gifts/abc/base.png"}, &auth.Claims{UserID: "user-1"})
+
+	h.DeleteFile(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
 	}
 }
 

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, giftImageUrl } from "@/utils/storage";
 import { formatPresence, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
@@ -111,10 +111,7 @@ export function UserInfoPanel({
     }
   }, [conversationId]);
 
-  const giftImageUrl = (url?: string) => {
-    if (!url) return null;
-    return storageUrl("post-images", url) || url;
-  };
+  const sendDialogImage = selectedGift ? giftImageUrl(selectedGift.image_url) : null;
 
   const handleSendGift = async () => {
     if (!selectedGift || sending) return;
@@ -360,33 +357,36 @@ export function UserInfoPanel({
             </div>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">
-            {giftCatalog.map((gift) => (
-              <button
-                key={gift.id}
-                onClick={() => {
-                  setSelectedGift(gift);
-                  setShowCatalog(false);
-                  setShowSendDialog(true);
-                }}
-                className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
-              >
-                <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
-                  {gift.image_url ? (
-                    <img
-                      src={giftImageUrl(gift.image_url) || gift.image_url}
-                      alt={gift.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Gift className="w-8 h-8 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium">{gift.name}</p>
-                  <p className="text-xs text-muted-foreground">{gift.price} {formatDropsLabel(gift.price)}</p>
-                </div>
-              </button>
-            ))}
+            {giftCatalog.map((gift) => {
+              const catImg = giftImageUrl(gift.image_url);
+              return (
+                <button
+                  key={gift.id}
+                  onClick={() => {
+                    setSelectedGift(gift);
+                    setShowCatalog(false);
+                    setShowSendDialog(true);
+                  }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                    {catImg ? (
+                      <img
+                        src={catImg}
+                        alt={gift.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Gift className="w-8 h-8 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium">{gift.name}</p>
+                    <p className="text-xs text-muted-foreground">{gift.price} {formatDropsLabel(gift.price)}</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
@@ -404,8 +404,8 @@ export function UserInfoPanel({
             <div className="space-y-4">
               <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
                 <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                  {selectedGift.image_url ? (
-                    <img src={giftImageUrl(selectedGift.image_url) || selectedGift.image_url} alt={selectedGift.name} className="w-full h-full object-cover" />
+                  {sendDialogImage ? (
+                    <img src={sendDialogImage} alt={selectedGift.name} className="w-full h-full object-cover" />
                   ) : (
                     <Gift className="w-8 h-8 text-muted-foreground" />
                   )}
