@@ -454,6 +454,38 @@ func TestSetupRoutes_OGWallImageRateLimited(t *testing.T) {
 	}
 }
 
+// The public /api/rpc surface (likes batch, recent likers, emoji resolve,
+// avatar history) is reachable by anonymous callers, so it must carry its own
+// per-IP rate limiter with a stricter budget than the generic REST surface.
+// Locking this in guards against someone accidentally dropping the middleware
+// from the group: the first request passes, the second from the same IP gets
+// 429 once the (env-tuned) budget is exhausted.
+func TestSetupRoutes_PublicRPCRateLimitedForGuests(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	t.Setenv("RPC_RATE_LIMIT_PER_IP", "1")
+
+	router := newTestRouterWithRedis(t, false, rdb)
+
+	// First request passes the limiter (the handler needs a DB the sqlmock
+	// does not answer, so it may error — but crucially not with 429).
+	req1 := httptest.NewRequest(http.MethodGet, "/api/rpc/get_post_likes_count?post_uuid=00000000-0000-0000-0000-000000000000", nil)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+	if rec1.Code == http.StatusTooManyRequests {
+		t.Fatal("first request must pass the limiter")
+	}
+
+	// Second request from the same IP exhausts the guest budget → 429.
+	req2 := httptest.NewRequest(http.MethodGet, "/api/rpc/get_post_likes_count?post_uuid=00000000-0000-0000-0000-000000000000", nil)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after the guest RPC budget is exhausted, got %d", rec2.Code)
+	}
+}
+
 func TestSetupRoutes_NoWebSocketWithoutHub(t *testing.T) {
 	router := newTestRouter(t, false)
 	for _, path := range []string{"/ws", "/ws/stats"} {

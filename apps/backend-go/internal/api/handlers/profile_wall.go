@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -82,12 +81,11 @@ LEFT JOIN privacy_settings ps ON ps.user_id = wp.user_id
 }
 
 func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int, ownerColumn, privacyAlias string) {
-	claimsValue, exists := c.Get("claims")
-	claims, ok := claimsValue.(*auth.Claims)
-	if !exists || !ok || claims == nil || claims.UserID == "" {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-		return
-	}
+	// Guests are allowed to read walls: they get the same predicate with an
+	// empty viewer ID, which matches no ownership/friendship rows and therefore
+	// only exposes walls of public profiles that have not hidden their wall
+	// (private_hide_wall). Private walls stay hidden from anonymous callers.
+	viewerID := authenticatedUserID(c)
 
 	var args []interface{}
 	ai := argIndex
@@ -129,9 +127,10 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 		}
 	}
 
-	// The route is authenticated in production. Apply the same visibility
-	// predicate to every row, including repost lookups that do not carry a
-	// user_id filter, so private walls cannot be enumerated by post ID.
+	// Apply the same visibility predicate to every row, including repost
+	// lookups that do not carry a user_id filter, so private walls cannot be
+	// enumerated by post ID. Guests (viewerID == "") only ever match the
+	// "public profile with visible wall" branch.
 	//
 	// Privacy guarantee: a wall is visible to the owner, to mutual friends, and
 	// to everyone else ONLY when the profile is public AND the owner has not
@@ -146,7 +145,7 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 		ownerColumn+" = "+viewerArg+
 		" OR (COALESCE("+privacyAlias+".private_profile, false) = false AND COALESCE("+privacyAlias+".private_hide_wall, false) = false)"+
 		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
-	args = append(args, claims.UserID)
+	args = append(args, viewerID)
 
 	// The viewer parameter reference is only known now that the filter clauses
 	// are built; substitute it into the {viewer} placeholder used by the count

@@ -319,6 +319,65 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.POST("/drops/callback", dropsHandler.DropsCallback)
 
 		// Additional tables (frontend compatibility)
+		//
+		// Read-only GET surface for guest browsing. Registered on the `rest`
+		// group so it inherits OptionalAuth (claims when present, anonymous
+		// allowed), the viewer-keyed data cache and the global rate limiter.
+		// Writes (POST/PUT/DELETE) stay behind the strict AuthCacheMiddleware
+		// in genericProtected.
+		//
+		// Security notes:
+		//  - Personal tables are viewer-scoped by genericReadScopeUser, so
+		//    anonymous callers receive an empty result set — never another
+		//    user's rows.
+		//  - The gomosub structure tables carry an extra board-visibility
+		//    predicate (genericGomosubVisibility): rows of PRIVATE gomosubs
+		//    are invisible to guests and non-members.
+		//  - Profile walls apply the same per-wall privacy predicate as the
+		//    authenticated path (private walls stay hidden).
+		genericRead := rest.Group("")
+		{
+			genericRead.GET("/channels", universalHandler.HandleTableRequest)
+			genericRead.GET("/channels/*path", universalHandler.HandleTableRequest)
+
+			genericRead.GET("/user_achievements", universalHandler.HandleTableRequest)
+			genericRead.GET("/user_achievements/*path", universalHandler.HandleTableRequest)
+
+			genericRead.GET("/achievements", universalHandler.HandleTableRequest)
+			genericRead.GET("/achievements/*path", universalHandler.HandleTableRequest)
+
+			genericRead.GET("/profile_customization", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_customization/*path", universalHandler.HandleTableRequest)
+
+			genericRead.GET("/user_placeholders", universalHandler.HandleTableRequest)
+			genericRead.GET("/user_placeholders/*path", universalHandler.HandleTableRequest)
+
+			genericRead.GET("/polls", universalHandler.HandleTableRequest)
+			genericRead.GET("/polls/*path", universalHandler.HandleTableRequest)
+
+			// Profile wall reads — public for public walls (the handler enforces
+			// the same privacy predicate as the authenticated path).
+			genericRead.GET("/profile_wall_posts", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_post_comments", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_post_likes", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
+			genericRead.GET("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
+
+			// Emoji packs — specific routes BEFORE any wildcard (Gin requirement)
+			genericRead.GET("/emoji_packs/by-slug/:slug", emojiPacksHandler.GetPackBySlug)
+			// Emoji resolution is read-only — guests need it to render custom
+			// emojis in posts and nicknames.
+			genericRead.POST("/custom_emojis/resolve", emojiPacksHandler.ResolveEmojis)
+			genericRead.GET("/emoji_packs", universalHandler.HandleTableRequest)
+			genericRead.GET("/custom_emojis", universalHandler.HandleTableRequest)
+			genericRead.GET("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
+		}
+
 		genericProtected := rest.Group("")
 		genericProtected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		genericProtected.Use(middleware.ValidateCSRFMiddleware())
@@ -328,9 +387,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/gomosub_memberships", universalHandler.HandleTableRequest)
 		genericProtected.GET("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/channels", universalHandler.HandleTableRequest)
-		genericProtected.GET("/channels/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/gomosub_roles", universalHandler.HandleTableRequest)
 		genericProtected.GET("/gomosub_roles/*path", universalHandler.HandleTableRequest)
@@ -348,12 +404,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected.PUT("/user_session_time", universalHandler.HandleTableRequest)
 		genericProtected.PUT("/user_session_time/*path", universalHandler.HandleTableRequest)
 
-		genericProtected.GET("/user_achievements", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_achievements/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/achievements", universalHandler.HandleTableRequest)
-		genericProtected.GET("/achievements/*path", universalHandler.HandleTableRequest)
-
 		genericProtected.GET("/user_terms_acceptance", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
 		// Writes: the frontend inserts the acceptance row right after signup;
@@ -361,16 +411,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected.POST("/user_terms_acceptance", universalHandler.HandleTableRequest)
 		genericProtected.POST("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
 
-		genericProtected.GET("/profile_customization", universalHandler.HandleTableRequest)
-		genericProtected.GET("/profile_customization/*path", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_customization", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_customization/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/user_placeholders", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_placeholders/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/polls", universalHandler.HandleTableRequest)
-		genericProtected.GET("/polls/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/poll_votes", universalHandler.HandleTableRequest)
 		genericProtected.GET("/poll_votes/*path", universalHandler.HandleTableRequest)
@@ -409,8 +451,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Profile wall uses the universal CRUD handler for reads and mutations.
 		// Register every method here; registering GET only makes Gin return 404
 		// before the already-tested POST/PUT/DELETE handler is reached.
-		genericProtected.GET("/profile_wall_posts", universalHandler.HandleTableRequest)
-		genericProtected.GET("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_posts", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
 		genericProtected.PUT("/profile_wall_posts", universalHandler.HandleTableRequest)
@@ -418,8 +458,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected.DELETE("/profile_wall_posts", universalHandler.HandleTableRequest)
 		genericProtected.DELETE("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
 
-		genericProtected.GET("/profile_wall_post_comments", universalHandler.HandleTableRequest)
-		genericProtected.GET("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_post_comments", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
 		genericProtected.PUT("/profile_wall_post_comments", universalHandler.HandleTableRequest)
@@ -427,8 +465,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected.DELETE("/profile_wall_post_comments", universalHandler.HandleTableRequest)
 		genericProtected.DELETE("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
 
-		genericProtected.GET("/profile_wall_post_likes", universalHandler.HandleTableRequest)
-		genericProtected.GET("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_post_likes", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
 		genericProtected.PUT("/profile_wall_post_likes", universalHandler.HandleTableRequest)
@@ -436,8 +472,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected.DELETE("/profile_wall_post_likes", universalHandler.HandleTableRequest)
 		genericProtected.DELETE("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
 
-		genericProtected.GET("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
-		genericProtected.GET("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 		genericProtected.PUT("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
@@ -445,8 +479,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected.DELETE("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
 		genericProtected.DELETE("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 
-		genericProtected.GET("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
-		genericProtected.GET("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
 		genericProtected.POST("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
 		genericProtected.PUT("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
@@ -471,13 +503,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/user_settings_changes", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_settings_changes/*path", universalHandler.HandleTableRequest)
-
-		// Emoji packs — specific routes BEFORE any wildcard (Gin requirement)
-		genericProtected.GET("/emoji_packs/by-slug/:slug", emojiPacksHandler.GetPackBySlug)
-		genericProtected.POST("/custom_emojis/resolve", emojiPacksHandler.ResolveEmojis)
-		genericProtected.GET("/emoji_packs", universalHandler.HandleTableRequest)
-		genericProtected.GET("/custom_emojis", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
 
 		// Protected endpoints
 		protected := rest.Group("")
@@ -616,6 +641,22 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// RPC functions
 	rpc := router.Group("/api/rpc")
 	{
+		// Public RPC functions — anonymous callers can hammer the likes-batch,
+		// recent-likers, emoji-resolve and avatar-history endpoints, so the whole
+		// group carries its own rate limiter with a stricter per-IP budget than
+		// the generic REST surface (guests cannot be attributed to a person, so
+		// everyone on one IP shares the bucket). Authenticated requests are keyed
+		// by user ID with a generous budget. OptionalAuth runs first so the
+		// limiter can distinguish the two; the protected subgroup below adds the
+		// strict AuthMiddleware on top.
+		rpcRateLimiter := middleware.NewGlobalRateLimiterFromEnvWithPrefix(
+			"rpc", redis, time.Minute,
+			middleware.DefaultRateLimitPerUser, // authenticated: 900 req/min (RPC_RATE_LIMIT_PER_USER)
+			120,                                // anonymous: 120 req/min per IP (RPC_RATE_LIMIT_PER_IP)
+		)
+		rpc.Use(middleware.OptionalAuthMiddlewareWithDB(authService, db))
+		rpc.Use(middleware.GlobalRateLimitMiddleware(rpcRateLimiter))
+
 		// Public RPC functions
 		rpc.GET("/get_post_likes_count", rpcHandler.GetPostLikesCount)
 		rpc.GET("/get_thread_likes_count", rpcHandler.GetThreadLikesCount)
@@ -626,6 +667,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		// Emoji resolve (public — guests need to render custom emojis in posts)
 		rpc.POST("/resolve_emojis", emojiPacksHandler.ResolveEmojis)
+
+		// Avatar history (public — guests see profile avatars; the handler
+		// enforces private-profile privacy itself)
+		rpc.POST("/get_avatar_history", rpcHandler.GetAvatarHistory)
 
 		// Protected RPC functions
 		protected := rpc.Group("")
@@ -641,7 +686,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/get_user_thread_likes_received_timestamps", rpcHandler.GetUserThreadLikesReceivedTimestamps)
 			protected.GET("/get_user_thread_reply_timestamps", rpcHandler.GetUserThreadReplyTimestamps)
 			protected.GET("/toggle_wall_post_pin", rpcHandler.ToggleWallPostPin)
-			protected.POST("/get_avatar_history", rpcHandler.GetAvatarHistory)
 			protected.POST("/delete_avatar_from_history", rpcHandler.DeleteAvatarFromHistory)
 			protected.POST("/toggle_achievement_pin", rpcHandler.ToggleAchievementPin)
 			protected.POST("/award_achievement", rpcHandler.AwardAchievement)

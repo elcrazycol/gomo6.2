@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -82,15 +81,16 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	// Always bind the result set to the authenticated user or to the explicitly
 	// requested profile. The generic compatibility endpoint must never allow a
 	// caller to omit user_id and enumerate every user's achievements.
-	claimsValue, claimsExists := c.Get("claims")
-	claims, claimsOK := claimsValue.(*auth.Claims)
-	if !claimsExists || !claimsOK || claims == nil || claims.UserID == "" {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-		return
-	}
-	viewerID := claims.UserID
+	// Anonymous callers may read OTHER users' achievements (profile pages are
+	// public for guests), but without an explicit user_id filter there is
+	// nothing to bind the query to — guests get an empty result set.
+	viewerID := authenticatedUserID(c)
 	targetUserID := strings.TrimPrefix(c.Query("user_id"), "eq.")
 	if targetUserID == "" {
+		if viewerID == "" {
+			c.JSON(http.StatusOK, models.SuccessResponse([]map[string]interface{}{}))
+			return
+		}
 		targetUserID = viewerID
 	}
 	clauses = append(clauses, "ua.user_id = $"+strconv.Itoa(argIndex))

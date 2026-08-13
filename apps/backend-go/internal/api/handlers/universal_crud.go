@@ -336,6 +336,21 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		}
 	}
 
+	// Guest/authenticated gomosub structure gating: channels, gomosub_roles and
+	// channel_permissions of PRIVATE boards are only readable by the owner and
+	// members (public boards are readable by everyone, guests included). This
+	// stops anonymous browsing from enumerating a private gomosub's internal
+	// structure by guessing UUIDs and also closes the pre-existing exposure of
+	// that structure to any logged-in non-member.
+	if tableName == "channels" || tableName == "gomosub_roles" || tableName == "channel_permissions" {
+		scopeClause, scopeArgs, nextArgIndex := genericGomosubVisibility(c, tableName, argIndex)
+		if scopeClause != "" {
+			clauses = append(clauses, scopeClause)
+			args = append(args, scopeArgs...)
+			argIndex = nextArgIndex
+		}
+	}
+
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}

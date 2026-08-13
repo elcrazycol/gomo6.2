@@ -83,6 +83,45 @@ func TestGlobalRateLimiter_ZeroLimitDeniesAll(t *testing.T) {
 	}
 }
 
+func TestGlobalRateLimiter_PrefixesIndependent(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	// Both limiters share one IP key and one budget size, but different
+	// prefixes: consuming one surface's budget must not touch the other's.
+	rpcLimiter := NewGlobalRateLimiterWithPrefix("rpc", rdb, 900, 2, time.Minute)
+	restLimiter := NewGlobalRateLimiterWithPrefix("global", rdb, 900, 2, time.Minute)
+
+	// Exhaust the rpc per-IP budget.
+	if !rpcLimiter.Allow("ip:5.5.5.5", rpcLimiter.maxRequestsPerIP) {
+		t.Fatal("first rpc IP request should be allowed")
+	}
+	if !rpcLimiter.Allow("ip:5.5.5.5", rpcLimiter.maxRequestsPerIP) {
+		t.Fatal("second rpc IP request should be allowed")
+	}
+	if rpcLimiter.Allow("ip:5.5.5.5", rpcLimiter.maxRequestsPerIP) {
+		t.Fatal("third rpc IP request should be denied (budget exhausted)")
+	}
+
+	// The REST surface keeps its own untouched budget for the same IP.
+	if !restLimiter.Allow("ip:5.5.5.5", restLimiter.maxRequestsPerIP) {
+		t.Fatal("rest limiter must have an independent budget for the same IP")
+	}
+	if !restLimiter.Allow("ip:5.5.5.5", restLimiter.maxRequestsPerIP) {
+		t.Fatal("second rest request must be allowed")
+	}
+}
+
+func TestGlobalRateLimiter_DefaultPrefixMatchesLegacyKeys(t *testing.T) {
+	// NewGlobalRateLimiter (no prefix) must keep using the "global" namespace
+	// so existing Redis keys stay valid across deployments.
+	limiter := NewGlobalRateLimiter(nil, 1, 1, time.Minute)
+	if limiter.prefix != "global" {
+		t.Fatalf("expected default prefix \"global\", got %q", limiter.prefix)
+	}
+}
+
 func TestGlobalRateLimitMiddleware_AuthenticatedUsesUserBucket(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})

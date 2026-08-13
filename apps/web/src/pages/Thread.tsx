@@ -420,43 +420,49 @@ const Thread = () => {
     if (!thread?.id || !threadId) return;
 
     const loadPollData = async () => {
-      const token = (await api.auth.getSession()).data.session?.access_token;
-      const headers = token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : undefined;
+      try {
+        const token = (await api.auth.getSession()).data.session?.access_token;
+        const headers = token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : undefined;
 
-      const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${threadId}`);
-      const pollResult = await pollRes.json();
-      const poll = pollResult.data?.[0];
+        const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${threadId}`);
+        const pollResult = await pollRes.json();
+        const poll = pollResult.data?.[0];
 
-      if (poll) {
-        let userVotes: string[] = [];
-        if (user?.id && token) {
-          const voteRes = await fetch(`/api/v1/poll_votes?poll_id=eq.${poll.id}&user_id=eq.${user.id}`, { headers });
-          const voteResult = await voteRes.json();
-          const userVote = voteResult.data?.[0];
+        if (poll) {
+          let userVotes: string[] = [];
+          if (user?.id && token) {
+            const voteRes = await fetch(`/api/v1/poll_votes?poll_id=eq.${poll.id}&user_id=eq.${user.id}`, { headers });
+            const voteResult = await voteRes.json();
+            const userVote = voteResult.data?.[0];
 
-          userVotes = userVote?.option_ids || [];
+            userVotes = userVote?.option_ids || [];
+          }
+
+          setPollData({ ...poll, user_votes: userVotes });
         }
 
-        setPollData({ ...poll, user_votes: userVotes });
-      }
-
-      if (user && thread && token && !recordedVisits.has(thread.id)) {
-        try {
-          const hasCustomMessage = (thread as ThreadWithExtras).custom_message && ((thread as ThreadWithExtras).custom_message ?? "").trim().length > 0;
-          const visitRes = await fetch('/api/v1/thread_custom_message_visits', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: user.id,
-              thread_id: thread.id,
-              has_custom_message: hasCustomMessage
-            }),
-          });
-          // Only remember successful records so a transient failure retries.
-          if (visitRes.ok) recordedVisits.add(thread.id);
-        } catch (error) {
-          console.error("Thread visit tracking unavailable:", error);
+        if (user && thread && token && !recordedVisits.has(thread.id)) {
+          try {
+            const hasCustomMessage = (thread as ThreadWithExtras).custom_message && ((thread as ThreadWithExtras).custom_message ?? "").trim().length > 0;
+            const visitRes = await fetch('/api/v1/thread_custom_message_visits', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                user_id: user.id,
+                thread_id: thread.id,
+                has_custom_message: hasCustomMessage
+              }),
+            });
+            // Only remember successful records so a transient failure retries.
+            if (visitRes.ok) recordedVisits.add(thread.id);
+          } catch (error) {
+            console.error("Thread visit tracking unavailable:", error);
+          }
         }
+      } catch (error) {
+        // Guests or transient failures must never surface as unhandled
+        // rejections — the thread page just renders without a poll.
+        console.error('Error loading poll data:', error);
       }
     };
 

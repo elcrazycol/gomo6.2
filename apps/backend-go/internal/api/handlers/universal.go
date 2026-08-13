@@ -255,6 +255,41 @@ func genericReadScopeUser(c *gin.Context, table string) string {
 	return claims.UserID
 }
 
+// genericGomosubVisibility returns a WHERE predicate that restricts reads of
+// gomosub structure tables (channels, gomosub_roles, channel_permissions) to
+// rows belonging to boards the caller may actually see. Public boards are
+// readable by everyone — guests included. Rows of private boards are only
+// readable by the board owner and its members, mirroring the board-level
+// visibility gate (GetBoard), so anonymous browsing cannot enumerate a private
+// gomosub's internal structure by guessing UUIDs — and the pre-existing
+// exposure of that structure to any logged-in non-member is closed as well.
+// Returns an empty clause for unknown tables.
+func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (string, []interface{}, int) {
+	viewerID := authenticatedUserID(c)
+	var clause string
+	var args []interface{}
+
+	switch tableName {
+	case "channels", "gomosub_roles":
+		clause = "board_id IN (SELECT b.id FROM boards b WHERE b.visibility IS DISTINCT FROM 'private'"
+	case "channel_permissions":
+		clause = "channel_id IN (SELECT ch.id FROM channels ch JOIN boards b ON b.id = ch.board_id WHERE b.visibility IS DISTINCT FROM 'private'"
+	default:
+		return "", nil, argIndex
+	}
+
+	if viewerID != "" {
+		clause += " OR b.owner_id = $" + strconv.Itoa(argIndex)
+		args = append(args, viewerID)
+		argIndex++
+		clause += " OR b.id IN (SELECT gm.board_id FROM gomosub_memberships gm WHERE gm.user_id = $" + strconv.Itoa(argIndex) + ")"
+		args = append(args, viewerID)
+		argIndex++
+	}
+	clause += ")"
+	return clause, args, argIndex
+}
+
 // ─── Filter Helpers ─────────────────────────────────────────────────────────
 
 // decodeColumnValue converts a database column value to a JSON-safe representation.

@@ -10,6 +10,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
+import { GuestSignupBanner } from "@/components/GuestSignupBanner";
 import { AchievementToastListener } from "@/components/AchievementToastListener";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1393,6 +1394,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       ) : null}
 
       <DropsShop open={showDropsShop} onOpenChange={setShowDropsShop} />
+
+      {/* Registration CTA for anonymous visitors (small, collapsible) */}
+      {!user && <GuestSignupBanner />}
     </div>
   );
 };

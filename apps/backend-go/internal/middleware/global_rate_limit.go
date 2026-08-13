@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,16 +34,33 @@ const (
 //
 //	RATE_LIMIT_PER_USER  (default 900) — authenticated requests per minute
 //	RATE_LIMIT_PER_IP    (default 300) — anonymous requests per minute per IP
+//
+// The Redis keys are namespaced under a per-limiter prefix (see
+// NewGlobalRateLimiterWithPrefix) so distinct API surfaces keep independent
+// budgets even when they share the same IP or user.
 type GlobalRateLimiter struct {
 	redis              *redis.Client
+	prefix             string
 	maxRequestsPerUser int
 	maxRequestsPerIP   int
 	window             time.Duration
 }
 
+// NewGlobalRateLimiter builds a limiter under the "global" key namespace — the
+// default for the generic REST surface.
 func NewGlobalRateLimiter(redisClient *redis.Client, maxRequestsPerUser, maxRequestsPerIP int, window time.Duration) *GlobalRateLimiter {
+	return NewGlobalRateLimiterWithPrefix("global", redisClient, maxRequestsPerUser, maxRequestsPerIP, window)
+}
+
+// NewGlobalRateLimiterWithPrefix builds a limiter whose Redis keys are
+// namespaced under prefix (e.g. "rpc"). Separate prefixes mean separate
+// budgets: burning the per-IP budget of one surface never depletes another's.
+// The prefix must be unique per surface — sharing it would make two limiters
+// increment the same counters.
+func NewGlobalRateLimiterWithPrefix(prefix string, redisClient *redis.Client, maxRequestsPerUser, maxRequestsPerIP int, window time.Duration) *GlobalRateLimiter {
 	return &GlobalRateLimiter{
 		redis:              redisClient,
+		prefix:             prefix,
 		maxRequestsPerUser: maxRequestsPerUser,
 		maxRequestsPerIP:   maxRequestsPerIP,
 		window:             window,
@@ -56,6 +74,21 @@ func NewGlobalRateLimiterFromEnv(redisClient *redis.Client, window time.Duration
 		redisClient,
 		envInt("RATE_LIMIT_PER_USER", DefaultRateLimitPerUser),
 		envInt("RATE_LIMIT_PER_IP", DefaultRateLimitPerIP),
+		window,
+	)
+}
+
+// NewGlobalRateLimiterFromEnvWithPrefix builds a prefixed limiter whose budgets
+// are read from <PREFIX>_RATE_LIMIT_PER_USER / <PREFIX>_RATE_LIMIT_PER_IP
+// (e.g. RPC_RATE_LIMIT_PER_USER=900, RPC_RATE_LIMIT_PER_IP=120) with the given
+// defaults when unset. This lets ops tune each API surface independently.
+func NewGlobalRateLimiterFromEnvWithPrefix(prefix string, redisClient *redis.Client, window time.Duration, defaultUser, defaultIP int) *GlobalRateLimiter {
+	p := strings.ToUpper(prefix)
+	return NewGlobalRateLimiterWithPrefix(
+		prefix,
+		redisClient,
+		envInt(p+"_RATE_LIMIT_PER_USER", defaultUser),
+		envInt(p+"_RATE_LIMIT_PER_IP", defaultIP),
 		window,
 	)
 }
@@ -83,7 +116,7 @@ func (rl *GlobalRateLimiter) Allow(key string, maxRequests int) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	k := fmt.Sprintf("ratelimit:global:%s", key)
+	k := fmt.Sprintf("ratelimit:%s:%s", rl.prefix, key)
 
 	count, err := rl.redis.Incr(ctx, k).Result()
 	if err != nil {
