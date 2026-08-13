@@ -70,6 +70,7 @@ func (h *UniversalHandler) handleProfileWallPostCommentsGet(c *gin.Context) {
 	// JOIN drops such orphans entirely.
 	query := `
 SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
+       c.is_deleted,
        ` + wallCommentCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c
@@ -274,6 +275,7 @@ WHERE p.id = $1`
 func (h *UniversalHandler) fetchProfileWallCommentWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
 	q := `
 SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
+       c.is_deleted,
        ` + wallCommentCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c

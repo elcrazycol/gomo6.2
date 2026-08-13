@@ -1266,9 +1266,12 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	// L5: a comment's target post is fixed at creation. A generic PUT must not
 	// be able to re-point post_id onto another (possibly nonexistent) post —
 	// that would bypass the POST-time privacy check (enforceWallTargetPrivacy)
-	// and could forge orphan comments on a foreign wall.
+	// and could forge orphan comments on a foreign wall. parent_id is equally
+	// fixed at creation: re-parenting a comment would detach its reply subtree
+	// from the visible branch.
 	if tableName == "profile_wall_post_comments" {
 		delete(data, "post_id")
+		delete(data, "parent_id")
 	}
 
 	// H1 (security audit): a membership role must belong to the board of the
@@ -1485,7 +1488,18 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 // ─── DELETE ─────────────────────────────────────────────────────────────────
 
 func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
+	// Wall comments are soft-deleted: the row must survive so the replies
+	// underneath it (parent_id has ON DELETE CASCADE — a hard delete used to
+	// wipe the whole subtree) and the thread structure stay intact. The content
+	// is wiped server-side and the comment is flagged, so it renders as a
+	// "Комментарий удалён" placeholder with an unknown author. The UPDATE
+	// keeps the same WHERE scoping (enforceWallWriteScope → user_id = caller)
+	// and RETURNING * contract as the generic DELETE path below.
 	query := "DELETE FROM " + tableName
+	if tableName == "profile_wall_post_comments" {
+		query = `UPDATE profile_wall_post_comments
+SET content = NULL, content_json = NULL, is_deleted = TRUE, updated_at = NOW()`
+	}
 	var args []interface{}
 	var clauses []string
 	argIndex := 1
@@ -1652,13 +1666,12 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	}
 
 	// Unified profile stats: deleted wall content drops the author's counters.
+	// Comments are intentionally absent here: wall comments are soft-deleted
+	// (the row survives as a visible "Комментарий удалён" placeholder), so the
+	// author's comment_count/garma must stay unchanged.
 	switch tableName {
 	case "profile_wall_posts":
 		if uid := rowUserID(result["author_id"]); uid != "" {
-			RecomputeUserProfileStats(h.db, uid)
-		}
-	case "profile_wall_post_comments":
-		if uid := rowUserID(result["user_id"]); uid != "" {
 			RecomputeUserProfileStats(h.db, uid)
 		}
 	case "profile_wall_post_likes":

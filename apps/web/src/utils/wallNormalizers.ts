@@ -54,6 +54,10 @@ export interface WallComment {
   /** Comment like counts embedded by the server — no per-comment requests. */
   likes_count?: number;
   liked_by_viewer?: boolean;
+  /** Soft-deleted: the row survives as a "Комментарий удалён" placeholder so
+   * the reply subtree underneath stays intact. The author must render as
+   * unknown. */
+  is_deleted?: boolean;
 }
 
 export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: string) => {
@@ -121,6 +125,7 @@ export const normalizeWallComment = (comment: Record<string, unknown>): WallComm
     updated_at: (comment.updated_at as string | null | undefined) || new Date().toISOString(),
     likes_count: (comment?.likes_count as number | undefined) ?? 0,
     liked_by_viewer: Boolean(comment?.liked_by_viewer),
+    is_deleted: Boolean(comment?.is_deleted),
     author: normalizeWallPostAuthor(comment?.author as Record<string, unknown> | null | undefined),
   };
 };

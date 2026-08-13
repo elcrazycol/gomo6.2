@@ -450,8 +450,50 @@ describe("WallCommentTree", () => {
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("Комментарий удалён");
-      expect(onCommentCountChange).toHaveBeenCalledWith(-1);
     });
+    // Soft delete: the comment survives as a placeholder (replies stay), so
+    // the visible comment counter must NOT change.
+    expect(onCommentCountChange).not.toHaveBeenCalled();
+  });
+
+  it("renders a soft-deleted comment as an unknown-author placeholder and keeps its replies", async () => {
+    const deletedComment = makeComment({
+      id: "deleted-1",
+      content: "",
+      content_json: null,
+      is_deleted: true,
+      updated_at: "2025-01-02T10:00:00Z",
+    });
+    const replyToDeleted = makeComment({
+      id: "reply-to-deleted",
+      user_id: "user-2",
+      parent_id: "deleted-1",
+      content: "Ответ под удалённым",
+      author: { username: "bob", display_name: null, is_anonymous: false, avatar_url: null },
+    });
+    const { container } = renderTree({ comments: [deletedComment, replyToDeleted] });
+
+    await waitFor(() => {
+      expect(screen.getByText("Комментарий удалён")).toBeInTheDocument();
+      expect(screen.getByText("Автор неизвестен")).toBeInTheDocument();
+    });
+
+    // The reply subtree underneath the deleted comment stays intact.
+    expect(screen.getByText("Ответ под удалённым")).toBeInTheDocument();
+    // Author is hidden — no name, no avatar link.
+    expect(screen.queryByText("alice")).not.toBeInTheDocument();
+    expect(container.querySelector("[data-wall-avatar='deleted']")).toBeInTheDocument();
+    // No like/reply/edit/delete actions on the placeholder's own row (the
+    // live reply underneath keeps its own actions — that's fine). The node's
+    // children container also nests the reply, so scope to the row itself.
+    const deletedNode = container.querySelector("[data-comment-id='deleted-1']")!;
+    const deletedRow = deletedNode.querySelector(":scope > .group");
+    expect(deletedRow?.querySelector(".lucide-heart")).not.toBeInTheDocument();
+    expect(deletedRow?.querySelector(".lucide-reply")).not.toBeInTheDocument();
+    expect(deletedRow?.querySelector('[title="Редактировать"]')).not.toBeInTheDocument();
+    expect(deletedRow?.querySelector('[title="Удалить"]')).not.toBeInTheDocument();
+    // …but the reply branch can still be collapsed.
+    expect(screen.getByText("Свернуть")).toBeInTheDocument();
   });
 
   it("shows an error toast when deleting fails", async () => {

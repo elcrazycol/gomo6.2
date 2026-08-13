@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
-import { ChevronDown, Edit3, Ellipsis, Heart, Loader2, Reply, Trash2 } from "lucide-react";
+import { ChevronDown, Edit3, Ellipsis, Ghost, Heart, Loader2, Reply, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +81,10 @@ export const WallCommentNode = ({
   const threadRail = depth === 1 ? "-left-[18px] sm:-left-5" : "-left-4";
   const threadRailWidth = depth === 1 ? "w-[18px] sm:w-5" : "w-4";
   const threadStemTop = depth === 0 ? "top-5 sm:top-[22px]" : "top-[18px]";
+  // Soft-deleted comments stay in the tree as a placeholder so the replies
+  // underneath them keep their place. Everything about the original author is
+  // hidden: no avatar, no name, no profile link — just "Комментарий удалён".
+  const isDeleted = Boolean(comment.is_deleted);
   const avatarUrl = storageUrl("post-images", comment.author.avatar_url);
   const authorLabel = comment.author.display_name || comment.author.username;
 
@@ -116,7 +120,7 @@ export const WallCommentNode = ({
     }
   }, [currentUserId, comment.id, isLiked, likeCount, likeLoading]);
 
-  const replyAuthorName = depth > 0 ? (comment.author.display_name || comment.author.username) : null;
+  const replyAuthorName = depth > 0 && !isDeleted ? (comment.author.display_name || comment.author.username) : null;
   const childrenId = `wall-comment-children-${comment.id}`;  return (
     <div
       data-wall-comment-node="true"
@@ -153,39 +157,58 @@ export const WallCommentNode = ({
                 className={`pointer-events-none absolute ${threadAxis} ${threadStemTop} bottom-[-14px] z-0 origin-top border-l-2 border-border/55 transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${isCollapsed ? "scale-y-0 opacity-0" : "scale-y-100 opacity-100"}`}
               />
             )}
-            <Link
-              to={`/profile/${comment.user_id}`}
-              className="relative z-10 mt-0.5 shrink-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Avatar data-wall-avatar="current" className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
-                <AvatarImage
-                  src={avatarUrl || undefined}
-                  alt={authorLabel}
-                />
-                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                  {authorLabel.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-            </Link>
+            {isDeleted ? (
+              <div className="relative z-10 mt-0.5 shrink-0">
+                <Avatar data-wall-avatar="deleted" className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
+                  <AvatarFallback className="bg-muted text-muted-foreground/70">
+                    <Ghost className="h-4 w-4" aria-hidden="true" />
+                  </AvatarFallback>
+                </Avatar>
+              </div>
+            ) : (
+              <Link
+                to={`/profile/${comment.user_id}`}
+                className="relative z-10 mt-0.5 shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Avatar data-wall-avatar="current" className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
+                  <AvatarImage
+                    src={avatarUrl || undefined}
+                    alt={authorLabel}
+                  />
+                  <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                    {authorLabel.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              </Link>
+            )}
 
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <Link
-                  to={`/profile/${comment.user_id}`}
-                  className="text-sm font-semibold text-foreground hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {authorLabel}
-                </Link>
-                {comment.author.nickname_emoji_id && <NicknameEmoji emojiId={comment.author.nickname_emoji_id} />}
-                <span className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
-                </span>
-                {comment.updated_at !== comment.created_at && (
-                  <span className="text-[11px] text-muted-foreground">(ред.)</span>
-                )}
-              </div>
+              {isDeleted ? (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="text-sm font-medium italic text-muted-foreground">Комментарий удалён</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <Link
+                    to={`/profile/${comment.user_id}`}
+                    className="text-sm font-semibold text-foreground hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {authorLabel}
+                  </Link>
+                  {comment.author.nickname_emoji_id && <NicknameEmoji emojiId={comment.author.nickname_emoji_id} />}
+                  <span className="text-xs text-muted-foreground">
+                    {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
+                  </span>
+                  {comment.updated_at !== comment.created_at && (
+                    <span className="text-[11px] text-muted-foreground">(ред.)</span>
+                  )}
+                </div>
+              )}
 
               {replyAuthorName && depth > 0 && (
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
@@ -207,6 +230,8 @@ export const WallCommentNode = ({
                     compact
                   />
                 </div>
+              ) : isDeleted ? (
+                <div className="mt-1.5 text-sm italic leading-6 text-muted-foreground/70">Автор неизвестен</div>
               ) : (
                 <div className="mt-1.5 max-w-[68ch] break-words text-sm leading-6 text-foreground/95">
                   <ProcessedContent
@@ -221,7 +246,9 @@ export const WallCommentNode = ({
 
               {!isEditing && (
                 <div className="mt-2 flex flex-wrap items-center gap-1 opacity-90 transition-opacity sm:opacity-70 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                  {currentUserId && (
+                  {/* A soft-deleted comment is a read-only placeholder: no like,
+                      reply, edit or delete — only the reply-branch toggle. */}
+                  {!isDeleted && currentUserId && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -235,7 +262,7 @@ export const WallCommentNode = ({
                     </Button>
                   )}
 
-                  {canReply && currentUserId && (
+                  {!isDeleted && canReply && currentUserId && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -268,7 +295,7 @@ export const WallCommentNode = ({
                     </Button>
                   )}
 
-                  {(canEdit || canDelete) && (                      <>
+                  {!isDeleted && (canEdit || canDelete) && (                      <>
                         <div className="hidden items-center gap-1 sm:flex">
                         {canEdit && (
                           <Button

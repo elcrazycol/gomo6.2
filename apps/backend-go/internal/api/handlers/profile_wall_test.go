@@ -776,6 +776,36 @@ func TestUniversalPut_ProfileWallComment_CannotMovePost(t *testing.T) {
 	}
 }
 
+// TestUniversalPut_ProfileWallComment_CannotTouchIsDeleted proves the
+// un-delete vector is closed: is_deleted is server-managed (set only by the
+// soft-delete DELETE path), so a generic PUT trying to reset it is stripped
+// from the SET clause — the UPDATE only ever carries content.
+func TestUniversalPut_ProfileWallComment_CannotTouchIsDeleted(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*UPDATE profile_wall_post_comments SET content = \$1 WHERE user_id = \$2 AND id = \$3.*RETURNING \*`).
+		WithArgs("updated", "u1", "c1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "is_deleted"}).
+			AddRow("c1", "post1", "u1", "updated", true))
+
+	// Enrichment fetch
+	authorJSON := `{"username": "commenter", "avatar_url": null}`
+	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*WHERE c\.id = \$1`).
+		WithArgs("c1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "content_json", "created_at", "updated_at", "is_deleted", "author"}).
+			AddRow("c1", "post1", "u1", "updated", nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", true, authorJSON))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_post_comments?id=eq.c1", map[string]string{
+		"content":    "updated",
+		"is_deleted": "false",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // ─── Profile Wall Likes: GET ─────────────────────────────────────────────────
 
 func TestUniversalGet_ProfileWallPostLikes(t *testing.T) {

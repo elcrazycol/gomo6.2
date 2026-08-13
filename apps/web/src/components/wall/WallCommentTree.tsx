@@ -218,6 +218,7 @@ export const WallCommentTree = ({
           parent_id,
           content,
           content_json,
+          is_deleted,
           created_at,
           updated_at,
           author:profiles!user_id (
@@ -501,8 +502,10 @@ export const WallCommentTree = ({
         .delete()
         .eq("id", commentId);
       if (error) throw error;
+      // The comment is soft-deleted server-side: it stays in the list as a
+      // "Комментарий удалён" placeholder (with the reply subtree intact), so
+      // the visible comment count must NOT change.
       await loadComments();
-      onCommentCountChange(-1);
       if (activeEditId === commentId) setActiveEditId(null);
       if (activeReplyId === commentId) setActiveReplyId(null);
       toast.success("Комментарий удалён");
@@ -512,7 +515,7 @@ export const WallCommentTree = ({
     } finally {
       setIsSubmitting((prev) => ({ ...prev, [stateKey]: false }));
     }
-  }, [currentUserId, loadComments, onCommentCountChange, activeEditId, activeReplyId]);
+  }, [currentUserId, loadComments, activeEditId, activeReplyId]);
 
   const toggleCollapse = useCallback((commentId: string) => {
     setCollapsedIds((prev) => {

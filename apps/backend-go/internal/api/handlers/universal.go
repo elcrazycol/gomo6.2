@@ -195,6 +195,15 @@ func writableColumnsForTable(tableName string) map[string]bool {
 	case "poll_votes":
 		// user_id is forced to the caller by enforcePostOwnership.
 		return map[string]bool{"poll_id": true, "option_ids": true, "option_index": true}
+	case "profile_wall_post_comments":
+		// user_id is forced to the caller by enforcePostOwnership (POST) / the
+		// ownership scope (PUT). is_deleted is server-managed — it is set only
+		// by the soft-delete DELETE path, so a client can neither un-delete a
+		// comment nor flag someone else's as deleted through a generic PUT.
+		// post_id/parent_id are writable ONLY at creation (they must survive
+		// the POST body for the wall-privacy gate) and are stripped from PUT in
+		// handlePut, so the comment tree cannot be re-parented retroactively.
+		return map[string]bool{"content": true, "content_json": true, "post_id": true, "parent_id": true}
 	}
 	return nil
 }
