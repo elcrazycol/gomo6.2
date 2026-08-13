@@ -174,3 +174,61 @@ func TestVerifyTurnstile_EmptyToken(t *testing.T) {
 		t.Fatal("expected empty token to be rejected")
 	}
 }
+
+// C1 (security audit 2026-08-14): the DEV_TEST_TOKEN bypass must never return.
+// Even with a correctly configured secret + hostname and a siteverify server
+// that would say "success", a request carrying the magic token must be
+// rejected — the siteverify round trip must actually happen (or fail closed).
+// The fake server asserts the token reached it; if it did, the bypass is gone.
+func TestVerifyTurnstile_DevTestTokenRejected(t *testing.T) {
+	os.Setenv("TURNSTILE_SECRET", "test-secret")
+	os.Setenv("TURNSTILE_HOSTNAMES", "gomo6.wtf")
+	defer os.Unsetenv("TURNSTILE_SECRET")
+	defer os.Unsetenv("TURNSTILE_HOSTNAMES")
+
+	reached := false
+	fakeSiteverify(t, func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		// Cloudflare would reject a bogus magic token; the key assertion is that
+		// the token actually reached siteverify — i.e. the early-return bypass is
+		// gone — and that verification then fails.
+		respondSiteverify(w, map[string]interface{}{"success": false})
+	})
+
+	c, _ := newTurnstileCtx(t)
+	if VerifyTurnstile(c, "DEV_TEST_TOKEN", "signup") {
+		t.Fatal("DEV_TEST_TOKEN must be rejected — the CAPTCHA bypass is removed")
+	}
+	if !reached {
+		t.Fatal("expected the token to be forwarded to siteverify (no early return)")
+	}
+}
+
+// C1 (security audit 2026-08-14): ENVIRONMENT=development must not disable
+// CAPTCHA. config.go defaults ENVIRONMENT to "development" when unset, so a
+// bypass keyed on it would be active by default — even in production deploys
+// that forget to set the variable.
+func TestVerifyTurnstile_DevelopmentEnvDoesNotBypass(t *testing.T) {
+	os.Setenv("ENVIRONMENT", "development")
+	os.Setenv("TURNSTILE_SECRET", "test-secret")
+	os.Setenv("TURNSTILE_HOSTNAMES", "gomo6.wtf")
+	defer os.Unsetenv("ENVIRONMENT")
+	defer os.Unsetenv("TURNSTILE_SECRET")
+	defer os.Unsetenv("TURNSTILE_HOSTNAMES")
+
+	reached := false
+	fakeSiteverify(t, func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		// siteverify rejects the (bogus) token; ENVIRONMENT=development must not
+		// short-circuit it.
+		respondSiteverify(w, map[string]interface{}{"success": false})
+	})
+
+	c, _ := newTurnstileCtx(t)
+	if VerifyTurnstile(c, "any-token", "signup") {
+		t.Fatal("ENVIRONMENT=development must not bypass CAPTCHA verification")
+	}
+	if !reached {
+		t.Fatal("expected the token to be forwarded to siteverify (no early return)")
+	}
+}

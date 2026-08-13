@@ -24,6 +24,13 @@ var turnstileSiteverifyURL = "https://challenges.cloudflare.com/turnstile/v0/sit
 // Called only from the server side — never from the browser. The response
 // token is single-use, so a successful check redeems it.
 func VerifyTurnstile(c *gin.Context, token, expectedAction string) bool {
+	// C1 (security audit 2026-08-14): no dev bypass may live here. A token
+	// value like "DEV_TEST_TOKEN" or an ENVIRONMENT=development check would
+	// let any attacker skip CAPTCHA in production, and config.go defaults
+	// ENVIRONMENT to "development" when unset — making the bypass active by
+	// default. Local development opts out explicitly via TURNSTILE_DISABLED=1
+	// in verifyTurnstileForRequest (handlers/turnstile.go); this function is
+	// always fail-closed.
 	secret := os.Getenv("TURNSTILE_SECRET")
 	hostnames := parseHostnameAllowlist(os.Getenv("TURNSTILE_HOSTNAMES"))
 	if secret == "" || token == "" || len(token) > 2048 || len(hostnames) == 0 {
