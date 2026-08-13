@@ -17,6 +17,9 @@ export const CookieBanner = () => {
   const acceptCookies = () => {
     localStorage.setItem('cookies-accepted', 'true');
     setShow(false);
+    // Let overlays (e.g. the guest signup banner) know the bottom strip is
+    // gone so they can settle back to their normal position.
+    window.dispatchEvent(new Event('cookies-banner-hidden'));
   };
 
   if (!show) return null;
@@ -39,7 +42,12 @@ export const CookieBanner = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setShow(false)}
+            onClick={() => {
+              setShow(false);
+              // The strip is gone either way — overlays may settle down even
+              // when the user dismissed rather than formally accepted.
+              window.dispatchEvent(new Event('cookies-banner-hidden'));
+            }}
             className="p-1"
           >
             <X className="h-4 w-4" />

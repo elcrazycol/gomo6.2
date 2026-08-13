@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { GuestSignupBanner } from "./GuestSignupBanner";
 
 const mockNavigate = vi.fn();
@@ -19,6 +19,11 @@ describe("GuestSignupBanner", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    localStorage.removeItem("cookies-accepted");
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("renders the signup CTA for guests", () => {
@@ -43,5 +48,30 @@ describe("GuestSignupBanner", () => {
     unmount();
     render(<GuestSignupBanner />);
     expect(screen.queryByText(/Зарегистрируйся/)).not.toBeInTheDocument();
+  });
+
+  it("floats above the cookie banner while cookies are not accepted", () => {
+    render(<GuestSignupBanner />);
+    // With the cookie strip still visible the CTA must be raised above it
+    // (bottom-24 on mobile / bottom-20 on larger screens instead of the
+    // bottom-3/bottom-4 rest position).
+    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-24");
+    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("z-[60]");
+  });
+
+  it("settles to the bottom edge after cookies are accepted", () => {
+    localStorage.setItem("cookies-accepted", "true");
+    render(<GuestSignupBanner />);
+    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-3");
+  });
+
+  it("moves down when the cookies-banner-hidden event fires", () => {
+    render(<GuestSignupBanner />);
+    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-24");
+
+    act(() => {
+      window.dispatchEvent(new Event("cookies-banner-hidden"));
+    });
+    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-3");
   });
 });

@@ -91,18 +91,43 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Start loading
     const loadPromise = (async () => {
       try {
-        // Load all data in parallel
+        // Load all data in parallel. user_roles is a protected table (401 for
+        // anonymous callers viewing a foreign profile) and single() rejects on
+        // missing rows — neither may bring down the whole profile load, so
+        // every request is degraded to a safe fallback.
+        // The query builder's then() has a custom signature, so the run
+        // closure is typed as () => unknown and the awaited result cast back.
+        const toFallback = async <T,>(run: () => unknown, fallback: T): Promise<T> => {
+          try {
+            return (await run()) as T;
+          } catch {
+            return fallback;
+          }
+        };
+
         const [profileRes, achievementsRes, rolesRes, customizationRes] = await Promise.all([
-          api.from('profiles').select('username, avatar_url, nickname_emoji_id').eq('id', uid).single(),
-          api.from('user_achievements').select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `).eq('user_id', uid),
-          api.from('user_roles').select('role').eq('user_id', uid),
-          api.from('profile_customization').select('*').eq('user_id', uid).single(),
+          toFallback(
+            () => api.from('profiles').select('username, avatar_url, nickname_emoji_id').eq('id', uid).single(),
+            { data: null, error: null }
+          ),
+          toFallback(
+            () => api.from('user_achievements').select(`
+              achievement_id,
+              achievements (
+                reward_type,
+                reward_value
+              )
+            `).eq('user_id', uid),
+            { data: [], error: null }
+          ),
+          toFallback(
+            () => api.from('user_roles').select('role').eq('user_id', uid),
+            { data: [], error: null }
+          ),
+          toFallback(
+            () => api.from('profile_customization').select('*').eq('user_id', uid).single(),
+            { data: null, error: null }
+          ),
         ]);
 
         // Process color from achievements

@@ -78,6 +78,13 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
   },
 
   fetchProfileFriends: async (userId: string) => {
+    // Guests cannot read other users' friends (protected endpoint) — skip the
+    // doomed 401 instead of firing it on every profile page load.
+    const { data: { session } } = await api.auth.getSession();
+    if (!session?.user) {
+      set({ profileFriends: [], isLoading: false });
+      return;
+    }
     set({ isLoading: true });
     try {
       const resp = await apiRequest(`/api/v1/friends?user_id=${userId}`);

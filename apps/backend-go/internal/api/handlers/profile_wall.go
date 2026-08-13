@@ -140,16 +140,29 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 	// toggle must not be a no-op. This predicate is intentionally duplicated in
 	// the write path (enforcePostOwnership), the WebSocket room gate and the
 	// media route (canViewUserWall) so every channel enforces the same rule.
-	viewerArg := "$" + strconv.Itoa(ai)
+	//
+	// Guests get SQL NULL for the viewer reference (see {viewer} substitution
+	// below): an empty string would break the uuid comparisons in the count
+	// subqueries (500), and NULL correctly never matches owner/friendship rows.
+	viewerArg := "NULL"
+	if viewerID != "" {
+		viewerArg = "$" + strconv.Itoa(ai)
+		args = append(args, viewerID)
+	}
 	clauses = append(clauses, "("+
 		ownerColumn+" = "+viewerArg+
 		" OR (COALESCE("+privacyAlias+".private_profile, false) = false AND COALESCE("+privacyAlias+".private_hide_wall, false) = false)"+
 		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
-	args = append(args, viewerID)
 
 	// The viewer parameter reference is only known now that the filter clauses
 	// are built; substitute it into the {viewer} placeholder used by the count
 	// subqueries in the SELECT list.
+	//
+	// For guests (viewerID == "") we substitute SQL NULL instead of an empty
+	// parameter: the count subqueries compare against uuid columns, and an
+	// empty string cannot be cast to uuid (invalid input syntax → 500). NULL
+	// means "no viewer" — liked_by_viewer/my_repost stay false/NULL, which is
+	// exactly what an anonymous visitor should see.
 	baseQuery = strings.ReplaceAll(baseQuery, "{viewer}", viewerArg)
 
 	query := baseQuery
@@ -251,7 +264,10 @@ SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image
 FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
 WHERE p.id = $1`
-	query := strings.ReplaceAll(q, "{viewer}", "$2")
+	query := strings.ReplaceAll(q, "{viewer}", wallViewerArg(viewerID, 2))
+	if viewerID == "" {
+		return h.fetchOneProfileWallRow(query, id)
+	}
 	return h.fetchOneProfileWallRow(query, id, viewerID)
 }
 
@@ -263,7 +279,10 @@ SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.cre
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
 WHERE c.id = $1`
-	query := strings.ReplaceAll(q, "{viewer}", "$2")
+	query := strings.ReplaceAll(q, "{viewer}", wallViewerArg(viewerID, 2))
+	if viewerID == "" {
+		return h.fetchOneProfileWallRow(query, id)
+	}
 	return h.fetchOneProfileWallRow(query, id, viewerID)
 }
 
@@ -303,6 +322,18 @@ func (h *UniversalHandler) fetchOneProfileWallRow(q string, args ...interface{})
 		}
 	}
 	return row, nil
+}
+
+// wallViewerArg returns the SQL expression referencing the viewer parameter for
+// the {viewer} placeholder in the count subqueries. Guests (empty viewerID) get
+// SQL NULL — an empty string would fail the uuid cast in the subqueries (500),
+// while NULL correctly means "no viewer" (liked_by_viewer false, my_repost
+// NULL).
+func wallViewerArg(viewerID string, argIndex int) string {
+	if viewerID == "" {
+		return "NULL"
+	}
+	return "$" + strconv.Itoa(argIndex)
 }
 
 // tryRespondProfileWallEnriched replaces POST/PUT response with author embed when applicable.

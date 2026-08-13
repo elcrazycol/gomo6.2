@@ -12,14 +12,15 @@ import (
 // ─── Guest access: profile walls ────────────────────────────────────────────
 
 // Anonymous visitors must be able to read walls of public profiles. The
-// visibility predicate is applied with an empty viewer ID, so the query itself
-// still enforces private walls.
+// visibility predicate is applied with SQL NULL for the viewer reference (an
+// empty string would fail the uuid cast in the count subqueries), so the query
+// itself still enforces private walls.
 func TestHandleProfileWallPostsGet_Anonymous_ReadsPublicWall(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*`+
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*` +
 		`COALESCE\(ps\.private_profile, false\) = false AND COALESCE\(ps\.private_hide_wall, false\) = false.*`).
-		WithArgs("u1", "").
+		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "Hello", "World", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
 
@@ -39,23 +40,59 @@ func TestHandleProfileWallPostsGet_Anonymous_ReadsPublicWall(t *testing.T) {
 	}
 }
 
-// The anonymous predicate must reference the viewer as an empty string (not a
-// UUID) — an empty value matches no owner/friendship rows, so only the public
-// branch of the predicate can pass. This guards the SQL from breaking when the
-// caller has no session (uuid columns compared with "" would error).
-func TestHandleProfileWallPostsGet_Anonymous_PredicateUsesEmptyViewer(t *testing.T) {
+// The anonymous predicate must reference the viewer as SQL NULL, not as an
+// empty-string parameter — an empty value cannot be cast to uuid in the count
+// subqueries (that produced a 500 on production). Guards the SQL from breaking
+// when the caller has no session.
+func TestHandleProfileWallPostsGet_Anonymous_PredicateUsesNullViewer(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	mock.ExpectQuery(`(?s).*FROM profile_wall_posts p.*`).
-		WithArgs("").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
 
-	// No user_id filter: the only args are the empty viewer references.
+	// No user_id filter: no args at all — the viewer reference is literal NULL.
 	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Regression for the production 500: a guest fetching a public profile's wall
+// with a real UUID filter and the profile page's sort order must not break on
+// the viewer reference (empty string cannot cast to uuid). The count subqueries
+// must use literal NULL for the viewer so the whole statement stays valid.
+func TestHandleProfileWallPostsGet_Anonymous_UUIDFilterWithOrder_No500(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// Real UUIDs + the exact profile-page order from ProfileWall.tsx. The
+	// {viewer} placeholders in the count subqueries are replaced with NULL
+	// (never an empty $n), so only the uuid filter is bound as a parameter.
+	// The {viewer} placeholders live in the SELECT list (before FROM) — check
+	// them separately from the FROM/WHERE/ORDER parts. `\.` is the escaped-dot
+	// regex for the quoted identifier "p"."is_pinned".
+	mock.ExpectQuery(`(?s)SELECT p\.id.*liked_by_viewer.*NULL.*my_repost_record_id.*NULL.*FROM profile_wall_posts p.*` +
+		`ORDER BY "p"\."is_pinned" DESC, "p"\."pinned_order" ASC, "p"\."created_at" DESC`).
+		WithArgs("457e56d5-4f7b-43ee-b506-09299332541a").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
+			AddRow("post1", "457e56d5-4f7b-43ee-b506-09299332541a", "457e56d5-4f7b-43ee-b506-09299332541a", "Hello", "World", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
+
+	c, w := newUniversalRequestContext("GET",
+		"/api/v1/profile_wall_posts?user_id=eq.457e56d5-4f7b-43ee-b506-09299332541a&order=is_pinned.desc,pinned_order.asc,created_at.desc",
+		nil, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	data, ok := resp.Data.([]interface{})
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected 1 wall post, got %v", resp.Data)
 	}
 }
 
