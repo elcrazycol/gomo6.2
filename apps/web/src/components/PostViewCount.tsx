@@ -17,7 +17,7 @@ export const PostViewCount = ({ count }: PostViewCountProps) => {
 
   return (
     <span
-      className="inline-flex h-8 items-center gap-1.5 px-1.5 text-xs text-muted-foreground sm:h-9 sm:px-2 sm:text-sm"
+      className="ml-auto inline-flex h-8 items-center gap-1.5 px-1.5 text-xs text-muted-foreground sm:h-9 sm:px-2 sm:text-sm"
       title="Просмотры"
       data-testid="post-views-count"
     >

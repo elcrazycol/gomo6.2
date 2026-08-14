@@ -157,7 +157,6 @@ export const FeedWallPostCard = ({
         )}
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-          <PostViewCount count={post.views_count ?? 0} />
           <ActionButton
             icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />}
             label="Нравится"
@@ -179,6 +178,7 @@ export const FeedWallPostCard = ({
             count={post.reposts_count ?? 0}
             onClick={handleOpenPost}
           />
+          <PostViewCount count={post.views_count ?? 0} />
         </div>
       </CardContent>
     </Card>

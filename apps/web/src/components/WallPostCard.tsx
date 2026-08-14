@@ -440,11 +440,11 @@ export const WallPostCard = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-          <PostViewCount count={post.views_count ?? 0} />
           <ActionButton icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
           <ActionButton icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} loading={commentsOpen && !commentsReady} onClick={handleToggleComments} />
           <ActionButton icon={<Repeat2 className="h-4 w-4" />} label={isReposted ? "Убрать" : "Репост"} count={repostsCount} active={isReposted} disabled={!currentUserId} loading={isReposting} onClick={handleRepostToggle} />
           <ActionButton icon={<Share2 className="h-4 w-4" />} label="Поделиться" showLabel={false} active={false} disabled={false} loading={isSharing} onClick={handleSharePost} />
+          <PostViewCount count={post.views_count ?? 0} />
         </div>
 
         {/*
