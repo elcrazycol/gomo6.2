@@ -18,7 +18,8 @@ interface EmojiPackFormProps {
     description: string | null;
     icon_url: string | null;
   };
-  onSuccess: () => void;
+  /** Called after the pack is saved; carries the pack id for created packs. */
+  onSuccess: (packId?: string) => void;
   onCancel: () => void;
 }
 
@@ -103,12 +104,16 @@ export function EmojiPackForm({ initialData, onSuccess, onCancel }: EmojiPackFor
         if (error) throw error;
         toast.success('Пак обновлён');
       } else {
-        const { error } = await api
+        const { data, error } = await api
           .from('emoji_packs')
           .insert({ ...packData, created_at: new Date().toISOString() });
 
         if (error) throw error;
+        // The created row (RETURNING *) carries the id so the caller can jump
+        // straight to adding emojis instead of dropping the user back to a list.
         toast.success('Пак создан');
+        onSuccess((data as { id?: string } | null)?.id);
+        return;
       }
 
       onSuccess();
@@ -128,6 +133,7 @@ export function EmojiPackForm({ initialData, onSuccess, onCancel }: EmojiPackFor
           id="pack-name"
           placeholder="Мой пак эмодзи"
           value={name}
+          maxLength={100}
           onChange={(e) => handleNameChange(e.target.value)}
           disabled={saving}
         />
@@ -150,12 +156,15 @@ export function EmojiPackForm({ initialData, onSuccess, onCancel }: EmojiPackFor
 
       <div className="space-y-2">
         <Label htmlFor="pack-desc">Описание (необязательно)</Label>
-        <Input
+        <textarea
           id="pack-desc"
           placeholder="Описание пака..."
           value={description}
+          maxLength={500}
           onChange={(e) => setDescription(e.target.value)}
           disabled={saving}
+          rows={2}
+          className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
         />
       </div>
 
@@ -163,8 +172,11 @@ export function EmojiPackForm({ initialData, onSuccess, onCancel }: EmojiPackFor
         <Label>Иконка пака (необязательно)</Label>
         <EmojiUploader onUpload={handleIconUpload} disabled={saving} />
         {iconPreview && (
-          <div className="flex justify-center">
+          <div className="flex items-center justify-center gap-2">
             <img src={iconPreview} alt="Icon preview" className="w-16 h-16 object-contain border rounded" />
+            <Button type="button" variant="ghost" size="sm" onClick={() => { setIconFile(null); setIconPreview(null); }} disabled={saving}>
+              Убрать иконку
+            </Button>
           </div>
         )}
       </div>
