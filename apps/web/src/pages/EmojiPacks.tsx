@@ -39,18 +39,21 @@ export default function EmojiPacks() {
     <div className="bg-background min-h-screen">
       <div className="max-w-2xl mx-auto p-4">
         <div className="flex items-center gap-3 mb-6">
-          <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
+          <Button variant="ghost" size="icon" onClick={() => window.history.back()} aria-label="Назад">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-2xl font-bold">Паки эмодзи</h1>
+          <h1 className="text-xl sm:text-2xl font-bold whitespace-nowrap">Паки эмодзи</h1>
           <div className="flex-1" />
           <Link to="/emojis/my">
-            <Button variant="outline" size="sm">Мои паки</Button>
+            <Button variant="outline" size="sm" className="px-2.5 sm:px-3" aria-label="Мои паки">
+              <Package className="h-4 w-4" />
+              <span className="hidden sm:inline">Мои паки</span>
+            </Button>
           </Link>
           <Link to="/emojis/create">
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Создать
+            <Button size="sm" className="px-2.5 sm:px-3" aria-label="Создать пак">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Создать</span>
             </Button>
           </Link>
         </div>

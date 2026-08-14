@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/integrations/api/compat';
 import { apiClient } from '@/integrations/api/client';
 import { storageUrl } from '@/utils/storage';
+import { loadEmojiCache, saveEmojiCache } from '@/utils/emojiCache';
 
 export interface EmojiData {
   id: string;
@@ -29,13 +31,17 @@ export interface EmojiPackData {
 
 interface EmojiDataContextValue {
   allEmojis: Map<string, EmojiData>;
+  /** Ids the server confirmed missing (deleted emoji) — skip re-requesting them. */
+  failedEmojiIds: Set<string>;
   subscribedPackIds: Set<string>;
   subscribedPacks: EmojiPackData[];
   ownedPacks: EmojiPackData[];
   isLoading: boolean;
   resolveEmojis: (ids: string[]) => Promise<void>;
-  subscribeToPack: (packId: string) => Promise<void>;
-  unsubscribeFromPack: (packId: string) => Promise<void>;
+  /** Installs a pack instantly (optimistic) and resolves to whether the server accepted it. */
+  subscribeToPack: (packId: string, pack?: EmojiPackData) => Promise<boolean>;
+  /** Removes a pack instantly (optimistic) and resolves to whether the server accepted it. */
+  unsubscribeFromPack: (packId: string) => Promise<boolean>;
   refreshData: () => Promise<void>;
   getEmojiUrl: (emojiId: string) => string | null;
   customEmojiList: EmojiData[];
@@ -44,18 +50,63 @@ interface EmojiDataContextValue {
 const EmojiDataContext = createContext<EmojiDataContextValue | null>(null);
 
 export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [allEmojis, setAllEmojis] = useState<Map<string, EmojiData>>(new Map());
-  const [subscribedPackIds, setSubscribedPackIds] = useState<Set<string>>(new Set());
-  const [subscribedPacks, setSubscribedPacks] = useState<EmojiPackData[]>([]);
-  const [ownedPacks, setOwnedPacks] = useState<EmojiPackData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Seed synchronously from the local cache so the very first paint already
+  // has emojis and packs — no network round-trip before custom emojis render.
+  const [cacheSeed] = useState(() => loadEmojiCache());
+  const [allEmojis, setAllEmojis] = useState<Map<string, EmojiData>>(() => {
+    const map = new Map<string, EmojiData>();
+    if (cacheSeed) {
+      for (const emoji of Object.values(cacheSeed.emojis)) map.set(emoji.id, emoji);
+      for (const pack of cacheSeed.packs) {
+        for (const emoji of pack.emojis ?? []) map.set(emoji.id, emoji);
+      }
+    }
+    return map;
+  });
+  const [subscribedPackIds, setSubscribedPackIds] = useState<Set<string>>(
+    () => new Set(cacheSeed?.subscribedPackIds ?? [])
+  );
+  const [subscribedPacks, setSubscribedPacks] = useState<EmojiPackData[]>(
+    () => (cacheSeed ? cacheSeed.packs.filter(pack => cacheSeed.subscribedPackIds.includes(pack.id)) : [])
+  );
+  const [ownedPacks, setOwnedPacks] = useState<EmojiPackData[]>(
+    () => (cacheSeed ? cacheSeed.packs.filter(pack => cacheSeed.ownedPackIds.includes(pack.id)) : [])
+  );
+  const [isLoading, setIsLoading] = useState(false);
   const [failedEmojiIds, setFailedEmojiIds] = useState<Set<string>>(new Set());
   const loadingRef = useRef(false);
+  const initialLoadStartedRef = useRef(false);
+  const userIdRef = useRef<string | null>(cacheSeed?.userId ?? null);
+
+  // Sync with the app's shared auth query (same key as useAuth): when the
+  // authenticated user changes — login/logout in THIS tab or another — reload
+  // the subscriptions. The query is deduped with the rest of the app, so this
+  // costs no extra network calls.
+  const { data: authUser } = useQuery({
+    queryKey: ['auth', 'currentUser'],
+    queryFn: () => apiClient.getCurrentUser(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+  const authUserId = authUser?.id ?? null;
 
   const loadSubscribedData = useCallback(async () => {
     try {
       const { data: { user } } = await api.auth.getUser();
+      const uid = user?.id ?? null;
+      // The localStorage cache may belong to a different user (shared browser,
+      // stale session). Never render that user's packs: drop per-user state
+      // first so a foreign pack list cannot flash or persist on a refresh error.
+      if (uid !== userIdRef.current) {
+        setSubscribedPacks([]);
+        setOwnedPacks([]);
+        setSubscribedPackIds(new Set());
+      }
+      userIdRef.current = uid;
       if (!user) {
+        // Logged out: per-user state is already cleared above (privacy); the
+        // emoji map stays so posts and nicknames keep rendering.
         setIsLoading(false);
         return;
       }
@@ -91,91 +142,198 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
         return next;
       });
+      // Emojis that just arrived are known — unmark any stale failure records.
+      setFailedEmojiIds(prev => {
+        if (prev.size === 0 || emojiMap.size === 0) return prev;
+        const next = new Set(prev);
+        for (const id of emojiMap.keys()) next.delete(id);
+        return next;
+      });
     } catch (err) {
       console.error('Error loading emoji subscriptions:', err);
     } finally {
       setIsLoading(false);
+      // Allow subsequent reloads (auth changes, refreshData). The initial-load
+      // guard sets this true once so the watcher above cannot double-fetch.
+      loadingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
-    if (!loadingRef.current) {
+    if (!initialLoadStartedRef.current) {
+      initialLoadStartedRef.current = true;
       loadingRef.current = true;
       loadSubscribedData();
     }
   }, [loadSubscribedData]);
 
+  // React to auth changes (login/logout in this tab or another) AFTER the
+  // initial load above — it is the single driver of the first fetch.
+  useEffect(() => {
+    if (!initialLoadStartedRef.current) return;
+    if (authUserId !== userIdRef.current) {
+      void loadSubscribedData();
+    }
+  }, [authUserId, loadSubscribedData]);
+
+  // Persist the current emoji state to localStorage whenever it changes, so
+  // the next visit seeds instantly. Debounced: an emoji-heavy page resolves
+  // emojis one by one (each creating a new map), and serializing the whole
+  // cache on every single resolve would jank the first paint.
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const packMap = new Map<string, EmojiPackData>();
+      for (const pack of subscribedPacks) packMap.set(pack.id, pack);
+      for (const pack of ownedPacks) packMap.set(pack.id, pack);
+      const packs = Array.from(packMap.values());
+      saveEmojiCache({
+        version: 1,
+        userId: userIdRef.current,
+        emojis: Object.fromEntries(allEmojis),
+        packs,
+        subscribedPackIds: Array.from(subscribedPackIds),
+        ownedPackIds: packs.filter(pack => ownedPacks.some(p => p.id === pack.id)).map(pack => pack.id),
+        savedAt: Date.now(),
+      });
+    }, 500);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [allEmojis, subscribedPacks, ownedPacks, subscribedPackIds]);
+
+  // Reload when the authenticated user changes while the tab is open (login /
+  // logout happens after the provider mounted): getUser is cached client-side,
+  // so comparing ids costs nothing, and loadSubscribedData seeds the new
+  // user's packs + writes their cache partition.
+  useEffect(() => {
+    const onFocus = () => {
+      void (async () => {
+        try {
+          const { data: { user } } = await api.auth.getUser();
+          const uid = user?.id ?? null;
+          if (uid !== userIdRef.current) {
+            loadingRef.current = false;
+            await loadSubscribedData();
+          }
+        } catch {
+          // ignore — next focus will retry
+        }
+      })();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [loadSubscribedData]);
+
+  const mergeResolvedEmojis = useCallback((resolved: EmojiData[], requested: string[]) => {
+    setAllEmojis(prev => {
+      const next = new Map(prev);
+      for (const emoji of resolved) next.set(emoji.id, emoji);
+      return next;
+    });
+    setFailedEmojiIds(prev => {
+      const next = new Set(prev);
+      // Any id that came back is known — never mark it failed again this session.
+      for (const emoji of resolved) next.delete(emoji.id);
+      // Ids the server did not return are genuinely missing (deleted emoji):
+      // remember them so we do not re-request them on every render.
+      for (const id of requested) {
+        if (!resolved.some(emoji => emoji.id === id)) next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
   const resolveEmojis = useCallback(async (ids: string[]) => {
     const unresolved = ids.filter(id => !allEmojis.has(id) && !failedEmojiIds.has(id));
     if (unresolved.length === 0) return;
 
+    const toArray = (data: unknown): EmojiData[] => {
+      if (Array.isArray(data)) return data as EmojiData[];
+      return data ? [data as EmojiData] : [];
+    };
+
     try {
-      const rpcResult = await api.rpc('resolve_emojis', { ids: unresolved });
-      const resolved = (Array.isArray(rpcResult.data)
-        ? rpcResult.data
-        : rpcResult.data
-          ? [rpcResult.data]
-          : []) as EmojiData[];
-      if (resolved.length > 0 || rpcResult.data !== null) {
-        setAllEmojis(prev => {
-          const next = new Map(prev);
-          for (const emoji of resolved) next.set(emoji.id, emoji);
-          return next;
-        });
-        setFailedEmojiIds(prev => {
-          const next = new Set(prev);
-          for (const emoji of resolved) next.delete(emoji.id);
-          for (const id of unresolved) if (!resolved.some((emoji) => emoji.id === id)) next.add(id);
-          return next;
-        });
+      // Primary path: the REST endpoint through the shared client (cookies,
+      // CSRF, refresh) — it is rate-limited under the generous generic budgets.
+      const rest = await apiClient.rawRequest<unknown>('/api/v1/custom_emojis/resolve', {
+        method: 'POST',
+        body: JSON.stringify({ ids: unresolved }),
+      });
+      const resolved = toArray(rest.data ?? rest);
+      if (resolved.length > 0 || rest.data !== null) {
+        mergeResolvedEmojis(resolved, unresolved);
+        return;
       }
     } catch {
-      // Try the REST endpoint through the shared client so browser cookies,
-      // CSRF and auth refresh behavior remain identical to the RPC path.
-      try {
-        const fallback = await apiClient.rawRequest<EmojiData[]>('/api/v1/custom_emojis/resolve', {
-          method: 'POST',
-          body: JSON.stringify({ ids: unresolved }),
-        });
-        const resolved = (Array.isArray(fallback.data)
-          ? fallback.data
-          : fallback.data
-            ? [fallback.data]
-            : []) as EmojiData[];
-        setAllEmojis(prev => {
-          const next = new Map(prev);
-          for (const emoji of resolved) next.set(emoji.id, emoji);
-          return next;
-        });
-        setFailedEmojiIds(prev => {
-          const next = new Set(prev);
-          for (const emoji of resolved) next.delete(emoji.id);
-          for (const id of unresolved) if (!resolved.some((emoji) => emoji.id === id)) next.add(id);
-          return next;
-        });
-      } catch (err) {
-        console.error('Error resolving emojis:', err);
-      }
+      // fall through to the RPC surface below
     }
-  }, [allEmojis, failedEmojiIds]);
 
-  const subscribeToPack = useCallback(async (packId: string) => {
+    try {
+      // Fallback: the public RPC endpoint (identical handler, stricter per-IP
+      // budget — only hit when the primary path fails).
+      const rpcResult = await api.rpc('resolve_emojis', { ids: unresolved });
+      if (rpcResult.error && !rpcResult.data) throw rpcResult.error;
+      const resolved = toArray(rpcResult.data);
+      mergeResolvedEmojis(resolved, unresolved);
+    } catch (err) {
+      console.error('Error resolving emojis:', err);
+    }
+  }, [allEmojis, failedEmojiIds, mergeResolvedEmojis]);
+
+  const subscribeToPack = useCallback(async (packId: string, pack?: EmojiPackData): Promise<boolean> => {
     const { data: { user } } = await api.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
+
+    // Optimistic: the pack is available in the picker the instant the user
+    // taps install — no waiting for the subscriptions round-trip (which is
+    // also why the pack used to appear only after a delay).
+    setSubscribedPackIds(prev => new Set([...prev, packId]));
+    if (pack) {
+      setSubscribedPacks(prev => prev.some(p => p.id === pack.id) ? prev : [pack, ...prev]);
+      setAllEmojis(prev => {
+        const next = new Map(prev);
+        for (const emoji of pack.emojis ?? []) next.set(emoji.id, emoji);
+        return next;
+      });
+    }
 
     const { error } = await api
       .from('user_emoji_subscriptions')
       .insert({ user_id: user.id, pack_id: packId });
 
-    if (!error) {
-      setSubscribedPackIds(prev => new Set([...prev, packId]));
-      await refreshData();
+    if (error) {
+      // Roll back the optimistic update.
+      setSubscribedPackIds(prev => {
+        const next = new Set(prev);
+        next.delete(packId);
+        return next;
+      });
+      if (pack) setSubscribedPacks(prev => prev.filter(p => p.id !== packId));
+      console.error('Error subscribing to emoji pack:', error);
+      return false;
     }
-  }, []);
 
-  const unsubscribeFromPack = useCallback(async (packId: string) => {
+    // Background refresh keeps counts/ordering accurate without blocking the
+    // UI — the pack is already visible from the optimistic update.
+    void loadSubscribedData();
+    return true;
+  }, [loadSubscribedData]);
+
+  const unsubscribeFromPack = useCallback(async (packId: string): Promise<boolean> => {
     const { data: { user } } = await api.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
+
+    // Optimistic: hide the pack immediately, restore it if the server rejects.
+    const pack = subscribedPacks.find(p => p.id === packId);
+    const wasSubscribed = subscribedPackIds.has(packId);
+    setSubscribedPackIds(prev => {
+      const next = new Set(prev);
+      next.delete(packId);
+      return next;
+    });
+    setSubscribedPacks(prev => prev.filter(p => p.id !== packId));
 
     const { error } = await api
       .from('user_emoji_subscriptions')
@@ -183,15 +341,18 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       .eq('user_id', user.id)
       .eq('pack_id', packId);
 
-    if (!error) {
-      setSubscribedPackIds(prev => {
-        const next = new Set(prev);
-        next.delete(packId);
-        return next;
-      });
-      setSubscribedPacks(prev => prev.filter(p => p.id !== packId));
+    if (error) {
+      // Full rollback: restore BOTH the id set and the pack object, otherwise
+      // the picker tab disappears while the detail page still says installed.
+      if (wasSubscribed) setSubscribedPackIds(prev => new Set([...prev, packId]));
+      if (pack) setSubscribedPacks(prev => prev.some(p => p.id === pack.id) ? prev : [pack, ...prev]);
+      console.error('Error unsubscribing from emoji pack:', error);
+      return false;
     }
-  }, []);
+
+    void loadSubscribedData();
+    return true;
+  }, [subscribedPackIds, subscribedPacks, loadSubscribedData]);
 
   const refreshData = useCallback(async () => {
     loadingRef.current = false;
@@ -207,6 +368,7 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   return (
     <EmojiDataContext.Provider value={{
       allEmojis,
+      failedEmojiIds,
       subscribedPackIds,
       subscribedPacks,
       ownedPacks,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/lib/pq"
 )
 
 type EmojiPacksHandler struct {
@@ -69,6 +70,52 @@ func scanEmojiRow(scanner interface{ Scan(...any) error }) (EmojiData, error) {
 	return emoji, err
 }
 
+// loadEmojisForPacks fetches every emoji of the given packs in ONE query and
+// returns them grouped by pack id (stable order preserved). This replaces the
+// previous N+1 loop (one emoji query per pack) that made the subscriptions /
+// own-packs endpoints slow for users with several installed packs.
+func loadEmojisForPacks(db *sql.DB, packIDs []string) map[string][]EmojiData {
+	result := make(map[string][]EmojiData, len(packIDs))
+	if len(packIDs) == 0 {
+		return result
+	}
+	rows, err := db.Query(`
+		SELECT id, pack_id, name, image_url, is_animated, unicode_triggers
+		FROM custom_emojis WHERE pack_id = ANY($1::uuid[])
+		ORDER BY sort_order, created_at
+	`, pq.Array(packIDs))
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		emoji, scanErr := scanEmojiRow(rows)
+		if scanErr != nil {
+			continue
+		}
+		result[emoji.PackID] = append(result[emoji.PackID], emoji)
+	}
+	return result
+}
+
+// packVisibleTo reports whether the given viewer may view a (possibly
+// private) pack: public packs are visible to everyone, private packs only to
+// their author and subscribers.
+func packVisibleTo(db *sql.DB, packID, viewerID string) (bool, error) {
+	if viewerID == "" {
+		return false, nil
+	}
+	var visible bool
+	err := db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM emoji_packs WHERE id = $1 AND author_id = $2
+		) OR EXISTS(
+			SELECT 1 FROM user_emoji_subscriptions WHERE user_id = $2 AND pack_id = $1
+		)
+	`, packID, viewerID).Scan(&visible)
+	return visible, err
+}
+
 // GetPackBySlug godoc
 // @Summary      Get emoji pack by slug
 // @Description  Get a public emoji pack with its emojis by slug
@@ -102,6 +149,22 @@ func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("database error"))
 		return
+	}
+
+	// Private packs are only visible to their author and subscribers; guessing
+	// a slug must not expose a private pack's contents (or even its existence
+	// beyond a 404) to strangers.
+	if !pack.IsPublic {
+		claims, ok := bearerClaims(c)
+		if !ok {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("pack not found"))
+			return
+		}
+		visible, visErr := packVisibleTo(h.db, pack.ID, claims.UserID)
+		if visErr != nil || !visible {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("pack not found"))
+			return
+		}
 	}
 
 	rows, err := h.db.Query(`
@@ -152,6 +215,7 @@ func (h *EmojiPacksHandler) GetMyPacks(c *gin.Context) {
 	defer rows.Close()
 
 	packs := make([]EmojiPackWithEmojis, 0)
+	packIDs := make([]string, 0)
 	for rows.Next() {
 		var pack EmojiPackWithEmojis
 		if err := rows.Scan(
@@ -161,22 +225,16 @@ func (h *EmojiPacksHandler) GetMyPacks(c *gin.Context) {
 		); err != nil {
 			continue
 		}
-
-		emojiRows, queryErr := h.db.Query(`
-			SELECT id, pack_id, name, image_url, is_animated, unicode_triggers
-			FROM custom_emojis WHERE pack_id = $1 ORDER BY sort_order, created_at
-		`, pack.ID)
-		if queryErr == nil {
-			pack.Emojis = make([]EmojiData, 0)
-			for emojiRows.Next() {
-				emoji, scanErr := scanEmojiRow(emojiRows)
-				if scanErr == nil {
-					pack.Emojis = append(pack.Emojis, emoji)
-				}
-			}
-			emojiRows.Close()
-		}
 		packs = append(packs, pack)
+		packIDs = append(packIDs, pack.ID)
+	}
+
+	// Single batched emoji query instead of one query per pack (N+1).
+	emojisByPack := loadEmojisForPacks(h.db, packIDs)
+	for i := range packs {
+		if emojis, ok := emojisByPack[packs[i].ID]; ok {
+			packs[i].Emojis = emojis
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(packs))
@@ -211,14 +269,10 @@ func (h *EmojiPacksHandler) GetMySubscriptions(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	type packWithEmojis struct {
-		EmojiPackWithEmojis
-		Emojis []EmojiData `json:"emojis"`
-	}
-
-	packs := make([]packWithEmojis, 0)
+	packs := make([]EmojiPackWithEmojis, 0)
+	packIDs := make([]string, 0)
 	for rows.Next() {
-		var pack packWithEmojis
+		var pack EmojiPackWithEmojis
 		if err := rows.Scan(
 			&pack.ID, &pack.Name, &pack.Slug, &pack.Description, &pack.IconURL,
 			&pack.AuthorID, &pack.EmojiCount, &pack.SubscriberCount, &pack.IsPublic,
@@ -226,23 +280,16 @@ func (h *EmojiPacksHandler) GetMySubscriptions(c *gin.Context) {
 		); err != nil {
 			continue
 		}
-
-		emojiRows, queryErr := h.db.Query(`
-			SELECT id, pack_id, name, image_url, is_animated, unicode_triggers
-			FROM custom_emojis WHERE pack_id = $1 ORDER BY sort_order, created_at
-		`, pack.ID)
-		if queryErr == nil {
-			pack.Emojis = make([]EmojiData, 0)
-			for emojiRows.Next() {
-				emoji, scanErr := scanEmojiRow(emojiRows)
-				if scanErr == nil {
-					pack.Emojis = append(pack.Emojis, emoji)
-				}
-			}
-			emojiRows.Close()
-		}
-
 		packs = append(packs, pack)
+		packIDs = append(packIDs, pack.ID)
+	}
+
+	// Single batched emoji query instead of one query per pack (N+1).
+	emojisByPack := loadEmojisForPacks(h.db, packIDs)
+	for i := range packs {
+		if emojis, ok := emojisByPack[packs[i].ID]; ok {
+			packs[i].Emojis = emojis
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(packs))

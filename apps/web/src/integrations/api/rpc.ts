@@ -67,6 +67,19 @@ export const rpc = (functionName: string, params?: Record<string, unknown>) => {
           const res = await apiClient.toggleWallPostPin(params?._post_id as string, params?._user_id as string);
           return { data: res.data, error: null };
         }
+        case 'resolve_emojis': {
+          // Custom emoji resolution is read-only and guest-accessible (posts and
+          // nicknames embed emoji ids). The REST surface shares the same handler
+          // as /api/rpc/resolve_emojis but is rate-limited under the generic
+          // budgets instead of the stricter per-IP RPC budget, so route through
+          // the generic REST endpoint via the shared client (cookies, CSRF and
+          // refresh behavior stay identical to every other call).
+          const response = await apiClient.rawRequest(`/api/v1/custom_emojis/resolve`, {
+            method: 'POST',
+            body: JSON.stringify(params || {}),
+          });
+          return { data: response.data ?? response, error: null };
+        }
         case 'get_avatar_history':
         case 'delete_avatar_from_history':
         case 'toggle_achievement_pin':

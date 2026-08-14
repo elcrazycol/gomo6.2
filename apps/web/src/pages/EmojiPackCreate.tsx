@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/integrations/api/compat';
-import { toast } from 'sonner';
 import { EmojiPackForm } from '@/components/emoji/EmojiPackForm';
 
 export default function EmojiPackCreate() {
@@ -25,7 +24,12 @@ export default function EmojiPackCreate() {
       <div className="max-w-lg mx-auto p-4">
         <h1 className="text-2xl font-bold mb-6">Создать пак эмодзи</h1>
         <EmojiPackForm
-          onSuccess={() => navigate('/emojis/my')}
+          onSuccess={(packId) => {
+            // Jump straight into adding emojis — the most common next step
+            // after creating a pack. The edit page shows the emoji uploader.
+            if (packId) navigate(`/emojis/edit/${packId}`);
+            else navigate('/emojis/my');
+          }}
           onCancel={() => navigate(-1)}
         />
       </div>

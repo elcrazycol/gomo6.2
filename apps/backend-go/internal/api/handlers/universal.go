@@ -299,6 +299,36 @@ func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (s
 	return clause, args, argIndex
 }
 
+// genericEmojiVisibility returns a WHERE predicate that restricts reads of
+// emoji_packs / custom_emojis through the generic CRUD surface to content the
+// caller may actually see: public packs are readable by everyone (guests
+// included), private packs only by their author and subscribers. Without this
+// the generic surface exposed private packs and their emoji lists to strangers
+// by guessing ids, defeating the by-slug gate in GetPackBySlug.
+func genericEmojiVisibility(c *gin.Context, tableName string, argIndex int) (string, []interface{}, int) {
+	viewerID := authenticatedUserID(c)
+	switch tableName {
+	case "emoji_packs":
+		if viewerID == "" {
+			return "is_public = TRUE", nil, argIndex
+		}
+		clause := "(is_public = TRUE OR author_id = $" + strconv.Itoa(argIndex) +
+			" OR EXISTS (SELECT 1 FROM user_emoji_subscriptions s WHERE s.user_id = $" + strconv.Itoa(argIndex) +
+			" AND s.pack_id = emoji_packs.id))"
+		return clause, []interface{}{viewerID}, argIndex + 1
+	case "custom_emojis":
+		if viewerID == "" {
+			return "EXISTS (SELECT 1 FROM emoji_packs ep WHERE ep.id = custom_emojis.pack_id AND ep.is_public = TRUE)", nil, argIndex
+		}
+		clause := "EXISTS (SELECT 1 FROM emoji_packs ep WHERE ep.id = custom_emojis.pack_id AND (ep.is_public = TRUE OR ep.author_id = $" +
+			strconv.Itoa(argIndex) + " OR EXISTS (SELECT 1 FROM user_emoji_subscriptions s WHERE s.user_id = $" +
+			strconv.Itoa(argIndex) + " AND s.pack_id = ep.id)))"
+		return clause, []interface{}{viewerID}, argIndex + 1
+	default:
+		return "", nil, argIndex
+	}
+}
+
 // ─── Filter Helpers ─────────────────────────────────────────────────────────
 
 // decodeColumnValue converts a database column value to a JSON-safe representation.

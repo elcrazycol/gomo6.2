@@ -42,6 +42,16 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 	}
 
 	// Add foreign keys based on table
+	// The /my-emoji-subscriptions and /my-emoji-packs handlers embed pack
+	// metadata, emoji counts and the full emoji lists. Any emoji-pack write
+	// must invalidate them too, otherwise the data cache keeps serving the
+	// pre-change list for the whole TTL (a freshly installed pack was invisible
+	// for up to 2 minutes — the "pack appears with a delay" bug).
+	invalidateMyEmojiLists := func() {
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/my-emoji-subscriptions*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/my-emoji-packs*")
+	}
+
 	switch tableName {
 	case "emoji_packs":
 		if authorID, ok := result["author_id"].(string); ok {
@@ -49,6 +59,7 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 		}
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
+		invalidateMyEmojiLists()
 	case "custom_emojis":
 		if packID, ok := result["pack_id"].(string); ok {
 			values["pack_id"] = packID
@@ -56,6 +67,7 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/custom_emojis*")
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
+		invalidateMyEmojiLists()
 	case "profiles":
 		if username, ok := result["username"].(string); ok && username != "" {
 			values["username"] = username
@@ -179,6 +191,7 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_emoji_subscriptions*user_id=eq.%s*", userID))
 		}
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
+		invalidateMyEmojiLists()
 	default:
 		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
 		cache.InvalidateForTable(h.redis, tableName, values)
@@ -344,6 +357,18 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 	// that structure to any logged-in non-member.
 	if tableName == "channels" || tableName == "gomosub_roles" || tableName == "channel_permissions" {
 		scopeClause, scopeArgs, nextArgIndex := genericGomosubVisibility(c, tableName, argIndex)
+		if scopeClause != "" {
+			clauses = append(clauses, scopeClause)
+			args = append(args, scopeArgs...)
+			argIndex = nextArgIndex
+		}
+	}
+
+	// Emoji packs and their emojis: private packs are only visible to their
+	// author and subscribers through the generic surface as well (mirrors the
+	// by-slug gate in GetPackBySlug).
+	if tableName == "emoji_packs" || tableName == "custom_emojis" {
+		scopeClause, scopeArgs, nextArgIndex := genericEmojiVisibility(c, tableName, argIndex)
 		if scopeClause != "" {
 			clauses = append(clauses, scopeClause)
 			args = append(args, scopeArgs...)

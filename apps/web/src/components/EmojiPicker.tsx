@@ -22,23 +22,43 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect
   const [selectedPackId, setSelectedPackId] = useState<string>('');
   const [search, setSearch] = useState('');
   const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [isMobileSheet, setIsMobileSheet] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
+  // Below the sm breakpoint the panel renders as a bottom sheet (full width,
+  // rounded top corners) — the anchor-based popover cannot be positioned
+  // reliably on small screens and overflows the viewport.
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const update = () => setIsMobileSheet(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
   const updatePosition = useCallback(() => {
-    if (triggerRef?.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const panelWidth = 320;
-      const buttonCenter = rect.left + rect.width / 2;
-      let panelLeft = buttonCenter - panelWidth / 2;
-      panelLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
+    if (isMobileSheet || !triggerRef?.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const panelWidth = Math.min(320, window.innerWidth - 16);
+    const buttonCenter = rect.left + rect.width / 2;
+    let panelLeft = buttonCenter - panelWidth / 2;
+    panelLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
 
-      const panelHeight = panelRef.current?.offsetHeight || 350;
-      const top = rect.top - panelHeight - 8;
-
-      setPosition({ top: top < 8 ? rect.bottom + 8 : top, left: panelLeft });
+    const panelHeight = panelRef.current?.offsetHeight || 350;
+    // Prefer opening above the trigger; fall back below, then clamp to the
+    // viewport so the panel is never cut off vertically.
+    let top = rect.top - panelHeight - 8;
+    if (top < 8) {
+      top = rect.bottom + 8;
+      if (top + panelHeight > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - panelHeight - 8);
+      }
     }
-  }, [triggerRef]);
+    top = Math.max(8, Math.min(top, window.innerHeight - panelHeight - 8));
+
+    setPosition({ top, left: panelLeft });
+  }, [triggerRef, isMobileSheet]);
 
   useEffect(() => {
     if (open && triggerRef?.current) {
@@ -109,8 +129,11 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect
       {open && createPortal(
         <div
           ref={panelRef}
-          className="fixed z-[100] w-80 bg-background/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden"
-          style={{ top: position.top, left: position.left, maxHeight: '400px' }}
+          className={`fixed z-[100] w-80 max-w-[calc(100vw-16px)] bg-background/95 backdrop-blur-xl border border-border shadow-2xl overflow-hidden rounded-2xl max-sm:inset-x-0 max-sm:bottom-0 max-sm:left-0 max-sm:top-auto max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:rounded-t-2xl`}
+          style={{
+            ...(isMobileSheet ? {} : { top: position.top, left: position.left, maxHeight: '400px' }),
+            ...(isMobileSheet ? { maxHeight: '75dvh' } : {}),
+          }}
         >
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
@@ -125,7 +148,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect
               </Link>
             </div>
           ) : (
-            <div className="max-h-96 flex flex-col">
+            <div className="max-h-96 max-sm:max-h-none flex flex-col">
               {/* Search */}
               <div className="p-2 border-b">
                 <div className="relative">
@@ -146,12 +169,12 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect
                     key={pack.id}
                     variant={(currentPack?.id === pack.id && !search) ? "default" : "ghost"}
                     size="sm"
-                    className="h-8 w-8 p-0 shrink-0"
+                    className="h-8 w-8 p-0 shrink-0 max-sm:h-7 max-sm:w-7"
                     onClick={() => { setSelectedPackId(pack.id); setSearch(''); }}
                     title={pack.name}
                   >
                     {pack.icon_url ? (
-                      <img src={storageUrl('emojis', pack.icon_url)} alt={pack.name} className="w-5 h-5 object-contain" />
+                      <img src={storageUrl('emojis', pack.icon_url)} alt={pack.name} className="w-5 h-5 object-contain max-sm:h-4 max-sm:w-4" />
                     ) : (
                       <span className="text-xs">{pack.name.charAt(0)}</span>
                     )}
@@ -169,15 +192,15 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect
                     return (
                       <div key={pack.id} className="mb-3">
                         <h4 className="text-xs font-medium text-muted-foreground mb-1 px-1">{pack.name}</h4>
-                        <div className="grid grid-cols-8 gap-1">
+                        <div className="grid grid-cols-8 gap-1 max-sm:grid-cols-7">
                           {filtered.map(emoji => (
                             <button
                               key={emoji.id}
-                              className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center"
+                              className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center max-sm:h-8 max-sm:w-8"
                               onClick={() => handleEmojiClick(emoji, pack)}
                               title={(emoji.unicode_triggers || []).join(' ') || 'Кастомный эмодзи'}
                             >
-                              <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain" />
+                              <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain max-sm:h-5 max-sm:w-5" />
                             </button>
                           ))}
                         </div>
@@ -187,15 +210,15 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect
                 ) : currentPack ? (
                   <div>
                     <h4 className="text-xs font-medium text-muted-foreground mb-1 px-1">{currentPack.name}</h4>
-                    <div className="grid grid-cols-8 gap-1">
+                    <div className="grid grid-cols-8 gap-1 max-sm:grid-cols-7">
                       {(currentPack.emojis || []).map(emoji => (
                         <button
                           key={emoji.id}
-                          className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center"
+                          className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center max-sm:h-8 max-sm:w-8"
                           onClick={() => handleEmojiClick(emoji, currentPack)}
                           title={(emoji.unicode_triggers || []).join(' ') || 'Кастомный эмодзи'}
                         >
-                          <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain" />
+                          <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain max-sm:h-5 max-sm:w-5" />
                         </button>
                       ))}
                     </div>
