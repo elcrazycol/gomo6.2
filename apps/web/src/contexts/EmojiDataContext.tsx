@@ -35,8 +35,10 @@ interface EmojiDataContextValue {
   ownedPacks: EmojiPackData[];
   isLoading: boolean;
   resolveEmojis: (ids: string[]) => Promise<void>;
-  subscribeToPack: (packId: string) => Promise<void>;
-  unsubscribeFromPack: (packId: string) => Promise<void>;
+  /** Installs a pack instantly (optimistic) and resolves to whether the server accepted it. */
+  subscribeToPack: (packId: string, pack?: EmojiPackData) => Promise<boolean>;
+  /** Removes a pack instantly (optimistic) and resolves to whether the server accepted it. */
+  unsubscribeFromPack: (packId: string) => Promise<boolean>;
   refreshData: () => Promise<void>;
   getEmojiUrl: (emojiId: string) => string | null;
   customEmojiList: EmojiData[];
@@ -236,23 +238,57 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [allEmojis, failedEmojiIds, mergeResolvedEmojis]);
 
-  const subscribeToPack = useCallback(async (packId: string) => {
+  const subscribeToPack = useCallback(async (packId: string, pack?: EmojiPackData): Promise<boolean> => {
     const { data: { user } } = await api.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
+
+    // Optimistic: the pack is available in the picker the instant the user
+    // taps install — no waiting for the subscriptions round-trip (which is
+    // also why the pack used to appear only after a delay).
+    setSubscribedPackIds(prev => new Set([...prev, packId]));
+    if (pack) {
+      setSubscribedPacks(prev => prev.some(p => p.id === pack.id) ? prev : [pack, ...prev]);
+      setAllEmojis(prev => {
+        const next = new Map(prev);
+        for (const emoji of pack.emojis ?? []) next.set(emoji.id, emoji);
+        return next;
+      });
+    }
 
     const { error } = await api
       .from('user_emoji_subscriptions')
       .insert({ user_id: user.id, pack_id: packId });
 
-    if (!error) {
-      setSubscribedPackIds(prev => new Set([...prev, packId]));
-      await refreshData();
+    if (error) {
+      // Roll back the optimistic update.
+      setSubscribedPackIds(prev => {
+        const next = new Set(prev);
+        next.delete(packId);
+        return next;
+      });
+      if (pack) setSubscribedPacks(prev => prev.filter(p => p.id !== packId));
+      console.error('Error subscribing to emoji pack:', error);
+      return false;
     }
-  }, []);
 
-  const unsubscribeFromPack = useCallback(async (packId: string) => {
+    // Background refresh keeps counts/ordering accurate without blocking the
+    // UI — the pack is already visible from the optimistic update.
+    void loadSubscribedData();
+    return true;
+  }, [loadSubscribedData]);
+
+  const unsubscribeFromPack = useCallback(async (packId: string): Promise<boolean> => {
     const { data: { user } } = await api.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
+
+    // Optimistic: hide the pack immediately, restore it if the server rejects.
+    const wasSubscribed = subscribedPackIds.has(packId);
+    setSubscribedPackIds(prev => {
+      const next = new Set(prev);
+      next.delete(packId);
+      return next;
+    });
+    setSubscribedPacks(prev => prev.filter(p => p.id !== packId));
 
     const { error } = await api
       .from('user_emoji_subscriptions')
@@ -260,15 +296,15 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       .eq('user_id', user.id)
       .eq('pack_id', packId);
 
-    if (!error) {
-      setSubscribedPackIds(prev => {
-        const next = new Set(prev);
-        next.delete(packId);
-        return next;
-      });
-      setSubscribedPacks(prev => prev.filter(p => p.id !== packId));
+    if (error) {
+      if (wasSubscribed) setSubscribedPackIds(prev => new Set([...prev, packId]));
+      console.error('Error unsubscribing from emoji pack:', error);
+      return false;
     }
-  }, []);
+
+    void loadSubscribedData();
+    return true;
+  }, [subscribedPackIds, loadSubscribedData]);
 
   const refreshData = useCallback(async () => {
     loadingRef.current = false;

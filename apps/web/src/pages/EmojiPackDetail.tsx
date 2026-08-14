@@ -5,7 +5,7 @@ import { useEmojiData, EmojiPackData, EmojiData } from '@/contexts/EmojiDataCont
 import { storageUrl } from '@/utils/storage';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Package, Users, Download, Check } from 'lucide-react';
+import { ArrowLeft, Package, Users, Plus, Check } from 'lucide-react';
 import { EmojiGrid } from '@/components/emoji/EmojiGrid';
 
 export default function EmojiPackDetail() {
@@ -46,11 +46,13 @@ export default function EmojiPackDetail() {
     setSubscribing(true);
     try {
       if (isSubscribed) {
-        await unsubscribeFromPack(pack.id);
-        toast.success('Отписано');
+        const ok = await unsubscribeFromPack(pack.id);
+        toast.success(ok ? 'Пак удалён' : 'Не удалось отписаться');
       } else {
-        await subscribeToPack(pack.id);
-        toast.success('Подписано!');
+        // Pass the full pack so the optimistic update makes it available in
+        // the picker instantly — no waiting for the subscriptions round-trip.
+        const ok = await subscribeToPack(pack.id, pack);
+        toast.success(ok ? 'Пак установлен!' : 'Не удалось установить пак');
       }
     } finally {
       setSubscribing(false);
@@ -99,11 +101,21 @@ export default function EmojiPackDetail() {
             onClick={handleToggleSubscribe}
             disabled={subscribing}
             variant={isSubscribed ? "outline" : "default"}
+            size="sm"
+            className="shrink-0 px-2.5 sm:px-3"
+            title={isSubscribed ? 'Отписаться от пака' : 'Установить пак'}
+            aria-label={isSubscribed ? 'Пак установлен — отписаться' : 'Установить пак'}
           >
             {isSubscribed ? (
-              <><Check className="h-4 w-4 mr-1" /> Установлен</>
+              <>
+                <Check className="h-4 w-4" />
+                <span className="hidden sm:inline">Установлен</span>
+              </>
             ) : (
-              <><Download className="h-4 w-4 mr-1" /> Установить</>
+              <>
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Добавить</span>
+              </>
             )}
           </Button>
         </div>

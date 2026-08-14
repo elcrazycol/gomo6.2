@@ -45,8 +45,8 @@ export default function EmojiMyPacks() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleUninstall = async (packId: string) => {
-    await unsubscribeFromPack(packId);
-    toast.success('Пак отписан');
+    const ok = await unsubscribeFromPack(packId);
+    toast.success(ok ? 'Пак удалён' : 'Не удалось отписаться');
   };
 
   return (
