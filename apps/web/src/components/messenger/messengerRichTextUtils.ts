@@ -167,55 +167,46 @@ export const sanitizeColor = (value: string): string | null => {
 
 const LINK_RE = /\[url=([^\]]+)\]([\s\S]*?)\[\/url\]/g;
 
-const splitLinks = (textNode: ProsemirrorNode): ProsemirrorNode[] => {
+/**
+ * Split a text node by a /g pattern, preserving every occurrence. A cursor
+ * walks the ORIGINAL string (never re-slicing the input), so the regex's
+ * lastIndex stays valid across matches — the naive slice + re-exec pattern
+ * loses every occurrence after the first.
+ */
+const splitTextBy = (
+  textNode: ProsemirrorNode,
+  re: RegExp,
+  onMatch: (match: RegExpExecArray, marks: Array<{ type: string; attrs?: Record<string, unknown> }>) => ProsemirrorNode[],
+): ProsemirrorNode[] => {
   const text = textNode.text ?? "";
-  LINK_RE.lastIndex = 0;
+  re.lastIndex = 0;
+  if (!re.test(text)) return [textNode];
+  re.lastIndex = 0;
+  const marks = textNode.marks;
   const parts: ProsemirrorNode[] = [];
-  let rest = text;
-  let match = LINK_RE.exec(rest);
-  if (!match) return [textNode];
-  while (match) {
-    const before = rest.slice(0, match.index);
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const before = text.slice(cursor, match.index);
     if (before) parts.push({ ...textNode, text: before });
-    const href = sanitizeMessengerHref(match[1]);
-    if (href) {
-      parts.push({
-        type: "text",
-        text: match[2],
-        marks: [...(textNode.marks ?? []), { type: "link", attrs: { href } }],
-      });
-    } else {
-      parts.push({ ...textNode, text: match[0] });
-    }
-    rest = rest.slice(match.index + match[0].length);
-    match = LINK_RE.exec(rest);
+    parts.push(...onMatch(match, marks ?? []));
+    cursor = match.index + match[0].length;
   }
-  if (rest) parts.push({ ...textNode, text: rest });
+  if (cursor < text.length) parts.push({ ...textNode, text: text.slice(cursor) });
   return parts;
 };
 
-const splitEmojis = (textNode: ProsemirrorNode): ProsemirrorNode[] => {
-  const text = textNode.text ?? "";
-  PLACEHOLDER_RE.lastIndex = 0;
-  if (!PLACEHOLDER_RE.test(text)) return [textNode];
-  PLACEHOLDER_RE.lastIndex = 0;
-  const parts: ProsemirrorNode[] = [];
-  let rest = text;
-  let match = PLACEHOLDER_RE.exec(rest);
-  while (match) {
-    const before = rest.slice(0, match.index);
-    if (before) parts.push({ ...textNode, text: before });
-    parts.push({
-      type: "customEmoji",
-      attrs: { emojiId: match[1], fallback: null, name: "" },
-      marks: textNode.marks,
-    });
-    rest = rest.slice(match.index + match[0].length);
-    match = PLACEHOLDER_RE.exec(rest);
-  }
-  if (rest) parts.push({ ...textNode, text: rest });
-  return parts;
-};
+const splitLinks = (textNode: ProsemirrorNode): ProsemirrorNode[] =>
+  splitTextBy(textNode, LINK_RE, (match, marks) => {
+    const href = sanitizeMessengerHref(match[1]);
+    if (!href) return [{ ...textNode, text: match[0] }];
+    return [{ type: "text", text: match[2], marks: [...marks, { type: "link", attrs: { href } }] }];
+  });
+
+const splitEmojis = (textNode: ProsemirrorNode): ProsemirrorNode[] =>
+  splitTextBy(textNode, PLACEHOLDER_RE, (match) => [
+    { type: "customEmoji", attrs: { emojiId: match[1], fallback: null, name: "" }, marks: textNode.marks },
+  ]);
 
 const walkReplace = (node: ProsemirrorNode, replace: (n: ProsemirrorNode) => ProsemirrorNode[]): ProsemirrorNode[] => {
   if (node.type === "text") return replace(node);
@@ -273,6 +264,11 @@ export function messengerTextToPlain(text: string): string {
   return text
     .replace(EMOJI_RE, "◆")
     .replace(/\[[\]/]?(?:b|i|u|s|spoiler|blur|col|size|url)(?:=[^\]]*)?\]/gi, "")
+    // Server-truncated previews (80 chars of raw wire text) can end mid-tag.
+    // The truncation only ever cuts a suffix, so a single dangling fragment
+    // strip of KNOWN tag starts is enough to clean `[col=#ff00`, `[e:abc` etc.
+    // (arbitrary `[text` is kept — it may be legitimate user content).
+    .replace(/\[(?:e:|b|i|u|s|spoiler|blur|col|size|url)[^\]]*$/i, "")
     .replace(/\u200b/g, "")
     .replace(/[ \t]+/g, " ")
     .trim();
@@ -294,4 +290,15 @@ export function messengerPlainPreview(text: string, maxLength = 100): string {
   const cut = plain.slice(0, maxLength);
   const lastSpace = cut.lastIndexOf(" ");
   return `${cut.slice(0, lastSpace > maxLength * 0.6 ? lastSpace : maxLength).trimEnd()}…`;
+}
+
+/**
+ * Clipboard-friendly copy: formatting tags stripped, but [e:…] emoji tokens
+ * kept — pasting the text back into the messenger re-renders the emojis.
+ */
+export function messengerTextToCopy(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\[[\]/]?(?:b|i|u|s|spoiler|blur|col|size|url)(?:=[^\]]*)?\]/gi, "")
+    .replace(/\u200b/g, "");
 }

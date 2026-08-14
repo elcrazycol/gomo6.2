@@ -19,7 +19,7 @@ import { chunkAttachments, MAX_ALBUM_ATTACHMENTS } from "./attachmentAlbum";
 import { uploadFilesAsAttachments } from "./attachmentUpload";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
-import { isMessengerTextEmpty, messengerPlainPreview } from "./messengerRichTextUtils";
+import { isMessengerTextEmpty, messengerPlainPreview, messengerTextToCopy } from "./messengerRichTextUtils";
 import type { Attachment, MessageView, UploadingFile } from "./types";
 
 interface Props {
@@ -182,9 +182,11 @@ export const ChatView = memo(function ChatView({
   }, [composerRef]);
 
   const handleCopy = useCallback((text: string) => {
-    navigator.clipboard.writeText(text).catch(() => {
+    // Strip BBCode formatting tags but keep [e:…] tokens — pasting the text
+    // back into the messenger re-renders the emojis.
+    navigator.clipboard.writeText(messengerTextToCopy(text)).catch(() => {
       const ta = document.createElement("textarea");
-      ta.value = text;
+      ta.value = messengerTextToCopy(text);
       ta.style.position = "fixed";
       ta.style.left = "-9999px";
       document.body.appendChild(ta);

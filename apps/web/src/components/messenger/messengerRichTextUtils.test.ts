@@ -158,6 +158,15 @@ describe("messengerTextToPlain / isMessengerTextEmpty", () => {
     expect(messengerTextToPlain("  a\t\tb  ")).toBe("a b");
   });
 
+  it("strips dangling tag fragments left by server truncation", () => {
+    // The server cuts the raw wire text at 80 chars — the cut can land inside
+    // a tag. The dangling fragment is always a suffix, so it is dropped.
+    expect(messengerTextToPlain("[b]hi[/b] [col=#ff00")).toBe("hi");
+    expect(messengerTextToPlain("привет [e:abc123456")).toBe("привет");
+    expect(messengerTextToPlain("ok [url=https://x.")).toBe("ok");
+    expect(messengerTextToPlain("[blur]secret[blur]" )).toBe("secret");
+  });
+
   it("detects empty (even with formatting)", () => {
     expect(isMessengerTextEmpty("")).toBe(true);
     expect(isMessengerTextEmpty("   ")).toBe(true);
