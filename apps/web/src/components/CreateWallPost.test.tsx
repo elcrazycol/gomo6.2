@@ -29,6 +29,7 @@ vi.mock("@/components/GomoRichEditor", () => {
           resetKey,
           contentJson,
           legacyContent,
+          maxHeightClassName,
         }: any,
         ref: any
       ) => {
@@ -54,6 +55,7 @@ vi.mock("@/components/GomoRichEditor", () => {
             data-testid="gomo-rich-editor"
             data-placeholder={placeholder}
             data-reset-key={resetKey}
+            data-max-height-class={maxHeightClassName}
           >
             <textarea
               data-testid="rich-editor-textarea"
@@ -223,6 +225,18 @@ describe("CreateWallPost", () => {
     expect(screen.getByText("Новая запись на стене")).toBeInTheDocument();
     expect(screen.getByText("Опубликовать")).toBeInTheDocument();
     expect(screen.getByText("Отмена")).toBeInTheDocument();
+  });
+
+  it("caps the editor height so long posts scroll inside instead of growing", () => {
+    setupApiMocks();
+    render(<Component {...defaultProps} />);
+
+    // Long posts must scroll INSIDE the editor (capped height + internal
+    // scroll) rather than growing the card and fighting the mobile keyboard.
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute(
+      "data-max-height-class",
+      "max-h-[45vh] overflow-y-auto overscroll-contain"
+    );
   });
 
   it("renders in edit mode with pre-filled content and save button", () => {

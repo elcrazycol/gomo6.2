@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   computeContainerScrollDelta,
   computeDismissalFrame,
   computeKeyboardMetrics,
   computeWindowScrollDelta,
   getScrollContext,
+  initMobileKeyboard,
   isBeyondTouchSlop,
   isEditableElement,
   isIOSDevice,
@@ -263,6 +264,149 @@ describe("computeContainerScrollDelta", () => {
       visibleHeight: 500,
     });
     expect(delta).toBe(20 - 50 - 8); // -38
+  });
+});
+
+// ── Integration: keyboard-open scroll corrections (see applyState) ─────────
+// The slide-in alignment must arm ONCE per keyboard-open transition: the
+// keyboard animation fires a stream of visualViewport resizes, and re-arming
+// on each one re-scrolled the page against the live (growing) editor rect,
+// making long-post composers visibly fight the browser's caret scrolling.
+
+describe("keyboard-open scroll corrections", () => {
+  // initMobileKeyboard is module-global: dispose in afterEach (not just in
+  // try/finally) so a mid-test failure can never leak `initialized` into the
+  // other tests of this file.
+  let dispose: (() => void) | null = null;
+
+  afterEach(() => {
+    dispose?.();
+    dispose = null;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete (window as any).visualViewport;
+    delete (window as any).innerHeight;
+    document.body.innerHTML = "";
+  });
+
+  const stubTouchViewport = () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+    );
+    const vv: { height: number; offsetTop: number; addEventListener: () => void; removeEventListener: () => void } = {
+      height: 800,
+      offsetTop: 0,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    };
+    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    return vv;
+  };
+
+  // A focused input inside a scrollable container, with CONTROLLED geometry
+  // (jsdom reports all-zero rects). While the keyboard is open the input's
+  // bottom edge sits below the keyboard line, so a correction WOULD scroll.
+  const setupFocusedInput = () => {
+    const scroller = document.createElement("div");
+    scroller.style.overflowY = "auto";
+    Object.defineProperty(scroller, "scrollHeight", { value: 2000, configurable: true });
+    Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
+
+    let scrollTopValue = 0;
+    let scrollWrites = 0;
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => scrollTopValue,
+      set: (v: number) => {
+        scrollTopValue = v;
+        scrollWrites += 1;
+      },
+    });
+
+    const input = document.createElement("input");
+    scroller.appendChild(input);
+    document.body.appendChild(scroller);
+
+    let rect = { top: 400, bottom: 700 };
+    Object.defineProperty(input, "getBoundingClientRect", {
+      configurable: true,
+      value: () => rect,
+    });
+
+    return {
+      input,
+      getScrollWrites: () => scrollWrites,
+      setRect: (next: { top: number; bottom: number }) => {
+        rect = next;
+      },
+    };
+  };
+
+  it("arms the 4 progressive corrections once when the keyboard opens", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const { input, getScrollWrites } = setupFocusedInput();
+
+    dispose = initMobileKeyboard();
+
+    // Focused while fully visible at 800px — focus-in arms nothing.
+    input.focus();
+    expect(getScrollWrites()).toBe(0);
+
+    // Keyboard slides in: visual viewport 800 → 500 (delta 300 ≥ 60).
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    // Corrections are scheduled, not yet run.
+    expect(getScrollWrites()).toBe(0);
+
+    // The 0/120/300/600ms passes fire — exactly one arm = 4 corrections.
+    vi.advanceTimersByTime(700);
+    expect(getScrollWrites()).toBe(4);
+  });
+
+  it("does not re-arm corrections while the keyboard stays open", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const { input, getScrollWrites, setRect } = setupFocusedInput();
+
+    dispose = initMobileKeyboard();
+
+    input.focus();
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    const writesAfterOpen = getScrollWrites();
+    expect(writesAfterOpen).toBe(4);
+
+    // While typing, the editor grows: its bottom edge (900) drops back below
+    // the keyboard line (visible 450 − 12 = 438), so a correction WOULD be
+    // needed — the old re-arm-on-resize code scrolled again here, which was
+    // the long-post jitter. AND the visual viewport keeps changing (more
+    // resize events). Neither may re-arm corrections.
+    setRect({ top: 600, bottom: 900 });
+    vv.height = 450;
+    window.dispatchEvent(new Event("resize"));
+
+    // The keyboard is still open; the CSS inset follows the new geometry…
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("350px");
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+
+    vi.advanceTimersByTime(1000);
+    // …but no NEW scroll corrections ran.
+    expect(getScrollWrites()).toBe(writesAfterOpen);
   });
 });
 

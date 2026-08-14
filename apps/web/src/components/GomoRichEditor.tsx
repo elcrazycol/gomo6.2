@@ -37,6 +37,10 @@ interface GomoRichEditorProps {
   resetKey?: string | number;
   /** Maximum number of characters (plain text). Omit for no limit. */
   maxLength?: number;
+  /** Cap the editing area's height (e.g. "max-h-[45vh] overflow-y-auto") so
+      long text scrolls INSIDE the editor instead of growing the composer and
+      fighting the mobile keyboard's scroll corrections. Omit for no cap. */
+  maxHeightClassName?: string;
   /** Hide the formatting toolbar while a compact composer is idle. */
   showToolbar?: boolean;
   /** Focus the editor as soon as it is ready. */
@@ -311,6 +315,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   legacyContent,
   placeholder = "Напишите сообщение…",
   minHeightClassName = "min-h-[120px]",
+  maxHeightClassName,
   resetKey,
   maxLength,
   showToolbar = true,
@@ -387,7 +392,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     content: initialContent || undefined,
     editorProps: {
       attributes: {
-        class: `${minHeightClassName} relative z-10 outline-none bg-transparent text-sm sm:text-base`,
+        class: `${minHeightClassName} ${maxHeightClassName ? `${maxHeightClassName} ` : ""}relative z-10 outline-none bg-transparent text-sm sm:text-base`,
         spellcheck: "true",
       },
     },

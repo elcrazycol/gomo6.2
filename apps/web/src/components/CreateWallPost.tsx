@@ -238,6 +238,7 @@ export const CreateWallPost = ({
               onSubmit={handleSubmit}
               placeholder="Что у вас нового? Напишите красиво, добавьте теги, эмодзи и вложения."
               minHeightClassName="min-h-[120px] sm:min-h-[140px]"
+              maxHeightClassName="max-h-[45vh] overflow-y-auto overscroll-contain"
             />
           </div>
 

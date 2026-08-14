@@ -190,6 +190,7 @@ export const WallCommentComposer = ({
               onSubmit={onSubmit}
               placeholder={editorPlaceholder}
               minHeightClassName={compact ? "min-h-[60px]" : "min-h-[84px]"}
+              maxHeightClassName={compact ? "max-h-[30vh] overflow-y-auto overscroll-contain" : "max-h-[40vh] overflow-y-auto overscroll-contain"}
               showToolbar={!compact || isExpanded}
             />
             <div className="flex items-center justify-end gap-2">

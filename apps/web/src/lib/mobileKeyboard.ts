@@ -395,6 +395,13 @@ function computeRaw(): MobileKeyboardState {
 }
 
 function applyState(next: MobileKeyboardState) {
+  // The keyboard just opened in THIS transition. The slide-in alignment below
+  // must arm once per open, not on every metrics change while open: the
+  // keyboard animation fires a stream of visualViewport resizes, and each one
+  // used to re-arm 4 more page scrolls — recomputed against the live (and
+  // possibly still growing) editor rect — which made long-post composers
+  // visibly fight the browser's own caret-follow scrolling.
+  const opened = next.isOpen && !state.isOpen;
   const changed =
     next.isOpen !== state.isOpen ||
     next.keyboardInset !== state.keyboardInset ||
@@ -411,12 +418,14 @@ function applyState(next: MobileKeyboardState) {
 
   if (!changed) return;
   for (const listener of listeners) listener();
-  if (next.isOpen) {
+  if (opened) {
     // The keyboard slides in over ~250ms; re-align the focused input a few
     // times so it lands exactly above the keyboard when the animation ends.
-    // But only if the element isn't already fully visible — skipping the
-    // scroll prevents the composer from jumping when it's already at the
-    // bottom and the user focuses it (e.g. replying to a comment).
+    // Each correction reads the LIVE visual-viewport geometry at fire time, so
+    // a single arm already tracks the slide-in. But only if the element isn't
+    // already fully visible — skipping the scroll prevents the composer from
+    // jumping when it's already at the bottom and the user focuses it
+    // (e.g. replying to a comment).
     const el = focusedEditable;
     if (el && el.isConnected) {
       const vv = typeof window !== 'undefined' ? window.visualViewport : null;
