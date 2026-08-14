@@ -85,7 +85,11 @@ export function useEmojiKeyboardSwap(
     if (inset < MIN_KB_HEIGHT) {
       // Android resizes-content: the layout viewport grows back by the exact
       // keyboard height once it hides — measure it and correct the panel so it
-      // fills precisely the freed space.
+      // fills precisely the freed space. The growth can lag the keyboard
+      // dismissal by half a second on slow devices; retry for a full second
+      // instead of 300ms so the FIRST panel open is never smaller than the
+      // keyboard it replaces (which made the composer redraw when the keyboard
+      // came back).
       if (measureTimerRef.current !== null) {
         clearTimeout(measureTimerRef.current);
       }
@@ -97,7 +101,7 @@ export function useEmojiKeyboardSwap(
           setHeight(Math.round(grown));
           return;
         }
-        if (++attempts < 6) {
+        if (++attempts < 20) {
           measureTimerRef.current = window.setTimeout(measure, 50);
         } else {
           measureTimerRef.current = null;
