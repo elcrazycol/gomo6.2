@@ -30,11 +30,11 @@ describe('EmojiInline', () => {
     expect(screen.getByText(':smile:')).toBeInTheDocument();
   });
 
-  it('renders fallback when emoji not found after resolve', async () => {
+  it('renders a neutral placeholder when emoji is not yet known', () => {
     render(<EmojiInline emojiId="unknown-id" />);
-    // After resolve completes, emoji is still not in map, so shows [?]
-    const { findByText } = screen;
-    const fallback = await findByText('[?]');
-    expect(fallback).toBeInTheDocument();
+    // Unknown emoji renders a subtle placeholder box, never a raw [?] — the
+    // record is resolved via resolveEmojis and replaces it once it arrives.
+    expect(screen.getByTestId('emoji-inline-placeholder')).toBeInTheDocument();
+    expect(screen.queryByText('[?]')).not.toBeInTheDocument();
   });
 });

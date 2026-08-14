@@ -56,6 +56,11 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       const { data: { user } } = await api.auth.getUser();
       if (!user) {
+        // Logged out: drop per-user state (privacy) but keep the emoji map so
+        // posts and nicknames already on screen keep rendering.
+        setSubscribedPacks([]);
+        setOwnedPacks([]);
+        setSubscribedPackIds(new Set());
         setIsLoading(false);
         return;
       }
@@ -91,6 +96,13 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
         return next;
       });
+      // Emojis that just arrived are known — unmark any stale failure records.
+      setFailedEmojiIds(prev => {
+        if (prev.size === 0 || emojiMap.size === 0) return prev;
+        const next = new Set(prev);
+        for (const id of emojiMap.keys()) next.delete(id);
+        return next;
+      });
     } catch (err) {
       console.error('Error loading emoji subscriptions:', err);
     } finally {
@@ -105,59 +117,61 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [loadSubscribedData]);
 
+  const mergeResolvedEmojis = useCallback((resolved: EmojiData[], requested: string[]) => {
+    setAllEmojis(prev => {
+      const next = new Map(prev);
+      for (const emoji of resolved) next.set(emoji.id, emoji);
+      return next;
+    });
+    setFailedEmojiIds(prev => {
+      const next = new Set(prev);
+      // Any id that came back is known — never mark it failed again this session.
+      for (const emoji of resolved) next.delete(emoji.id);
+      // Ids the server did not return are genuinely missing (deleted emoji):
+      // remember them so we do not re-request them on every render.
+      for (const id of requested) {
+        if (!resolved.some(emoji => emoji.id === id)) next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
   const resolveEmojis = useCallback(async (ids: string[]) => {
     const unresolved = ids.filter(id => !allEmojis.has(id) && !failedEmojiIds.has(id));
     if (unresolved.length === 0) return;
 
+    const toArray = (data: unknown): EmojiData[] => {
+      if (Array.isArray(data)) return data as EmojiData[];
+      return data ? [data as EmojiData] : [];
+    };
+
     try {
-      const rpcResult = await api.rpc('resolve_emojis', { ids: unresolved });
-      const resolved = (Array.isArray(rpcResult.data)
-        ? rpcResult.data
-        : rpcResult.data
-          ? [rpcResult.data]
-          : []) as EmojiData[];
-      if (resolved.length > 0 || rpcResult.data !== null) {
-        setAllEmojis(prev => {
-          const next = new Map(prev);
-          for (const emoji of resolved) next.set(emoji.id, emoji);
-          return next;
-        });
-        setFailedEmojiIds(prev => {
-          const next = new Set(prev);
-          for (const emoji of resolved) next.delete(emoji.id);
-          for (const id of unresolved) if (!resolved.some((emoji) => emoji.id === id)) next.add(id);
-          return next;
-        });
+      // Primary path: the REST endpoint through the shared client (cookies,
+      // CSRF, refresh) — it is rate-limited under the generous generic budgets.
+      const rest = await apiClient.rawRequest<unknown>('/api/v1/custom_emojis/resolve', {
+        method: 'POST',
+        body: JSON.stringify({ ids: unresolved }),
+      });
+      const resolved = toArray(rest.data ?? rest);
+      if (resolved.length > 0 || rest.data !== null) {
+        mergeResolvedEmojis(resolved, unresolved);
+        return;
       }
     } catch {
-      // Try the REST endpoint through the shared client so browser cookies,
-      // CSRF and auth refresh behavior remain identical to the RPC path.
-      try {
-        const fallback = await apiClient.rawRequest<EmojiData[]>('/api/v1/custom_emojis/resolve', {
-          method: 'POST',
-          body: JSON.stringify({ ids: unresolved }),
-        });
-        const resolved = (Array.isArray(fallback.data)
-          ? fallback.data
-          : fallback.data
-            ? [fallback.data]
-            : []) as EmojiData[];
-        setAllEmojis(prev => {
-          const next = new Map(prev);
-          for (const emoji of resolved) next.set(emoji.id, emoji);
-          return next;
-        });
-        setFailedEmojiIds(prev => {
-          const next = new Set(prev);
-          for (const emoji of resolved) next.delete(emoji.id);
-          for (const id of unresolved) if (!resolved.some((emoji) => emoji.id === id)) next.add(id);
-          return next;
-        });
-      } catch (err) {
-        console.error('Error resolving emojis:', err);
-      }
+      // fall through to the RPC surface below
     }
-  }, [allEmojis, failedEmojiIds]);
+
+    try {
+      // Fallback: the public RPC endpoint (identical handler, stricter per-IP
+      // budget — only hit when the primary path fails).
+      const rpcResult = await api.rpc('resolve_emojis', { ids: unresolved });
+      if (rpcResult.error && !rpcResult.data) throw rpcResult.error;
+      const resolved = toArray(rpcResult.data);
+      mergeResolvedEmojis(resolved, unresolved);
+    } catch (err) {
+      console.error('Error resolving emojis:', err);
+    }
+  }, [allEmojis, failedEmojiIds, mergeResolvedEmojis]);
 
   const subscribeToPack = useCallback(async (packId: string) => {
     const { data: { user } } = await api.auth.getUser();

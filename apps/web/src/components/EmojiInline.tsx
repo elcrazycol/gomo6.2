@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useEmojiData } from '@/contexts/EmojiDataContext';
 import { storageUrl } from '@/utils/storage';
 
@@ -9,17 +9,22 @@ interface EmojiInlineProps {
   size?: number;
 }
 
+/**
+ * Renders a custom emoji by id, resolving it lazily through the shared emoji
+ * data context. The effect re-runs whenever `resolveEmojis` changes identity
+ * (i.e. whenever the emoji map grows), so an emoji that was unknown at first
+ * paint renders the instant its record arrives — no permanent [?] placeholders.
+ */
 export const EmojiInline = ({ emojiId, code, className = "", size }: EmojiInlineProps) => {
   const { allEmojis, resolveEmojis } = useEmojiData();
-  const [resolved, setResolved] = useState(false);
 
   const emoji = emojiId ? allEmojis.get(emojiId) : undefined;
 
   useEffect(() => {
-    if (emojiId && !emoji && !resolved) {
-      resolveEmojis([emojiId]).then(() => setResolved(true));
+    if (emojiId && !emoji) {
+      resolveEmojis([emojiId]);
     }
-  }, [emojiId, emoji, resolveEmojis, resolved]);
+  }, [emojiId, emoji, resolveEmojis]);
 
   // New system: render by emojiId
   if (emoji && emojiId) {
@@ -42,10 +47,17 @@ export const EmojiInline = ({ emojiId, code, className = "", size }: EmojiInline
     return <span className={`text-muted-foreground text-xs ${className}`}>:{code}:</span>;
   }
 
-  // Loading state
-  if (emojiId && !resolved) {
-    return <span className={`inline-block w-4 h-4 bg-muted/30 rounded ${className}`} />;
+  // Unknown or still resolving: a neutral inline placeholder instead of a raw
+  // [?] — the record arrives via resolveEmojis and replaces it moments later.
+  if (emojiId) {
+    return (
+      <span
+        data-testid="emoji-inline-placeholder"
+        className={`inline-block h-[1.2em] w-[1.2em] rounded bg-muted/40 align-middle ${className}`}
+        aria-hidden="true"
+      />
+    );
   }
 
-  return <span className={`text-muted-foreground text-xs ${className}`}>[?]</span>;
+  return null;
 };
