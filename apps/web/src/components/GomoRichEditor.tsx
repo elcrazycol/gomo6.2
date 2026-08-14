@@ -52,7 +52,10 @@ interface GomoRichEditorProps {
 export interface GomoRichEditorHandle {
   focus: () => void;
   insertText: (text: string) => void;
-  insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => void;
+  insertEmoji: (
+    data: { emojiId: string; packId: string; url: string; name: string },
+    opts?: { focus?: boolean }
+  ) => void;
 }
 
 const randomHexColor = () =>
@@ -517,11 +520,20 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     insertText: (text: string) => {
       editor?.chain().focus().insertContent(text).run();
     },
-    insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
-      editor?.chain().focus().insertContent({
+    insertEmoji: (data, opts) => {
+      const node = {
         type: 'customEmoji',
         attrs: { emojiId: data.emojiId, fallback: null, name: data.name },
-      }).run();
+      };
+      if (opts?.focus === false) {
+        // Insert at the preserved selection WITHOUT refocusing — used while the
+        // emoji panel replaces the soft keyboard (focus() would summon the
+        // keyboard right back over the panel). ProseMirror keeps the caret in
+        // its state, so the insert lands exactly where the user was typing.
+        editor?.chain().insertContent(node).run();
+      } else {
+        editor?.chain().focus().insertContent(node).run();
+      }
     },
   }), [editor]);
 

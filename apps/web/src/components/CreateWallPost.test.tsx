@@ -5,6 +5,13 @@ import { toast } from "sonner";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
+// Records editor-handle calls from the GomoRichEditor mock (module factory is
+// hoisted, so shared spies must live in vi.hoisted).
+const editorSpies = vi.hoisted(() => ({
+  insertEmojiOpts: [] as any[],
+  focusCalls: [] as boolean[],
+}));
+
 const mockFrom = vi.fn();
 vi.mock("@/integrations/api/compat", () => ({
   api: {
@@ -35,14 +42,20 @@ vi.mock("@/components/GomoRichEditor", () => {
       ) => {
         if (ref) {
           ref.current = {
-            focus: vi.fn(),
+            focus: () => {
+              editorSpies.focusCalls.push(true);
+            },
             insertText: (text: string) => {
               onChange?.({
                 json: contentJson || {},
                 text: (legacyContent || "") + text,
               });
             },
-            insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
+            insertEmoji: (
+              data: { emojiId: string; packId: string; url: string; name: string },
+              opts?: { focus?: boolean }
+            ) => {
+              editorSpies.insertEmojiOpts.push(opts ?? null);
               onChange?.({
                 json: contentJson || {},
                 text: (legacyContent || "") + `[e:${data.emojiId}]`,
@@ -130,8 +143,14 @@ vi.mock("@/components/ProfileAttachmentUpload", () => {
 });
 
 vi.mock("@/components/EmojiPicker", () => ({
-  EmojiPicker: ({ onEmojiSelect, children }: any) => (
-    <div data-testid="emoji-picker">
+  EmojiPicker: ({ onEmojiSelect, children, onSwapToggle, swapOpen, onSwapClose }: any) => (
+    <div data-testid="emoji-picker" data-swap-open={swapOpen ? "true" : "false"}>
+      <button data-testid="swap-toggle" onClick={() => onSwapToggle?.()}>
+        swap
+      </button>
+      <button data-testid="swap-close" onClick={() => onSwapClose?.()}>
+        close-swap
+      </button>
       <button
         data-testid="insert-emoji"
         onClick={() => onEmojiSelect({ emojiId: "test-emoji-id", packId: "test-pack", url: "/test.webp", name: "test" })}
@@ -212,6 +231,8 @@ describe("CreateWallPost", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    editorSpies.insertEmojiOpts.length = 0;
+    editorSpies.focusCalls.length = 0;
   });
 
   afterEach(() => {
@@ -565,6 +586,49 @@ describe("CreateWallPost", () => {
       const textarea = screen.getByTestId("rich-editor-textarea");
       expect(textarea).toHaveValue("[e:test-emoji-id]");
     });
+  });
+
+  it("opens the keyboard-swap panel on toggle and closes via onSwapClose", async () => {
+    setupApiMocks();
+    render(<Component {...defaultProps} />);
+
+    const picker = screen.getByTestId("emoji-picker");
+    expect(picker).toHaveAttribute("data-swap-open", "false");
+
+    await userEvent.click(screen.getByTestId("swap-toggle"));
+    expect(picker).toHaveAttribute("data-swap-open", "true");
+
+    await userEvent.click(screen.getByTestId("swap-close"));
+    expect(picker).toHaveAttribute("data-swap-open", "false");
+  });
+
+  it("inserts emoji WITHOUT refocusing while the swap panel is open", async () => {
+    setupApiMocks();
+    render(<Component {...defaultProps} />);
+
+    // Open the keyboard-replacement panel.
+    await userEvent.click(screen.getByTestId("swap-toggle"));
+    expect(screen.getByTestId("emoji-picker")).toHaveAttribute("data-swap-open", "true");
+
+    await userEvent.click(screen.getByTestId("insert-emoji"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rich-editor-textarea")).toHaveValue("[e:test-emoji-id]");
+    });
+    // No focus() → keyboard stays hidden, caret preserved.
+    expect(editorSpies.insertEmojiOpts).toEqual([{ focus: false }]);
+    expect(editorSpies.focusCalls.length).toBe(0);
+  });
+
+  it("refocuses the editor (keyboard returns) when the swap panel is toggled closed", async () => {
+    setupApiMocks();
+    render(<Component {...defaultProps} />);
+
+    await userEvent.click(screen.getByTestId("swap-toggle"));
+    await userEvent.click(screen.getByTestId("swap-toggle"));
+
+    expect(screen.getByTestId("emoji-picker")).toHaveAttribute("data-swap-open", "false");
+    expect(editorSpies.focusCalls.length).toBe(1);
   });
 
   describe("drag & drop", () => {
