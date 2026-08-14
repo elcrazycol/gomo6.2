@@ -1676,12 +1676,10 @@ main.is-messenger-page {
   color: hsl(var(--foreground));
 }
 
-/* ── Composer ── */
+/* ── Composer (Telegram-style: collapsed pill → expanded → full) ── */
 
 .composer {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 42px;
-  gap: 8px;
+  position: relative;
   /* Safe-area bottom: on iPhone with a home indicator the composer must clear
      the indicator; when the keyboard is open env() reports 0 and the composer
      already sits exactly on top of it (the shell shrank via --app-vh). */
@@ -1691,47 +1689,126 @@ main.is-messenger-page {
   box-shadow: 0 -4px 16px -4px rgba(0, 0, 0, 0.04);
 }
 
-.composer-input-wrap {
-  position: relative;
-  flex: 1;
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
   min-width: 0;
 }
 
-.composer textarea {
-  width: 100%;
-  min-height: 42px;
-  max-height: 140px;
-  resize: none;
-  overflow-y: auto;
-  field-sizing: content;
-  padding: 10px 12px;
+/* ── Input pill: one quiet line, grows on focus ── */
+
+.composer-input-pill {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
   border: 1px solid hsl(var(--input));
-  border-radius: 21px;
+  border-radius: 22px;
   background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  outline: none;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.4;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, border-radius 0.25s ease;
 }
 
-.composer textarea:focus {
+.composer-input-pill:focus-within {
   border-color: hsl(var(--primary));
   box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15);
 }
 
+/* Full composer: the pill becomes a proper editor box with the toolbar on top. */
+.composer.is-full .composer-input-pill {
+  border-radius: 14px;
+  padding-top: 8px;
+}
+
+/* The rich editor grows smoothly between the pill and the expanded input. */
+.composer-input-pill [contenteditable] {
+  min-height: 22px;
+  max-height: 140px;
+  caret-color: hsl(var(--foreground));
+  transition: min-height 300ms cubic-bezier(0.22, 1, 0.36, 1), max-height 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.composer-input-pill .ProseMirror p {
+  margin: 0;
+}
+
 .composer-counter {
   position: absolute;
-  right: 10px;
-  bottom: 6px;
+  right: 12px;
+  bottom: 4px;
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
   color: hsl(var(--muted-foreground));
   pointer-events: none;
 }
 
 .composer-counter.is-critical {
   color: hsl(var(--destructive));
+}
+
+/* ── Full-composer toggle — deliberately subtle rectangle ── */
+
+.composer-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.composer-expand-btn:hover {
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.4);
+  background: hsl(var(--primary) / 0.06);
+}
+
+.composer-expand-btn:active {
+  transform: scale(0.92);
+}
+
+.composer-expand-btn.is-active {
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.4);
+  background: hsl(var(--primary) / 0.08);
+}
+
+/* ── Formatting toolbar (full composer) — slides in above the input ── */
+
+.composer-toolbar {
+  margin-bottom: 2px;
+  border-radius: 10px;
+  animation: composer-toolbar-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes composer-toolbar-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Attach button — slides in with the expanded composer ── */
+
+.composer-attach-btn-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.composer-attach-btn-wrap.is-visible {
+  width: 36px;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 /* ── Send button ── */
@@ -1779,12 +1856,6 @@ main.is-messenger-page {
 }
 
 /* ── Attach button ── */
-
-.composer-attach-btn-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
 .composer-attach-btn {
   display: inline-flex;

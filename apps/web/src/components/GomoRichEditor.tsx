@@ -43,6 +43,8 @@ interface GomoRichEditorProps {
   maxHeightClassName?: string;
   /** Hide the formatting toolbar while a compact composer is idle. */
   showToolbar?: boolean;
+  /** Extra class on the formatting toolbar row (e.g. entrance animation). */
+  toolbarClassName?: string;
   /** Focus the editor as soon as it is ready. */
   autoFocus?: boolean;
   onChange: (value: { json: unknown; text: string }) => void;
@@ -68,7 +70,7 @@ const normalizeHexColor = (value: string) => {
   return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(prefixed) ? prefixed : null;
 };
 
-const Toolbar = ({ editor }: { editor: Editor }) => {
+const Toolbar = ({ editor, className = "" }: { editor: Editor; className?: string }) => {
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const [colorDraft, setColorDraft] = useState("#ff5500");
   const colorInputRef = useRef<HTMLInputElement>(null);
@@ -177,7 +179,7 @@ const Toolbar = ({ editor }: { editor: Editor }) => {
 
   return (
     <>
-      <div className="flex flex-nowrap gap-1 overflow-x-auto scrollbar-hide max-w-full border border-border/70 bg-background p-1">
+      <div className={`flex flex-nowrap gap-1 overflow-x-auto scrollbar-hide max-w-full border border-border/70 bg-background p-1 ${className}`}>
         <Button type="button" variant="ghost" size="sm" className={toolClass(active.bold)} aria-pressed={active.bold} title="Жирный" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></Button>
         <Button type="button" variant="ghost" size="sm" className={toolClass(active.italic)} aria-pressed={active.italic} title="Курсив" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></Button>
         <Button type="button" variant="ghost" size="sm" className={toolClass(active.underline)} aria-pressed={active.underline} title="Подчёркнутый" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></Button>
@@ -322,6 +324,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   resetKey,
   maxLength,
   showToolbar = true,
+  toolbarClassName,
   autoFocus = false,
   onChange,
   onSubmit,
@@ -556,7 +559,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 
   return (
     <div className="space-y-2">
-      {showToolbar && <Toolbar editor={editor} />}
+      {showToolbar && <Toolbar editor={editor} className={toolbarClassName} />}
       <div ref={editorContainerRef}>
         <EditorContent editor={editor} />
       </div>
