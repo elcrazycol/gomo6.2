@@ -5,6 +5,7 @@ import {
   messengerTextToPlain,
   isMessengerTextEmpty,
   messengerPlainPreview,
+  stripDanglingTagFragment,
   sanitizeMessengerHref,
 } from "./messengerRichTextUtils";
 
@@ -158,21 +159,37 @@ describe("messengerTextToPlain / isMessengerTextEmpty", () => {
     expect(messengerTextToPlain("  a\t\tb  ")).toBe("a b");
   });
 
-  it("strips dangling tag fragments left by server truncation", () => {
-    // The server cuts the raw wire text at 80 chars — the cut can land inside
-    // a tag. The dangling fragment is always a suffix, so it is dropped.
-    expect(messengerTextToPlain("[b]hi[/b] [col=#ff00")).toBe("hi");
-    expect(messengerTextToPlain("привет [e:abc123456")).toBe("привет");
-    expect(messengerTextToPlain("ok [url=https://x.")).toBe("ok");
-    expect(messengerTextToPlain("[blur]secret[blur]" )).toBe("secret");
-  });
-
   it("detects empty (even with formatting)", () => {
     expect(isMessengerTextEmpty("")).toBe(true);
     expect(isMessengerTextEmpty("   ")).toBe(true);
     expect(isMessengerTextEmpty("[b][/b]")).toBe(true);
     expect(isMessengerTextEmpty("text")).toBe(false);
     expect(isMessengerTextEmpty("[e:abc]")).toBe(false);
+  });
+
+  it("never treats a literal bracket draft as empty", () => {
+    // A user typing `[b` or `[url` (to paste something) must be able to send
+    // it — the dangling-fragment strip lives only in preview helpers.
+    expect(isMessengerTextEmpty("[b")).toBe(false);
+    expect(isMessengerTextEmpty("[url")).toBe(false);
+    expect(isMessengerTextEmpty("смотри [тут")).toBe(false);
+  });
+});
+
+describe("stripDanglingTagFragment", () => {
+  it("strips dangling tag fragments left by server truncation", () => {
+    // The server cuts the raw wire text at 80 chars — the cut can land inside
+    // an opening tag OR a closing tag. The fragment is always a suffix.
+    expect(stripDanglingTagFragment("[b]hi[/b] [col=#ff00")).toBe("[b]hi[/b] ");
+    expect(stripDanglingTagFragment("привет [e:abc123456")).toBe("привет ");
+    expect(stripDanglingTagFragment("ok [url=https://x.")).toBe("ok ");
+    expect(stripDanglingTagFragment("[b]привет мир[/b")).toBe("[b]привет мир");
+    expect(stripDanglingTagFragment("text [col=#ff0000]red[/col")).toBe("text [col=#ff0000]red");
+  });
+
+  it("keeps arbitrary literal brackets", () => {
+    expect(stripDanglingTagFragment("смотри [тут")).toBe("смотри [тут");
+    expect(stripDanglingTagFragment("[b]bold[/b]")).toBe("[b]bold[/b]");
   });
 });
 
@@ -183,6 +200,11 @@ describe("messengerPlainPreview", () => {
     const preview = messengerPlainPreview(long, 40);
     expect(preview.length).toBeLessThanOrEqual(41);
     expect(preview.endsWith("…")).toBe(true);
+  });
+
+  it("cleans server-truncated input incl. closing-tag cuts", () => {
+    expect(messengerPlainPreview("[b]hi[/b] [col=#ff00")).toBe("hi");
+    expect(messengerPlainPreview("[b]привет мир[/b")).toBe("привет мир");
   });
 
   it("keeps short text intact", () => {

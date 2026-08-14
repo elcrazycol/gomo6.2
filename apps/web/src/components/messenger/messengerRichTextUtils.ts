@@ -264,14 +264,22 @@ export function messengerTextToPlain(text: string): string {
   return text
     .replace(EMOJI_RE, "◆")
     .replace(/\[[\]/]?(?:b|i|u|s|spoiler|blur|col|size|url)(?:=[^\]]*)?\]/gi, "")
-    // Server-truncated previews (80 chars of raw wire text) can end mid-tag.
-    // The truncation only ever cuts a suffix, so a single dangling fragment
-    // strip of KNOWN tag starts is enough to clean `[col=#ff00`, `[e:abc` etc.
-    // (arbitrary `[text` is kept — it may be legitimate user content).
-    .replace(/\[(?:e:|b|i|u|s|spoiler|blur|col|size|url)[^\]]*$/i, "")
     .replace(/\u200b/g, "")
     .replace(/[ \t]+/g, " ")
     .trim();
+}
+
+/**
+ * Server-truncated previews (80 chars of raw wire text) can end mid-tag. The
+ * truncation only ever cuts a suffix, so a single dangling-fragment strip of
+ * KNOWN tag starts — opening or closing — is enough to clean `[col=#ff00`,
+ * `[e:abc`, `[/b`, `[/url` etc. Arbitrary `[text` is kept: it may be
+ * legitimate user content. Only preview helpers use this — the emptiness
+ * check (messengerTextToPlain) must never treat a draft like `[b` as empty.
+ */
+export function stripDanglingTagFragment(text: string): string {
+  if (!text) return text;
+  return text.replace(/\[\/?(?:e:|b|i|u|s|spoiler|blur|col|size|url)[^\]]*$/i, "");
 }
 
 /** Whether the wire text carries any meaningful content (emoji counts). */
@@ -284,7 +292,7 @@ export function isMessengerTextEmpty(text: string): boolean {
  * tokens, truncated at a word boundary.
  */
 export function messengerPlainPreview(text: string, maxLength = 100): string {
-  const withoutEmojis = text.replace(EMOJI_RE, " ");
+  const withoutEmojis = stripDanglingTagFragment(text).replace(EMOJI_RE, " ");
   const plain = messengerTextToPlain(withoutEmojis);
   if (plain.length <= maxLength) return plain;
   const cut = plain.slice(0, maxLength);

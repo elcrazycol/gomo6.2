@@ -5,7 +5,7 @@ import { eventManager } from "@/services/eventManager";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { decryptNote, decryptNotesMeta, encryptNote, encryptNotesMeta, NOTES_LOCKED } from "@/utils/notesCrypto";
 import type { NotesMeta } from "@/utils/notesCrypto";
-import { messengerPlainPreview, messengerTextToPlain } from "@/components/messenger/messengerRichTextUtils";
+import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
 
 let messageLoadGeneration = 0;
 let loadMoreRequestGeneration = 0;
@@ -79,7 +79,7 @@ async function decryptNotesMessages(conversationId: string, messages: MessageVie
 // messengerTextToPlain's dangling-fragment strip handles.
 function sanitizeServerPreview(preview: string | null | undefined): string {
   if (!preview) return "";
-  return messengerTextToPlain(preview).slice(0, 80);
+  return messengerTextToPlain(stripDanglingTagFragment(preview)).slice(0, 80);
 }
 
 // Decrypts notes conversation previews (the server passes the client
