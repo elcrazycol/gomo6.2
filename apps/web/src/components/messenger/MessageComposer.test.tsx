@@ -20,6 +20,7 @@ const makeDoc = (value: string) => ({
 vi.mock("@/components/GomoRichEditor", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require("react");
+  const mockEditor = { isActive: () => false };
   return {
     GomoRichEditor: React.forwardRef(
       (
@@ -53,6 +54,7 @@ vi.mock("@/components/GomoRichEditor", () => {
             editorSpies.insertEmojiOpts.push(opts ?? null);
             onChange?.({ json: makeDoc(`[e:${data.emojiId}]`), text: `[e:${data.emojiId}]` });
           },
+          getEditor: () => mockEditor,
         };
         if (typeof ref === "function") {
           ref(handle);
@@ -84,6 +86,13 @@ vi.mock("@/components/GomoRichEditor", () => {
           </div>
         );
       }
+    ),
+    // The formatting panel renders the toolbar OUTSIDE the editor, so the
+    // mock must expose it too.
+    Toolbar: ({ editor, className }: any) => (
+      <div data-testid="external-toolbar" data-editor={editor ? "yes" : "no"} data-class={className ?? ""}>
+        toolbar
+      </div>
     ),
     GomoRichEditorHandle: null,
   };
@@ -140,7 +149,7 @@ function setup(overrides: {
   draft?: string;
   isSending?: boolean;
   onTyping?: (isTyping: boolean) => void;
-  composerRef?: RefObject<{ focus: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void } | null>;
+  composerRef?: RefObject<{ focus: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>;
 } = {}) {
   const setDraft = vi.fn();
   const onSend = vi.fn();
@@ -189,11 +198,13 @@ describe("MessageComposer", () => {
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[22px]");
   });
 
-  it("expands on focus: taller editor + attach button slides in", () => {
+  it("expands on focus: taller editor (paperclip waits for full mode)", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
-    expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
+    // The paperclip only takes the ▢'s slot once the full composer opens.
+    expect(screen.queryByRole("button", { name: "Прикрепить файл" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
   });
 
   it("collapses back to the pill on blur with an empty draft", () => {
@@ -307,22 +318,69 @@ describe("MessageComposer", () => {
     expect(screen.getByText("42%")).toBeInTheDocument();
   });
 
-  it("expands and collapses the full composer with the ▢ toggle", async () => {
+  it("full composer: toolbar panel spans full width, ▢ moves up, paperclip appears", async () => {
     const { textarea } = setup({ draft: "Hello" });
     const toggle = screen.getByRole("button", { name: "Развернуть компоузер" });
 
     await userEvent.click(toggle);
-    // Toolbar becomes visible and the editor grows.
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-show-toolbar", "true");
+    // The formatting panel (external toolbar) appears above the input pill.
+    expect(screen.getByTestId("external-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("external-toolbar")).toHaveAttribute("data-editor", "yes");
+    // The ▢ moved to the panel's left edge (now a close button)…
+    expect(screen.getByRole("button", { name: "Свернуть компоузер" })).toBeInTheDocument();
+    // …and the paperclip takes its old bottom slot.
+    expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
+    // The toolbar is rendered outside the editor; the editor grows taller.
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-show-toolbar", "false");
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-max-height", "max-h-[45vh] overflow-y-auto overscroll-contain");
-    expect(editorSpies.toolbarVisibility).toContain(true);
 
     // Expanded composer never collapses back to the one-line pill.
     fireEvent.blur(textarea);
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
 
+    // Closing via the panel's ▢: the paperclip leaves and the ▢ returns.
     await userEvent.click(screen.getByRole("button", { name: "Свернуть компоузер" }));
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-show-toolbar", "false");
+    await waitFor(() => expect(screen.queryByTestId("external-toolbar")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Прикрепить файл" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
+  });
+
+  describe("emoji panel ↔ keyboard lift", () => {
+    it("lifts the chat panel above the emoji swap panel while it is open", () => {
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      const { container } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      expect(chatPanel.style.getPropertyValue("--emoji-panel-h")).toBe("340px");
+    });
+
+    it("releases the lift once the swap panel is gone", () => {
+      mockEmojiSwap.open = false;
+      mockEmojiSwap.height = 0;
+      const { container } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      expect(chatPanel.style.getPropertyValue("--emoji-panel-h")).toBe("");
+    });
   });
 
   describe("emoji picker", () => {

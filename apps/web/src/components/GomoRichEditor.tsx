@@ -58,6 +58,9 @@ export interface GomoRichEditorHandle {
     data: { emojiId: string; packId: string; url: string; name: string },
     opts?: { focus?: boolean }
   ) => void;
+  /** Live tiptap editor instance — lets parents render the formatting Toolbar
+      outside the editor (e.g. a full-width panel above the input pill). */
+  getEditor: () => Editor | null;
 }
 
 const randomHexColor = () =>
@@ -70,7 +73,7 @@ const normalizeHexColor = (value: string) => {
   return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(prefixed) ? prefixed : null;
 };
 
-const Toolbar = ({ editor, className = "" }: { editor: Editor; className?: string }) => {
+export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?: string }) => {
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const [colorDraft, setColorDraft] = useState("#ff5500");
   const colorInputRef = useRef<HTMLInputElement>(null);
@@ -538,6 +541,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         editor?.chain().focus().insertContent(node).run();
       }
     },
+    getEditor: () => editor,
   }), [editor]);
 
   useEffect(() => {
