@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { api } from '@/integrations/api/compat';
 import { apiClient } from '@/integrations/api/client';
 import { storageUrl } from '@/utils/storage';
+import { loadEmojiCache, saveEmojiCache } from '@/utils/emojiCache';
 
 export interface EmojiData {
   id: string;
@@ -44,17 +45,37 @@ interface EmojiDataContextValue {
 const EmojiDataContext = createContext<EmojiDataContextValue | null>(null);
 
 export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [allEmojis, setAllEmojis] = useState<Map<string, EmojiData>>(new Map());
-  const [subscribedPackIds, setSubscribedPackIds] = useState<Set<string>>(new Set());
-  const [subscribedPacks, setSubscribedPacks] = useState<EmojiPackData[]>([]);
-  const [ownedPacks, setOwnedPacks] = useState<EmojiPackData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Seed synchronously from the local cache so the very first paint already
+  // has emojis and packs — no network round-trip before custom emojis render.
+  const [cacheSeed] = useState(() => loadEmojiCache());
+  const [allEmojis, setAllEmojis] = useState<Map<string, EmojiData>>(() => {
+    const map = new Map<string, EmojiData>();
+    if (cacheSeed) {
+      for (const emoji of Object.values(cacheSeed.emojis)) map.set(emoji.id, emoji);
+      for (const pack of cacheSeed.packs) {
+        for (const emoji of pack.emojis ?? []) map.set(emoji.id, emoji);
+      }
+    }
+    return map;
+  });
+  const [subscribedPackIds, setSubscribedPackIds] = useState<Set<string>>(
+    () => new Set(cacheSeed?.subscribedPackIds ?? [])
+  );
+  const [subscribedPacks, setSubscribedPacks] = useState<EmojiPackData[]>(
+    () => (cacheSeed ? cacheSeed.packs.filter(pack => cacheSeed.subscribedPackIds.includes(pack.id)) : [])
+  );
+  const [ownedPacks, setOwnedPacks] = useState<EmojiPackData[]>(
+    () => (cacheSeed ? cacheSeed.packs.filter(pack => cacheSeed.ownedPackIds.includes(pack.id)) : [])
+  );
+  const [isLoading, setIsLoading] = useState(false);
   const [failedEmojiIds, setFailedEmojiIds] = useState<Set<string>>(new Set());
   const loadingRef = useRef(false);
+  const userIdRef = useRef<string | null>(cacheSeed?.userId ?? null);
 
   const loadSubscribedData = useCallback(async () => {
     try {
       const { data: { user } } = await api.auth.getUser();
+      userIdRef.current = user?.id ?? null;
       if (!user) {
         // Logged out: drop per-user state (privacy) but keep the emoji map so
         // posts and nicknames already on screen keep rendering.
@@ -115,6 +136,48 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       loadingRef.current = true;
       loadSubscribedData();
     }
+  }, [loadSubscribedData]);
+
+  // Persist the current emoji state to localStorage whenever it changes, so
+  // the next visit seeds instantly. Writes are small and bounded by the cache
+  // module's pruning (localStorage quota failures are silently ignored).
+  useEffect(() => {
+    const packMap = new Map<string, EmojiPackData>();
+    for (const pack of subscribedPacks) packMap.set(pack.id, pack);
+    for (const pack of ownedPacks) packMap.set(pack.id, pack);
+    const packs = Array.from(packMap.values());
+    saveEmojiCache({
+      version: 1,
+      userId: userIdRef.current,
+      emojis: Object.fromEntries(allEmojis),
+      packs,
+      subscribedPackIds: Array.from(subscribedPackIds),
+      ownedPackIds: packs.filter(pack => ownedPacks.some(p => p.id === pack.id)).map(pack => pack.id),
+      savedAt: Date.now(),
+    });
+  }, [allEmojis, subscribedPacks, ownedPacks, subscribedPackIds]);
+
+  // Reload when the authenticated user changes while the tab is open (login /
+  // logout happens after the provider mounted): getUser is cached client-side,
+  // so comparing ids costs nothing, and loadSubscribedData seeds the new
+  // user's packs + writes their cache partition.
+  useEffect(() => {
+    const onFocus = () => {
+      void (async () => {
+        try {
+          const { data: { user } } = await api.auth.getUser();
+          const uid = user?.id ?? null;
+          if (uid !== userIdRef.current) {
+            loadingRef.current = false;
+            await loadSubscribedData();
+          }
+        } catch {
+          // ignore — next focus will retry
+        }
+      })();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [loadSubscribedData]);
 
   const mergeResolvedEmojis = useCallback((resolved: EmojiData[], requested: string[]) => {
