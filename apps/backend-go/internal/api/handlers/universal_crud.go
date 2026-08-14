@@ -364,6 +364,18 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		}
 	}
 
+	// Emoji packs and their emojis: private packs are only visible to their
+	// author and subscribers through the generic surface as well (mirrors the
+	// by-slug gate in GetPackBySlug).
+	if tableName == "emoji_packs" || tableName == "custom_emojis" {
+		scopeClause, scopeArgs, nextArgIndex := genericEmojiVisibility(c, tableName, argIndex)
+		if scopeClause != "" {
+			clauses = append(clauses, scopeClause)
+			args = append(args, scopeArgs...)
+			argIndex = nextArgIndex
+		}
+	}
+
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
