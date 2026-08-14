@@ -10,6 +10,7 @@ import { ImageIcon, ImagePlus, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { useFileDrop } from "@/hooks/useFileDrop";
+import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import type { WallPost } from "@/utils/wallNormalizers";
 
 // Same precedent as the messenger (4000 chars); the editor hard-stops input here.
@@ -66,6 +67,10 @@ export const CreateWallPost = ({
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Touch: the emoji trigger swaps the soft keyboard for the panel (same
+  // height, same slide) and back — see useEmojiKeyboardSwap.
+  const emojiSwap = useEmojiKeyboardSwap(editorRef);
+
   const [content, setContent] = useState(editingPost?.content || "");
   const [contentJson, setContentJson] = useState<unknown>(editingPost?.content_json || null);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(editingPost));
@@ -101,8 +106,15 @@ export const CreateWallPost = ({
   );
 
   const handleEmojiSelect = (data: { emojiId: string; packId: string; url: string; name: string }) => {
-    editorRef.current?.focus();
-    editorRef.current?.insertEmoji(data);
+    if (emojiSwap.open) {
+      // Panel replaced the keyboard: insert at the saved caret WITHOUT
+      // refocusing, so the keyboard stays hidden and the user can keep
+      // adding emojis. ProseMirror preserves the selection across the blur.
+      editorRef.current?.insertEmoji(data, { focus: false });
+    } else {
+      editorRef.current?.focus();
+      editorRef.current?.insertEmoji(data);
+    }
   };
 
   const handleSubmit = async () => {
@@ -244,7 +256,15 @@ export const CreateWallPost = ({
 
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
+              <EmojiPicker
+                onEmojiSelect={handleEmojiSelect}
+                triggerRef={emojiButtonRef}
+                keyboardSwap
+                swapOpen={emojiSwap.open}
+                swapHeight={emojiSwap.height}
+                onSwapToggle={emojiSwap.toggle}
+                onSwapClose={() => emojiSwap.closePanel(false)}
+              >
                 <Button
                   ref={emojiButtonRef}
                   type="button"

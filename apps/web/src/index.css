@@ -949,6 +949,19 @@ html.kb-open body {
   overscroll-behavior-y: none;
 }
 
+/* Emoji panel ↔ soft-keyboard swap (see hooks/useEmojiKeyboardSwap.ts and
+   components/EmojiPicker.tsx). The panel slides up/down with the same ease
+   as the native keyboard it replaces, so the swap reads as one motion. */
+@keyframes emoji-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes emoji-sheet-down {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
 /* Keyboard-aware bottom anchors: base offset + keyboard inset. */
 .kb-bottom-2 {
   bottom: calc(0.5rem + var(--kb-inset, 0px));
