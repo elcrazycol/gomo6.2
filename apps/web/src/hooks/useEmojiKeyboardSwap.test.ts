@@ -100,28 +100,18 @@ describe("useEmojiKeyboardSwap", () => {
     el.remove();
   });
 
-  it("closes the panel when the page scrolls (after the grace window)", () => {
-    vi.useFakeTimers();
+  it("keeps the panel open when the page scrolls (only explicit actions close it)", () => {
     const ref = makeEditorRef();
     const { result } = renderHook(() => useEmojiKeyboardSwap(ref as any));
 
     act(() => result.current.toggle());
     expect(result.current.open).toBe(true);
 
-    // Scroll inside the grace window must not close.
+    // Scrolling — the panel is a scrollable surface itself, so page scroll
+    // must never dismiss it; only outside click / Escape / trigger / focus do.
     act(() => {
       window.dispatchEvent(new Event("scroll"));
     });
     expect(result.current.open).toBe(true);
-
-    // After the grace window, a document scroll closes it.
-    act(() => {
-      vi.advanceTimersByTime(400);
-      const e = new Event("scroll");
-      Object.defineProperty(e, "target", { value: document });
-      window.dispatchEvent(e);
-    });
-    expect(result.current.open).toBe(false);
-    vi.useRealTimers();
   });
 });

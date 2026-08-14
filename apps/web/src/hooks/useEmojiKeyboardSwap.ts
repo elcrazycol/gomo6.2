@@ -33,8 +33,11 @@ const PROVISIONAL_MIN = 280;
  *  • emoji insertions go through insertEmoji(data, { focus: false }) — no
  *    refocus, so the keyboard stays hidden and you can insert as many as you
  *    want;
- *  • tapping the editor itself (focus lands on an editable) or scrolling the
- *    page dismisses the panel on its own.
+ *  • the panel only closes on an explicit outside action: tapping the editor
+ *    (focus lands on an editable), an outside click / Escape, or the trigger
+ *    itself. Scrolling — inside the panel (the stacked pack list) or the page
+ *    behind it — never dismisses it, so the picker is free to be a full
+ *    scrollable surface.
  *
  * Desktop is untouched: the hook's state simply never activates (isTouch is
  * false there, and consumers gate the swap UI on it).
@@ -132,20 +135,10 @@ export function useEmojiKeyboardSwap(
     return () => document.removeEventListener("focusin", onFocusIn);
   }, [open]);
 
-  // Scrolling the page while the panel floats over the feed dismisses it.
-  // The grace window ignores the scroll burst some browsers fire right after
-  // opening (URL-bar collapse / focus change).
-  useEffect(() => {
-    if (!open) return;
-    const graceUntil = Date.now() + 350;
-    const onScroll = (e: Event) => {
-      if (e.target !== document && e.target !== document.documentElement) return;
-      if (Date.now() < graceUntil) return;
-      setOpen(false);
-    };
-    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
-    return () => window.removeEventListener("scroll", onScroll, { capture: true });
-  }, [open]);
+  // Deliberately NO page-scroll close: the panel is a scrollable surface
+  // itself (stacked packs), and scrolling the page behind the bottom sheet
+  // must not dismiss it — only an outside click / Escape / trigger / tapping
+  // the editor does (all handled above and in EmojiPicker).
 
   return { isTouch, open, height, toggle, closePanel };
 }
