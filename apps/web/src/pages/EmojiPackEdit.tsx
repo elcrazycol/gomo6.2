@@ -1,14 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/integrations/api/compat';
-import { storageUrl, uploadFile, removeFile } from '@/utils/storage';
+import { uploadFile, removeFile } from '@/utils/storage';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { EmojiPackForm } from '@/components/emoji/EmojiPackForm';
 import { EmojiUploader } from '@/components/emoji/EmojiUploader';
 import { EmojiGrid } from '@/components/emoji/EmojiGrid';
 import { EmojiTriggerInput } from '@/components/emoji/EmojiTriggerInput';
-import { ArrowLeft, Loader2, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles } from 'lucide-react';
 import { CompressionResult } from '@/utils/emojiCompression';
 import { useEmojiData } from '@/contexts/EmojiDataContext';
 import type { EmojiData } from '@/contexts/EmojiDataContext';

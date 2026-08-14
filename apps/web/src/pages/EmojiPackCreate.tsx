@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/integrations/api/compat';
-import { toast } from 'sonner';
 import { EmojiPackForm } from '@/components/emoji/EmojiPackForm';
 
 export default function EmojiPackCreate() {
