@@ -46,6 +46,7 @@ type feedItem struct {
 	CommentsCount int64           `json:"comments_count"`
 	RepostsCount  int64           `json:"reposts_count"`
 	LikedByViewer bool            `json:"liked_by_viewer"`
+	ViewsCount    int64           `json:"views_count"`
 }
 
 type feedAuthor struct {
@@ -101,9 +102,8 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 		        tags, post_count,
 		        author_id, author_username, author_display_name, author_nickname_emoji_id,
 		        author_is_anonymous, author_avatar_url,
-		        board_id, board_slug, board_name, board_is_gomosub,
-		        wall_user_id,
-		        likes_count, comments_count, reposts_count, liked_by_viewer
+		        board_id, board_slug, board_name, board_is_gomosub,	        wall_user_id,
+	        likes_count, comments_count, reposts_count, liked_by_viewer, views_count
 		 FROM get_user_feed($1, $2, $3)`,
 		userID, limit, offset,
 	)
@@ -138,6 +138,7 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 			&boardID, &boardSlug, &boardName, &boardIsGomosub,
 			&wallUserID,
 			&it.LikesCount, &it.CommentsCount, &it.RepostsCount, &it.LikedByViewer,
+			&it.ViewsCount,
 		)
 		if err != nil {
 			serverError(c, "feed row scan failed", err)

@@ -11,7 +11,9 @@ import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
+import { PostViewCount } from "@/components/PostViewCount";
 import { safeDate } from "@/utils/safeDate";
+import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 import {
   type WallPost,
   normalizeAttachments,
@@ -43,6 +45,8 @@ export const FeedWallPostCard = ({
 }: FeedWallPostCardProps) => {
   const navigate = useNavigate();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
+  // Reports the post as viewed once the card becomes visible in the viewport.
+  const viewTrackingRef = usePostViewTracking(post.id);
   const postPath = getWallPostPath(post.user_id, post.id);
 
   const [likesCount, setLikesCount] = useState(post.likes_count ?? 0);
@@ -84,6 +88,7 @@ export const FeedWallPostCard = ({
 
   return (
     <Card
+      ref={viewTrackingRef}
       className="overflow-clip border-border/70 shadow-none bg-background"
       onClick={(e) => {
         if (!isInteractiveTarget(e.target, e.currentTarget)) {
@@ -152,6 +157,7 @@ export const FeedWallPostCard = ({
         )}
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+          <PostViewCount count={post.views_count ?? 0} />
           <ActionButton
             icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />}
             label="Нравится"

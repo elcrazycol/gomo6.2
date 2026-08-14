@@ -672,6 +672,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// enforces private-profile privacy itself)
 		rpc.POST("/get_avatar_history", rpcHandler.GetAvatarHistory)
 
+		// Wall-post views (public — guests scroll walls too; the handler
+		// dedupes per viewer and gates private walls itself)
+		rpc.POST("/record_wall_views", rpcHandler.RecordWallViews)
+
 		// Protected RPC functions
 		protected := rpc.Group("")
 		protected.Use(middleware.AuthMiddlewareWithDB(authService, db))

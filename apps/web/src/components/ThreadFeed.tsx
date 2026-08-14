@@ -41,6 +41,7 @@ interface FeedItem {
   comments_count: number;
   reposts_count: number;
   liked_by_viewer: boolean;
+  views_count: number;
 }
 
 interface ThreadFeedProps {
@@ -113,6 +114,7 @@ export const ThreadFeed = ({
       comments_count: item.comments_count,
       reposts_count: item.reposts_count,
       liked_by_viewer: item.liked_by_viewer,
+      views_count: item.views_count,
       author: item.author,
     } as unknown as Record<string, unknown>);
 

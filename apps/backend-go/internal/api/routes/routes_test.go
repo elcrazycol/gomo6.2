@@ -320,6 +320,7 @@ var expectedRoutes = []string{
 	"GET /api/rpc/get_user_thread_reply_timestamps",
 	"GET /api/rpc/toggle_wall_post_pin",
 	"POST /api/rpc/get_avatar_history",
+	"POST /api/rpc/record_wall_views",
 	"POST /api/rpc/delete_avatar_from_history",
 	"POST /api/rpc/toggle_achievement_pin",
 	"POST /api/rpc/award_achievement",

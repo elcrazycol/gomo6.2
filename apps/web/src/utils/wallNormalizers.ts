@@ -29,6 +29,8 @@ export interface WallPost {
   likes_count?: number;
   comments_count?: number;
   reposts_count?: number;
+  /** Unique-visitor view count, embedded by the server (wall GET + feed). */
+  views_count?: number;
   liked_by_viewer?: boolean;
   my_repost_record_id?: string | null;
   my_reposted_wall_post_id?: string | null;

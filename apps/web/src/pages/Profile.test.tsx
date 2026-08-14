@@ -118,6 +118,7 @@ describe("Profile", () => {
               id: "profile-user-1", username: "testuser", bio: "Hello world",
               is_anonymous: false, thread_count: 5, post_count: 42,
               wall_post_count: 3, comment_count: 7, likes_received_count: 25,
+              views_received_count: 1243,
               garma: 100, created_at: "2025-01-01T00:00:00Z",
               avatar_url: null, is_online: false, last_seen_at: null,
             }],
@@ -188,6 +189,17 @@ describe("Profile", () => {
     await waitFor(() => {
       expect(screen.getByText("Треды")).toBeInTheDocument();
     });
+  });
+
+  it("shows total content views in the profile stats with compact formatting", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Просмотры")).toBeInTheDocument();
+    });
+    // 1243 → compact "1,2К" (the same formatter the wall view badge uses).
+    expect(screen.getByText("1,2К")).toBeInTheDocument();
   });
 
   it("renders bio content", async () => {

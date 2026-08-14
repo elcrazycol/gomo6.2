@@ -40,7 +40,7 @@ func feedColumnNames() []string {
 		"author_is_anonymous", "author_avatar_url",
 		"board_id", "board_slug", "board_name", "board_is_gomosub",
 		"wall_user_id",
-		"likes_count", "comments_count", "reposts_count", "liked_by_viewer",
+		"likes_count", "comments_count", "reposts_count", "liked_by_viewer", "views_count",
 	}
 }
 
@@ -62,7 +62,7 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 			"author-1", "alice", "Alice", nil, false, "avatar1",
 			"board-1", "b", "Board", false,
 			nil,
-			5, 3, 0, true,
+			5, 3, 0, true, 42,
 		).
 		AddRow(
 			"wall_post", "post-1", 8.5, now, now,
@@ -71,7 +71,7 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 			"author-2", "bob", "Bob", nil, false, "avatar2",
 			nil, nil, nil, false,
 			"wall-owner-2",
-			2, 1, 0, false,
+			2, 1, 0, false, 7,
 		)
 
 	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3\)`).
@@ -147,7 +147,7 @@ func TestGetUserFeed_AnonymousPassesNull(t *testing.T) {
 			"author-9", "anon-user", nil, nil, false, nil,
 			"board-2", "g", "Gsub", true,
 			nil,
-			9, 1, 0, false,
+			9, 1, 0, false, 13,
 		)
 
 	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3\)`).

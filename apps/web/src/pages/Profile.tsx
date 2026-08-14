@@ -43,6 +43,7 @@ import { useFriendsStore } from "@/stores/friendsStore";
 import { SpotifyNowPlaying } from "@/components/SpotifyNowPlaying";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { getCurrentUserMeta, getGiftCatalog } from "@/utils/currentUserMeta";
+import { formatCompactNumber } from "@/utils/formatNumber";
 import { Users } from "lucide-react";
 
 interface Profile {
@@ -58,6 +59,7 @@ interface Profile {
   wall_post_count: number;
   comment_count: number;
   likes_received_count: number;
+  views_received_count: number;
   garma: number;
   drops: number;
   created_at: string;
@@ -312,6 +314,7 @@ const Profile = () => {
         wall_post_count: data.wall_post_count ?? 0,
         comment_count: data.comment_count ?? 0,
         likes_received_count: data.likes_received_count ?? 0,
+        views_received_count: data.views_received_count ?? 0,
       });
       setUsername(data.username);
       setBio(data.bio || "");
@@ -1136,7 +1139,7 @@ const Profile = () => {
                 const summaryAllowed = isOwn || (showProfileStats && canViewSection(privateHideStats));
                 if (!summaryAllowed) return null;
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
                     <button
                       type="button"
                       onClick={() => navigate(`/stats?metric=posts&user=${userId}`)}
@@ -1160,6 +1163,17 @@ const Profile = () => {
                     >
                       <p className="text-xs sm:text-sm text-muted-foreground">Лайков</p>
                       <p className="text-xl sm:text-2xl font-bold">{profile.likes_received_count ?? 0}</p>
+                    </button>
+                    {/* Total unique views across the author's wall posts —
+                        clicks open the wall, where each post shows its own
+                        counter. */}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('wall')}
+                      className="text-left"
+                    >
+                      <p className="text-xs sm:text-sm text-muted-foreground">Просмотры</p>
+                      <p className="text-xl sm:text-2xl font-bold">{formatCompactNumber(profile.views_received_count ?? 0)}</p>
                     </button>
                     <button
                       type="button"

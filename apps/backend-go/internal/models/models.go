@@ -49,6 +49,7 @@ type User struct {
 	CommentCount       *int            `json:"comment_count" db:"comment_count"`
 	LikesReceivedCount *int            `json:"likes_received_count" db:"likes_received_count"`
 	LikesGivenCount    *int            `json:"likes_given_count" db:"likes_given_count"`
+	ViewsReceivedCount *int            `json:"views_received_count" db:"views_received_count"`
 	IsOnline           bool            `json:"is_online" db:"is_online"`
 	LastSeen           *time.Time      `json:"last_seen,omitempty" db:"last_seen_at"`
 	CreatedAt          time.Time       `json:"created_at" db:"created_at"`

@@ -21,7 +21,7 @@ func rowUserID(v interface{}) string {
 
 // RecomputeUserProfileStats sets users.post_count, thread_count and the unified
 // wall-aware counters (wall_post_count, comment_count, likes_received_count,
-// likes_given_count, garma) from live data.
+// likes_given_count, views_received_count, garma) from live data.
 //
 // The counters follow the unified content model the feed already uses:
 //
@@ -30,6 +30,8 @@ func rowUserID(v interface{}) string {
 //	Комментарии:   posts (inside threads) + profile_wall_post_comments
 //	Лайки:         post_likes + thread_likes + profile_wall_post_likes +
 //	               profile_wall_comment_likes (received / given)
+//	Просмотры:     profile_wall_post_views of the author's wall posts (one row
+//	               per unique viewer per post, by author_id)
 //
 // Garma formula matches the Stats page weights:
 //
@@ -54,6 +56,7 @@ UPDATE users u SET
   comment_count = s.cc,
   likes_received_count = s.lrc,
   likes_given_count = s.lgc,
+  views_received_count = s.vrc,
   garma = s.g,
   updated_at = NOW()
 FROM (
@@ -79,6 +82,9 @@ FROM (
       + (SELECT COUNT(*)::int FROM profile_wall_post_likes WHERE user_id = $1)
       + (SELECT COUNT(*)::int FROM profile_wall_comment_likes WHERE user_id = $1)
     )::int AS lgc,
+    (SELECT COUNT(*)::int FROM profile_wall_post_views v
+       INNER JOIN profile_wall_posts wp ON wp.id = v.post_id
+       WHERE wp.author_id = $1) AS vrc,
     GREATEST(0, LEAST(2147483647, FLOOR(
       (SELECT COUNT(*)::numeric FROM posts WHERE user_id = $1) * 0.5 +
       (SELECT COUNT(*)::numeric FROM threads WHERE user_id = $1) * 4 +

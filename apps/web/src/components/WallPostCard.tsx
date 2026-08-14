@@ -22,6 +22,7 @@ import { ProcessedContent } from "@/components/ProcessedContent";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { CreateWallPost } from "@/components/CreateWallPost";
 import { ActionButton } from "@/components/WallActionButton";
+import { PostViewCount } from "@/components/PostViewCount";
 import { WallAttachments } from "@/components/WallAttachments";
 import { EmbeddedWallPost } from "@/components/WallEmbeddedPost";
 import type { LightboxItem } from "@/components/Lightbox";
@@ -33,6 +34,7 @@ import {
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
+import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 
 interface WallPostCardProps {
   post: WallPost;
@@ -73,6 +75,9 @@ export const WallPostCard = ({
 }: WallPostCardProps) => {
   const navigate = useNavigate();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
+  // Reports the post as viewed once the card becomes visible in the viewport
+  // (server dedupes per unique visitor — see usePostViewTracking).
+  const viewTrackingRef = usePostViewTracking(post.id);
   const canManage = currentUserId === post.author_id || currentUserId === post.user_id;
   const [likesCount, setLikesCount] = useState(post.likes_count ?? 0);
   const [commentsCount, setCommentsCount] = useState(post.comments_count ?? 0);
@@ -328,6 +333,7 @@ export const WallPostCard = ({
     <Card
       // overflow-clip keeps the rounded-corner clipping but does NOT create a
       // scroll container, so position:sticky works for the floating composer.
+      ref={viewTrackingRef}
       className={`overflow-clip border-border/70 shadow-none ${
         post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "bg-background"
       }`}
@@ -434,6 +440,7 @@ export const WallPostCard = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+          <PostViewCount count={post.views_count ?? 0} />
           <ActionButton icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
           <ActionButton icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} loading={commentsOpen && !commentsReady} onClick={handleToggleComments} />
           <ActionButton icon={<Repeat2 className="h-4 w-4" />} label={isReposted ? "Убрать" : "Репост"} count={repostsCount} active={isReposted} disabled={!currentUserId} loading={isReposting} onClick={handleRepostToggle} />
