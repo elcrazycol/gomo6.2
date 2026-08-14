@@ -588,6 +588,19 @@ describe("messengerStore", () => {
       expect(c.last_message_preview).toBe("New message");
       expect(c.unread_count).toBe(1);
     });
+
+    it("updateConversationFromWs strips BBCode from the preview", () => {
+      useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1", unread_count: 0 })] });
+
+      // The server truncates the raw wire text to 80 chars — tags and even
+      // mid-tag cuts must never leak into the conversation list.
+      useMessengerStore.getState().updateConversationFromWs("conv-1", {
+        last_message_preview: "[b]Привет[/b] [e:abc123] как дела [col=#ff00",
+      });
+
+      const c = useMessengerStore.getState().conversations[0];
+      expect(c.last_message_preview).toBe("Привет ◆ как дела");
+    });
   });
 
   describe("computed", () => {

@@ -8,6 +8,7 @@ import { useMessengerPresence } from "@/hooks/useMessengerPresence";
 import { MessengerErrorBoundary } from "./ErrorBoundary";
 import { ConversationList } from "./ConversationList";
 import { ChatView } from "./ChatView";
+import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import "./messenger.css";
 
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -50,7 +51,7 @@ export const MessengerView = () => {
   const typingUsers = useMessengerStore((s) => s.typingUsers);
 
   // Refs
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<GomoRichEditorHandle | null>(null);
 
   // Mobile
   const [isMobile, setIsMobile] = useState(false);

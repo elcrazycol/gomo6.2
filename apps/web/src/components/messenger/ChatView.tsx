@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift, FileUp } from "lucide-react";
+import { toast } from "sonner";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl, giftImageUrl } from "@/utils/storage";
@@ -17,11 +18,13 @@ import { isConsecutive } from "./messageListUtils";
 import { chunkAttachments, MAX_ALBUM_ATTACHMENTS } from "./attachmentAlbum";
 import { uploadFilesAsAttachments } from "./attachmentUpload";
 import { useFileDrop } from "@/hooks/useFileDrop";
+import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { isMessengerTextEmpty, messengerPlainPreview, messengerTextToCopy } from "./messengerRichTextUtils";
 import type { Attachment, MessageView, UploadingFile } from "./types";
 
 interface Props {
   onBack: () => void;
-  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  composerRef: React.RefObject<GomoRichEditorHandle | null>;
   typingUsername?: string | null;
   onTyping: (isTyping: boolean) => void;
 }
@@ -119,7 +122,7 @@ export const ChatView = memo(function ChatView({
     if (!pid) { setPinnedText(null); return; }
     const found = messages.find((m) => m.id === pid);
     if (found) {
-      setPinnedText(found.is_deleted ? "[Удалено]" : found.content.slice(0, 100));
+      setPinnedText(found.is_deleted ? "[Удалено]" : messengerPlainPreview(found.content));
     } else {
       setPinnedText("[Нажмите чтобы открыть]");
     }
@@ -179,9 +182,11 @@ export const ChatView = memo(function ChatView({
   }, [composerRef]);
 
   const handleCopy = useCallback((text: string) => {
-    navigator.clipboard.writeText(text).catch(() => {
+    // Strip BBCode formatting tags but keep [e:…] tokens — pasting the text
+    // back into the messenger re-renders the emojis.
+    navigator.clipboard.writeText(messengerTextToCopy(text)).catch(() => {
       const ta = document.createElement("textarea");
-      ta.value = text;
+      ta.value = messengerTextToCopy(text);
       ta.style.position = "fixed";
       ta.style.left = "-9999px";
       document.body.appendChild(ta);
@@ -196,7 +201,14 @@ export const ChatView = memo(function ChatView({
   const handleSend = useCallback(async () => {
     // Files still uploading must block send — otherwise Enter would send the
     // message without them and leave the finished attachments as orphans.
-    if ((!draft.trim() && pendingAttachments.length === 0) || isSending || batchSendingRef.current || uploadingFiles.length > 0) return;
+    if ((isMessengerTextEmpty(draft) && pendingAttachments.length === 0) || isSending || batchSendingRef.current || uploadingFiles.length > 0) return;
+    // The wire format (BBCode tags, [e:…] tokens) inflates the payload — the
+    // server enforces 4000 runes, so a fully-formatted near-limit message
+    // could be rejected. Block it with a clear error instead of a silent drop.
+    if (draft.length > 4000) {
+      toast.error("Сообщение слишком длинное — уберите часть форматирования");
+      return;
+    }
 
     const attachmentsToSend = [...pendingAttachments];
     const batches = attachmentsToSend.length > 0

@@ -3,6 +3,7 @@ import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags } from "lucide-react";
 import { formatTime } from "./utils";
 import { MessageContent } from "./MessageContent";
+import { messengerPlainPreview } from "./messengerRichTextUtils";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import type { MessageView } from "./types";
 
@@ -269,7 +270,7 @@ export const MessageBubble = memo(function MessageBubble({
                     {quotedMessage.sender_user_id === message.sender_user_id ? "Вы" : "Собеседник"}
                   </span>
                   <span className="quoted-text">
-                    {quotedMessage.is_deleted ? "Сообщение удалено" : quotedMessage.content.slice(0, 100)}
+                    {quotedMessage.is_deleted ? "Сообщение удалено" : messengerPlainPreview(quotedMessage.content)}
                   </span>
                 </div>
               )}

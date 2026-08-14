@@ -5,6 +5,7 @@ import { eventManager } from "@/services/eventManager";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { decryptNote, decryptNotesMeta, encryptNote, encryptNotesMeta, NOTES_LOCKED } from "@/utils/notesCrypto";
 import type { NotesMeta } from "@/utils/notesCrypto";
+import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
 
 let messageLoadGeneration = 0;
 let loadMoreRequestGeneration = 0;
@@ -72,15 +73,27 @@ async function decryptNotesMessages(conversationId: string, messages: MessageVie
   );
 }
 
+// The server computes previews by truncating the raw wire content (BBCode +
+// [e:…] tokens) to 80 chars. Strip the markup so the conversation list shows
+// readable plain text — a truncated preview may also end mid-tag, which
+// messengerTextToPlain's dangling-fragment strip handles.
+function sanitizeServerPreview(preview: string | null | undefined): string {
+  if (!preview) return "";
+  return messengerTextToPlain(stripDanglingTagFragment(preview)).slice(0, 80);
+}
+
 // Decrypts notes conversation previews (the server passes the client
 // ciphertext through verbatim so the device can decrypt them locally).
 async function decryptNotesPreviews(conversations: ConversationView[]): Promise<ConversationView[]> {
-  if (!conversations.some((c) => c.is_notes)) return conversations;
   return Promise.all(
     conversations.map(async (c) => {
-      if (!c.is_notes || !c.last_message_preview) return c;
-      const decrypted = await decryptNote(c.last_message_preview, c.id);
-      return { ...c, last_message_preview: decrypted ?? NOTES_LOCKED };
+      if (c.is_notes) {
+        const preview = c.last_message_preview;
+        if (!preview) return c;
+        const decrypted = await decryptNote(preview, c.id);
+        return { ...c, last_message_preview: sanitizeServerPreview(decrypted ?? NOTES_LOCKED) };
+      }
+      return { ...c, last_message_preview: sanitizeServerPreview(c.last_message_preview) };
     }),
   );
 }
@@ -626,7 +639,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         let conversations = s.conversations;
         if (target) {
           const previewText = content.trim()
-            ? content.slice(0, 80)
+            ? messengerPlainPreview(content, 80)
             : attachments && attachments.length > 0
               ? `📎 ${attachments.length > 1 ? `${attachments.length} файлов` : attachments[0].name}`
               : "";
@@ -1016,7 +1029,13 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
     set((s2) => {
       const updatedConversations = s2.conversations.map((c) => {
-        if (c.id !== convId) return c;          const updated = { ...c, ...updates };
+        if (c.id !== convId) return c;
+        // WS previews carry the raw (possibly BBCode) wire text — clean it
+        // before it reaches the conversation list.
+        const updates2 = updates.last_message_preview !== undefined
+          ? { ...updates, last_message_preview: sanitizeServerPreview(updates.last_message_preview) }
+          : updates;
+        const updated = { ...c, ...updates2 };
         if (incrementUnread && s2.selectedConversationId !== convId) {
           updated.unread_count = (c.unread_count ?? 0) + 1;
         } else if (s2.selectedConversationId === convId) {
