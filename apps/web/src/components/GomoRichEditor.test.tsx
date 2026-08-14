@@ -37,6 +37,36 @@ const editableClass = (container: HTMLElement): string => {
   return el!.className;
 };
 
+// A controlled mock for document.fonts so the font-swap caret fix can be
+// driven deterministically (jsdom has no FontFaceSet by default).
+const installFontsMock = () => {
+  let resolveReady!: () => void;
+  const ready = new Promise<void>((res) => {
+    resolveReady = res;
+  });
+  const loadingdoneListeners = new Set<() => void>();
+  const fontsMock = {
+    ready,
+    addEventListener: (_type: string, cb: () => void) => loadingdoneListeners.add(cb),
+    removeEventListener: (_type: string, cb: () => void) => loadingdoneListeners.delete(cb),
+    // Test helper: fire a fresh font batch load completion.
+    _fireLoadingDone: () => loadingdoneListeners.forEach((cb) => cb()),
+    _resolveReady: () => resolveReady(),
+  };
+  const desc = Object.getOwnPropertyDescriptor(document, "fonts");
+  Object.defineProperty(document, "fonts", { value: fontsMock, configurable: true, writable: true });
+  return {
+    fontsMock,
+    restore: () => {
+      if (desc) {
+        Object.defineProperty(document, "fonts", desc);
+      } else {
+        delete (document as unknown as { fonts?: unknown }).fonts;
+      }
+    },
+  };
+};
+
 describe("GomoRichEditor maxHeightClassName", () => {
   it("merges maxHeightClassName into the contenteditable class alongside the min height", () => {
     stubRAF();
@@ -84,5 +114,90 @@ describe("GomoRichEditor maxHeightClassName", () => {
     expect(cls).toContain("overflow-y-auto");
     expect(cls).toContain("outline-none"); // base editor classes intact
     expect(cls).toContain("relative");
+  });
+});
+
+describe("GomoRichEditor font-swap caret realignment", () => {
+  // A focused editor + a spy on the native selection. Restored in every path.
+  const setupFocusedEditor = () => {
+    const selection = {
+      removeAllRanges: vi.fn(),
+      addRange: vi.fn(),
+    } as unknown as Selection;
+    const getSelectionSpy = vi
+      .spyOn(window, "getSelection")
+      .mockReturnValue(selection);
+    return { selection, getSelectionSpy };
+  };
+
+  it("re-applies the DOM selection once fonts finish loading while focused", async () => {
+    stubRAF();
+    const { fontsMock, restore } = installFontsMock();
+    const { selection, getSelectionSpy } = setupFocusedEditor();
+    try {
+      const { container } = render(<GomoRichEditor onChange={vi.fn()} />);
+      const editable = container.querySelector("[contenteditable]") as HTMLElement | null;
+      expect(editable).not.toBeNull();
+      editable!.focus();
+
+      // Fonts still loading: nothing re-applied yet.
+      expect(selection.removeAllRanges).not.toHaveBeenCalled();
+
+      // Font finishes loading → the focused editor re-applies its selection
+      // so the browser re-measures the caret with the final font metrics.
+      fontsMock._resolveReady();
+      await fontsMock.ready;
+      await Promise.resolve();
+
+      expect(selection.removeAllRanges).toHaveBeenCalled();
+      expect(selection.addRange).toHaveBeenCalled();
+    } finally {
+      getSelectionSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it("does not touch the selection when the editor is not focused", async () => {
+    stubRAF();
+    const { fontsMock, restore } = installFontsMock();
+    const { selection, getSelectionSpy } = setupFocusedEditor();
+    try {
+      render(<GomoRichEditor onChange={vi.fn()} />);
+
+      fontsMock._resolveReady();
+      await fontsMock.ready;
+      await Promise.resolve();
+
+      expect(selection.removeAllRanges).not.toHaveBeenCalled();
+      expect(selection.addRange).not.toHaveBeenCalled();
+    } finally {
+      getSelectionSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it("also realigns on a loadingdone batch while ready is still pending", async () => {
+    stubRAF();
+    const { fontsMock, restore } = installFontsMock();
+    const { selection, getSelectionSpy } = setupFocusedEditor();
+    try {
+      const { container } = render(<GomoRichEditor onChange={vi.fn()} />);
+      const editable = container.querySelector("[contenteditable]") as HTMLElement | null;
+      editable!.focus();
+
+      expect(selection.removeAllRanges).not.toHaveBeenCalled();
+
+      // A font batch finishes (e.g. the @font-face stylesheet arriving late)
+      // while fonts.ready is still pending → the loadingdone listener must
+      // realign the caret too.
+      fontsMock._fireLoadingDone();
+      await Promise.resolve();
+
+      expect(selection.removeAllRanges).toHaveBeenCalled();
+      expect(selection.addRange).toHaveBeenCalled();
+    } finally {
+      getSelectionSpy.mockRestore();
+      restore();
+    }
   });
 });

@@ -423,6 +423,60 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     }
   }, [editor, autoFocus]);
 
+  // The app loads the user's Google Font with font-display: swap, so on the
+  // VERY first open of a composer the custom font can still be downloading
+  // while the editor is already focused. Chromium lays out the caret using
+  // fallback-font metrics, and when the font swaps in the glyphs shift but the
+  // caret keeps its stale rect — it reads as sitting in the middle of the
+  // letters instead of after them. On the second open the font is cached, so
+  // the problem vanishes. Fix: once document.fonts.ready resolves (or any font
+  // batch finishes loading), re-apply the DOM selection at the current
+  // position — a fresh range makes the browser recompute the caret rect
+  // against the final font metrics. Harmless no-op when the caret is already
+  // correct (or the editor isn't focused).
+  useEffect(() => {
+    if (!editor) return;
+    const fonts = typeof document !== "undefined" ? document.fonts : null;
+    if (!fonts || typeof fonts.ready?.then !== "function") return;
+    let cancelled = false;
+    const realignCaret = () => {
+      try {
+        const view = editor.view;
+        if (cancelled || editor.isDestroyed || !editor.isFocused || view.composing) return;
+        const sel = view.state.selection;
+        // Only the caret needs realigning. Skipping non-empty selections is
+        // also what keeps a NodeSelection (e.g. a selected custom emoji atom)
+        // from being collapsed by the re-applied range below.
+        if (!sel.empty) return;
+        // Force a synchronous reflow so the inline text is laid out with the
+        // now-loaded font before the selection is re-applied — otherwise the
+        // browser could still measure the caret against the stale layout.
+        void view.dom.getBoundingClientRect();
+        const pos = view.domAtPos(sel.from);
+        if (!pos) return;
+        // The editor lives in the top-level document (no shadow DOM), so
+        // window.getSelection() is the right selection object.
+        const domSel = window.getSelection?.();
+        if (!domSel) return;
+        const range = document.createRange();
+        range.setStart(pos.node, pos.offset);
+        range.collapse(true);
+        domSel.removeAllRanges();
+        domSel.addRange(range);
+      } catch {
+        // Realignment is best-effort — never let a font-load callback crash.
+      }
+    };
+    fonts.ready.then(realignCaret).catch(() => {});
+    // Also catch font batches that start loading after the editor mounted
+    // (e.g. the user changes the font in Settings while a composer is open).
+    fonts.addEventListener?.("loadingdone", realignCaret);
+    return () => {
+      cancelled = true;
+      fonts.removeEventListener?.("loadingdone", realignCaret);
+    };
+  }, [editor]);
+
   // Reset the editor ONLY when the parent explicitly asks for it (resetKey changes).
   // The old code reset on every contentJson change — but parents echo the editor's own
   // output back via onChange, so this fired on every keystroke, calling setContent()
