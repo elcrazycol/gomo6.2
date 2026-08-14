@@ -4,6 +4,7 @@ import { GomoRichEditor, Toolbar, type GomoRichEditorHandle } from "@/components
 import { EmojiPicker } from "@/components/EmojiPicker";
 
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
+import { isEditableElement } from "@/lib/mobileKeyboard";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import {
   prosemirrorToMessengerText,
@@ -297,10 +298,16 @@ export const MessageComposer = memo(function MessageComposer({
   // keyboard just left, so the chat panel (and the composer pill with it) must
   // float at the panel's height instead of following --kb-inset — which drops
   // to 0 the instant the keyboard hides, letting the panel slide over the pill
-  // (the "keyboard covers the pill" bug, wall comments pin instead). On close
-  // the lift is held until the keyboard has risen back into place (refocus
-  // path) or the panel exit animation finished (no-refocus path), so the pill
-  // never dips behind the sliding panel.
+  // (the "keyboard covers the pill" bug, wall comments pin instead).
+  //
+  // On close the pill stays glued to the top edge of the departing panel:
+  //  • refocus path (trigger toggle) — the keyboard rises back; hold the pill
+  //    at the panel height and hand off to --kb-inset the moment the keyboard
+  //    reaches it (no dip, no jump, even when the keyboard is taller than the
+  //    panel — e.g. a predictive-text bar);
+  //  • no-refocus path (outside tap / Escape) — the keyboard is not coming
+  //    back; glide the pill down in sync with the panel's exit animation
+  //    instead of holding then teleporting.
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
@@ -314,15 +321,76 @@ export const MessageComposer = memo(function MessageComposer({
       return;
     }
     const startedAt = Date.now();
-    const timer = window.setInterval(() => {
+    let timer: number | null = null;
+    let glideRaf: number | null = null;
+    let done = false;
+
+    const cleanup = () => {
+      done = true;
+      if (timer !== null) clearTimeout(timer);
+      if (glideRaf !== null) cancelAnimationFrame(glideRaf);
+      timer = null;
+      glideRaf = null;
+    };
+
+    const finish = () => {
+      cleanup();
+      chatPanel.style.removeProperty("--emoji-panel-h");
+    };
+
+    const glideDown = () => {
+      if (done) return;
+      cleanup();
+      const animStart = performance.now();
+      const glide = (now: number) => {
+        if (done) return;
+        const p = Math.min(1, (now - animStart) / 240);
+        const eased = 1 - Math.pow(1 - p, 3);
+        const h = Math.round(swapHeight * (1 - eased));
+        if (h <= 0) {
+          chatPanel.style.removeProperty("--emoji-panel-h");
+          done = true;
+          return;
+        }
+        chatPanel.style.setProperty("--emoji-panel-h", `${h}px`);
+        glideRaf = requestAnimationFrame(glide);
+      };
+      glideRaf = requestAnimationFrame(glide);
+    };
+
+    const poll = () => {
+      if (done) return;
       const inset =
         parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-inset")) || 0;
-      if (inset >= swapHeight * 0.85 || Date.now() - startedAt > 800) {
-        window.clearInterval(timer);
-        chatPanel.style.removeProperty("--emoji-panel-h");
+      const elapsed = Date.now() - startedAt;
+      // The keyboard rose back to the panel's height → hand off to --kb-inset
+      // (the pill keeps riding the keyboard from the same position).
+      if (inset >= swapHeight - 8) {
+        finish();
+        return;
       }
-    }, 60);
-    return () => window.clearInterval(timer);
+      // The keyboard is coming back (the editor was refocused): hold the pill
+      // at the panel height until it arrives.
+      const active = document.activeElement;
+      const editorFocused =
+        active instanceof HTMLElement &&
+        !!rootRef.current?.contains(active) &&
+        isEditableElement(active);
+      if (editorFocused) {
+        if (elapsed > 2000) finish();
+        else timer = window.setTimeout(poll, 40);
+        return;
+      }
+      // No refocus: the keyboard is not coming back — glide the pill down in
+      // sync with the panel's exit animation instead of holding then jumping.
+      if (elapsed >= 150) {
+        glideDown();
+        return;
+      }
+      timer = window.setTimeout(poll, 40);
+    };
+    timer = window.setTimeout(poll, 40);
+    return cleanup;
   }, [emojiSwap.open, emojiSwap.height]);
 
   // ── Expand / collapse ──────────────────────────────────────────────────────
@@ -493,7 +561,7 @@ export const MessageComposer = memo(function MessageComposer({
           onFocusCapture={() => setExpanded(true)}
           onBlur={handleComposerBlur}
         >
-          <div onPaste={handleEditorPaste}>
+          <div className="composer-input-area" onPaste={handleEditorPaste}>
             <GomoRichEditor
               ref={(node) => {
                 // The local editorRef drives emoji insertion + the keyboard
@@ -519,8 +587,9 @@ export const MessageComposer = memo(function MessageComposer({
             />
           </div>
 
-          {/* Emoji — transparent circle inside the pill (wall-post behaviour:
-              keyboard swap on touch, popover on desktop) */}
+          {/* Emoji — transparent circle inside the pill, vertically centered
+              on the text line (wall-post behaviour: keyboard swap on touch,
+              popover on desktop) */}
           <EmojiPicker
             onEmojiSelect={handleEmojiSelect}
             triggerRef={emojiButtonRef}
@@ -530,16 +599,14 @@ export const MessageComposer = memo(function MessageComposer({
             onSwapToggle={emojiSwap.toggle}
             onSwapClose={() => emojiSwap.closePanel(false)}
           >
-            <span className="composer-emoji-trigger">
-              <button
-                type="button"
-                className="composer-emoji-btn"
-                title="Добавить эмодзи"
-                aria-label="Добавить эмодзи"
-              >
-                <Smile size={18} />
-              </button>
-            </span>
+            <button
+              type="button"
+              className="composer-emoji-btn"
+              title="Добавить эмодзи"
+              aria-label="Добавить эмодзи"
+            >
+              <Smile size={15} />
+            </button>
           </EmojiPicker>
 
           {remaining < 100 && plainDraft.length > 0 && (

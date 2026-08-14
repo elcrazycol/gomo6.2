@@ -39,6 +39,8 @@
  *    the focused input is blurred (so focus-to-expand composers collapse via
  *    their own onBlur animation) and the fixed/sticky bars descend smoothly
  *    (eased rAF interpolation of the CSS vars) instead of teleporting.
+ *    Surfaces marked [data-kb-keep] (the messenger chat) opt out: scrolling
+ *    them keeps the keyboard up — only a real outside tap dismisses.
  *
  * Only touch devices (`(pointer: coarse)`) ever get keyboard handling;
  * desktop layouts are untouched.
@@ -102,6 +104,12 @@ let dismissAnimFrame: number | null = null;
 // pinned composer bar). Such gestures must never scroll the page or dismiss
 // the keyboard — the bar is position:fixed and cannot be dragged.
 let lockedGestureActive = false;
+// True while the current touch began on a `[data-kb-keep]` element (the
+// messenger chat surface). Scrolling such a surface is content browsing, not
+// a dismissal gesture — the keyboard must stay up, exactly like when the
+// emoji swap panel is open (there the editor is blurred, so no dismissal can
+// fire; the open keyboard must match that stability).
+let stickyScrollActive = false;
 // Cancels an in-flight fixed-bar scroll guard (see guardFixedBarFocusScroll).
 let cancelFixedGuard: (() => void) | null = null;
 
@@ -180,6 +188,7 @@ export function initMobileKeyboard(): () => void {
     dismissAnimFrame = null;
     gestureStart = null;
     lockedGestureActive = false;
+    stickyScrollActive = false;
     dismissUntil = 0;
     dismissalActive = false;
     focusedEditable = null;
@@ -334,6 +343,21 @@ export function isLockedGestureTarget(target: EventTarget | null): boolean {
     target instanceof Element &&
     typeof target.closest === "function" &&
     target.closest("[data-kb-locked]")
+  );
+}
+
+/**
+ * Whether a touch/wheel that started on this target must NOT dismiss the
+ * keyboard: the target (or an ancestor) carries [data-kb-keep] (the messenger
+ * chat surface). Scrolling there is normal content browsing — the keyboard
+ * stays up until the user taps outside, sends, or uses the keyboard's own
+ * hide control.
+ */
+export function isStickyGestureTarget(target: EventTarget | null): boolean {
+  return !!(
+    target instanceof Element &&
+    typeof target.closest === "function" &&
+    target.closest("[data-kb-keep]")
   );
 }
 
@@ -560,6 +584,11 @@ function handleGestureScroll(e: Event) {
   // keyboard nor scroll the page — the bar is pinned above the keyboard and
   // cannot be dragged.
   if (lockedGestureActive) return;
+  // A gesture that started on a [data-kb-keep] surface (the messenger chat)
+  // must keep the keyboard: scrolling the history is content browsing, not a
+  // tap-outside. Wheel events have no touchstart, so the target is checked
+  // directly here too.
+  if (stickyScrollActive || isStickyGestureTarget(e.target)) return;
   // One dismissal per gesture — later touchmoves during the same scroll must
   // not restart the descent animation or re-blur (would jitter).
   if (dismissalActive) return;
@@ -606,11 +635,15 @@ function handleTouchStart(e: TouchEvent) {
   // Pinned composer bars carry [data-kb-locked]; a scroll that begins on one
   // must not move the page (the bar is fixed and can't be dragged along).
   lockedGestureActive = state.isTouch && isLockedGestureTarget(e.target);
+  // The messenger chat surface carries [data-kb-keep]; scrolls that begin on
+  // it keep the keyboard up (see handleGestureScroll).
+  stickyScrollActive = state.isTouch && isStickyGestureTarget(e.target);
 }
 
 function handleTouchEnd() {
   gestureStart = null;
   lockedGestureActive = false;
+  stickyScrollActive = false;
 }
 
 /**

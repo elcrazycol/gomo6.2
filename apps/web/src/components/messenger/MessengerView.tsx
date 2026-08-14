@@ -284,7 +284,13 @@ export const MessengerView = () => {
             )}
           </aside>
 
-          <section className={`chat-panel${showMobileChat ? " is-open" : ""}${!conversation ? " is-empty" : ""}`}>
+          <section
+            className={`chat-panel${showMobileChat ? " is-open" : ""}${!conversation ? " is-empty" : ""}`}
+            // Scrolling the chat (history, composer) must keep the soft
+            // keyboard up — like the emoji swap panel does — instead of
+            // triggering the iOS scroll-to-dismiss (see mobileKeyboard.ts).
+            data-kb-keep
+          >
             <ChatView
               onBack={handleBack}
               composerRef={composerRef}

@@ -1702,8 +1702,10 @@ main.is-messenger-page {
   position: relative;
   flex: 1;
   min-width: 0;
-  /* Right padding clears the emoji trigger living inside the pill. */
-  padding: 7px 46px 7px 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 6px 7px 12px;
   border: 1px solid hsl(var(--input));
   border-radius: 22px;
   background: hsl(var(--background));
@@ -1713,6 +1715,13 @@ main.is-messenger-page {
 .composer-input-pill:focus-within {
   border-color: hsl(var(--primary));
   box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15);
+}
+
+/* The editor area flexes to fill the pill; the emoji trigger is a flex item
+   next to it, vertically centered on the text line. */
+.composer-input-area {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* The rich editor grows smoothly between the pill and the expanded input. */
@@ -1730,7 +1739,7 @@ main.is-messenger-page {
 .composer-counter {
   position: absolute;
   /* Left of the emoji trigger, which occupies the pill's right edge. */
-  right: 46px;
+  right: 38px;
   bottom: 4px;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -1891,27 +1900,16 @@ main.is-messenger-page {
   color: hsl(var(--foreground));
 }
 
-/* ── Emoji trigger — transparent circle docked inside the pill (right) ── */
-
-/* The EmojiPicker trigger is a bare role=button div; it must not take layout
-   space inside the pill — pin it (and its circle) to the pill's right edge. */
-.composer-input-pill > div[role="button"] {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+/* ── Emoji trigger — transparent circle inside the pill (right), sized a bit
+   above the 14px text and vertically centered on it via the pill's flex ── */
 
 .composer-emoji-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
   border: none;
   border-radius: 50%;
   background: transparent;

@@ -10,6 +10,7 @@ import {
   isEditableElement,
   isIOSDevice,
   isLockedGestureTarget,
+  isStickyGestureTarget,
 } from "./mobileKeyboard";
 
 describe("isIOSDevice", () => {
@@ -178,6 +179,40 @@ describe("isLockedGestureTarget", () => {
     locked.appendChild(editor);
     document.body.appendChild(locked);
     expect(isLockedGestureTarget(editor)).toBe(true);
+  });
+});
+
+describe("isStickyGestureTarget", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("returns false for null / non-element targets", () => {
+    expect(isStickyGestureTarget(null)).toBe(false);
+    expect(isStickyGestureTarget(undefined)).toBe(false);
+  });
+
+  it("returns false for ordinary elements and locked bars", () => {
+    const el = document.createElement("div");
+    el.setAttribute("data-kb-locked", "true");
+    document.body.appendChild(el);
+    expect(isStickyGestureTarget(el)).toBe(false);
+  });
+
+  it("returns true for an element carrying data-kb-keep", () => {
+    const keep = document.createElement("div");
+    keep.setAttribute("data-kb-keep", "true");
+    document.body.appendChild(keep);
+    expect(isStickyGestureTarget(keep)).toBe(true);
+  });
+
+  it("returns true for descendants of a keep surface (messages inside the chat panel)", () => {
+    const keep = document.createElement("div");
+    keep.setAttribute("data-kb-keep", "true");
+    const bubble = document.createElement("div");
+    keep.appendChild(bubble);
+    document.body.appendChild(keep);
+    expect(isStickyGestureTarget(bubble)).toBe(true);
   });
 });
 
