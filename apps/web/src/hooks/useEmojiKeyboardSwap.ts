@@ -47,6 +47,18 @@ export function useEmojiKeyboardSwap(
   const [height, setHeight] = useState(0);
   const openRef = useRef(open);
   openRef.current = open;
+  // Tracks the Android height re-measure loop so it can be cancelled on
+  // unmount / reopen instead of firing setHeight on a dead component.
+  const measureTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (measureTimerRef.current !== null) {
+        clearTimeout(measureTimerRef.current);
+        measureTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const openPanel = useCallback(() => {
     // Snapshot the metrics BEFORE blurring: the blur starts the keyboard
@@ -71,16 +83,24 @@ export function useEmojiKeyboardSwap(
       // Android resizes-content: the layout viewport grows back by the exact
       // keyboard height once it hides — measure it and correct the panel so it
       // fills precisely the freed space.
+      if (measureTimerRef.current !== null) {
+        clearTimeout(measureTimerRef.current);
+      }
       let attempts = 0;
       const measure = () => {
         const grown = window.innerHeight - beforeHeight;
         if (grown >= MIN_KB_HEIGHT) {
+          measureTimerRef.current = null;
           setHeight(Math.round(grown));
           return;
         }
-        if (++attempts < 6) window.setTimeout(measure, 50);
+        if (++attempts < 6) {
+          measureTimerRef.current = window.setTimeout(measure, 50);
+        } else {
+          measureTimerRef.current = null;
+        }
       };
-      window.setTimeout(measure, 50);
+      measureTimerRef.current = window.setTimeout(measure, 50);
     }
   }, []);
 

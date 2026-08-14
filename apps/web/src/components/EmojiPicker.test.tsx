@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockPacks = [
@@ -107,6 +107,29 @@ describe("EmojiPicker keyboardSwap mode", () => {
       url: "https://cdn/emojis/fire.webp",
       name: "fire",
     });
+  });
+
+  it("unmounts the panel after the exit animation completes", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<EmojiPicker {...baseProps} swapOpen={true} />);
+    expect(screen.getByTestId("emoji-keyboard-panel")).toBeInTheDocument();
+
+    // Close: the panel must stay mounted for the slide-down animation…
+    rerender(<EmojiPicker {...baseProps} swapOpen={false} />);
+    expect(screen.getByTestId("emoji-keyboard-panel")).toBeInTheDocument();
+
+    // …and be fully removed once the animation ends (or the safety timer).
+    act(() => {
+      vi.advanceTimersByTime(350);
+    });
+    expect(screen.queryByTestId("emoji-keyboard-panel")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("does not flash a closing panel on initial mount when closed", () => {
+    const { container } = render(<EmojiPicker {...baseProps} swapOpen={false} />);
+    expect(screen.queryByTestId("emoji-keyboard-panel")).not.toBeInTheDocument();
+    expect(container).toBeTruthy();
   });
 
   it("renders the normal popover when keyboardSwap is off (desktop)", () => {

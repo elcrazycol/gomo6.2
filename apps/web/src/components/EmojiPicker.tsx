@@ -52,24 +52,49 @@ export const EmojiPicker = ({
   const [search, setSearch] = useState('');
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [isMobileSheet, setIsMobileSheet] = useState(false);
-  // Keep the keyboard-swap panel mounted ~260ms after the parent flips
-  // swapOpen off so it slides down like the keyboard instead of popping.
+  // Keep the keyboard-swap panel mounted through its exit animation after the
+  // parent flips swapOpen off so it slides down like the keyboard instead of
+  // popping. The timer lives in a ref and is only cleared on unmount/reopen —
+  // if it were an effect-local cleanup, the re-render caused by the state
+  // change itself would clear it before it ever fires (stuck mounted panel).
   const [swapClosing, setSwapClosing] = useState(false);
+  const swapCloseTimer = useRef<number | null>(null);
+  const prevSwapOpen = useRef(swapOpen);
   const panelRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!keyboardMode) return;
+    const wasOpen = prevSwapOpen.current;
+    prevSwapOpen.current = swapOpen;
     if (swapOpen) {
+      if (swapCloseTimer.current !== null) {
+        clearTimeout(swapCloseTimer.current);
+        swapCloseTimer.current = null;
+      }
       setSwapClosing(false);
       return;
     }
-    if (!swapClosing) {
+    // Only animate the exit when the panel was actually open — a fresh mount
+    // with swapOpen=false must not flash an invisible closing panel.
+    if (wasOpen) {
       setSwapClosing(true);
-      const t = setTimeout(() => setSwapClosing(false), 280);
-      return () => clearTimeout(t);
+      if (swapCloseTimer.current === null) {
+        // Safety net: if the panel's exit animation never fires (reduced
+        // motion / odd browser), force the unmount shortly after.
+        swapCloseTimer.current = window.setTimeout(() => {
+          setSwapClosing(false);
+          swapCloseTimer.current = null;
+        }, 300);
+      }
     }
-  }, [keyboardMode, swapOpen, swapClosing]);
+    return () => {
+      if (swapCloseTimer.current !== null) {
+        clearTimeout(swapCloseTimer.current);
+        swapCloseTimer.current = null;
+      }
+    };
+  }, [keyboardMode, swapOpen]);
 
   // Below the sm breakpoint the panel renders as a bottom sheet (full width,
   // rounded top corners) — the anchor-based popover cannot be positioned
@@ -314,6 +339,13 @@ export const EmojiPicker = ({
               animation: swapClosing
                 ? 'emoji-sheet-down 240ms cubic-bezier(0.4, 0, 0.2, 1) both'
                 : 'emoji-sheet-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both',
+            }}
+            onAnimationEnd={(e) => {
+              // Only the panel's own exit animation un-mounts it — bubbling
+              // animationend from children (hover transitions etc.) is ignored.
+              if (swapClosing && e.target === e.currentTarget) {
+                setSwapClosing(false);
+              }
             }}
           >
             {renderBody(true)}
