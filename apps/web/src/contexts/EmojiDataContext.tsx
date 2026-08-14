@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/integrations/api/compat';
 import { apiClient } from '@/integrations/api/client';
 import { storageUrl } from '@/utils/storage';
@@ -30,6 +31,8 @@ export interface EmojiPackData {
 
 interface EmojiDataContextValue {
   allEmojis: Map<string, EmojiData>;
+  /** Ids the server confirmed missing (deleted emoji) — skip re-requesting them. */
+  failedEmojiIds: Set<string>;
   subscribedPackIds: Set<string>;
   subscribedPacks: EmojiPackData[];
   ownedPacks: EmojiPackData[];
@@ -72,18 +75,38 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isLoading, setIsLoading] = useState(false);
   const [failedEmojiIds, setFailedEmojiIds] = useState<Set<string>>(new Set());
   const loadingRef = useRef(false);
+  const initialLoadStartedRef = useRef(false);
   const userIdRef = useRef<string | null>(cacheSeed?.userId ?? null);
+
+  // Sync with the app's shared auth query (same key as useAuth): when the
+  // authenticated user changes — login/logout in THIS tab or another — reload
+  // the subscriptions. The query is deduped with the rest of the app, so this
+  // costs no extra network calls.
+  const { data: authUser } = useQuery({
+    queryKey: ['auth', 'currentUser'],
+    queryFn: () => apiClient.getCurrentUser(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+  const authUserId = authUser?.id ?? null;
 
   const loadSubscribedData = useCallback(async () => {
     try {
       const { data: { user } } = await api.auth.getUser();
-      userIdRef.current = user?.id ?? null;
-      if (!user) {
-        // Logged out: drop per-user state (privacy) but keep the emoji map so
-        // posts and nicknames already on screen keep rendering.
+      const uid = user?.id ?? null;
+      // The localStorage cache may belong to a different user (shared browser,
+      // stale session). Never render that user's packs: drop per-user state
+      // first so a foreign pack list cannot flash or persist on a refresh error.
+      if (uid !== userIdRef.current) {
         setSubscribedPacks([]);
         setOwnedPacks([]);
         setSubscribedPackIds(new Set());
+      }
+      userIdRef.current = uid;
+      if (!user) {
+        // Logged out: per-user state is already cleared above (privacy); the
+        // emoji map stays so posts and nicknames keep rendering.
         setIsLoading(false);
         return;
       }
@@ -130,33 +153,54 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error('Error loading emoji subscriptions:', err);
     } finally {
       setIsLoading(false);
+      // Allow subsequent reloads (auth changes, refreshData). The initial-load
+      // guard sets this true once so the watcher above cannot double-fetch.
+      loadingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
-    if (!loadingRef.current) {
+    if (!initialLoadStartedRef.current) {
+      initialLoadStartedRef.current = true;
       loadingRef.current = true;
       loadSubscribedData();
     }
   }, [loadSubscribedData]);
 
-  // Persist the current emoji state to localStorage whenever it changes, so
-  // the next visit seeds instantly. Writes are small and bounded by the cache
-  // module's pruning (localStorage quota failures are silently ignored).
+  // React to auth changes (login/logout in this tab or another) AFTER the
+  // initial load above — it is the single driver of the first fetch.
   useEffect(() => {
-    const packMap = new Map<string, EmojiPackData>();
-    for (const pack of subscribedPacks) packMap.set(pack.id, pack);
-    for (const pack of ownedPacks) packMap.set(pack.id, pack);
-    const packs = Array.from(packMap.values());
-    saveEmojiCache({
-      version: 1,
-      userId: userIdRef.current,
-      emojis: Object.fromEntries(allEmojis),
-      packs,
-      subscribedPackIds: Array.from(subscribedPackIds),
-      ownedPackIds: packs.filter(pack => ownedPacks.some(p => p.id === pack.id)).map(pack => pack.id),
-      savedAt: Date.now(),
-    });
+    if (!initialLoadStartedRef.current) return;
+    if (authUserId !== userIdRef.current) {
+      void loadSubscribedData();
+    }
+  }, [authUserId, loadSubscribedData]);
+
+  // Persist the current emoji state to localStorage whenever it changes, so
+  // the next visit seeds instantly. Debounced: an emoji-heavy page resolves
+  // emojis one by one (each creating a new map), and serializing the whole
+  // cache on every single resolve would jank the first paint.
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const packMap = new Map<string, EmojiPackData>();
+      for (const pack of subscribedPacks) packMap.set(pack.id, pack);
+      for (const pack of ownedPacks) packMap.set(pack.id, pack);
+      const packs = Array.from(packMap.values());
+      saveEmojiCache({
+        version: 1,
+        userId: userIdRef.current,
+        emojis: Object.fromEntries(allEmojis),
+        packs,
+        subscribedPackIds: Array.from(subscribedPackIds),
+        ownedPackIds: packs.filter(pack => ownedPacks.some(p => p.id === pack.id)).map(pack => pack.id),
+        savedAt: Date.now(),
+      });
+    }, 500);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
   }, [allEmojis, subscribedPacks, ownedPacks, subscribedPackIds]);
 
   // Reload when the authenticated user changes while the tab is open (login /
@@ -282,6 +326,7 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!user) return false;
 
     // Optimistic: hide the pack immediately, restore it if the server rejects.
+    const pack = subscribedPacks.find(p => p.id === packId);
     const wasSubscribed = subscribedPackIds.has(packId);
     setSubscribedPackIds(prev => {
       const next = new Set(prev);
@@ -297,14 +342,17 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       .eq('pack_id', packId);
 
     if (error) {
+      // Full rollback: restore BOTH the id set and the pack object, otherwise
+      // the picker tab disappears while the detail page still says installed.
       if (wasSubscribed) setSubscribedPackIds(prev => new Set([...prev, packId]));
+      if (pack) setSubscribedPacks(prev => prev.some(p => p.id === pack.id) ? prev : [pack, ...prev]);
       console.error('Error unsubscribing from emoji pack:', error);
       return false;
     }
 
     void loadSubscribedData();
     return true;
-  }, [subscribedPackIds, loadSubscribedData]);
+  }, [subscribedPackIds, subscribedPacks, loadSubscribedData]);
 
   const refreshData = useCallback(async () => {
     loadingRef.current = false;
@@ -320,6 +368,7 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   return (
     <EmojiDataContext.Provider value={{
       allEmojis,
+      failedEmojiIds,
       subscribedPackIds,
       subscribedPacks,
       ownedPacks,

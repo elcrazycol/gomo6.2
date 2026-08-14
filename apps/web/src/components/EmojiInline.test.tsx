@@ -9,6 +9,7 @@ const mockEmojis = new Map([
 vi.mock('@/contexts/EmojiDataContext', () => ({
   useEmojiData: () => ({
     allEmojis: mockEmojis,
+    failedEmojiIds: new Set(),
     resolveEmojis: vi.fn().mockResolvedValue(undefined),
   }),
 }));

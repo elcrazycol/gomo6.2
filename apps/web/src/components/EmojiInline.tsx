@@ -16,15 +16,17 @@ interface EmojiInlineProps {
  * paint renders the instant its record arrives — no permanent [?] placeholders.
  */
 export const EmojiInline = ({ emojiId, code, className = "", size }: EmojiInlineProps) => {
-  const { allEmojis, resolveEmojis } = useEmojiData();
+  const { allEmojis, failedEmojiIds, resolveEmojis } = useEmojiData();
 
   const emoji = emojiId ? allEmojis.get(emojiId) : undefined;
 
   useEffect(() => {
-    if (emojiId && !emoji) {
+    // Request unknown emojis once; ids confirmed missing by the server are in
+    // failedEmojiIds and must not be re-requested on every emoji-map change.
+    if (emojiId && !emoji && !failedEmojiIds.has(emojiId)) {
       resolveEmojis([emojiId]);
     }
-  }, [emojiId, emoji, resolveEmojis]);
+  }, [emojiId, emoji, failedEmojiIds, resolveEmojis]);
 
   // New system: render by emojiId
   if (emoji && emojiId) {

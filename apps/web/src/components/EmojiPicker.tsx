@@ -148,7 +148,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect
               </Link>
             </div>
           ) : (
-            <div className="max-h-96 flex flex-col">
+            <div className="max-h-96 max-sm:max-h-none flex flex-col">
               {/* Search */}
               <div className="p-2 border-b">
                 <div className="relative">
