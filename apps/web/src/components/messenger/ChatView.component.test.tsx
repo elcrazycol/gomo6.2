@@ -178,7 +178,7 @@ function mockMessage(overrides: Record<string, unknown> = {}) {
 
 const defaultProps = {
   onBack: vi.fn(),
-  composerRef: { current: null } as React.RefObject<{ focus: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void } | null>,
+  composerRef: { current: null } as React.RefObject<{ focus: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>,
   typingUsername: null as string | null,
   onTyping: vi.fn(),
 };

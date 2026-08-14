@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic, Smile, Maximize2, Minimize2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { GomoRichEditor, Toolbar, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { EmojiPicker } from "@/components/EmojiPicker";
+
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import {
@@ -119,6 +119,15 @@ export const MessageComposer = memo(function MessageComposer({
 
   const [expanded, setExpanded] = useState(false);
   const [fullMode, setFullMode] = useState(false);
+  // While the formatting panel is closing it stays mounted (with the exit
+  // animation) and unmounts after a short delay — so closing reads as one
+  // smooth motion instead of a hard pop.
+  const [panelExiting, setPanelExiting] = useState(false);
+  const panelExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (panelExitTimerRef.current) clearTimeout(panelExitTimerRef.current);
+  }, []);
   // Bumped when the editor content must be re-seeded from `draft` (edit start,
   // external clear after send) — never on the editor's own keystrokes.
   const [editorResetKey, setEditorResetKey] = useState(0);
@@ -269,6 +278,53 @@ export const MessageComposer = memo(function MessageComposer({
     }
   }, [emojiSwap.open]);
 
+  // ── Full composer: the ▢ opens a full-width formatting panel above the
+  // input pill and relocates to its left edge; the bottom slot it vacated
+  // becomes the paperclip attach button. ─────────────────────────────────────
+  const openFullMode = useCallback(() => {
+    setFullMode(true);
+  }, []);
+
+  const closeFullMode = useCallback(() => {
+    setFullMode(false);
+    setPanelExiting(true);
+    if (panelExitTimerRef.current) clearTimeout(panelExitTimerRef.current);
+    panelExitTimerRef.current = setTimeout(() => setPanelExiting(false), 220);
+  }, []);
+
+  // ── Emoji panel ↔ keyboard swap: keep the pill above the panel ────────────
+  // While the swap panel is open it occupies exactly the space the soft
+  // keyboard just left, so the chat panel (and the composer pill with it) must
+  // float at the panel's height instead of following --kb-inset — which drops
+  // to 0 the instant the keyboard hides, letting the panel slide over the pill
+  // (the "keyboard covers the pill" bug, wall comments pin instead). On close
+  // the lift is held until the keyboard has risen back into place (refocus
+  // path) or the panel exit animation finished (no-refocus path), so the pill
+  // never dips behind the sliding panel.
+  useEffect(() => {
+    const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
+    if (!chatPanel) return;
+    const swapHeight = emojiSwap.height;
+    if (emojiSwap.open && swapHeight > 0) {
+      chatPanel.style.setProperty("--emoji-panel-h", `${swapHeight}px`);
+      return;
+    }
+    if (swapHeight <= 0) {
+      chatPanel.style.removeProperty("--emoji-panel-h");
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      const inset =
+        parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-inset")) || 0;
+      if (inset >= swapHeight * 0.85 || Date.now() - startedAt > 800) {
+        window.clearInterval(timer);
+        chatPanel.style.removeProperty("--emoji-panel-h");
+      }
+    }, 60);
+    return () => window.clearInterval(timer);
+  }, [emojiSwap.open, emojiSwap.height]);
+
   // ── Expand / collapse ──────────────────────────────────────────────────────
   const requestCollapse = useCallback(() => {
     if (
@@ -292,6 +348,11 @@ export const MessageComposer = memo(function MessageComposer({
     if (rootRef.current?.contains(event.relatedTarget as Node | null)) return;
     requestCollapse();
   }, [requestCollapse]);
+
+  // The formatting panel's Toolbar needs the live tiptap instance. The pill
+  // editor is always mounted, so the ref is populated before the panel can
+  // render — read it at render time (the instance is stable across renders).
+  const toolbarEditor = editorRef.current?.getEditor() ?? null;
 
   // Clicking an emoji in the desktop popover (a portal outside the composer)
   // first blurs the editor — without this the pill would flash-collapse right
@@ -374,28 +435,59 @@ export const MessageComposer = memo(function MessageComposer({
         </div>
       )}
 
-      <div className="composer-row">
-        {/* Attach — slides in when the composer is expanded */}
-        <div className={`composer-attach-btn-wrap${isExpanded ? " is-visible" : ""}`}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,video/*,audio/*,.pdf,.txt,.md"
-            onChange={handleFileSelect}
-            style={{ display: "none" }}
-          />
+      {/* Formatting panel — full-width row above the input, opened by the ▢
+          button. The ▢ relocates to its left edge while it is open; the
+          bottom slot it vacated becomes the paperclip attach button. */}
+      {(fullMode || panelExiting) && (
+        <div className={`composer-panel-row${panelExiting ? " is-exiting" : ""}`}>
           <button
             type="button"
-            className="composer-attach-btn"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Прикрепить файл"
+            className="composer-panel-toggle"
+            onClick={closeFullMode}
+            aria-label="Свернуть компоузер"
+            title="Свернуть"
           >
-            <Paperclip size={18} />
+            <Minimize2 size={18} />
           </button>
+          {toolbarEditor && <Toolbar editor={toolbarEditor} className="composer-toolbar-panel" />}
         </div>
+      )}
 
-        {/* The input pill */}
+      <div className="composer-row">
+        {/* The ▢ full-composer toggle; while the panel is open the slot holds
+            the paperclip attach button instead (the ▢ moved to the panel). */}
+        {fullMode ? (
+          <div className="composer-attach-btn-wrap is-visible">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,video/*,audio/*,.pdf,.txt,.md"
+              onChange={handleFileSelect}
+              style={{ display: "none" }}
+            />
+            <button
+              type="button"
+              className="composer-attach-btn"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Прикрепить файл"
+            >
+              <Paperclip size={18} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="composer-expand-btn"
+            onClick={openFullMode}
+            aria-label="Развернуть компоузер"
+            title="Развернуть"
+          >
+            <Maximize2 size={18} />
+          </button>
+        )}
+
+        {/* The input pill — emoji trigger lives inside it (right side) */}
         <div
           className="composer-input-pill"
           onFocusCapture={() => setExpanded(true)}
@@ -423,49 +515,39 @@ export const MessageComposer = memo(function MessageComposer({
                   ? "max-h-[45vh] overflow-y-auto overscroll-contain"
                   : "max-h-[140px] overflow-y-auto overscroll-contain"
               }
-              showToolbar={fullMode}
-              toolbarClassName="composer-toolbar"
+              showToolbar={false}
             />
           </div>
+
+          {/* Emoji — transparent circle inside the pill (wall-post behaviour:
+              keyboard swap on touch, popover on desktop) */}
+          <EmojiPicker
+            onEmojiSelect={handleEmojiSelect}
+            triggerRef={emojiButtonRef}
+            keyboardSwap
+            swapOpen={emojiSwap.open}
+            swapHeight={emojiSwap.height}
+            onSwapToggle={emojiSwap.toggle}
+            onSwapClose={() => emojiSwap.closePanel(false)}
+          >
+            <span className="composer-emoji-trigger">
+              <button
+                type="button"
+                className="composer-emoji-btn"
+                title="Добавить эмодзи"
+                aria-label="Добавить эмодзи"
+              >
+                <Smile size={18} />
+              </button>
+            </span>
+          </EmojiPicker>
+
           {remaining < 100 && plainDraft.length > 0 && (
             <span className={`composer-counter ${remaining < 20 ? "is-critical" : ""}`}>
               {remaining}
             </span>
           )}
         </div>
-
-        {/* Full-composer toggle — deliberately subtle */}
-        <button
-          type="button"
-          className={`composer-expand-btn${fullMode ? " is-active" : ""}`}
-          onClick={() => setFullMode((value) => !value)}
-          aria-label={fullMode ? "Свернуть компоузер" : "Развернуть компоузер"}
-          aria-pressed={fullMode}
-          title={fullMode ? "Свернуть" : "Развернуть"}
-        >
-          {fullMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-        </button>
-
-        <EmojiPicker
-          onEmojiSelect={handleEmojiSelect}
-          triggerRef={emojiButtonRef}
-          keyboardSwap
-          swapOpen={emojiSwap.open}
-          swapHeight={emojiSwap.height}
-          onSwapToggle={emojiSwap.toggle}
-          onSwapClose={() => emojiSwap.closePanel(false)}
-        >
-          <Button
-            ref={emojiButtonRef}
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 border-border/70 sm:h-10 sm:w-10"
-            title="Добавить эмодзи"
-          >
-            <Smile className="h-4 w-4" />
-          </Button>
-        </EmojiPicker>
 
         <button
           type="button"
