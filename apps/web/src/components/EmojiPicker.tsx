@@ -326,7 +326,7 @@ export const EmojiPicker = ({
   const renderBody = () => {
     if (isLoading) {
       return (
-        <div className="flex items-center justify-center h-full min-h-48">
+        <div className="flex items-center justify-center flex-1 min-h-48">
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
         </div>
       );
@@ -343,7 +343,11 @@ export const EmojiPicker = ({
       );
     }
     return (
-      <div className="flex flex-col h-full min-h-0">
+      // flex-1 (not h-full): inside a max-height-constrained flex column this
+      // is the only way the inner scroll container gets a bounded height — a
+      // percentage height would resolve against auto and the stacked list
+      // would be clipped by the panel's overflow-hidden instead of scrolling.
+      <div className="flex flex-col flex-1 min-h-0">
         {/* Tab bar: history (left) · packs · "+" catalog shortcut (right) */}
         <div
           ref={tabBarRef}
@@ -468,7 +472,7 @@ export const EmojiPicker = ({
           <div
             ref={pickerRef}
             data-testid="emoji-keyboard-panel"
-            className="fixed inset-x-0 bottom-0 z-[100] overflow-hidden rounded-t-2xl border-t border-border bg-background/95 backdrop-blur-xl shadow-2xl"
+            className="fixed inset-x-0 bottom-0 z-[100] flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-background/95 backdrop-blur-xl shadow-2xl"
             style={{
               height: swapHeight || 300,
               animation: swapClosing
@@ -492,7 +496,7 @@ export const EmojiPicker = ({
           <div
             ref={panelRef}
             data-testid="emoji-picker-popover"
-            className={`fixed z-[100] w-80 max-w-[calc(100vw-16px)] bg-background/95 backdrop-blur-xl border border-border shadow-2xl overflow-hidden rounded-2xl max-sm:inset-x-0 max-sm:bottom-0 max-sm:left-0 max-sm:top-auto max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:rounded-t-2xl`}
+            className={`fixed z-[100] w-80 max-w-[calc(100vw-16px)] flex flex-col bg-background/95 backdrop-blur-xl border border-border shadow-2xl overflow-hidden rounded-2xl max-sm:inset-x-0 max-sm:bottom-0 max-sm:left-0 max-sm:top-auto max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:rounded-t-2xl`}
             style={{
               ...(isMobileSheet ? {} : { top: position.top, left: position.left, maxHeight: 'min(520px, 70vh)' }),
               ...(isMobileSheet ? { maxHeight: '75dvh' } : {}),
