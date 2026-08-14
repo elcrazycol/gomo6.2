@@ -19,7 +19,7 @@ interface PackData {
 
 export default function EmojiMyPacks() {
   const navigate = useNavigate();
-  const { subscribedPackIds, subscribedPacks, ownedPacks, refreshData, unsubscribeFromPack } = useEmojiData();
+  const { subscribedPacks, ownedPacks, unsubscribeFromPack } = useEmojiData();
   const [myPacks, setMyPacks] = useState<PackData[]>([]);
   const [loading, setLoading] = useState(true);
 

@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '@/integrations/api/compat';
 import { useEmojiData, EmojiPackData, EmojiData } from '@/contexts/EmojiDataContext';
 import { storageUrl } from '@/utils/storage';
 import { toast } from 'sonner';
@@ -72,22 +71,22 @@ export default function EmojiPackDetail() {
   return (
     <div className="bg-background min-h-screen">
       <div className="max-w-2xl mx-auto p-4">
-        <div className="flex items-center gap-3 mb-6">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+        <div className="flex items-center gap-2 sm:gap-3 mb-6">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label="Назад">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3">
               {pack.icon_url ? (
-                <img src={storageUrl('emojis', pack.icon_url)} alt={pack.name} className="w-12 h-12 object-contain rounded-lg" />
+                <img src={storageUrl('emojis', pack.icon_url)} alt={pack.name} className="w-10 h-10 sm:w-12 sm:h-12 object-contain rounded-lg shrink-0" />
               ) : (
-                <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center">
-                  <Package className="h-6 w-6 text-muted-foreground" />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-muted rounded-lg flex items-center justify-center shrink-0">
+                  <Package className="h-5 w-5 sm:h-6 sm:w-6 text-muted-foreground" />
                 </div>
               )}
-              <div>
-                <h1 className="text-2xl font-bold">{pack.name}</h1>
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl font-bold truncate">{pack.name}</h1>
+                <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-muted-foreground">
                   <span>{emojis.length} эмодзи</span>
                   <span className="flex items-center gap-1">
                     <Users className="h-3 w-3" />
