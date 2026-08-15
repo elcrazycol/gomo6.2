@@ -762,12 +762,8 @@ main.is-messenger-page {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* While the composer is pinned (position:fixed) it leaves the grid, so the
-     messages row expands to the panel bottom; reserve its space (composer
-     height + keyboard/emoji-panel height) so the last message scrolls to just
-     above the bar. All vars are 0/unset when idle, so desktop and closed
-     states keep the natural padding. */
-  padding-bottom: calc(var(--composer-pinned-h, 0px) + var(--emoji-panel-h, var(--kb-inset, 0px)));
+  /* The composer stays in flow as the panel's last grid row, so the messages
+     row naturally ends above it — no reserved padding needed. */
 }
 
 .chat-messages-area > .message-scroll-wrap {
@@ -1695,32 +1691,16 @@ main.is-messenger-page {
   box-shadow: 0 -4px 16px -4px rgba(0, 0, 0, 0.04);
 }
 
-/* ── Composer pinned above the keyboard (wall-comments mechanism) ────────────
+/* ── Composer above the keyboard ─────────────────────────────────────────────
 
-   The moment the editor is focused on a touch device, MessageComposer pins the
-   composer bar itself as position:fixed — NOT the whole chat panel (lifting
-   the panel reflowed the header/messages, the "everything jumps" bug, and was
-   unreliable on some devices: the pill landed under the keyboard). The bar
-   floats exactly above the keyboard like WallCommentTree:
-
-    • bottom:--emoji-panel-h wins while the keyboard-swap panel is open (it
-      replaces the keyboard at the same height — the pill stays glued to the
-      panel's top edge);
-    • otherwise bottom:--kb-inset rides the bar up as the keyboard slides in;
-    • left/width are mirrored from the chat column via inline styles (never
-      set here — an !important left would override them and pin the bar to the
-      screen edge);
-    • the messages area reserves the bar's space via --composer-pinned-h
-      (published by a ResizeObserver) + the keyboard height, so the last
-      message always scrolls to just above the bar. */
-.composer-pinned {
-  position: fixed !important;
-  top: auto !important;
-  right: auto !important;
-  bottom: var(--emoji-panel-h, var(--kb-inset, 0px)) !important;
-  z-index: 40 !important;
-  margin: 0 !important;
-}
+   The composer never leaves the flow: on mobile the chat panel itself is
+   bottom-anchored at --kb-inset (see the ≤980px .chat-panel rule), so the
+   panel — and with it the composer, its last grid row — always ends exactly at
+   the keyboard top. While the keyboard-swap emoji panel is up it replaces the
+   keyboard at the same height, and MessageComposer mirrors that height into
+   the chat panel's local --kb-inset, so the composer stays glued to the
+   panel's top edge the same way. No fixed/flow switching, no measuring, no
+   reserved space — nothing to flicker. */
 
 .composer-row {
   display: flex;
@@ -2543,9 +2523,10 @@ main.is-messenger-page {
 
 .scroll-to-bottom-btn {
   position: absolute;
-  /* Float above the pinned composer while it rides the keyboard/emoji panel
-     (same vars as the messages-area pad; 0 when idle → the usual 12px). */
-  bottom: calc(12px + var(--composer-pinned-h, 0px) + var(--emoji-panel-h, var(--kb-inset, 0px)));
+  /* Anchored to .chat-messages-area, which ends above the in-flow composer
+     (grid row auto below it) — a fixed 12px keeps it clear of the bar at any
+     composer height (banners, attachments, full mode). */
+  bottom: 12px;
   right: 18px;
   display: inline-flex;
   align-items: center;
@@ -2901,12 +2882,16 @@ main.is-messenger-page {
 
   .chat-panel {
     position: fixed;
-    inset: 0;
-    /* The panel itself never lifts — MessageComposer pins the composer bar
-       (composer-pinned, position:fixed) above the keyboard / emoji swap panel
-       instead, like the wall comments. Lifting the whole panel reflowed the
-       header + messages (visible jump) and was unreliable on some devices
-       (the pill landed under the keyboard). */
+    /* The panel's bottom edge rides --kb-inset (the soft-keyboard height, or
+       the emoji-swap panel height mirrored into the chat panel's local
+       --kb-inset by MessageComposer). The composer stays in flow as the
+       panel's last grid row, so it always floats exactly above whatever is up
+       — no pinning, no fixed/flow switching, nothing to flicker or land under
+       the keyboard. */
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: var(--kb-inset, 0px);
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
