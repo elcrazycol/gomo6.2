@@ -205,16 +205,16 @@ describe("MessageComposer", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the collapsed pill with emoji and send buttons", () => {
+  it("renders the always-visible composer with emoji and send buttons", () => {
     const { textarea, sendButton } = setup();
     expect(textarea).toBeInTheDocument();
     expect(sendButton).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
-    // Collapsed: the attach button is hidden, the editor is one line.
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[22px]");
+    // The editor is always at the full input height — no collapsed pill.
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
   });
 
-  it("expands on focus: taller editor (paperclip waits for full mode)", () => {
+  it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
@@ -223,13 +223,13 @@ describe("MessageComposer", () => {
     expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
   });
 
-  it("collapses back to the pill on blur with an empty draft", () => {
+  it("stays at the full input height after blur (no collapsing animation)", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
 
     fireEvent.blur(textarea);
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[22px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
   });
 
   it("does not collapse on blur when the draft is not empty", () => {
@@ -436,7 +436,7 @@ describe("MessageComposer", () => {
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
     });
 
-    it("hands off to the real keyboard inset once it catches up on refocus close", async () => {
+    it("releases the local lift on close — the global --kb-inset takes over", async () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
       const { container, rerender } = render(
@@ -453,9 +453,9 @@ describe("MessageComposer", () => {
       const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
 
-      // Panel closes while the keyboard rises back to the same height — the
-      // composer must not drop (the local override keeps the panel height
-      // until the real inset catches up).
+      // Panel closes: the override is removed so the synchronous global
+      // --kb-inset (updated per-frame by lib/mobileKeyboard) takes over and
+      // rides the composer with the returning keyboard.
       mockEmojiSwap.open = false;
       mockEmojiSwap.height = 340;
       rerender(
@@ -469,41 +469,7 @@ describe("MessageComposer", () => {
           />
         </div>,
       );
-      await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px"));
-    });
-
-    it("shows a fake caret at the preserved selection while the panel is open", () => {
-      mockEmojiSwap.open = true;
-      mockEmojiSwap.height = 340;
-      const editor = editorSpies.mockEditor;
-      editor.state = { selection: { empty: true, from: 5 } };
-      editor.view = { coordsAtPos: () => ({ left: 210, top: 300, bottom: 330, right: 212 }) };
-      editor.isDestroyed = false;
-      editor.on = vi.fn();
-      editor.off = vi.fn();
-
-      const { container } = render(
-        <div className="chat-panel">
-          <MessageComposer
-            draft="Привет"
-            setDraft={vi.fn()}
-            isSending={false}
-            onSend={vi.fn()}
-            composerRef={{ current: null }}
-          />
-        </div>,
-      );
-
-      // jsdom rects are all zero, so the caret lands at the raw coords.
-      const caret = container.querySelector(".composer-fake-caret") as HTMLElement;
-      expect(caret).not.toBeNull();
-      expect(caret.style.left).toBe("210px");
-      expect(caret.style.top).toBe("300px");
-      expect(caret.style.height).toBe("30px");
-      // The composer reads as focused while the panel is up.
-      expect(container.querySelector(".composer")).toHaveClass("is-emoji-open");
-      // The caret follows emoji inserts — the subscription is registered.
-      expect(editor.on).toHaveBeenCalledWith("transaction", expect.any(Function));
+      await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
     });
   });
 
