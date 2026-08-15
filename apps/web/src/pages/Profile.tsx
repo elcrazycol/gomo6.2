@@ -17,14 +17,14 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileSkeleton } from "@/components/skeletons/ContentSkeletons";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X, ImagePlus } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X, ImagePlus, Palette } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 import { getProfileCustomization, parseCssToStyle, dispatchProfileCacheInvalidate, type ProfileCustomization } from "@/utils/profileCustomization";
-import { getProfileBackgroundVariant, type ProfileBackgroundVariant } from "@/utils/profileBackground";
+import { normalizeProfileBackgroundVariant, type ProfileBackgroundVariant } from "@/utils/profileBackground";
 import { isValidThemeTokens, applyProfileThemeTokens } from "@/utils/profileTheme";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
@@ -67,6 +67,7 @@ interface Profile {
   created_at: string;
   avatar_url?: string | null;
   background_url?: string | null;
+  background_variant?: string;
   theme_enabled?: boolean;
   theme_tokens?: Record<string, string> | null;
   account_number?: number | null;
@@ -227,8 +228,15 @@ const Profile = () => {
   const [privateHideAchievements, setPrivateHideAchievements] = useState(true);
   const [isMutualFriend, setIsMutualFriend] = useState<boolean | null>(null);
   const [privacyChecked, setPrivacyChecked] = useState(false);
-  // Viewer's profile-background display variant (Settings → Внешний вид).
-  const [bgVariant, setBgVariant] = useState<ProfileBackgroundVariant>(() => getProfileBackgroundVariant());
+  // Effective profile-background display variant — the OWNER's choice, set in
+  // the profile studio (profile_customization.background_variant). There is no
+  // per-viewer preference anymore.
+  const [bgVariant, setBgVariant] = useState<ProfileBackgroundVariant>(() => normalizeProfileBackgroundVariant(undefined));
+
+  // Resolve the effective variant from the owner's stored choice.
+  useEffect(() => {
+    setBgVariant(normalizeProfileBackgroundVariant(profile?.background_variant));
+  }, [profile?.background_variant]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -255,17 +263,7 @@ const Profile = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Re-read the viewer's background variant when it changes (same tab via the
-  // settings picker event, other tabs via the storage event).
-  useEffect(() => {
-    const handler = () => setBgVariant(getProfileBackgroundVariant());
-    window.addEventListener("profile-background:variant-change", handler);
-    window.addEventListener("storage", handler);
-    return () => {
-      window.removeEventListener("profile-background:variant-change", handler);
-      window.removeEventListener("storage", handler);
-    };
-  }, []);
+
 
   // Owner's auto-theme (Settings → custom profile): while viewing a profile
   // whose owner enabled it, apply their theme tokens to the page root so the
@@ -787,13 +785,15 @@ const Profile = () => {
       const uploaded = await uploadFile("post-images", fileName, file);
 
       // Auto-theme: regenerate the theme tokens from the new background so
-      // the owner's theme always matches their latest image. Kept as a best
-      // effort — a failed extraction simply leaves the previous tokens.
+      // the owner's theme always matches their latest image. The dominant
+      // variant is picked by default (the studio will let the owner choose
+      // among the 5 generated palettes later). Kept as a best effort — a
+      // failed extraction simply leaves the previous tokens.
       let themeTokens: Record<string, string> | null = null;
       try {
-        const { extractPaletteFromImage, buildThemeTokens } = await import("@/utils/profileTheme");
-        const palette = await extractPaletteFromImage(file);
-        themeTokens = buildThemeTokens(palette);
+        const { generateThemeVariants } = await import("@/utils/profileTheme");
+        const variants = await generateThemeVariants(file);
+        themeTokens = variants.find((v) => v.id === "dominant")?.tokens ?? variants[0]?.tokens ?? null;
       } catch {
         // ignore — theme stays as-is when the image cannot be decoded
       }
@@ -1345,11 +1345,23 @@ const Profile = () => {
                       Показывать посетителям тему, сгенерированную из фона и аватара
                     </p>
                   </div>
-                  <Switch
-                    id="profile-theme-toggle"
-                    checked={!!profile?.theme_enabled}
-                    onCheckedChange={handleThemeEnabledToggle}
-                  />
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="profile-theme-toggle"
+                      checked={!!profile?.theme_enabled}
+                      onCheckedChange={handleThemeEnabledToggle}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 shrink-0"
+                      onClick={() => navigate("/settings/prof-studio")}
+                    >
+                      <Palette className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Студия</span>
+                      <span className="sm:hidden">Студия</span>
+                    </Button>
+                  </div>
                 </div>
               )}
               <div>

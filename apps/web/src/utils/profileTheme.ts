@@ -2,11 +2,16 @@
  * Profile auto-theme.
  *
  * The profile owner can enable a theme generated from their background +
- * avatar. The image is downscaled to a tiny canvas, dominant colors are
- * extracted, and a full set of CSS-variable tokens (same shape as the app's
- * theme.ts) is produced. While a viewer is on the owner's profile page the
- * tokens are applied to the page root (header + buttons + cards) and removed
- * again when leaving — the viewer keeps their own theme everywhere else.
+ * avatar. The image is downscaled to a tiny canvas, pixel statistics are
+ * collected (hue buckets weighted by AREA, plus global saturation/lightness
+ * and a gray-pixel share), and several palette variants are derived from
+ * them. The studio lets the owner pick one of the generated variants; the
+ * chosen tokens (same shape as the app's theme.ts) are stored and applied
+ * while a viewer is on the owner's profile page.
+ *
+ * Dominant color matters: the most common hue in the image drives the theme.
+ * If gray/white/black pixels dominate the frame, the theme is neutral
+ * (low-saturation), not a random hue.
  */
 
 export type ThemeTokenMap = Record<string, string>;
@@ -40,14 +45,22 @@ const THEME_TOKEN_KEYS = [
   "--link",
 ] as const;
 
-type Hsl = { h: number; s: number; l: number };
+export type Hsl = { h: number; s: number; l: number };
+
+/** One generated palette candidate, for the studio picker. */
+export interface ThemeVariant {
+  id: string;
+  name: string;
+  color: Hsl;
+  tokens: ThemeTokenMap;
+}
 
 const hsl = (h: number, s: number, l: number): string => `${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%`;
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 /** Convert an rgb [r,g,b] (0-255) tuple to an HSL object. */
-const rgbToHsl = (r: number, g: number, b: number): Hsl => {
+export const rgbToHsl = (r: number, g: number, b: number): Hsl => {
   const rn = r / 255;
   const gn = g / 255;
   const bn = b / 255;
@@ -66,135 +79,230 @@ const rgbToHsl = (r: number, g: number, b: number): Hsl => {
   return { h, s: s * 100, l: l * 100 };
 };
 
-/**
- * Extract a dominant color from an image. Pixels are bucketed by hue and
- * weighted by saturation * distance-from-gray so the most "colorful" region
- * of the image drives the theme. Falls back to a neutral hue for
- * monochrome images.
- */
-export const extractPaletteFromImage = async (image: Blob): Promise<Hsl> => {
-  const url = URL.createObjectURL(image);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("image decode failed"));
-      el.src = url;
-    });
+// A pixel with saturation below this is considered gray/neutral — it has a
+// numeric hue but that hue is meaningless, so it must not steer the theme.
+const GRAY_SAT_THRESHOLD = 8;
 
-    // Downscale to at most 48px on the long edge — plenty of samples, cheap.
-    const scale = Math.min(1, 48 / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.max(1, Math.round(img.naturalWidth * scale));
-    const hgt = Math.max(1, Math.round(img.naturalHeight * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = hgt;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return { h: 150, s: 45, l: 40 };
-    ctx.drawImage(img, 0, 0, w, hgt);
+export interface PixelStats {
+  /** Area-weighted hue buckets (24 buckets × 15°). */
+  buckets: { sum: number; count: number }[];
+  /** Total sampled pixels. */
+  total: number;
+  /** Share of gray/white/black pixels (0..1). */
+  grayShare: number;
+  /** Average saturation and lightness over ALL pixels. */
+  avgSat: number;
+  avgLight: number;
+}
 
-    const { data } = ctx.getImageData(0, 0, w, hgt);
-    // Bucket pixels by hue (24 buckets), weighted by saturation * distance
-    // from gray — white/black/gray pixels don't steer the theme.
-    const buckets = new Array<{ sum: number; count: number }>(24).fill(null).map(() => ({ sum: 0, count: 0 }));
-    let totalWeight = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const [r, g, b, a] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
-      if (a < 128) continue;
-      const c = rgbToHsl(r, g, b);
-      const weight = c.s * (1 - Math.abs(c.l - 50) / 100);
-      if (weight <= 2) continue;
-      const bucket = Math.min(23, Math.floor(c.h / 15));
-      buckets[bucket].sum += c.h * weight;
-      buckets[bucket].count += weight;
-      totalWeight += weight;
+/** Collect pixel statistics from raw RGBA data (pure, unit-testable). */
+export const collectPixelStats = (data: Uint8ClampedArray): PixelStats => {
+  const buckets = new Array<{ sum: number; count: number }>(24).fill(null).map(() => ({ sum: 0, count: 0 }));
+  let total = 0;
+  let grayCount = 0;
+  let satSum = 0;
+  let lightSum = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const [r, g, b, a] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
+    if (a < 128) continue;
+    const c = rgbToHsl(r, g, b);
+    total++;
+    satSum += c.s;
+    lightSum += c.l;
+    if (c.s < GRAY_SAT_THRESHOLD) {
+      grayCount++;
+      continue;
     }
-    if (totalWeight < 4) return { h: 150, s: 45, l: 40 };
-
-    let best = buckets[0];
-    for (const b of buckets) if (b.count > best.count) best = b;
-    const hue = best.sum / best.count;
-
-    // Saturation / lightness of the theme follow the image's own character.
-    let satSum = 0;
-    let lightSum = 0;
-    let n = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] < 128) continue;
-      const c = rgbToHsl(data[i], data[i + 1], data[i + 2]);
-      satSum += c.s;
-      lightSum += c.l;
-      n++;
-    }
-    const avgSat = n ? satSum / n : 40;
-    const avgLight = n ? lightSum / n : 50;
-    return { h: hue, s: clamp(avgSat, 25, 80), l: clamp(avgLight, 30, 70) };
-  } finally {
-    URL.revokeObjectURL(url);
+    const bucket = Math.min(23, Math.floor(c.h / 15));
+    // Area weight: each pixel counts as 1 — the most common hue wins.
+    buckets[bucket].sum += c.h;
+    buckets[bucket].count += 1;
   }
+  return {
+    buckets,
+    total,
+    grayShare: total > 0 ? grayCount / total : 1,
+    avgSat: total > 0 ? satSum / total : 40,
+    avgLight: total > 0 ? lightSum / total : 50,
+  };
+};
+
+const dominantHue = (stats: PixelStats): number | null => {
+  let best = stats.buckets[0];
+  for (const b of stats.buckets) if (b.count > best.count) best = b;
+  return best.count > 0 ? best.sum / best.count : null;
+};
+
+const averageHue = (stats: PixelStats): number | null => {
+  let sum = 0;
+  let count = 0;
+  for (const b of stats.buckets) {
+    sum += b.sum;
+    count += b.count;
+  }
+  return count > 0 ? sum / count : null;
+};
+
+// Saturation floors for the primary/ring tokens per variant. Neutral palettes
+// get a low floor so a gray photo really yields a gray theme.
+const SAT_FLOOR = {
+  color: 35,
+  neutral: 6,
 };
 
 /**
  * Build the full theme token map from a dominant color. Dark vs light follows
  * the image's average brightness — a dark photo yields a dark profile theme.
+ * `neutral` (used by the gray variant) keeps saturation low everywhere.
  */
-export const buildThemeTokens = (c: Hsl): ThemeTokenMap => {
+export const buildThemeTokens = (c: Hsl, mode: "color" | "neutral" = "color"): ThemeTokenMap => {
   const h = c.h;
   const dark = c.l < 45;
+  const sFloor = mode === "neutral" ? SAT_FLOOR.neutral : SAT_FLOOR.color;
+  const sat = (v: number) => clamp(v, sFloor, 85);
+  const n = mode === "neutral";
+  // In neutral mode EVERY accent is desaturated too — including links and
+  // quote text. A gray photo must not produce blue links (hue 220 is blue);
+  // at ~5% saturation the hue is imperceptible and gray stays gray.
+  const accentSat = n ? 5 : sat(c.s);
   if (dark) {
     return {
-      "--background": hsl(h, 20, 9),
-      "--foreground": hsl(h, 12, 90),
-      "--card": hsl(h, 18, 11),
-      "--card-foreground": hsl(h, 12, 90),
-      "--popover": hsl(h, 18, 11),
-      "--popover-foreground": hsl(h, 12, 90),
-      "--primary": hsl(h, clamp(c.s, 45, 85), clamp(c.l, 42, 62)),
+      "--background": hsl(h, n ? 3 : 20, 9),
+      "--foreground": hsl(h, n ? 4 : 8, 90),
+      "--card": hsl(h, n ? 2 : 18, 11),
+      "--card-foreground": hsl(h, n ? 4 : 8, 90),
+      "--popover": hsl(h, n ? 2 : 18, 11),
+      "--popover-foreground": hsl(h, n ? 4 : 8, 90),
+      "--primary": hsl(h, accentSat, clamp(c.l, 42, 62)),
       "--primary-foreground": "0 0% 100%",
-      "--secondary": hsl(h, 14, 16),
-      "--secondary-foreground": hsl(h, 12, 90),
-      "--muted": hsl(h, 14, 15),
-      "--muted-foreground": hsl(h, 10, 62),
-      "--accent": hsl(h, 18, 18),
-      "--accent-foreground": hsl(h, 12, 90),
-      "--border": hsl(h, 15, 19),
-      "--input": hsl(h, 15, 19),
-      "--ring": hsl(h, clamp(c.s, 45, 85), clamp(c.l, 42, 62)),
-      "--board-header": hsl(h, clamp(c.s, 45, 85), clamp(c.l, 32, 50)),
+      "--secondary": hsl(h, n ? 3 : 14, 16),
+      "--secondary-foreground": hsl(h, n ? 4 : 8, 90),
+      "--muted": hsl(h, n ? 3 : 14, 15),
+      "--muted-foreground": hsl(h, n ? 3 : 6, 62),
+      "--accent": hsl(h, n ? 3 : 18, 18),
+      "--accent-foreground": hsl(h, n ? 4 : 8, 90),
+      "--border": hsl(h, n ? 3 : 15, 19),
+      "--input": hsl(h, n ? 3 : 15, 19),
+      "--ring": hsl(h, accentSat, clamp(c.l, 42, 62)),
+      "--board-header": hsl(h, accentSat, clamp(c.l, 32, 50)),
       "--board-header-foreground": "0 0% 100%",
-      "--thread-hover": hsl(h, 14, 15),
-      "--post-header": hsl(h, 14, 12),
-      "--quote-text": hsl(h, 100, 40),
-      "--link-text": hsl(h, clamp(c.s, 45, 85), 60),
-      "--link": hsl(h, clamp(c.s, 45, 85), 60),
+      "--thread-hover": hsl(h, n ? 3 : 14, 15),
+      "--post-header": hsl(h, n ? 3 : 14, 12),
+      "--quote-text": hsl(h, n ? 4 : 100, 40),
+      "--link-text": hsl(h, accentSat, 60),
+      "--link": hsl(h, accentSat, 60),
     };
   }
   return {
-    "--background": hsl(h, 22, 95),
-    "--foreground": hsl(h, 15, 15),
-    "--card": hsl(h, 18, 98),
-    "--card-foreground": hsl(h, 15, 15),
-    "--popover": hsl(h, 18, 98),
-    "--popover-foreground": hsl(h, 15, 15),
-    "--primary": hsl(h, clamp(c.s, 45, 85), clamp(c.l, 40, 55)),
+    "--background": hsl(h, n ? 3 : 22, 95),
+    "--foreground": hsl(h, n ? 4 : 10, 15),
+    "--card": hsl(h, n ? 2 : 18, 98),
+    "--card-foreground": hsl(h, n ? 4 : 10, 15),
+    "--popover": hsl(h, n ? 2 : 18, 98),
+    "--popover-foreground": hsl(h, n ? 4 : 10, 15),
+    "--primary": hsl(h, accentSat, clamp(c.l, 40, 55)),
     "--primary-foreground": "0 0% 100%",
-    "--secondary": hsl(h, 20, 86),
-    "--secondary-foreground": hsl(h, 15, 15),
-    "--muted": hsl(h, 20, 90),
-    "--muted-foreground": hsl(h, 10, 42),
-    "--accent": hsl(h, 20, 86),
-    "--accent-foreground": hsl(h, 15, 15),
-    "--border": hsl(h, 20, 80),
-    "--input": hsl(h, 20, 80),
-    "--ring": hsl(h, clamp(c.s, 45, 85), clamp(c.l, 40, 55)),
-    "--board-header": hsl(h, clamp(c.s, 45, 85), clamp(c.l, 30, 45)),
+    "--secondary": hsl(h, n ? 3 : 20, 86),
+    "--secondary-foreground": hsl(h, n ? 4 : 10, 15),
+    "--muted": hsl(h, n ? 3 : 20, 90),
+    "--muted-foreground": hsl(h, n ? 3 : 6, 42),
+    "--accent": hsl(h, n ? 3 : 20, 86),
+    "--accent-foreground": hsl(h, n ? 4 : 10, 15),
+    "--border": hsl(h, n ? 3 : 20, 80),
+    "--input": hsl(h, n ? 3 : 20, 80),
+    "--ring": hsl(h, accentSat, clamp(c.l, 40, 55)),
+    "--board-header": hsl(h, accentSat, clamp(c.l, 30, 45)),
     "--board-header-foreground": "0 0% 100%",
-    "--thread-hover": hsl(h, 18, 88),
-    "--post-header": hsl(h, 18, 92),
-    "--quote-text": hsl(h, 100, 25),
-    "--link-text": hsl(h, clamp(c.s, 45, 85), 40),
-    "--link": hsl(h, clamp(c.s, 45, 85), 40),
+    "--thread-hover": hsl(h, n ? 3 : 18, 88),
+    "--post-header": hsl(h, n ? 3 : 18, 92),
+    "--quote-text": hsl(h, n ? 4 : 100, 25),
+    "--link-text": hsl(h, accentSat, 40),
+    "--link": hsl(h, accentSat, 40),
   };
+};
+
+const decodeImage = (image: Blob): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(image);
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("image decode failed"));
+    el.src = url;
+  });
+
+const imagePixelData = (img: HTMLImageElement): Uint8ClampedArray | null => {
+  const scale = Math.min(1, 48 / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const hgt = Math.max(1, Math.round(img.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = hgt;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, w, hgt);
+  return ctx.getImageData(0, 0, w, hgt).data;
+};
+
+/**
+ * Derive the 5 palette variants from pixel statistics. Pure function so the
+ * studio picker and the tests can drive it with synthetic data.
+ */
+// Gray-dominant threshold: above this share of neutral pixels the theme is
+// treated as monochrome — even the "dominant" variant goes graphite instead
+// of picking up the hue of some small colored patch in the frame.
+const GRAY_DOMINANT_SHARE = 0.75;
+
+// Graphite hue used for monochrome themes (cool neutral gray).
+const GRAPHITE_HUE = 220;
+
+export const deriveVariantsFromStats = (stats: PixelStats): ThemeVariant[] => {
+  const dominant = dominantHue(stats);
+  const avgHue = averageHue(stats) ?? dominant ?? GRAPHITE_HUE;
+  const monochrome = stats.grayShare > GRAY_DOMINANT_SHARE;
+
+  // Saturation to use for color variants: the image's own average, but at
+  // least some character unless the image is truly monochrome.
+  const colorSat = monochrome
+    ? 10 // mostly gray — keep color variants muted
+    : clamp(stats.avgSat, 25, 80);
+
+  // Dominant: honors the most common hue by area. When gray dominates the
+  // frame, though, the dominant theme is graphite — the few colored pixels
+  // don't get to tint the whole profile.
+  const baseHue = monochrome ? GRAPHITE_HUE : (dominant ?? avgHue);
+  const baseColor: Hsl = { h: baseHue, s: colorSat, l: clamp(stats.avgLight, 30, 70) };
+  const vibrantColor: Hsl = { h: monochrome ? GRAPHITE_HUE : (dominant ?? avgHue), s: clamp(colorSat + 10, 45, 85), l: 50 };
+  const lightColor: Hsl = { h: baseColor.h, s: clamp(colorSat, 20, 70), l: 70 };
+  const darkColor: Hsl = { h: baseColor.h, s: clamp(colorSat, 20, 70), l: 22 };
+  const neutralColor: Hsl = { h: GRAPHITE_HUE, s: 3, l: clamp(stats.avgLight, 20, 75) };
+
+  return [
+    { id: "dominant", name: "Преобладающий", color: baseColor, tokens: buildThemeTokens(baseColor, monochrome ? "neutral" : "color") },
+    { id: "vibrant", name: "Яркий", color: vibrantColor, tokens: buildThemeTokens(vibrantColor, "color") },
+    { id: "light", name: "Светлый", color: lightColor, tokens: buildThemeTokens(lightColor, "color") },
+    { id: "dark", name: "Тёмный", color: darkColor, tokens: buildThemeTokens(darkColor, "color") },
+    { id: "neutral", name: "Нейтральный", color: neutralColor, tokens: buildThemeTokens(neutralColor, "neutral") },
+  ];
+};
+
+/**
+ * Generate 5 palette variants from an image, each with full theme tokens.
+ *
+ * - dominant: the most common hue by pixel area (gray wins → neutral theme)
+ * - vibrant:  the most saturated significant color in the frame
+ * - light:    a lighter take on the dominant hue
+ * - dark:     a darker take on the dominant hue
+ * - neutral:  graphite/gray theme honoring the image's brightness
+ */
+export const generateThemeVariants = async (image: Blob): Promise<ThemeVariant[]> => {
+  const img = await decodeImage(image);
+  try {
+    const data = imagePixelData(img);
+    if (!data) return [];
+    return deriveVariantsFromStats(collectPixelStats(data));
+  } finally {
+    URL.revokeObjectURL(img.src);
+  }
 };
 
 /** Whether a payload looks like a valid, non-empty profile theme. */

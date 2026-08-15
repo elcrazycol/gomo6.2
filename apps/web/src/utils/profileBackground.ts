@@ -1,10 +1,11 @@
 /**
  * Profile background display variants.
  *
- * The profile owner uploads ONE background image (avatar + background). Every
- * viewer picks how they want backgrounds rendered (Settings → Внешний вид →
- * «Отображение фонов») — like the theme, this is a per-viewer preference kept
- * in localStorage, so each person sees the site the way they like.
+ * The profile owner uploads ONE background image (avatar + background) and
+ * picks how it is displayed — for EVERY viewer — in the profile studio
+ * (banner/card/page/page_dim, stored as profile_customization.background_variant).
+ * There is no per-viewer choice anymore: everyone sees the owner's variant
+ * (default: banner).
  */
 export type ProfileBackgroundVariant = "banner" | "card" | "page" | "page_dim";
 
@@ -12,7 +13,7 @@ export const PROFILE_BACKGROUND_VARIANTS: Array<{
   id: ProfileBackgroundVariant;
   name: string;
   description: string;
-  /** Tiny CSS preview of the variant (used in the settings picker). */
+  /** Tiny CSS preview of the variant (used in the studio picker). */
   preview: string;
 }> = [
   {
@@ -43,26 +44,10 @@ export const PROFILE_BACKGROUND_VARIANTS: Array<{
 
 export const DEFAULT_PROFILE_BACKGROUND_VARIANT: ProfileBackgroundVariant = "banner";
 
-const VARIANT_STORAGE_KEY = "profile-background-variant";
-
-export const getProfileBackgroundVariant = (): ProfileBackgroundVariant => {
-  try {
-    const stored = localStorage.getItem(VARIANT_STORAGE_KEY);
-    if (stored && PROFILE_BACKGROUND_VARIANTS.some((v) => v.id === stored)) {
-      return stored as ProfileBackgroundVariant;
-    }
-  } catch {
-    // localStorage unavailable — fall through to the default.
+/** Normalize an arbitrary value (e.g. from the DB) to a valid variant. */
+export const normalizeProfileBackgroundVariant = (v: unknown): ProfileBackgroundVariant => {
+  if (typeof v === "string" && PROFILE_BACKGROUND_VARIANTS.some((x) => x.id === v)) {
+    return v as ProfileBackgroundVariant;
   }
   return DEFAULT_PROFILE_BACKGROUND_VARIANT;
-};
-
-export const setProfileBackgroundVariant = (variant: ProfileBackgroundVariant): void => {
-  try {
-    localStorage.setItem(VARIANT_STORAGE_KEY, variant);
-  } catch {
-    // ignore — the preference simply won't persist
-  }
-  // Open profile pages re-read the variant on this event.
-  window.dispatchEvent(new CustomEvent("profile-background:variant-change"));
 };
