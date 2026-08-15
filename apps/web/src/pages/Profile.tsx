@@ -787,13 +787,15 @@ const Profile = () => {
       const uploaded = await uploadFile("post-images", fileName, file);
 
       // Auto-theme: regenerate the theme tokens from the new background so
-      // the owner's theme always matches their latest image. Kept as a best
-      // effort — a failed extraction simply leaves the previous tokens.
+      // the owner's theme always matches their latest image. The dominant
+      // variant is picked by default (the studio will let the owner choose
+      // among the 5 generated palettes later). Kept as a best effort — a
+      // failed extraction simply leaves the previous tokens.
       let themeTokens: Record<string, string> | null = null;
       try {
-        const { extractPaletteFromImage, buildThemeTokens } = await import("@/utils/profileTheme");
-        const palette = await extractPaletteFromImage(file);
-        themeTokens = buildThemeTokens(palette);
+        const { generateThemeVariants } = await import("@/utils/profileTheme");
+        const variants = await generateThemeVariants(file);
+        themeTokens = variants.find((v) => v.id === "dominant")?.tokens ?? variants[0]?.tokens ?? null;
       } catch {
         // ignore — theme stays as-is when the image cannot be decoded
       }
