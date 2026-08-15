@@ -13,7 +13,6 @@ import {
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ChevronDown } from "lucide-react";
 import { useMessengerStore } from "@/stores/messengerStore";
-import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
 
@@ -42,15 +41,15 @@ interface MessageListProps {
 }
 
 /**
- * Owns the react-virtuoso instance for the open conversation:
- *  - opens on the unread boundary or the very bottom (initialTopMostItemIndex),
- *  - stick-to-bottom follows via Virtuoso's native followOutput (only while
- *    the user is at the bottom — never yanks someone reading history),
- *  - older history is loaded at the top (startReached) and prepended via
+ * Owns the react-virtuoso instance for the open conversation. Deliberately
+ * minimal — Virtuoso's built-ins do the work, nothing fights the scroller:
+ *  - alignToBottom starts at the newest message and keeps the bottom pinned
+ *    through layout changes (keyboard, composer growth) — no manual scrolls,
+ *  - followOutput (callback form) follows appends only while the user is at
+ *    the bottom — reading history is never interrupted,
+ *  - older history loads at the top (startReached) and prepends via
  *    firstItemIndex, keeping virtual indices stable so the view never jumps,
- *  - "N new messages" pill + entrance animation for realtime appends,
- *  - the mobile keyboard / URL-bar resize keeps the bottom pinned while the
- *    layout shrinks.
+ *  - "N new messages" pill + entrance animation for realtime appends.
  *
  * It is mounted per conversation (`key={conversation.id}` in ChatView), so all
  * refs/state below reset naturally when switching chats.
@@ -61,8 +60,6 @@ export const MessageList = memo(
     const storeMessages = useMessengerStore((s) => s.messages);
     // Notes self-chat passes a folder-filtered view; regular chats use the full list.
     const messages = messagesOverride ?? storeMessages;
-    const openingUnreadCount = useMessengerStore((s) => s.openingUnreadCount);
-    const isMessagesLoading = useMessengerStore((s) => s.isMessagesLoading);
     const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
     const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
     const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
@@ -76,8 +73,7 @@ export const MessageList = memo(
 
     const isAtBottomRef = useRef(true);
     const loadingMoreRef = useRef(false);
-    const boundaryPositionedRef = useRef(false);
-    const [prevFirstId, setPrevFirstId] = useState<string | null>(null);
+    const prevFirstIdRef = useRef<string | null>(null);
     const prevLastIdRef = useRef<string | null>(null);
 
     const handleAtBottomChange = useCallback((atBottom: boolean) => {
@@ -115,24 +111,6 @@ export const MessageList = memo(
     }, []);
 
     useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage }), [scrollToBottom, scrollToMessage]);
-
-    // ── Unread boundary: position from the authoritative network data ──
-    // At mount the message array is the IndexedDB cache, which on the first
-    // open after a reload lags the network by the newest messages. A boundary
-    // computed from it (`length - unread`) would land above the real first
-    // unread and hide the newest messages below the fold. Position only after
-    // the network load finishes (isMessagesLoading flips false), so the index
-    // is computed against the network snapshot.
-    useEffect(() => {
-      if (openingUnreadCount <= 0 || boundaryPositionedRef.current) return;
-      if (isMessagesLoading || messages.length === 0) return;
-      boundaryPositionedRef.current = true;
-      virtuosoRef.current?.scrollToIndex({
-        index: Math.max(0, messages.length - openingUnreadCount),
-        align: "start",
-        behavior: "auto",
-      });
-    }, [isMessagesLoading, messages.length, openingUnreadCount]);
 
     // ── Load older history when reaching the top ───────────────────────
     const handleStartReached = useCallback(() => {
@@ -175,35 +153,6 @@ export const MessageList = memo(
       prevLastIdRef.current = lastId;
     }, [messages]);
 
-    // ── Keyboard / visual-viewport resize: keep the bottom pinned ──────
-    // Opening the soft keyboard (or collapsing the URL bar) shrinks the
-    // visible area; if the user is at the bottom, stay pinned there through
-    // the resize instead of leaving the newest messages under the fold.
-    const keyboardOpen = useMobileKeyboard().isOpen;
-    useEffect(() => {
-      const vv = window.visualViewport;
-      if (!vv) return;
-      let timer: ReturnType<typeof setTimeout>;
-      const onResize = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          if (!isAtBottomRef.current) return;
-          const length = useMessengerStore.getState().messages.length;
-          if (length === 0) return;
-          virtuosoRef.current?.scrollToIndex({ index: length - 1, align: "end", behavior: "auto" });
-        }, 60);
-      };
-      vv.addEventListener("resize", onResize);
-      vv.addEventListener("scroll", onResize);
-      return () => {
-        vv.removeEventListener("resize", onResize);
-        vv.removeEventListener("scroll", onResize);
-        clearTimeout(timer);
-      };
-      // Re-arm when the keyboard toggles: the previous timer may have fired
-      // while the layout was still mid-transition.
-    }, [keyboardOpen]);
-
     // ── Keep virtual indices stable when older messages are prepended ──
     // This must happen in the SAME render as the messages change (render-phase
     // update — React re-renders before the browser paints). Adjusting
@@ -217,24 +166,15 @@ export const MessageList = memo(
       // temp message later replaced by its server twin counts as the same
       // anchor and never triggers a spurious index shift.
       const currentFirst = messages[0].id || messages[0].client_id;
+      const prevFirstId = prevFirstIdRef.current;
       if (prevFirstId !== null && currentFirst !== prevFirstId) {
         const index = messages.findIndex((m) => (m.id || m.client_id) === prevFirstId);
         if (index > 0) setFirstItemIndex((f) => f - index);
-        setPrevFirstId(currentFirst);
+        prevFirstIdRef.current = currentFirst;
       } else if (prevFirstId === null) {
-        setPrevFirstId(currentFirst);
+        prevFirstIdRef.current = currentFirst;
       }
     }
-
-    // First paint: the unread boundary when the conversation has unread,
-    // otherwise the very bottom. Align-to-bottom keeps the newest message
-    // pinned above the composer; followOutput (callback form) follows new
-    // appends only while the user is at the bottom — reading history is never
-    // interrupted.
-    const initialTopMostItemIndex =
-      openingUnreadCount > 0
-        ? { index: Math.max(0, messages.length - openingUnreadCount), align: "start" as const }
-        : { index: Math.max(0, messages.length - 1), align: "end" as const };
 
     // The scroller carries the chat scroll classes + a11y role. The Footer
     // renders the real bottom gap (list element, not padding, so it is
@@ -309,8 +249,7 @@ export const MessageList = memo(
             ref={virtuosoRef}
             totalCount={messages.length}
             firstItemIndex={firstItemIndex}
-            initialTopMostItemIndex={initialTopMostItemIndex}
-            alignToBottom={openingUnreadCount === 0}
+            alignToBottom
             followOutput={(atBottom) => (atBottom ? "smooth" : false)}
             atBottomStateChange={handleAtBottomChange}
             computeItemKey={(index) => {
@@ -318,8 +257,7 @@ export const MessageList = memo(
               return message ? (message.client_id ?? message.id) : index;
             }}
             startReached={handleStartReached}
-            increaseViewportBy={{ top: 300, bottom: 200 }}
-            defaultItemHeight={64}
+            overscan={200}
             components={listComponents}
             style={{ height: "100%" }}
             itemContent={(index) => {

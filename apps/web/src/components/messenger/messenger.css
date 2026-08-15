@@ -1734,8 +1734,8 @@ main.is-messenger-page {
 }
 
 /* Height is driven entirely by the Tailwind min/max-height classes on the
-   editor (min-h-[44px], max-h-[140px]) — a CSS rule here would override them
-   by specificity. */
+   editor (min-h-[20px] — exactly one text line, max-h-[140px]) — a CSS rule
+   here would override them by specificity. */
 .composer-input-pill [contenteditable] {
   caret-color: hsl(var(--foreground));
 }

@@ -444,7 +444,7 @@ export const MessageComposer = memo(function MessageComposer({
               onChange={handleEditorChange}
               onSubmit={handleSubmit}
               placeholder={isEditing ? "" : placeholder ?? "Напиши сообщение..."}
-              minHeightClassName="min-h-[44px]"
+              minHeightClassName="min-h-[20px]"
               maxHeightClassName={
                 fullMode
                   ? "max-h-[45vh] overflow-y-auto overscroll-contain"

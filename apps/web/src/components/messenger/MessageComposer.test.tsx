@@ -211,13 +211,13 @@ describe("MessageComposer", () => {
     expect(sendButton).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
     // The editor is always at the full input height — no collapsed pill.
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
   });
 
   it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
     // The paperclip only takes the ▢'s slot once the full composer opens.
     expect(screen.queryByRole("button", { name: "Прикрепить файл" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
@@ -226,17 +226,17 @@ describe("MessageComposer", () => {
   it("stays at the full input height after blur (no collapsing animation)", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
 
     fireEvent.blur(textarea);
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
   });
 
   it("does not collapse on blur when the draft is not empty", () => {
     const { textarea } = setup({ draft: "Hello" });
     fireEvent.focus(textarea);
     fireEvent.blur(textarea);
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
   });
 
   it("send button is disabled when draft is empty", () => {
@@ -352,7 +352,7 @@ describe("MessageComposer", () => {
 
     // Expanded composer never collapses back to the one-line pill.
     fireEvent.blur(textarea);
-    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
 
     // Closing via the panel's ▢: the paperclip leaves and the ▢ returns.
     await userEvent.click(screen.getByRole("button", { name: "Свернуть компоузер" }));
@@ -492,7 +492,7 @@ describe("MessageComposer", () => {
     it("keeps the composer expanded while the swap panel is open", () => {
       mockEmojiSwap.open = true;
       setup();
-      expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[44px]");
+      expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
     });
 
     it("toggles the swap panel via the emoji trigger", async () => {
