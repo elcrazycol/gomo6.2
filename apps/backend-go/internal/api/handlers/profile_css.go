@@ -380,6 +380,25 @@ func sanitizeProfileThemeTokens(v interface{}) map[string]string {
 	return out
 }
 
+// allowedProfileBackgroundVariants is the allow-list of owner-set display
+// variants for their profile background. Any other value falls back to the
+// default (banner).
+var allowedProfileBackgroundVariants = map[string]bool{
+	"banner":   true,
+	"card":     true,
+	"page":     true,
+	"page_dim": true,
+}
+
+// sanitizeProfileBackgroundVariant validates an owner-set background display
+// variant against the allow-list.
+func sanitizeProfileBackgroundVariant(s string) string {
+	if allowedProfileBackgroundVariants[s] {
+		return s
+	}
+	return "banner"
+}
+
 // sanitizeProfileCustomizationRow sanitizes the user-supplied fields of a
 // profile_customization row in place. Applied on the read path so rows that
 // predate server-side sanitization are neutralized for every viewer.
@@ -395,6 +414,9 @@ func sanitizeProfileCustomizationRow(row map[string]interface{}) {
 	}
 	if s, ok := row["background_url"].(string); ok {
 		row["background_url"] = sanitizeProfileBackgroundURL(s)
+	}
+	if s, ok := row["background_variant"].(string); ok {
+		row["background_variant"] = sanitizeProfileBackgroundVariant(s)
 	}
 	if v, ok := row["theme_tokens"]; ok {
 		row["theme_tokens"] = sanitizeProfileThemeTokens(v)

@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -87,7 +87,7 @@ const EmojiPackEdit = lazyWithRetry(() => import("./pages/EmojiPackEdit"));
 const EmojiMyPacks = lazyWithRetry(() => import("./pages/EmojiMyPacks"));
 const Messages = lazyWithRetry(() => import("./pages/Messages"));
 const Settings = lazyWithRetry(() => import("./pages/Settings"));
-const CustomProfile = lazyWithRetry(() => import("./pages/settings/CustomProfile"));
+const ProfileStudio = lazyWithRetry(() => import("./pages/settings/ProfileStudio"));
 const Placeholders = lazyWithRetry(() => import("./pages/settings/Placeholders"));
 const GomoSubs = lazyWithRetry(() => import("./pages/GomoSubs"));
 const GomoSubCreate = lazyWithRetry(() => import("./pages/GomoSubCreate"));
@@ -240,7 +240,9 @@ const App = () => {
                       <Route path="emojis/create" element={<AuthGuard><LazyPage component={EmojiPackCreate} /></AuthGuard>} />
                       <Route path="emojis/my" element={<AuthGuard><LazyPage component={EmojiMyPacks} /></AuthGuard>} />
                       <Route path="emojis/edit/:id" element={<AuthGuard><LazyPage component={EmojiPackEdit} /></AuthGuard>} />
-                      <Route path="settings/custom" element={<AuthGuard><LazyPage component={CustomProfile} /></AuthGuard>} />
+                      <Route path="settings/prof-studio" element={<AuthGuard><LazyPage component={ProfileStudio} /></AuthGuard>} />
+                      {/* Legacy URL — the studio replaced /settings/custom */}
+                      <Route path="settings/custom" element={<AuthGuard><Navigate to="/settings/prof-studio" replace /></AuthGuard>} />
                       <Route path="settings/placeholders" element={<AuthGuard><LazyPage component={Placeholders} /></AuthGuard>} />
                       <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
                       <Route path="settings" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />

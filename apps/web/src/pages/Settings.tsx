@@ -12,13 +12,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, ImageIcon } from "lucide-react";
+import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2 } from "lucide-react";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
-import { PROFILE_BACKGROUND_VARIANTS, getProfileBackgroundVariant, setProfileBackgroundVariant, type ProfileBackgroundVariant } from "@/utils/profileBackground";
+
 
 const defaultPrivacySettings = {
   show_online_status: true,
@@ -100,9 +100,7 @@ const Settings = () => {
   const [privacyLoading, setPrivacyLoading] = useState(false);
   const [themesExpanded, setThemesExpanded] = useState(false);
   const [fontSettingsExpanded, setFontSettingsExpanded] = useState(false);
-  const [backgroundExpanded, setBackgroundExpanded] = useState(false);
-  // How profile backgrounds are displayed for THIS viewer (banner/card/page).
-  const [bgVariant, setBgVariant] = useState<ProfileBackgroundVariant>(() => getProfileBackgroundVariant());
+
   const [customFont, setCustomFont] = useState(() => {
     return localStorage.getItem('custom_font') || '';
   });
@@ -391,11 +389,6 @@ const Settings = () => {
     applyTheme(colorTheme, checked);
   };
 
-  const handleBackgroundVariantChange = (variant: ProfileBackgroundVariant) => {
-    setBgVariant(variant);
-    setProfileBackgroundVariant(variant);
-  };
-
   const handleSenderDisplayTypeChange = (value: 'classic' | 'modern') => {
     setSenderDisplayType(value);
     localStorage.setItem('sender-display-type', value);
@@ -638,63 +631,6 @@ const Settings = () => {
                   </CollapsibleContent>
                 </Collapsible>
 
-                {/* Отображение фонов — сворачиваемая секция */}
-                <Collapsible open={backgroundExpanded} onOpenChange={setBackgroundExpanded}>
-                  <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
-                      <div className="flex items-center gap-2">
-                        <ImageIcon className="h-5 w-5" />
-                        <div>
-                          <span className="text-lg font-semibold">Отображение фонов</span>
-                          <p className="text-sm text-muted-foreground">Как показывать фоны профилей других пользователей</p>
-                        </div>
-                      </div>
-                      <ChevronDown className={`h-5 w-5 transition-transform ${backgroundExpanded ? 'rotate-180' : ''}`} />
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-4 pt-4">
-                    <div className="bg-card border border-border p-4 sm:p-6">
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {PROFILE_BACKGROUND_VARIANTS.map((variant) => {
-                          const isSelected = bgVariant === variant.id;
-                          return (
-                            <button
-                              key={variant.id}
-                              type="button"
-                              onClick={() => handleBackgroundVariantChange(variant.id)}
-                              className={`group relative overflow-hidden rounded-2xl border p-3 text-left transition-all duration-300 ${
-                                isSelected
-                                  ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_hsl(var(--primary)/0.22),0_10px_28px_hsl(var(--primary)/0.1)]"
-                                  : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md"
-                              }`}
-                            >
-                              <div className="space-y-2">
-                                <div className="h-16 rounded-xl border border-white/10" style={{ background: variant.preview }}>
-                                  <div className="flex h-full items-end p-2">
-                                    <span className="block h-6 w-6 rounded-full bg-white/80" />
-                                  </div>
-                                </div>
-                                <div className="flex items-center justify-between gap-3">
-                                  <div>
-                                    <div className="font-semibold leading-tight">{variant.name}</div>
-                                    <div className="text-xs text-muted-foreground">{variant.description}</div>
-                                  </div>
-                                  <span
-                                    className={`h-3 w-3 rounded-full border border-white/20 transition-all duration-300 ${
-                                      isSelected ? "scale-110 ring-4 ring-primary/15" : ""
-                                    }`}
-                                    style={{ backgroundColor: isSelected ? "hsl(var(--primary))" : "#94a3b8" }}
-                                  />
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-
                 {/* Font Panel */}
                     <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
                       <CollapsibleTrigger asChild>
@@ -763,15 +699,15 @@ const Settings = () => {
                       </Link>
                     </div>
                     <div>
-                      <label className="text-sm font-medium">Уникальная кастомизация</label>
+                      <label className="text-sm font-medium">Студия профиля</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Расширенные настройки внешнего вида профиля
+                        Весь дизайн профиля в одном месте: шапка, фон, тема, никнейм и бейдж
                       </p>
                       <Button
                         variant="default"
-                        onClick={() => navigate("/settings/custom")}
+                        onClick={() => navigate("/settings/prof-studio")}
                       >
-                        Настроить
+                        Открыть студию
                       </Button>
                     </div>
                   </div>

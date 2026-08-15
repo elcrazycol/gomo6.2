@@ -27,13 +27,13 @@ func TestGetProfiles_Success_NoFilter(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
-		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, false, nil,
+		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
-		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, false, nil,
+		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, nil, nil,
-		50, 5, 1, 0, 0, 0, 0, 0, false, nil, time.Now(), false, false, nil, false, nil,
+		50, 5, 1, 0, 0, 0, 0, 0, false, nil, time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*ORDER BY created_at DESC.*LIMIT \$1 OFFSET \$2`).
@@ -66,10 +66,10 @@ func TestGetProfiles_Success_IDFilter(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("550e8400-e29b-41d4-a716-446655440000", "testuser", "testuser", nil, "test@example.com",
 		"localhost:8080", nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
@@ -96,8 +96,8 @@ func TestGetProfiles_Success_IDInFilter(t *testing.T) {
 			"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 			"is_online", "last_seen_at",
 			"created_at", "is_remote", "is_anonymous",
-			"background_url", "theme_enabled", "theme_tokens",
-			"background_url", "theme_enabled", "theme_tokens",
+			"background_url", "background_variant", "theme_enabled", "theme_tokens",
+			"background_url", "background_variant", "theme_enabled", "theme_tokens",
 		}))
 
 	handler.GetProfiles(c)
@@ -118,10 +118,10 @@ func TestGetProfiles_Success_UsernameFilter(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.username = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
@@ -166,10 +166,10 @@ func TestGetProfile_Success(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -285,10 +285,10 @@ func TestUpdateProfile_InvalidatesAuthorContentCache(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
@@ -372,10 +372,10 @@ func TestUpdateProfile_NoAuthorContent_NothingToInvalidate(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
@@ -417,10 +417,10 @@ func TestGetProfile_EmailHiddenFromAnonymous(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -456,10 +456,10 @@ func TestGetProfile_OtherUserSeesNoEmail(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080",
 		nil, nil, nil, 50, 5, 1, 0, 0, 0, 0, 0, false,
-		nil, time.Now(), false, false, nil, false, nil,
+		nil, time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -492,10 +492,10 @@ func TestGetProfile_OwnerSeesEmail(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -528,10 +528,10 @@ func TestGetProfile_ViewsReceivedCountReturned(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -564,10 +564,10 @@ func TestGetProfile_ViewsReceivedCountStrippedForNonFriendOnPrivate(t *testing.T
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -614,11 +614,11 @@ func TestGetProfiles_EmailsHiddenFromAnonymous(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
-		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, false, nil,
+		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, nil, nil,
-		50, 5, 1, 0, 0, 0, 0, 0, false, nil, time.Now(), false, false, nil, false, nil,
+		50, 5, 1, 0, 0, 0, 0, 0, false, nil, time.Now(), false, false, nil, "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*ORDER BY created_at DESC.*LIMIT \$1 OFFSET \$2`).
@@ -663,10 +663,10 @@ func TestGetProfile_ReturnsSanitizedBackgroundURL(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, "u1/background_1.webp", false, nil,
+		time.Now(), time.Now(), false, false, "u1/background_1.webp", "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*LEFT JOIN profile_customization.*WHERE u\.id = \$1`).
@@ -700,10 +700,10 @@ func TestGetProfile_StripsMaliciousBackgroundURL(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, "https://evil.example/tracker.png", false, nil,
+		time.Now(), time.Now(), false, false, "https://evil.example/tracker.png", "banner", false, nil,
 	)
 
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*LEFT JOIN profile_customization.*WHERE u\.id = \$1`).
@@ -748,10 +748,10 @@ func TestUpdateProfile_Success_UpdateBio(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
@@ -822,10 +822,10 @@ func TestUpdateProfile_Success_UpdateAvatar(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		&avatarURL, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
@@ -883,11 +883,11 @@ func TestUpdateProfile_Success_SetNicknameEmoji(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow(
 		"u1", "testuser", "testuser", "11111111-1111-1111-1111-111111111111", "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
@@ -928,11 +928,11 @@ func TestUpdateProfile_Success_ClearNicknameEmoji(t *testing.T) {
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-		"background_url", "theme_enabled", "theme_tokens",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow(
 		"u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
-		time.Now(), time.Now(), false, false, nil, false, nil,
+		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").

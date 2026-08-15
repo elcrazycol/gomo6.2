@@ -614,6 +614,13 @@ RETURNING *`
 			s, _ := v.(string)
 			add("background_url", sanitizeProfileBackgroundURL(s), "")
 		}
+		// background_variant is the owner's default display variant for their
+		// background (banner/card/page/page_dim) — validated against the
+		// allow-list; anything else falls back to the banner default.
+		if v, ok := data["background_variant"]; ok {
+			s, _ := v.(string)
+			add("background_variant", sanitizeProfileBackgroundVariant(s), "")
+		}
 		// Auto-theme: theme_enabled is a plain bool; theme_tokens is a JSONB
 		// payload of CSS variables rendered as inline styles on the profile
 		// page — sanitized to allow-listed --* keys with HSL values only.

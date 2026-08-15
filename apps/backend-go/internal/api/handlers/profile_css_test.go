@@ -119,6 +119,7 @@ func TestSanitizeProfileCustomizationRow(t *testing.T) {
 		"profile_badge_css":  "background: url(https://evil.example/x)",
 		"profile_badge_text": "B\tADGE",
 		"background_url":     "https://evil.example/tracker.png",
+		"background_variant": "position: fixed",
 	}
 	sanitizeProfileCustomizationRow(row)
 	if row["username_css"] != "color: red" {
@@ -132,6 +133,18 @@ func TestSanitizeProfileCustomizationRow(t *testing.T) {
 	}
 	if row["background_url"] != "" {
 		t.Fatalf("unexpected background_url: %v", row["background_url"])
+	}
+	if row["background_variant"] != "banner" {
+		t.Fatalf("unexpected background_variant: %v", row["background_variant"])
+	}
+
+	// Valid variants survive the read path; unknown ones fall back to banner.
+	for _, v := range []string{"banner", "card", "page", "page_dim"} {
+		rv := map[string]interface{}{"background_variant": v}
+		sanitizeProfileCustomizationRow(rv)
+		if rv["background_variant"] != v {
+			t.Fatalf("valid variant %q must survive, got %v", v, rv["background_variant"])
+		}
 	}
 
 	// Valid storage keys survive the read path.
@@ -204,6 +217,44 @@ func TestUniversalPost_ProfileCustomization_SanitizesBackgroundURL(t *testing.T)
 	c2, w2 := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
 		"user_id":        "u1",
 		"background_url": "u1/background_456.png",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c2)
+
+	if w2.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w2.Code, w2.Body.String())
+	}
+}
+
+// ─── background_variant: owner-set display variant is allow-listed ──────────
+
+func TestUniversalPost_ProfileCustomization_SanitizesBackgroundVariant(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// An unknown variant falls back to the banner default.
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, background_variant, updated_at\).*RETURNING \*`).
+		WithArgs("u1", "banner").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "background_variant"}).
+			AddRow("1", "u1", "banner"))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+		"user_id":            "u1",
+		"background_variant": "evil-overlay",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// A valid variant is stored verbatim.
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, background_variant, updated_at\).*RETURNING \*`).
+		WithArgs("u1", "page").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "background_variant"}).
+			AddRow("1", "u1", "page"))
+
+	c2, w2 := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+		"user_id":            "u1",
+		"background_variant": "page",
 	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c2)
 
