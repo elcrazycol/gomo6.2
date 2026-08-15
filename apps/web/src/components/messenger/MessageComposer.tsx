@@ -77,17 +77,16 @@ function getPastedFiles(e: React.ClipboardEvent<HTMLElement>): File[] {
 }
 
 /**
- * Messenger composer (Telegram/Discord-style):
+ * Messenger composer — always visible, autogrowing input (Telegram/Discord
+ * style):
  *
- *  • collapsed by default — a quiet one-line pill (like the wall comment
- *    composer); tapping it expands the input;
+ *  • the input grows with its content up to a max height, then scrolls;
  *  • the emoji button (right, before send) swaps the soft keyboard for the
- *    emoji panel on touch and opens a popover on desktop — identical to the
- *    wall post composer (useEmojiKeyboardSwap + EmojiPicker keyboardSwap);
- *  • the subtle ▢ rectangle to the left of the emoji button opens the "full"
- *    composer: the formatting toolbar (bold / color / blur / …) slides in and
- *    the input grows;
- *  • blur with an empty draft folds everything back into the pill.
+ *    emoji panel on touch and opens a popover on desktop
+ *    (useEmojiKeyboardSwap + EmojiPicker keyboardSwap);
+ *  • the ▢ button opens the "full" composer: the formatting toolbar (bold /
+ *    color / blur / …) slides in above the input;
+ *  • reply / edit / attachment / upload banners stay in flow above the input.
  *
  * The draft is stored in the messenger wire format (BBCode + [e:…] tokens, see
  * messengerRichText.ts) and is edited through GomoRichEditor, so emojis render
@@ -118,50 +117,7 @@ export const MessageComposer = memo(function MessageComposer({
   const rootRef = useRef<HTMLDivElement>(null);
   const emojiSwap = useEmojiKeyboardSwap(editorRef);
   const { keyboardInset } = useMobileKeyboard();
-  const keyboardInsetRef = useRef(keyboardInset);
-  keyboardInsetRef.current = keyboardInset;
 
-  // ── Fake focus while the emoji panel replaces the keyboard ────────────────
-  // The swap blurs the editor (focus would summon the keyboard back over the
-  // panel), so the pill would lose its focus highlight and the caret would
-  // vanish. ProseMirror keeps the selection in its state, so while the panel
-  // is up we render a fake caret at the preserved position and keep the pill
-  // styled as focused — it reads as the composer still being active.
-  const pillRef = useRef<HTMLDivElement>(null);
-  const [fakeCaret, setFakeCaret] = useState<{ left: number; top: number; height: number } | null>(null);
-
-  useEffect(() => {
-    if (!emojiSwap.open) {
-      setFakeCaret(null);
-      return;
-    }
-    const editor = editorRef.current?.getEditor();
-    const pill = pillRef.current;
-    if (!editor || !pill || !editor.state || !editor.view) return;
-    const measure = () => {
-      if (editor.isDestroyed) return;
-      const sel = editor.state.selection;
-      if (!sel.empty) return; // a text selection — nothing to fake
-      const coords = editor.view.coordsAtPos(sel.from);
-      if (!coords || (coords.left === 0 && coords.top === 0)) return;
-      const rect = pill.getBoundingClientRect();
-      setFakeCaret({
-        left: coords.left - rect.left,
-        top: coords.top - rect.top,
-        height: Math.max(2, coords.bottom - coords.top),
-      });
-    };
-    measure();
-    // Emoji inserts (and any selection movement) land while the panel is up —
-    // keep the caret following the text.
-    if (typeof editor.on !== "function") return;
-    editor.on("transaction", measure);
-    return () => {
-      editor.off?.("transaction", measure);
-    };
-  }, [emojiSwap.open]);
-
-  const [expanded, setExpanded] = useState(false);
   const [fullMode, setFullMode] = useState(false);
   // While the formatting panel is closing it stays mounted (with the exit
   // animation) and unmounts after a short delay — so closing reads as one
@@ -181,10 +137,6 @@ export const MessageComposer = memo(function MessageComposer({
   const lastChangeFromEditorRef = useRef(false);
   const prevDraftRef = useRef(draft);
   const prevEditingIdRef = useRef(editingMessageId);
-  // Timestamp of the last pointer-down inside the composer: blurs that follow
-  // a tap on our own buttons (emoji trigger → keyboard-swap blur) must not
-  // fold the composer, while a real outside tap / iOS scroll-dismiss may.
-  const lastComposerPointerRef = useRef(0);
 
   const isEditing = editingMessageId != null;
   const plainDraft = useMemo(() => messengerTextToPlain(draft), [draft]);
@@ -194,15 +146,6 @@ export const MessageComposer = memo(function MessageComposer({
   const canSend = isEditing
     ? hasContent
     : !isSending && uploadingFiles.length === 0 && (hasContent || pendingAttachments.length > 0);
-
-  const isExpanded = expanded
-    || Boolean(replyToMessage)
-    || isEditing
-    || fullMode
-    || emojiSwap.open
-    || pendingAttachments.length > 0
-    || uploadingFiles.length > 0
-    || hasContent;
 
   const editorJson = useMemo(
     () => (draft.trim() ? messengerTextToProsemirror(draft) : EMPTY_EDITOR_STATE),
@@ -224,9 +167,6 @@ export const MessageComposer = memo(function MessageComposer({
     prevDraftRef.current = draft;
     if (prev !== "" && draft === "" && !lastChangeFromEditorRef.current) {
       setEditorResetKey((key) => key + 1);
-      // Sent / edit saved / reply cancelled → fold back into the quiet pill,
-      // mirroring the wall comment composer.
-      setExpanded(false);
       setFullMode(false);
     }
     lastChangeFromEditorRef.current = false;
@@ -341,162 +281,39 @@ export const MessageComposer = memo(function MessageComposer({
   // the composer — always in flow at the panel's bottom — floats above the
   // keyboard with no pinning at all. While the keyboard-swap emoji panel is
   // up the keyboard is gone and --kb-inset drops to 0, which would let the
-  // panel cover the composer; instead we override the chat panel's LOCAL
-  // --kb-inset with max(real keyboard inset, panel height) — the composer
-  // stays glued to the panel's top edge exactly like it rides the keyboard.
-  //
-  // On close the same max() hands off seamlessly:
-  //  • refocus path (trigger toggle / tapping the editor) — the keyboard
-  //    rises back; once it reaches the panel height the override drops and
-  //    the real --kb-inset takes over from the same position (no dip, no
-  //    jump, even when the keyboard is taller than the panel);
-  //  • no-refocus path (outside tap / Escape) — the keyboard is not coming
-  //    back; glide the override to 0 in sync with the panel's exit slide.
-  const [emojiPanelInset, setEmojiPanelInset] = useState(0);
-  const emojiPanelInsetRef = useRef(0);
-  emojiPanelInsetRef.current = emojiPanelInset;
-  const emojiGlideRafRef = useRef<number | null>(null);
-
-  const cancelEmojiGlide = useCallback(() => {
-    if (emojiGlideRafRef.current !== null) {
-      cancelAnimationFrame(emojiGlideRafRef.current);
-      emojiGlideRafRef.current = null;
-    }
-  }, []);
-
-  // Open → hold the panel height. The keyboard was just up at the same height,
-  // so the composer does not move at all.
-  useEffect(() => {
-    if (emojiSwap.open && emojiSwap.height > 0) {
-      cancelEmojiGlide();
-      setEmojiPanelInset(emojiSwap.height);
-    }
-  }, [emojiSwap.open, emojiSwap.height, cancelEmojiGlide]);
-
-  // Close with the keyboard returning (refocus): hold until the real inset
-  // catches up with the panel height, then hand off — the composer keeps
-  // riding whatever is at the bottom the whole time. Never runs while the
-  // panel is OPEN: at the moment it opens the keyboard is still up at the
-  // same height, so `keyboardInset >= panelHeight` is true — firing here
-  // would instantly drop the lift and the composer would fall under the
-  // panel as the keyboard dismisses.
-  useEffect(() => {
-    if (emojiSwap.open) return;
-    if (emojiPanelInset > 0 && keyboardInset >= emojiPanelInset - 4) {
-      cancelEmojiGlide();
-      setEmojiPanelInset(0);
-    }
-  }, [emojiSwap.open, keyboardInset, emojiPanelInset, cancelEmojiGlide]);
-
-  // Close without a returning keyboard (outside tap / Escape): once it is
-  // clear the keyboard is not coming back, glide the composer down in sync
-  // with the panel's exit slide instead of holding then teleporting.
-  useEffect(() => {
-    if (emojiSwap.open) return;
-    const settle = window.setTimeout(() => {
-      if (keyboardInsetRef.current > 0) return; // keyboard is back — the handoff above handles it
-      const startInset = emojiPanelInsetRef.current;
-      if (startInset <= 0) return;
-      const startedAt = performance.now();
-      const step = (now: number) => {
-        if (emojiGlideRafRef.current === null) return; // cancelled by a handoff
-        const progress = Math.min(1, (now - startedAt) / 260);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        const height = Math.round(startInset * (1 - eased));
-        if (height <= 0) {
-          emojiGlideRafRef.current = null;
-          setEmojiPanelInset(0);
-          return;
-        }
-        setEmojiPanelInset(height);
-        emojiGlideRafRef.current = requestAnimationFrame(step);
-      };
-      emojiGlideRafRef.current = requestAnimationFrame(step);
-    }, 150);
-    return () => window.clearTimeout(settle);
-  }, [emojiSwap.open]);
-
-  // While the emoji panel is up (or just closed), publish max(real keyboard
-  // inset, panel height) as the chat panel's LOCAL --kb-inset so its bottom
-  // edge floats above the panel. With NO emoji involvement the chat panel is
-  // left completely untouched: it inherits the ROOT --kb-inset, which
-  // lib/mobileKeyboard updates synchronously on every visual-viewport event
-  // — the exact mechanism the wall comment composer uses, and therefore just
-  // as reliable (a React-driven local copy lagged the synchronous updates and
-  // left the pill under the keyboard on re-open). While the panel is open the
-  // lift comes straight from emojiSwap.height in the SAME render that opened
-  // it — never a frame later (an intermediate render without the lift would
-  // let the panel cover the composer while the keyboard dismisses).
+  // panel cover the composer; instead the chat panel's LOCAL --kb-inset is
+  // overridden with the panel height (matching the keyboard that just
+  // dismissed — the composer does not move). On close the override is simply
+  // removed: the global --kb-inset (updated synchronously by
+  // lib/mobileKeyboard on every visual-viewport event) takes over, so a
+  // returning keyboard rides the composer back up with no React-driven copy
+  // lagging behind. The only trade-off is the no-refocus close (outside tap):
+  // the composer drops with the panel's own exit slide instead of gliding.
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
-    const lift = emojiSwap.open && emojiSwap.height > 0 ? emojiSwap.height : emojiPanelInset;
-    if (lift <= 0) {
+    if (!emojiSwap.open) {
       chatPanel.style.removeProperty("--kb-inset");
       return;
     }
-    chatPanel.style.setProperty("--kb-inset", `${Math.max(keyboardInset, lift)}px`);
-  }, [emojiSwap.open, emojiSwap.height, keyboardInset, emojiPanelInset]);
+    const lift = Math.max(emojiSwap.height, keyboardInset);
+    chatPanel.style.setProperty("--kb-inset", `${lift}px`);
+  }, [emojiSwap.open, emojiSwap.height, keyboardInset]);
 
-  // Clean up the local override and any in-flight glide on unmount.
+  // Clean up the local override on unmount.
   useEffect(() => () => {
-    cancelEmojiGlide();
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
-  }, [cancelEmojiGlide]);
-
-  // ── Expand / collapse ──────────────────────────────────────────────────────
-  const requestCollapse = useCallback(() => {
-    if (
-      !hasContent
-      && !replyToMessage
-      && !isEditing
-      && !emojiSwap.open
-      && !fullMode
-      && pendingAttachments.length === 0
-      && uploadingFiles.length === 0
-    ) {
-      setExpanded(false);
-    }
-  }, [hasContent, replyToMessage, isEditing, emojiSwap.open, fullMode, pendingAttachments, uploadingFiles]);
-
-  const handleComposerBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
-    // A blur right after a tap on one of our own buttons (emoji trigger
-    // programmatically blurs the editor to summon the swap panel) is not a
-    // reason to collapse.
-    if (Date.now() - lastComposerPointerRef.current < 150) return;
-    if (rootRef.current?.contains(event.relatedTarget as Node | null)) return;
-    requestCollapse();
-  }, [requestCollapse]);
+  }, []);
 
   // The formatting panel's Toolbar needs the live tiptap instance. The pill
   // editor is always mounted, so the ref is populated before the panel can
   // render — read it at render time (the instance is stable across renders).
   const toolbarEditor = editorRef.current?.getEditor() ?? null;
 
-  // Clicking an emoji in the desktop popover (a portal outside the composer)
-  // first blurs the editor — without this the pill would flash-collapse right
-  // before the emoji lands in the draft.
-  useEffect(() => {
-    const onEmojiSurfacePointer = (e: PointerEvent) => {
-      const target = e.target as Element | null;
-      if (
-        target instanceof Element
-        && target.closest('[data-testid="emoji-picker-popover"], [data-testid="emoji-keyboard-panel"]')
-      ) {
-        lastComposerPointerRef.current = Date.now();
-      }
-    };
-    document.addEventListener("pointerdown", onEmojiSurfacePointer, true);
-    return () => document.removeEventListener("pointerdown", onEmojiSurfacePointer, true);
-  }, []);
-
   return (
     <div
       ref={rootRef}
-      className={`composer${isSending ? " is-sending" : ""}${isExpanded ? " is-expanded" : ""}${fullMode ? " is-full" : ""}${emojiSwap.open ? " is-emoji-open" : ""}`}
-      onPointerDownCapture={() => {
-        lastComposerPointerRef.current = Date.now();
-      }}
+      className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${emojiSwap.open ? " is-emoji-open" : ""}`}
     >
       {replyToMessage && (
         <div className="composer-reply-banner">
@@ -610,12 +427,7 @@ export const MessageComposer = memo(function MessageComposer({
         )}
 
         {/* The input pill — emoji trigger lives inside it (right side) */}
-        <div
-          ref={pillRef}
-          className="composer-input-pill"
-          onFocusCapture={() => setExpanded(true)}
-          onBlur={handleComposerBlur}
-        >
+        <div className="composer-input-pill">
           <div className="composer-input-area" onPaste={handleEditorPaste}>
             <GomoRichEditor
               ref={(node) => {
@@ -632,7 +444,7 @@ export const MessageComposer = memo(function MessageComposer({
               onChange={handleEditorChange}
               onSubmit={handleSubmit}
               placeholder={isEditing ? "" : placeholder ?? "Напиши сообщение..."}
-              minHeightClassName={isExpanded ? "min-h-[44px]" : "min-h-[22px]"}
+              minHeightClassName="min-h-[44px]"
               maxHeightClassName={
                 fullMode
                   ? "max-h-[45vh] overflow-y-auto overscroll-contain"
@@ -641,16 +453,6 @@ export const MessageComposer = memo(function MessageComposer({
               showToolbar={false}
             />
           </div>
-
-          {/* Fake caret while the emoji panel is up — the editor is blurred,
-              but the composer must look like it is still focused. */}
-          {fakeCaret && (
-            <span
-              className="composer-fake-caret"
-              style={{ left: fakeCaret.left, top: fakeCaret.top, height: fakeCaret.height }}
-              aria-hidden="true"
-            />
-          )}
 
           {/* Emoji — transparent circle inside the pill, vertically centered
               on the text line (wall-post behaviour: keyboard swap on touch,
