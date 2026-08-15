@@ -547,7 +547,6 @@ export const ChatView = memo(function ChatView({
           <MessageList
             key={conversation.id}
             ref={messageListRef}
-            onBack={onBack}
             renderMessage={renderMessage}
             messagesOverride={visibleMessages}
           />

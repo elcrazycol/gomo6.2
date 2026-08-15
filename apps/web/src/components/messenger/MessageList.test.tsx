@@ -7,7 +7,6 @@ import type { MessageView } from "./types";
 // ── Hoisted shared state (accessible from vi.mock factories) ──────────────
 const h = vi.hoisted(() => ({
   virtuosoProps: {} as Record<string, unknown>,
-  listeners: new Set<() => void>(),
   scrollToIndexSpy: vi.fn(),
   storeState: {
     selectedConversationId: "c1",
@@ -16,22 +15,20 @@ const h = vi.hoisted(() => ({
     isMessagesLoading: false,
     hasMoreMessages: false,
     isLoadingMore: false,
-    loadMoreMessages: vi.fn(),
+    loadMoreMessages: vi.fn(() => Promise.resolve()),
   },
 }));
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
-// A minimal Virtuoso stand-in: captures its props, wires the scroller ref,
-// renders every item via itemContent and the Footer component. Enough to
-// exercise MessageList's own scroll logic deterministically.
+// A minimal Virtuoso stand-in: captures its props, wires the scroller ref and
+// renders every item via itemContent, so MessageList's own logic (indices,
+// prepends, callbacks) is exercised deterministically.
 vi.mock("react-virtuoso", () => {
   const Virtuoso = React.forwardRef(function VirtuosoMock(
     props: Record<string, unknown>,
     ref: React.Ref<unknown>,
   ) {
     h.virtuosoProps = props;
-    // Expose the imperative handle so the unread-boundary re-anchor
-    // (virtuosoRef.current?.scrollToIndex) is observable in tests.
     if (typeof ref === "object" && ref !== null) {
       (ref as { current: { scrollToIndex: typeof h.scrollToIndexSpy } | null }).current = {
         scrollToIndex: h.scrollToIndexSpy,
@@ -46,9 +43,6 @@ vi.mock("react-virtuoso", () => {
       Header?: React.ComponentType;
       Footer?: React.ComponentType;
     };
-    // Use MessageList's REAL Scroller/List components so the scroll-event
-    // handlers (handleScroll, wheel/touch cancel) are actually wired up — a
-    // plain div would bypass them and the test would not reflect reality.
     const Scroller = components?.Scroller;
     const List = components?.List;
     const Header = components?.Header;
@@ -66,10 +60,6 @@ vi.mock("react-virtuoso", () => {
   });
   return { Virtuoso };
 });
-
-vi.mock("@use-gesture/react", () => ({
-  useDrag: () => () => ({}),
-}));
 
 vi.mock("@/stores/messengerStore", () => ({
   useMessengerStore: Object.assign(
@@ -95,13 +85,12 @@ const renderMessage = (message: MessageView) => <div data-testid={`msg-${message
 
 const mountList = () => {
   const ref: React.RefObject<MessageListHandle | null> = { current: null };
-  const utils = render(<MessageList onBack={() => undefined} ref={ref} renderMessage={renderMessage} />);
+  const utils = render(<MessageList ref={ref} renderMessage={renderMessage} />);
   const scroller = utils.container.querySelector(".message-scroll") as HTMLDivElement | null;
   if (!scroller) throw new Error("scroller not rendered");
   return { ...utils, scroller, ref };
 };
 
-// jsdom has no rAF; run callbacks via macrotask so the settle loop can flush.
 beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0));
   vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
@@ -114,42 +103,13 @@ afterEach(() => {
   h.storeState.openingUnreadCount = 0;
   h.storeState.isMessagesLoading = false;
   h.storeState.isLoadingMore = false;
+  h.storeState.hasMoreMessages = false;
+  h.storeState.loadMoreMessages.mockClear();
   h.scrollToIndexSpy.mockClear();
   h.virtuosoProps = {};
 });
 
-// Deterministic rAF pump for the bottom-settle frame chains. The settle waits
-// for two stable frames before its first clamp, so a plain `await setTimeout`
-// races with a loaded CI runner: the fixed 10ms window can elapse before the
-// clamp lands, leaving the settle alive to yank the view back down. Pumping
-// the frame queue until a predicate holds removes the timing from the
-// equation (the runner that runs the whole suite in parallel with coverage
-// instrumented flakes on the fixed waits).
-const createRafPump = () => {
-  const rafQueue: FrameRequestCallback[] = [];
-  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-    rafQueue.push(cb);
-    return rafQueue.length;
-  });
-  vi.stubGlobal("cancelAnimationFrame", () => undefined);
-  const pumpFrames = async (count: number) => {
-    for (let i = 0; i < count; i += 1) {
-      const cb = rafQueue.shift();
-      if (cb) cb(0);
-      await Promise.resolve();
-    }
-  };
-  const drainUntil = async (predicate: () => boolean, maxIterations = 60) => {
-    for (let i = 0; i < maxIterations && !predicate(); i += 1) {
-      await pumpFrames(1);
-      // Let real macrotasks (React flushes, checkpoint timeouts) interleave.
-      await new Promise((resolve) => setTimeout(resolve, 2));
-    }
-  };
-  return { pumpFrames, drainUntil };
-};
-
-describe("MessageList scroll behavior", () => {
+describe("MessageList virtualization", () => {
   it("adjusts firstItemIndex in the same render as a history prepend (no flicker frame)", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     const { rerender } = mountList();
@@ -157,11 +117,10 @@ describe("MessageList scroll behavior", () => {
     expect(initialIndex).toBe(1_000_000);
 
     // Older messages are prepended (history load). The virtual index must
-    // already reflect the prepend in THIS render — the old effect-based
-    // version painted one frame with shifted item windows (the visible
-    // flicker on every history load).
+    // already reflect the prepend in THIS render so item windows never shift
+    // for a visible frame.
     h.storeState.messages = [makeMessage("x"), makeMessage("a"), makeMessage("b")];
-    rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+    rerender(<MessageList renderMessage={renderMessage} />);
     expect(h.virtuosoProps.firstItemIndex).toBe(initialIndex - 1);
 
     // The anchored message "a" keeps its key: its virtual index is unchanged
@@ -189,19 +148,19 @@ describe("MessageList scroll behavior", () => {
     expect(container.querySelector(".message-list-footer")).not.toBeNull();
   });
 
-  it("disables Virtuoso's built-in followOutput", () => {
-    h.storeState.messages = [makeMessage("a")];
+  it("follows new messages only while the user is at the bottom (never yanks a scrolled-up reader)", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     mountList();
-    expect(h.virtuosoProps.followOutput).toBe(false);
+    const followOutput = h.virtuosoProps.followOutput as (atBottom: boolean) => boolean | string;
+    expect(followOutput(true)).toBe("smooth");
+    expect(followOutput(false)).toBe(false);
   });
 
   it("opens on the unread boundary and re-anchors it to the network snapshot, not the stale cache", async () => {
     // First open after a reload: the message array is the IndexedDB cache,
     // which lags the network by the newest messages. The initial paint uses
     // the cache as a rough anchor, and once the network load finishes the
-    // boundary is recomputed against the authoritative snapshot — a boundary
-    // taken from the cache (length - unread) would land above the real first
-    // unread and hide the newest messages below the fold.
+    // boundary is recomputed against the authoritative snapshot.
     h.storeState.openingUnreadCount = 2;
     h.storeState.isMessagesLoading = true;
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
@@ -221,7 +180,7 @@ describe("MessageList scroll behavior", () => {
       makeMessage("e"),
     ];
     await act(async () => {
-      rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+      rerender(<MessageList renderMessage={renderMessage} />);
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
 
@@ -229,290 +188,175 @@ describe("MessageList scroll behavior", () => {
     expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 3, align: "start", behavior: "auto" });
   });
 
-  it("opens at the very bottom for a read conversation and re-pins as late media grows the list", async () => {
-    // Virtuoso's initial align-end uses height estimates (64px/item); with
-    // tall content (images) it stops ABOVE the real bottom, and its first
-    // scroll event reads as "scrolled up" even though the user never
-    // scrolled. The mount settle must ignore that transient flag, clamp to
-    // the true bottom, and keep re-clamping while late media (blob previews
-    // decoded with retries) grows the list. The old settle died on the
-    // transient flag and left the view a couple of messages above the tail
-    // on every open — the reported "~2 messages above the last" bug.
+  it("opens at the very bottom for a read conversation (alignToBottom + initialTopMostItemIndex end)", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { scroller } = mountList();
-
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-    const scrollToSpy = vi.fn();
-    scroller.scrollTo = ((options: { top?: number }) => {
-      if (typeof options?.top === "number") {
-        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
-      }
-      scrollToSpy(options);
-    }) as unknown as typeof scroller.scrollTo;
-
-    // The transient "scrolled up" position Virtuoso lands on for tall
-    // content (distance 1000 - 300 - 400 = 300 > 128px).
-    await act(async () => {
-      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
-      scroller.dispatchEvent(new Event("scroll"));
-    });
-
-    // Late media grows the list well past the first clamps.
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1400 });
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    });
-
-    // The settle survived the transient flag and pinned the view to the true
-    // bottom (1400 - 400 = 1000), exactly like the FAB.
-    expect(scrollToSpy).toHaveBeenCalledTimes(1);
-    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 1000, behavior: "auto" }));
-
-    // Late media keeps growing the list AFTER the first clamps. Content
-    // below the fold grows without a scroll event (scrollTop stays put), so
-    // the settle's checkpoints must re-pin to the new bottom instead of
-    // leaving the view a couple of messages above the tail — the reported
-    // "opens ~2 messages above the last, every time" bug. The mount settle
-    // must still be alive here (it does not die after a few clamps, and it
-    // ignores scrolled-up-looking scroll events).
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1600 });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    });
-    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 1200, behavior: "auto" }));
+    mountList();
+    expect(h.virtuosoProps.alignToBottom).toBe(true);
+    expect(h.virtuosoProps.initialTopMostItemIndex).toEqual({ index: 1, align: "end" });
   });
 
-  it("does not yank the user when they scroll up during an append follow-settle", async () => {
-    const { pumpFrames, drainUntil } = createRafPump();
-    try {
-      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-      const { scroller, rerender } = mountList();
-
-      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
-      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-      const scrollToSpy = vi.fn();
-      scroller.scrollTo = ((options: { top?: number }) => {
-        if (typeof options?.top === "number") {
-          Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
-        }
-        scrollToSpy(options);
-        scroller.dispatchEvent(new Event("scroll"));
-      }) as unknown as typeof scroller.scrollTo;
-
-      // Drain the mount settle: it clamps to the true bottom (600), which sets
-      // lastScrollTopRef via the realistic scroller's scroll event. The
-      // scroll-up below needs that baseline to trigger the decrease-cancel.
-      await act(async () => {
-        await drainUntil(() => scrollToSpy.mock.calls.length > 0);
-      });
-      scrollToSpy.mockClear();
-
-      // A new message arrives while the user is at the bottom — the append
-      // follow-settle takes over (replacing the mount settle).
-      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
-      await act(async () => {
-        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
-        // Let the append effect schedule its settle, then drain its frames.
-        await pumpFrames(5);
-      });
-      scrollToSpy.mockClear();
-
-      // The user scrolls up 100px: the settle must cancel (decrease-cancel in
-      // handleScroll, plus the scrolled-up gate) instead of clamping them back
-      // down on its next checkpoint/frame.
-      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 500 });
-      scroller.dispatchEvent(new Event("scroll"));
-
-      await act(async () => {
-        await pumpFrames(10);
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      });
-      expect(scrollToSpy).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("scrolls the scroller to the true bottom when a new message is appended while at the bottom", async () => {
-    const { pumpFrames, drainUntil } = createRafPump();
-    try {
-      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-      const { scroller, rerender } = mountList();
-
-      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 });
-      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-      const scrollToSpy = vi.fn();
-      scroller.scrollTo = scrollToSpy;
-      // Drain the mount-time settle, then reset the spy.
-      await act(async () => {
-        await drainUntil(() => scrollToSpy.mock.calls.length > 0);
-      });
-      scrollToSpy.mockClear();
-
-      // Append a message from the interlocutor while the view is at the bottom.
-      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
-      await act(async () => {
-        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
-        await pumpFrames(5);
-      });
-      // scrollHeight(500) - clientHeight(400) = maxScrollTop(100)
-      expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 100, behavior: "auto" }));
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("holds the follow-scroll until the appended item is measured (single exact scroll, no twitch)", async () => {
-    // Manual rAF pump so the height change can land between the settle's
-    // stability checks, exactly as the measurement lands in a real browser.
-    const rafQueue: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-      rafQueue.push(cb);
-      return rafQueue.length;
+  it("loads older history when the top is reached", async () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    h.storeState.hasMoreMessages = true;
+    mountList();
+    const startReached = h.virtuosoProps.startReached as () => void;
+    await act(async () => {
+      startReached();
+      await Promise.resolve();
     });
-    vi.stubGlobal("cancelAnimationFrame", () => undefined);
-    const pumpFrames = async (count: number) => {
-      for (let i = 0; i < count; i += 1) {
-        const cb = rafQueue.shift();
-        if (cb) cb(0);
-        await Promise.resolve();
-      }
+    expect(h.storeState.loadMoreMessages).toHaveBeenCalledWith("c1");
+  });
+
+  it("does not load history while a request is already in flight", async () => {
+    h.storeState.messages = [makeMessage("a")];
+    h.storeState.hasMoreMessages = true;
+    let resolveLoad: (() => void) | undefined;
+    h.storeState.loadMoreMessages.mockReturnValue(new Promise<void>((resolve) => {
+      resolveLoad = resolve;
+    }));
+    mountList();
+    const startReached = h.virtuosoProps.startReached as () => void;
+    await act(async () => {
+      startReached();
+      await Promise.resolve();
+    });
+    expect(h.storeState.loadMoreMessages).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      startReached();
+      await Promise.resolve();
+    });
+    expect(h.storeState.loadMoreMessages).toHaveBeenCalledTimes(1);
+    resolveLoad?.();
+  });
+
+  it("scrollToBottom jumps to the last message", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { ref } = mountList();
+    act(() => {
+      ref.current?.scrollToBottom();
+    });
+    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 2, align: "end", behavior: "smooth" });
+  });
+
+  it("scrollToMessage centers the requested message", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { ref } = mountList();
+    act(() => {
+      ref.current?.scrollToMessage("b");
+    });
+    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 1, align: "center", behavior: "smooth" });
+  });
+});
+
+describe("MessageList realtime appends", () => {
+  it("shows the N-new-messages pill when a message arrives while scrolled up", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { container, rerender } = mountList();
+
+    // The user scrolled away from the bottom.
+    act(() => {
+      const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
+      atBottomChange(false);
+    });
+
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c"), makeMessage("d")];
+    rerender(<MessageList renderMessage={renderMessage} />);
+
+    expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("2");
+    expect(container.querySelector(".scroll-to-bottom-btn")).not.toBeNull();
+  });
+
+  it("counts only incoming messages, not the user's own optimistic ones", () => {
+    h.storeState.messages = [makeMessage("a")];
+    const { container, rerender } = mountList();
+
+    act(() => {
+      const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
+      atBottomChange(false);
+    });
+
+    const own = makeMessage("mine");
+    own.localStatus = "sending";
+    h.storeState.messages = [makeMessage("a"), own, makeMessage("b")];
+    rerender(<MessageList renderMessage={renderMessage} />);
+
+    expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("1");
+  });
+
+  it("stays quiet while at the bottom — the followOutput scroll is Virtuoso's job", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { container, rerender } = mountList();
+
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    rerender(<MessageList renderMessage={renderMessage} />);
+
+    expect(container.querySelector(".scroll-to-bottom-btn")).toBeNull();
+  });
+
+  it("clears the pill when the user returns to the bottom", () => {
+    h.storeState.messages = [makeMessage("a")];
+    const { container, rerender } = mountList();
+
+    const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
+    act(() => atBottomChange(false));
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    rerender(<MessageList renderMessage={renderMessage} />);
+    expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("1");
+
+    act(() => atBottomChange(true));
+    expect(container.querySelector(".scroll-to-bottom-btn")).toBeNull();
+  });
+});
+
+describe("MessageList keyboard resize", () => {
+  it("re-pins the bottom when the visual viewport shrinks and the user is at the bottom", async () => {
+    const vvListeners = new Map<string, () => void>();
+    const vvStub = {
+      addEventListener: vi.fn((type: string, cb: () => void) => vvListeners.set(type, cb)),
+      removeEventListener: vi.fn((type: string) => vvListeners.delete(type)),
+      height: 800,
+      offsetTop: 0,
+      scroll: 0,
     };
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: vvStub });
 
-    try {
-      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-      const { scroller, rerender } = mountList();
-
-      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 });
-      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 100 });
-      const scrollToSpy = vi.fn();
-      scroller.scrollTo = ((options: { top?: number }) => {
-        if (typeof options?.top === "number") {
-          Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
-        }
-        scrollToSpy(options);
-      }) as unknown as typeof scroller.scrollTo;
-
-      // Drain the mount-time settle's frame chain. The view sits exactly at
-      // the bottom (500 − 100 − 400 = 0), so it must not scroll at all.
-      await act(async () => {
-        await pumpFrames(30);
-      });
-      expect(scrollToSpy).not.toHaveBeenCalled();
-
-      // Append while at the bottom. The new item first renders at the default
-      // height estimate, growing the list (scrollHeight 600 → maxScrollTop
-      // 200); only later is it measured to its real size (800 → maxScrollTop
-      // 400). Scrolling to the estimate would produce the twitch/gap.
-      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 600 });
-      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
-      await act(async () => {
-        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
-        // Yield to a macrotask so React flushes the append effect (which
-        // schedules the settle) before we start pumping its frames.
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      });
-
-      // First settle frame sees the ESTIMATE height. The wait phase must
-      // hold here — a naive settle would already scroll to the estimate
-      // bottom (200) on this frame.
-      await act(async () => {
-        await pumpFrames(1);
-      });
-      expect(scrollToSpy).not.toHaveBeenCalled();
-
-      // The measurement lands before the second stability check. The settle
-      // must scroll exactly once — to the measured bottom (400), never the
-      // estimate (200).
-      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 800 });
-      await act(async () => {
-        await pumpFrames(4);
-      });
-      expect(scrollToSpy).toHaveBeenCalledTimes(1);
-      expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 400, behavior: "auto" }));
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("cancels the follow-settle the moment the user scrolls up (no jitter/fight)", async () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { scroller } = mountList();
+    mountList();
+    h.scrollToIndexSpy.mockClear();
 
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-    const scrollToSpy = vi.fn();
-    scroller.scrollTo = scrollToSpy;
-
-    // The mount settle clamps the view to the bottom (scrollTop 600).
-    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 600 });
-    scroller.dispatchEvent(new Event("scroll"));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    scrollToSpy.mockClear();
-
-    // The user scrolls UP (scrollTop 500). The active settle must cancel
-    // instead of pulling the view back down on its next checkpoint.
-    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 500 });
-    scroller.dispatchEvent(new Event("scroll"));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      vvListeners.get("resize")?.();
+      await new Promise((resolve) => setTimeout(resolve, 120));
     });
 
-    expect(scrollToSpy).not.toHaveBeenCalled();
+    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 1, align: "end", behavior: "auto" });
   });
 
-  it("does not scroll (and does not yank the user) when the append happens while scrolled up", async () => {
-    const { pumpFrames, drainUntil } = createRafPump();
-    try {
-      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-      const { scroller, rerender } = mountList();
+  it("does not touch the scroll position for a user reading history", async () => {
+    const vvListeners = new Map<string, () => void>();
+    const vvStub = {
+      addEventListener: vi.fn((type: string, cb: () => void) => vvListeners.set(type, cb)),
+      removeEventListener: vi.fn((type: string) => vvListeners.delete(type)),
+      height: 800,
+      offsetTop: 0,
+      scroll: 0,
+    };
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: vvStub });
 
-      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
-      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-      const scrollToSpy = vi.fn();
-      // Realistic scroller: a clamp updates scrollTop and fires a scroll event
-      // (handleScroll then tracks lastScrollTopRef, like a real browser).
-      scroller.scrollTo = ((options: { top?: number }) => {
-        if (typeof options?.top === "number") {
-          Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
-        }
-        scrollToSpy(options);
-        scroller.dispatchEvent(new Event("scroll"));
-      }) as unknown as typeof scroller.scrollTo;
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    mountList();
 
-      // Drain the mount settle: it must clamp to the true bottom (600) BEFORE
-      // the scroll-up below, so the scroll-up event cancels it. A fixed 10ms
-      // wait raced with the loaded runner and left the settle alive to yank.
-      await act(async () => {
-        await drainUntil(() => scrollToSpy.mock.calls.length > 0);
-      });
-      expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 600, behavior: "auto" }));
-      scrollToSpy.mockClear();
+    act(() => {
+      const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
+      atBottomChange(false);
+    });
+    h.scrollToIndexSpy.mockClear();
 
-      // Simulate the user reading history: fire a scroll event far from the
-      // bottom (distance 1000 - 300 - 400 = 300px > 128px → isScrolledUpRef
-      // flips to true, which also makes any still-active settle bail out).
-      await act(async () => {
-        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
-        scroller.dispatchEvent(new Event("scroll"));
-      });
+    await act(async () => {
+      vvListeners.get("resize")?.();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
 
-      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
-      await act(async () => {
-        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
-        // No follow-settle may be scheduled; pump a few frames to prove no
-        // stray settle clamps the view back down.
-        await pumpFrames(5);
-      });
-
-      expect(scrollToSpy).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    expect(h.scrollToIndexSpy).not.toHaveBeenCalled();
   });
 });
