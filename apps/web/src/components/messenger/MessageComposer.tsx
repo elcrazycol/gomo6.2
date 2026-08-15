@@ -335,13 +335,18 @@ export const MessageComposer = memo(function MessageComposer({
 
   // Close with the keyboard returning (refocus): hold until the real inset
   // catches up with the panel height, then hand off — the composer keeps
-  // riding whatever is at the bottom the whole time.
+  // riding whatever is at the bottom the whole time. Never runs while the
+  // panel is OPEN: at the moment it opens the keyboard is still up at the
+  // same height, so `keyboardInset >= panelHeight` is true — firing here
+  // would instantly drop the lift and the composer would fall under the
+  // panel as the keyboard dismisses.
   useEffect(() => {
+    if (emojiSwap.open) return;
     if (emojiPanelInset > 0 && keyboardInset >= emojiPanelInset - 4) {
       cancelEmojiGlide();
       setEmojiPanelInset(0);
     }
-  }, [keyboardInset, emojiPanelInset, cancelEmojiGlide]);
+  }, [emojiSwap.open, keyboardInset, emojiPanelInset, cancelEmojiGlide]);
 
   // Close without a returning keyboard (outside tap / Escape): once it is
   // clear the keyboard is not coming back, glide the composer down in sync
@@ -378,17 +383,20 @@ export const MessageComposer = memo(function MessageComposer({
   // lib/mobileKeyboard updates synchronously on every visual-viewport event
   // — the exact mechanism the wall comment composer uses, and therefore just
   // as reliable (a React-driven local copy lagged the synchronous updates and
-  // left the pill under the keyboard on re-open).
+  // left the pill under the keyboard on re-open). While the panel is open the
+  // lift comes straight from emojiSwap.height in the SAME render that opened
+  // it — never a frame later (an intermediate render without the lift would
+  // let the panel cover the composer while the keyboard dismisses).
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
-    if (emojiPanelInset <= 0) {
+    const lift = emojiSwap.open && emojiSwap.height > 0 ? emojiSwap.height : emojiPanelInset;
+    if (lift <= 0) {
       chatPanel.style.removeProperty("--kb-inset");
       return;
     }
-    const combined = Math.max(keyboardInset, emojiPanelInset);
-    chatPanel.style.setProperty("--kb-inset", `${combined}px`);
-  }, [keyboardInset, emojiPanelInset]);
+    chatPanel.style.setProperty("--kb-inset", `${Math.max(keyboardInset, lift)}px`);
+  }, [emojiSwap.open, emojiSwap.height, keyboardInset, emojiPanelInset]);
 
   // Clean up the local override and any in-flight glide on unmount.
   useEffect(() => () => {

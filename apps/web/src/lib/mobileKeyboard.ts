@@ -79,6 +79,11 @@ const CLOSE_VERIFY_MS = 150;
  *  the resize-driven state machine would never notice. visualViewport.height
  *  is a LIVE property, so the poll detects the keyboard exactly. */
 const FOCUS_POLL_MS = 250;
+/** How long the per-frame geometry follow keeps running after the last
+ *  visual-viewport event — comfortably longer than the ~250ms keyboard slide
+ *  (plus URL-bar collapse), so the layout keeps gliding with the keyboard for
+ *  the whole animation. */
+const FOLLOW_MS = 600;
 /** iOS scroll-to-dismiss: WebKit defers visualViewport resize events while a
  *  scroll gesture is running, so after the keyboard starts hiding the stale
  *  values would keep `--kb-inset` applied (composer floating mid-screen).
@@ -112,6 +117,9 @@ let dismissProbeTimer: ReturnType<typeof setTimeout> | null = null;
 let closeVerifyTimer: ReturnType<typeof setTimeout> | null = null;
 // Light poll while an editable is focused — see scheduleFocusPoll.
 let focusPollTimer: ReturnType<typeof setTimeout> | null = null;
+// Per-frame geometry follow (see startGeometryFollow).
+let followRaf: number | null = null;
+let followUntil = 0;
 let gestureStart: { x: number; y: number } | null = null;
 let dismissAnimFrame: number | null = null;
 // True while the current touch began on a `[data-kb-locked]` element (a
@@ -202,6 +210,8 @@ export function initMobileKeyboard(): () => void {
     closeVerifyTimer = null;
     if (focusPollTimer) clearTimeout(focusPollTimer);
     focusPollTimer = null;
+    if (followRaf !== null) cancelAnimationFrame(followRaf);
+    followRaf = null;
     if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
     dismissAnimFrame = null;
     gestureStart = null;
@@ -436,6 +446,37 @@ function computeRaw(): MobileKeyboardState {
   };
 }
 
+function writeGeometryVars(next: MobileKeyboardState) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  root.style.setProperty("--app-vh", `${next.viewportHeight}px`);
+  root.style.setProperty("--kb-inset", `${next.keyboardInset}px`);
+}
+
+/**
+ * While the soft keyboard animates, its visual-viewport resize events are
+ * choppy (a handful of steps, not one per frame) — following them directly
+ * makes bottom-anchored bars jerk step-by-step while the keyboard itself
+ * slides smoothly. visualViewport.height is a LIVE property, so this short
+ * per-frame follow after any geometry event reads the keyboard's true
+ * position every frame and glides the layout with it in one continuous
+ * motion — no interpolation lag (the composer is always exactly at the
+ * keyboard top), no event-stepping.
+ */
+function startGeometryFollow() {
+  followUntil = Date.now() + FOLLOW_MS;
+  if (followRaf !== null) return;
+  const step = () => {
+    followRaf = null;
+    if (dismissalActive) return; // the dismissal animation owns the vars
+    writeGeometryVars(computeRaw());
+    if (Date.now() < followUntil) {
+      followRaf = requestAnimationFrame(step);
+    }
+  };
+  followRaf = requestAnimationFrame(step);
+}
+
 function applyState(next: MobileKeyboardState) {
   // The keyboard just opened in THIS transition. The slide-in alignment below
   // must arm once per open, not on every metrics change while open: the
@@ -451,12 +492,13 @@ function applyState(next: MobileKeyboardState) {
     next.isTouch !== state.isTouch;
   state = next;
 
+  writeGeometryVars(next);
   if (typeof document !== "undefined") {
-    const root = document.documentElement;
-    root.style.setProperty("--app-vh", `${next.viewportHeight}px`);
-    root.style.setProperty("--kb-inset", `${next.keyboardInset}px`);
-    root.classList.toggle("kb-open", next.isOpen);
+    document.documentElement.classList.toggle("kb-open", next.isOpen);
   }
+  // Keep the per-frame follow alive — the LIVE viewport keeps gliding after
+  // this event (see startGeometryFollow).
+  startGeometryFollow();
 
   if (!changed) return;
   for (const listener of listeners) listener();
@@ -556,8 +598,10 @@ function handleFocusIn(e: FocusEvent) {
   if (!state.isTouch) return;
   // While an editable is focused, keep re-measuring — a keyboard that opens
   // without visual-viewport events must still be detected (see
-  // scheduleFocusPoll).
+  // scheduleFocusPoll), and the per-frame follow starts gliding the layout
+  // with the LIVE viewport the moment focus lands (see startGeometryFollow).
   scheduleFocusPoll();
+  startGeometryFollow();
   // Focus inside a fixed/sticky bar (pinned wall composer, messenger shell):
   // the bar is already positioned above the keyboard by the app, so the
   // browser's own focus-scroll must not move the page — iOS yanks it (and

@@ -453,18 +453,34 @@ export const MessageList = memo(
       };
     }, []);
 
-    // The keyboard opening shrinks the visible area (the messenger is sized
-    // to --app-vh): re-settle to the true bottom so the newest messages stay
-    // above the keyboard. Never yank a user who scrolled up.
+    // The keyboard opening shrinks the visible area as the panel rises; keep
+    // the newest messages pinned above the composer THROUGHOUT the slide-in —
+    // one continuous glide (each frame re-clamps to the true bottom, which
+    // the shrinking list keeps moving) instead of a single jump after the
+    // keyboard is already up. Never yank a user who scrolled up.
     useEffect(() => {
-      if (!keyboardOpen) return;
-      const timer = window.setTimeout(() => {
-        if (isScrolledUpRef.current) return;
-        shouldAutoScrollRef.current = true;
-        scheduleBottomSettle({ force: false, initialBehavior: "auto" });
-      }, 180);
-      return () => window.clearTimeout(timer);
-    }, [keyboardOpen, scheduleBottomSettle]);
+      if (!keyboardOpen || isScrolledUpRef.current) return;
+      const started = Date.now();
+      const DURATION = 700; // covers the ~250ms keyboard slide + settling
+      let raf = 0;
+      const follow = () => {
+        raf = 0;
+        if (Date.now() - started > DURATION) return;
+        const el = scrollerElRef.current;
+        if (!el) return;
+        // The user scrolled away mid-slide — stop following them.
+        if (isScrolledUpRef.current || !shouldAutoScrollRef.current) return;
+        const top = getMaxScrollTop(el.scrollHeight, el.clientHeight);
+        if (!isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 2)) {
+          el.scrollTo({ top, behavior: "auto" });
+        }
+        raf = requestAnimationFrame(follow);
+      };
+      raf = requestAnimationFrame(follow);
+      return () => {
+        if (raf) cancelAnimationFrame(raf);
+      };
+    }, [keyboardOpen]);
 
     // ── Swipe-back gesture (mobile only) ───────────────────────────────
     const swipeBackBind = useDrag(
