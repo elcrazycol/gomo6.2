@@ -4,6 +4,7 @@ import { GomoRichEditor, Toolbar, type GomoRichEditorHandle } from "@/components
 import { EmojiPicker } from "@/components/EmojiPicker";
 
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import { isEditableElement } from "@/lib/mobileKeyboard";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import {
@@ -117,6 +118,13 @@ export const MessageComposer = memo(function MessageComposer({
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const emojiSwap = useEmojiKeyboardSwap(editorRef);
+  const { isTouch, isOpen: keyboardOpen } = useMobileKeyboard();
+  const isTouchRef = useRef(isTouch);
+  isTouchRef.current = isTouch;
+  const keyboardOpenRef = useRef(keyboardOpen);
+  keyboardOpenRef.current = keyboardOpen;
+  const emojiOpenRef = useRef(emojiSwap.open);
+  emojiOpenRef.current = emojiSwap.open;
 
   const [expanded, setExpanded] = useState(false);
   const [fullMode, setFullMode] = useState(false);
@@ -393,6 +401,203 @@ export const MessageComposer = memo(function MessageComposer({
     return cleanup;
   }, [emojiSwap.open, emojiSwap.height]);
 
+  // ── Keyboard pinning (wall-comments mechanism) ────────────────────────────
+  // The whole chat panel used to lift by --kb-inset, which reflowed the
+  // message list (header/content jump) and was unreliable on some devices
+  // (the pill ended up under the keyboard). Instead the composer bar itself
+  // pins position:fixed above the keyboard exactly like WallCommentTree:
+  //  • applyPin runs SYNCHRONOUSLY on focus — the bar is fixed before iOS can
+  //    focus-scroll it, and at that moment --kb-inset is still 0, so the pin
+  //    lands exactly where the bar already is (zero visual change);
+  //  • as the keyboard slides up, bottom:--kb-inset rides the bar up with it;
+  //  • while the emoji swap panel is open it replaces the keyboard at the
+  //    same height (bottom:--emoji-panel-h wins), so the bar stays glued to
+  //    its top edge;
+  //  • the messages area reserves the bar's space via --composer-pinned-h
+  //    (ResizeObserver) + the keyboard height, so the last message always
+  //    scrolls to just above the bar.
+  const applyPin = useCallback(() => {
+    const anchor = rootRef.current;
+    if (!anchor || !isTouchRef.current) return;
+    // Measure the in-flow geometry BEFORE switching to fixed: a fixed element
+    // measures against the viewport, so mirroring the same rect keeps the bar
+    // pixel-aligned with the chat column.
+    const rect = anchor.getBoundingClientRect();
+    anchor.classList.add("composer-pinned");
+    anchor.setAttribute("data-kb-locked", "true");
+    anchor.style.left = `${rect.left}px`;
+    anchor.style.width = `${rect.width}px`;
+    // Reserve the bar's space in the messages list right away — a
+    // ResizeObserver would not fire here (the bar's size does not change when
+    // it switches to fixed), so without this the last messages would slide
+    // under the pinned bar for a frame.
+    const chatPanel = anchor.closest<HTMLElement>(".chat-panel");
+    if (chatPanel) chatPanel.style.setProperty("--composer-pinned-h", `${anchor.offsetHeight}px`);
+  }, []);
+
+  const clearPin = useCallback(() => {
+    const anchor = rootRef.current;
+    if (!anchor) return;
+    anchor.classList.remove("composer-pinned");
+    anchor.removeAttribute("data-kb-locked");
+    anchor.style.left = "";
+    anchor.style.width = "";
+    const chatPanel = anchor.closest<HTMLElement>(".chat-panel");
+    if (chatPanel) chatPanel.style.removeProperty("--composer-pinned-h");
+  }, []);
+
+  // Pin while the composer's own editor owns focus; release only when the
+  // focus truly left AND the keyboard is gone AND no swap panel is up.
+  useEffect(() => {
+    const anchor = rootRef.current;
+    if (!anchor) return;
+
+    const onFocusIn = (e: FocusEvent) => {
+      if (!anchor.contains(e.target as Node)) return;
+      if (!isEditableElement(e.target as HTMLElement | null)) return;
+      applyPin();
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      const related = e.relatedTarget as HTMLElement | null;
+      if (related && anchor.contains(related)) return;
+      if (!keyboardOpenRef.current && !emojiOpenRef.current) clearPin();
+    };
+    // Another editable anywhere took the keyboard — hand the pin over.
+    const onDocFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || !isEditableElement(target) || anchor.contains(target)) return;
+      if (!emojiOpenRef.current) clearPin();
+    };
+
+    anchor.addEventListener("focusin", onFocusIn);
+    anchor.addEventListener("focusout", onFocusOut);
+    document.addEventListener("focusin", onDocFocusIn);
+
+    // Editor already focused at mount (autoFocus / restore) — pin right away.
+    if (
+      isTouchRef.current
+      && anchor.contains(document.activeElement)
+      && isEditableElement(document.activeElement)
+    ) {
+      applyPin();
+    }
+
+    return () => {
+      anchor.removeEventListener("focusin", onFocusIn);
+      anchor.removeEventListener("focusout", onFocusOut);
+      document.removeEventListener("focusin", onDocFocusIn);
+    };
+  }, [applyPin, clearPin]);
+
+  // The swap panel replaces the keyboard → keep the bar pinned at the panel's
+  // height for as long as it is up (the editor is blurred by the swap, so the
+  // focus listeners alone would release it and the panel would cover the pill).
+  //
+  // On close WITHOUT refocus (outside tap / Escape) the panel slides down over
+  // ~240ms; the pill must ride that descent (--emoji-panel-h glides to 0), so
+  // the pin is released only after the glide finishes — otherwise the bar
+  // teleports to the bottom while the departing panel is still over it.
+  const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (emojiSwap.open) {
+      if (emojiCloseTimerRef.current) {
+        clearTimeout(emojiCloseTimerRef.current);
+        emojiCloseTimerRef.current = null;
+      }
+      applyPin();
+    } else {
+      const active = document.activeElement;
+      const editorFocused =
+        active instanceof HTMLElement
+        && !!rootRef.current?.contains(active)
+        && isEditableElement(active);
+      if (editorFocused) {
+        if (emojiCloseTimerRef.current) {
+          clearTimeout(emojiCloseTimerRef.current);
+          emojiCloseTimerRef.current = null;
+        }
+        return; // keyboard coming back — the --emoji-panel-h handoff keeps the pin
+      }
+      if (emojiCloseTimerRef.current) return;
+      // The panel's exit slide takes ~240ms, and the --emoji-panel-h glide only
+      // starts after a ~150ms settle — release the pin only once both are done
+      // (the bar rode the panel to the bottom; unpinning then is invisible).
+      emojiCloseTimerRef.current = setTimeout(() => {
+        emojiCloseTimerRef.current = null;
+        // Re-check: the user may have refocused the editor while we waited.
+        const nowActive = document.activeElement;
+        const nowFocused =
+          nowActive instanceof HTMLElement
+          && !!rootRef.current?.contains(nowActive)
+          && isEditableElement(nowActive);
+        if (!nowFocused && !emojiSwap.open) clearPin();
+      }, 430);
+    }
+  }, [emojiSwap.open, applyPin, clearPin]);
+
+  useEffect(() => () => {
+    if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current);
+  }, []);
+
+  // Release once the keyboard has fully closed and focus left the bar (the
+  // pin bottom follows --kb-inset down during the dismissal, so the bar rides
+  // the keyboard to the bottom and only then returns to the flow).
+  const prevKeyboardOpenRef = useRef(keyboardOpen);
+  useEffect(() => {
+    const wasOpen = prevKeyboardOpenRef.current;
+    prevKeyboardOpenRef.current = keyboardOpen;
+    if (!wasOpen || keyboardOpen) return;
+    if (emojiOpenRef.current) return;
+    if (rootRef.current?.contains(document.activeElement)) return;
+    clearPin();
+  }, [keyboardOpen, clearPin]);
+
+  // While pinned, keep the bar aligned with the chat column when the viewport
+  // changes (orientation, URL bar, rotation).
+  useEffect(() => {
+    if (!isTouch) return;
+    const realign = () => {
+      const anchor = rootRef.current;
+      const chatPanel = anchor?.closest<HTMLElement>(".chat-panel");
+      if (!anchor || !chatPanel || !anchor.classList.contains("composer-pinned")) return;
+      const rect = chatPanel.getBoundingClientRect();
+      anchor.style.left = `${rect.left}px`;
+      anchor.style.width = `${rect.width}px`;
+    };
+    window.addEventListener("resize", realign);
+    window.addEventListener("orientationchange", realign);
+    window.visualViewport?.addEventListener("resize", realign);
+    return () => {
+      window.removeEventListener("resize", realign);
+      window.removeEventListener("orientationchange", realign);
+      window.visualViewport?.removeEventListener("resize", realign);
+    };
+  }, [isTouch]);
+
+  // Reserve the bar's space in the message list while pinned: publish its
+  // height as --composer-pinned-h on the chat panel (the messages area pads
+  // itself by that + the keyboard height), updated live as the bar grows
+  // (banners, attachments, full-mode editor).
+  useEffect(() => {
+    const anchor = rootRef.current;
+    const chatPanel = anchor?.closest<HTMLElement>(".chat-panel");
+    if (!anchor || !chatPanel) return;
+    const updatePad = () => {
+      if (anchor.classList.contains("composer-pinned")) {
+        chatPanel.style.setProperty("--composer-pinned-h", `${anchor.offsetHeight}px`);
+      } else {
+        chatPanel.style.removeProperty("--composer-pinned-h");
+      }
+    };
+    updatePad();
+    const ro = new ResizeObserver(updatePad);
+    ro.observe(anchor);
+    return () => {
+      ro.disconnect();
+      chatPanel.style.removeProperty("--composer-pinned-h");
+    };
+  }, []);
+
   // ── Expand / collapse ──────────────────────────────────────────────────────
   const requestCollapse = useCallback(() => {
     if (
@@ -512,6 +717,7 @@ export const MessageComposer = memo(function MessageComposer({
             type="button"
             className="composer-panel-toggle"
             onClick={closeFullMode}
+            onMouseDown={(e) => e.preventDefault()}
             aria-label="Свернуть компоузер"
             title="Свернуть"
           >
@@ -538,6 +744,7 @@ export const MessageComposer = memo(function MessageComposer({
               type="button"
               className="composer-attach-btn"
               onClick={() => fileInputRef.current?.click()}
+              onMouseDown={(e) => e.preventDefault()}
               aria-label="Прикрепить файл"
             >
               <Paperclip size={18} />
@@ -548,6 +755,7 @@ export const MessageComposer = memo(function MessageComposer({
             type="button"
             className="composer-expand-btn"
             onClick={openFullMode}
+            onMouseDown={(e) => e.preventDefault()}
             aria-label="Развернуть компоузер"
             title="Развернуть"
           >

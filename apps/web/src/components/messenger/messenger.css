@@ -762,6 +762,12 @@ main.is-messenger-page {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  /* While the composer is pinned (position:fixed) it leaves the grid, so the
+     messages row expands to the panel bottom; reserve its space (composer
+     height + keyboard/emoji-panel height) so the last message scrolls to just
+     above the bar. All vars are 0/unset when idle, so desktop and closed
+     states keep the natural padding. */
+  padding-bottom: calc(var(--composer-pinned-h, 0px) + var(--emoji-panel-h, var(--kb-inset, 0px)));
 }
 
 .chat-messages-area > .message-scroll-wrap {
@@ -1689,6 +1695,33 @@ main.is-messenger-page {
   box-shadow: 0 -4px 16px -4px rgba(0, 0, 0, 0.04);
 }
 
+/* ── Composer pinned above the keyboard (wall-comments mechanism) ────────────
+
+   The moment the editor is focused on a touch device, MessageComposer pins the
+   composer bar itself as position:fixed — NOT the whole chat panel (lifting
+   the panel reflowed the header/messages, the "everything jumps" bug, and was
+   unreliable on some devices: the pill landed under the keyboard). The bar
+   floats exactly above the keyboard like WallCommentTree:
+
+    • bottom:--emoji-panel-h wins while the keyboard-swap panel is open (it
+      replaces the keyboard at the same height — the pill stays glued to the
+      panel's top edge);
+    • otherwise bottom:--kb-inset rides the bar up as the keyboard slides in;
+    • left/width are mirrored from the chat column via inline styles (never
+      set here — an !important left would override them and pin the bar to the
+      screen edge);
+    • the messages area reserves the bar's space via --composer-pinned-h
+      (published by a ResizeObserver) + the keyboard height, so the last
+      message always scrolls to just above the bar. */
+.composer-pinned {
+  position: fixed !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: var(--emoji-panel-h, var(--kb-inset, 0px)) !important;
+  z-index: 40 !important;
+  margin: 0 !important;
+}
+
 .composer-row {
   display: flex;
   align-items: flex-end;
@@ -1902,6 +1935,16 @@ main.is-messenger-page {
 
 /* ── Emoji trigger — transparent circle inside the pill (right), sized a bit
    above the 14px text and vertically centered on it via the pill's flex ── */
+
+/* The EmojiPicker trigger is a bare role=button div wrapping the circle; make
+   it a flex container so the button is truly centered on the pill's text line
+   (a block div would baseline-align the inline-flex button a couple px high). */
+.composer-input-pill > div[role="button"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
 
 .composer-emoji-btn {
   display: inline-flex;
@@ -2500,7 +2543,9 @@ main.is-messenger-page {
 
 .scroll-to-bottom-btn {
   position: absolute;
-  bottom: 12px;
+  /* Float above the pinned composer while it rides the keyboard/emoji panel
+     (same vars as the messages-area pad; 0 when idle → the usual 12px). */
+  bottom: calc(12px + var(--composer-pinned-h, 0px) + var(--emoji-panel-h, var(--kb-inset, 0px)));
   right: 18px;
   display: inline-flex;
   align-items: center;
@@ -2825,17 +2870,6 @@ main.is-messenger-page {
   }
 }
 
-/* Touch tablets wider than the mobile breakpoint: the chat panel is a normal
-   grid item there (no fixed bottom lift), so while the emoji keyboard-swap
-   panel is open the whole panel floats up by its height instead — the pill
-   stays above the panel at every screen width. On desktop mouse the var is
-   never set, so the margin stays 0. */
-@media (min-width: 981px) {
-  .chat-panel {
-    margin-bottom: var(--emoji-panel-h, 0px);
-  }
-}
-
 @media (max-width: 980px) {
   .messenger-app {
     position: fixed;
@@ -2868,15 +2902,11 @@ main.is-messenger-page {
   .chat-panel {
     position: fixed;
     inset: 0;
-    /* Bottom edge sits exactly on top of the keyboard when it opens (iOS).
-       On Android with interactive-widget=resizes-content --kb-inset is 0 and
-       the shrunk layout viewport already handles it. While the emoji
-       keyboard-swap panel is open it replaces the keyboard, so the composer
-       must float at the PANEL's height instead: MessageComposer publishes
-       --emoji-panel-h on this element (≈ the keyboard height the panel
-       occupies), which wins over --kb-inset (0 the moment the keyboard
-       hides) — the pill stays exactly above the panel like on the wall. */
-    bottom: var(--emoji-panel-h, var(--kb-inset, 0px));
+    /* The panel itself never lifts — MessageComposer pins the composer bar
+       (composer-pinned, position:fixed) above the keyboard / emoji swap panel
+       instead, like the wall comments. Lifting the whole panel reflowed the
+       header + messages (visible jump) and was unreliable on some devices
+       (the pill landed under the keyboard). */
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
