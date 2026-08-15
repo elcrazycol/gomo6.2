@@ -121,6 +121,46 @@ export const MessageComposer = memo(function MessageComposer({
   const keyboardInsetRef = useRef(keyboardInset);
   keyboardInsetRef.current = keyboardInset;
 
+  // ── Fake focus while the emoji panel replaces the keyboard ────────────────
+  // The swap blurs the editor (focus would summon the keyboard back over the
+  // panel), so the pill would lose its focus highlight and the caret would
+  // vanish. ProseMirror keeps the selection in its state, so while the panel
+  // is up we render a fake caret at the preserved position and keep the pill
+  // styled as focused — it reads as the composer still being active.
+  const pillRef = useRef<HTMLDivElement>(null);
+  const [fakeCaret, setFakeCaret] = useState<{ left: number; top: number; height: number } | null>(null);
+
+  useEffect(() => {
+    if (!emojiSwap.open) {
+      setFakeCaret(null);
+      return;
+    }
+    const editor = editorRef.current?.getEditor();
+    const pill = pillRef.current;
+    if (!editor || !pill || !editor.state || !editor.view) return;
+    const measure = () => {
+      if (editor.isDestroyed) return;
+      const sel = editor.state.selection;
+      if (!sel.empty) return; // a text selection — nothing to fake
+      const coords = editor.view.coordsAtPos(sel.from);
+      if (!coords || (coords.left === 0 && coords.top === 0)) return;
+      const rect = pill.getBoundingClientRect();
+      setFakeCaret({
+        left: coords.left - rect.left,
+        top: coords.top - rect.top,
+        height: Math.max(2, coords.bottom - coords.top),
+      });
+    };
+    measure();
+    // Emoji inserts (and any selection movement) land while the panel is up —
+    // keep the caret following the text.
+    if (typeof editor.on !== "function") return;
+    editor.on("transaction", measure);
+    return () => {
+      editor.off?.("transaction", measure);
+    };
+  }, [emojiSwap.open]);
+
   const [expanded, setExpanded] = useState(false);
   const [fullMode, setFullMode] = useState(false);
   // While the formatting panel is closing it stays mounted (with the exit
@@ -453,7 +493,7 @@ export const MessageComposer = memo(function MessageComposer({
   return (
     <div
       ref={rootRef}
-      className={`composer${isSending ? " is-sending" : ""}${isExpanded ? " is-expanded" : ""}${fullMode ? " is-full" : ""}`}
+      className={`composer${isSending ? " is-sending" : ""}${isExpanded ? " is-expanded" : ""}${fullMode ? " is-full" : ""}${emojiSwap.open ? " is-emoji-open" : ""}`}
       onPointerDownCapture={() => {
         lastComposerPointerRef.current = Date.now();
       }}
@@ -571,6 +611,7 @@ export const MessageComposer = memo(function MessageComposer({
 
         {/* The input pill — emoji trigger lives inside it (right side) */}
         <div
+          ref={pillRef}
           className="composer-input-pill"
           onFocusCapture={() => setExpanded(true)}
           onBlur={handleComposerBlur}
@@ -600,6 +641,16 @@ export const MessageComposer = memo(function MessageComposer({
               showToolbar={false}
             />
           </div>
+
+          {/* Fake caret while the emoji panel is up — the editor is blurred,
+              but the composer must look like it is still focused. */}
+          {fakeCaret && (
+            <span
+              className="composer-fake-caret"
+              style={{ left: fakeCaret.left, top: fakeCaret.top, height: fakeCaret.height }}
+              aria-hidden="true"
+            />
+          )}
 
           {/* Emoji — transparent circle inside the pill, vertically centered
               on the text line (wall-post behaviour: keyboard swap on touch,

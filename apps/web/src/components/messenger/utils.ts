@@ -3,6 +3,26 @@ export const formatTime = (dateStr: string | null): string => {
   return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
 };
 
+const READ_DATE_FORMAT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" });
+const READ_TIME_FORMAT = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+/**
+ * When a message was read: «Сегодня в 14:32», «Вчера в 23:10» or
+ * «12.08 в 10:15». Used by the message action panel.
+ */
+export const formatReadAt = (dateStr: string | null): string => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = READ_TIME_FORMAT.format(d);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return `Сегодня в ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `Вчера в ${time}`;
+  return `${READ_DATE_FORMAT.format(d)} в ${time}`;
+};
+
 export const formatConversationDate = (dateStr: string | null): string => {
   if (!dateStr) return "";
   const d = new Date(dateStr);

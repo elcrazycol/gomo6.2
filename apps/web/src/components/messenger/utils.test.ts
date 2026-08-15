@@ -3,6 +3,7 @@ import {
   formatTime,
   formatConversationDate,
   formatPresence,
+  formatReadAt,
   getInitials,
 } from "./utils";
 
@@ -40,6 +41,30 @@ describe("utils", () => {
 
     it("returns empty string for null", () => {
       expect(formatConversationDate(null)).toBe("");
+    });
+  });
+
+  describe("formatReadAt", () => {
+    it("returns 'Сегодня в HH:MM' for today", () => {
+      const today = new Date().toISOString();
+      const result = formatReadAt(today);
+      expect(result).toMatch(/^Сегодня в \d{2}:\d{2}$/);
+    });
+
+    it("returns 'Вчера в HH:MM' for yesterday", () => {
+      const yesterday = new Date(Date.now() - 86400000).toISOString();
+      const result = formatReadAt(yesterday);
+      expect(result).toMatch(/^Вчера в \d{2}:\d{2}$/);
+    });
+
+    it("returns 'DD.MM в HH:MM' for older dates", () => {
+      const result = formatReadAt("2025-01-05T10:15:00Z");
+      expect(result).toMatch(/^\d{2}\.\d{2} в \d{2}:\d{2}$/);
+    });
+
+    it("returns empty string for null or invalid", () => {
+      expect(formatReadAt(null)).toBe("");
+      expect(formatReadAt("not-a-date")).toBe("");
     });
   });
 

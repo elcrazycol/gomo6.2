@@ -122,19 +122,20 @@ const EmojiNodeView = ({ node, editor, getPos }: NodeViewProps) => {
   if (emoji && emojiId) {
     const url = storageUrl('emojis', emoji.image_url);
     // The wrapper must stay a leaf: no inner span with text, otherwise the
-    // caret lands inside the node and cannot render. Baseline alignment
-    // keeps the image inside the text line box.
+    // caret lands inside the node and cannot render. The image is centered
+    // on the text line (middle, not baseline) so emojis sit WITH the letters
+    // instead of floating above them.
     return (
       <NodeViewWrapper
         ref={wrapperRef}
         as="span"
-        style={{ display: 'inline-block', verticalAlign: 'baseline', margin: '0 0.1em' }}
+        style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 0.1em' }}
         contentEditable={false}
       >
         <img
           src={url}
           alt={emoji.name}
-          style={{ height: '1em', width: 'auto', verticalAlign: 'baseline' }}
+          style={{ height: '1em', width: 'auto', display: 'block' }}
           draggable={false}
         />
       </NodeViewWrapper>
@@ -145,11 +146,11 @@ const EmojiNodeView = ({ node, editor, getPos }: NodeViewProps) => {
     <NodeViewWrapper
       ref={wrapperRef}
       as="span"
-      style={{ display: 'inline-block', verticalAlign: 'baseline', margin: '0 0.1em' }}
+      style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 0.1em' }}
       contentEditable={false}
       aria-label={fallback || 'Кастомный эмодзи'}
     >
-      {fallback || <span style={{ display: 'inline-block', width: '1em', height: '1em', background: 'rgba(128,128,128,0.2)', borderRadius: '2px', verticalAlign: 'baseline' }} />}
+      {fallback || <span style={{ display: 'inline-block', width: '1em', height: '1em', background: 'rgba(128,128,128,0.2)', borderRadius: '2px', verticalAlign: 'middle' }} />}
     </NodeViewWrapper>
   );
 };
