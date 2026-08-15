@@ -3053,12 +3053,6 @@ main.is-messenger-page {
     padding: 8px 10px;
   }
 
-  .composer textarea {
-    min-height: 38px;
-    padding: 8px 10px;
-    font-size: 13px;
-  }
-
   .send-button {
     width: 38px;
     height: 38px;
