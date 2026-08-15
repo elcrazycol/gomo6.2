@@ -1284,7 +1284,7 @@ const Profile = () => {
           {/* Profile content */}
           {friendshipLoaded && (<>
           {cardVariantActive ? (
-            <div className="relative overflow-hidden rounded-2xl border border-border">
+            <div className="relative overflow-hidden">
               <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url("${bgUrl}")` }} />
               <div className="absolute inset-0 bg-black/25" />
               <div className="relative z-10 space-y-4 p-4 sm:p-5">
