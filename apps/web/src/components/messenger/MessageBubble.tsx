@@ -1,7 +1,7 @@
 import { memo, useCallback, useLayoutEffect, useState, useRef } from "react";
 import { useDrag } from "@use-gesture/react";
-import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags } from "lucide-react";
-import { formatTime } from "./utils";
+import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck } from "lucide-react";
+import { formatTime, formatReadAt } from "./utils";
 import { MessageContent } from "./MessageContent";
 import { messengerPlainPreview } from "./messengerRichTextUtils";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -358,6 +358,19 @@ export const MessageBubble = memo(function MessageBubble({
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => onNotesOrganize?.(message)}>
                   <Tags size={14} /><span>Папка и теги…</span>
+                </ContextMenuItem>
+              </>
+            )}
+            {/* When the interlocutor read this message — an informational
+                item, separate from the actions, with the exact time. */}
+            {isMine && peerReadAt && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled
+                  className="msg-context-item-read cursor-default data-[disabled]:opacity-100"
+                >
+                  <CheckCheck size={14} /><span>Прочитано: {formatReadAt(peerReadAt)}</span>
                 </ContextMenuItem>
               </>
             )}

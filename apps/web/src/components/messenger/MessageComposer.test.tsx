@@ -10,6 +10,8 @@ const editorSpies = vi.hoisted(() => ({
   insertEmojiOpts: [] as any[],
   focusCalls: [] as boolean[],
   toolbarVisibility: [] as boolean[],
+  // Mutable so a test can attach a fake state/view/on/off for the caret.
+  mockEditor: { isActive: () => false } as any,
 }));
 
 const makeDoc = (value: string) => ({
@@ -20,7 +22,7 @@ const makeDoc = (value: string) => ({
 vi.mock("@/components/GomoRichEditor", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require("react");
-  const mockEditor = { isActive: () => false };
+  const mockEditor = editorSpies.mockEditor;
   return {
     GomoRichEditor: React.forwardRef(
       (
@@ -192,6 +194,11 @@ describe("MessageComposer", () => {
     mockEmojiSwap.open = false;
     mockEmojiSwap.isTouch = false;
     mockMobileKeyboard.keyboardInset = 0;
+    delete editorSpies.mockEditor.state;
+    delete editorSpies.mockEditor.view;
+    delete editorSpies.mockEditor.on;
+    delete editorSpies.mockEditor.off;
+    delete editorSpies.mockEditor.isDestroyed;
   });
 
   afterEach(() => {
@@ -463,6 +470,40 @@ describe("MessageComposer", () => {
         </div>,
       );
       await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px"));
+    });
+
+    it("shows a fake caret at the preserved selection while the panel is open", () => {
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      const editor = editorSpies.mockEditor;
+      editor.state = { selection: { empty: true, from: 5 } };
+      editor.view = { coordsAtPos: () => ({ left: 210, top: 300, bottom: 330, right: 212 }) };
+      editor.isDestroyed = false;
+      editor.on = vi.fn();
+      editor.off = vi.fn();
+
+      const { container } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft="Привет"
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+
+      // jsdom rects are all zero, so the caret lands at the raw coords.
+      const caret = container.querySelector(".composer-fake-caret") as HTMLElement;
+      expect(caret).not.toBeNull();
+      expect(caret.style.left).toBe("210px");
+      expect(caret.style.top).toBe("300px");
+      expect(caret.style.height).toBe("30px");
+      // The composer reads as focused while the panel is up.
+      expect(container.querySelector(".composer")).toHaveClass("is-emoji-open");
+      // The caret follows emoji inserts — the subscription is registered.
+      expect(editor.on).toHaveBeenCalledWith("transaction", expect.any(Function));
     });
   });
 
