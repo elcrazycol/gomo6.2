@@ -134,10 +134,14 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 // @Router       /profiles [get]
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
-		SELECT id, username, display_name, nickname_emoji_id, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, wall_post_count, comment_count, likes_received_count, likes_given_count, views_received_count,
-		       is_online, last_seen_at, created_at, is_remote, is_anonymous
-		FROM users
+		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.bio, u.bio_json, u.garma, u.post_count,
+		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
+		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,
+		       COALESCE(pc.background_url, '') AS background_url,
+		       COALESCE(pc.theme_enabled, false) AS theme_enabled,
+		       COALESCE(pc.theme_tokens, '{}') AS theme_tokens
+		FROM users u
+		LEFT JOIN profile_customization pc ON pc.user_id = u.id
 	`
 
 	var args []interface{}
@@ -146,9 +150,11 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	// Handle id filter
 	if id := c.Query("id"); id != "" {
 		// Support filters: eq.<uuid> and in.(uuid1,uuid2)
+		// The SELECT joins profile_customization (which also has an id column),
+		// so every filter must be qualified with the u. alias.
 		if strings.HasPrefix(id, "eq.") {
 			id = id[3:]
-			conditions = append(conditions, "id = $"+strconv.Itoa(len(args)+1))
+			conditions = append(conditions, "u.id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, id)
 		} else if strings.HasPrefix(id, "in.(") && strings.HasSuffix(id, ")") {
 			rawIDs := strings.TrimSuffix(strings.TrimPrefix(id, "in.("), ")")
@@ -159,9 +165,9 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 				placeholders[i] = "$" + strconv.Itoa(baseIndex+i+1)
 				args = append(args, strings.TrimSpace(ids[i]))
 			}
-			conditions = append(conditions, "id IN ("+strings.Join(placeholders, ",")+")")
+			conditions = append(conditions, "u.id IN ("+strings.Join(placeholders, ",")+")")
 		} else {
-			conditions = append(conditions, "id = $"+strconv.Itoa(len(args)+1))
+			conditions = append(conditions, "u.id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, id)
 		}
 	}
@@ -169,14 +175,14 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	// Handle username filter
 	if username := c.Query("username"); username != "" {
 		username = strings.TrimPrefix(username, "eq.")
-		conditions = append(conditions, "username = $"+strconv.Itoa(len(args)+1))
+		conditions = append(conditions, "u.username = $"+strconv.Itoa(len(args)+1))
 		args = append(args, username)
 	}
 
 	// Handle domain filter
 	if domain := c.Query("domain"); domain != "" {
 		domain = strings.TrimPrefix(domain, "eq.")
-		conditions = append(conditions, "domain = $"+strconv.Itoa(len(args)+1))
+		conditions = append(conditions, "u.domain = $"+strconv.Itoa(len(args)+1))
 		args = append(args, domain)
 	}
 
@@ -234,12 +240,17 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	for rows.Next() {
 		var profile models.User
 		var bioJSON sql.NullString
+		var backgroundURL sql.NullString
+		var themeTokensJSON sql.NullString
 		err := rows.Scan(
 			&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 			&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 			&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 			&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 			&profile.IsRemote, &profile.IsAnonymous,
+			&backgroundURL,
+			&profile.ThemeEnabled,
+			&themeTokensJSON,
 		)
 		if err != nil {
 			serverError(c, "handler error", err)
@@ -247,6 +258,27 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		}
 		if bioJSON.Valid && len(bioJSON.String) > 0 {
 			profile.BioJSON = json.RawMessage([]byte(bioJSON.String))
+		}
+		// L6: only sanitized storage keys ever reach the client — legacy or
+		// forged rows are neutralized before they render as an <img> src.
+		if backgroundURL.Valid && backgroundURL.String != "" {
+			sanitized := sanitizeProfileBackgroundURL(backgroundURL.String)
+			if sanitized != "" {
+				profile.BackgroundURL = &sanitized
+			}
+		}
+		// Auto-theme: sanitize the token payload before it can be applied as
+		// CSS variables on a viewer's screen (allow-listed --* keys + HSL).
+		if themeTokensJSON.Valid && themeTokensJSON.String != "" && themeTokensJSON.String != "{}" {
+			var raw map[string]interface{}
+			if err := json.Unmarshal([]byte(themeTokensJSON.String), &raw); err == nil {
+				sanitized := sanitizeProfileThemeTokens(raw)
+				if len(sanitized) > 0 {
+					if b, err := json.Marshal(sanitized); err == nil {
+						profile.ThemeTokens = b
+					}
+				}
+			}
 		}
 		profiles = append(profiles, profile)
 	}
@@ -271,6 +303,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		if shouldFilter {
 			if ps.PrivateHideAvatar {
 				profiles[i].AvatarURL = nil
+				profiles[i].BackgroundURL = nil
 			}
 			profiles[i].Bio = nil
 			profiles[i].BioJSON = nil
@@ -297,6 +330,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 				}
 				if ps.PrivateHideAvatar && !isFriend {
 					profiles[i].AvatarURL = nil
+					profiles[i].BackgroundURL = nil
 				}
 				if ps.PrivateHideStats && !isFriend {
 					profiles[i].Garma = nil
@@ -334,21 +368,30 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	}
 
 	query := `
-		SELECT id, username, display_name, nickname_emoji_id, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, wall_post_count, comment_count, likes_received_count, likes_given_count, views_received_count,
-		       is_online, last_seen_at, created_at, is_remote, is_anonymous
-		FROM users
-		WHERE id = $1
+		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.bio, u.bio_json, u.garma, u.post_count,
+		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
+		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,
+		       COALESCE(pc.background_url, '') AS background_url,
+		       COALESCE(pc.theme_enabled, false) AS theme_enabled,
+		       COALESCE(pc.theme_tokens, '{}') AS theme_tokens
+		FROM users u
+		LEFT JOIN profile_customization pc ON pc.user_id = u.id
+		WHERE u.id = $1
 	`
 
 	var profile models.User
 	var bioJSON sql.NullString
+	var backgroundURL sql.NullString
+	var themeTokensJSON sql.NullString
 	err := h.db.QueryRow(query, id).Scan(
 		&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 		&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 		&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 		&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 		&profile.IsRemote, &profile.IsAnonymous,
+		&backgroundURL,
+		&profile.ThemeEnabled,
+		&themeTokensJSON,
 	)
 
 	if err != nil {
@@ -362,6 +405,26 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 
 	if bioJSON.Valid && len(bioJSON.String) > 0 {
 		profile.BioJSON = json.RawMessage([]byte(bioJSON.String))
+	}
+	// L6: see GetProfiles — only sanitized storage keys reach the client.
+	if backgroundURL.Valid && backgroundURL.String != "" {
+		sanitized := sanitizeProfileBackgroundURL(backgroundURL.String)
+		if sanitized != "" {
+			profile.BackgroundURL = &sanitized
+		}
+	}
+	// Auto-theme: sanitize the token payload before it can be applied as CSS
+	// variables on a viewer's screen (allow-listed --* keys + HSL).
+	if themeTokensJSON.Valid && themeTokensJSON.String != "" && themeTokensJSON.String != "{}" {
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(themeTokensJSON.String), &raw); err == nil {
+			sanitized := sanitizeProfileThemeTokens(raw)
+			if len(sanitized) > 0 {
+				if b, err := json.Marshal(sanitized); err == nil {
+					profile.ThemeTokens = b
+				}
+			}
+		}
 	}
 
 	// Private profile: strip sensitive fields for non-friends
@@ -379,6 +442,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	if err == nil && shouldFilter {
 		if ps.PrivateHideAvatar {
 			profile.AvatarURL = nil
+			profile.BackgroundURL = nil
 		}
 		profile.Bio = nil
 		profile.BioJSON = nil
@@ -402,6 +466,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 			}
 			if ps.PrivateHideAvatar && !isFriend {
 				profile.AvatarURL = nil
+				profile.BackgroundURL = nil
 			}
 			if ps.PrivateHideStats && !isFriend {
 				profile.Garma = nil

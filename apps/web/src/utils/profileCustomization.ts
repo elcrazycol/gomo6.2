@@ -4,6 +4,7 @@ export interface ProfileCustomization {
   username_css: string | null;
   profile_badge_text: string | null;
   profile_badge_css: string | null;
+  background_url: string | null;
 }
 
 const customizationCache = new Map<string, ProfileCustomization | null>();

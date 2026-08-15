@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,6 +24,43 @@ const maxProfileCSSLen = 4096
 // maxProfileBadgeTextLen caps the badge text server-side (the in-app editor
 // already limits it to 20 characters).
 const maxProfileBadgeTextLen = 60
+
+// maxProfileBackgroundURLLen caps the raw length of a profile background
+// storage key before validation.
+const maxProfileBackgroundURLLen = 512
+
+// safeStorageKeyRE matches storage keys as uploaded by the storage API:
+// <user-id>/<filename> with slug-ish names and dot extensions.
+var safeStorageKeyRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.\-/]*$`)
+
+// sanitizeProfileBackgroundURL validates that a profile background value is a
+// bare relative storage key (e.g. "<uuid>/background_123.webp"). Absolute
+// URLs (http/https/data:, protocol-relative, control characters, path
+// traversal) are rejected — the image is always served from our own storage —
+// because a stored absolute URL would turn into an <img> src pointing
+// anywhere (tracking pixels, phishing, content injection) on every viewer's
+// screen. Applied on write AND read so legacy or forged rows never render.
+func sanitizeProfileBackgroundURL(s string) string {
+	if s == "" {
+		return ""
+	}
+	if len(s) > maxProfileBackgroundURLLen {
+		s = s[:maxProfileBackgroundURLLen]
+	}
+	// Whitespace and quotes can smuggle URL schemes or attributes.
+	if strings.ContainsAny(s, " \t\n\r\f\"'<>`") {
+		return ""
+	}
+	// Absolute / protocol-relative URLs and data: URIs are never admitted.
+	if strings.Contains(s, "://") || strings.HasPrefix(s, "//") || strings.HasPrefix(s, "data:") {
+		return ""
+	}
+	// Path traversal and anything outside the safe character set.
+	if strings.Contains(s, "..") || !safeStorageKeyRE.MatchString(s) {
+		return ""
+	}
+	return s
+}
 
 // allowedProfileCSSProps is the server-side allow-list of CSS properties.
 // Anything that could overlay the page (position, z-index, transform, float),
@@ -250,6 +288,98 @@ func isBidiControlRune(r rune) bool {
 	return false
 }
 
+// allowedThemeTokenVars is the allow-list of CSS variables a profile auto-
+// theme may override. It mirrors the tokens the frontend theme system emits
+// (theme.ts) — only these variables may come from profile_customization,
+// so a stored JSONB payload can never inject arbitrary CSS onto a viewer's
+// profile page. Any other --* key is dropped.
+var allowedThemeTokenVars = map[string]bool{
+	"--background":              true,
+	"--foreground":              true,
+	"--card":                    true,
+	"--card-foreground":         true,
+	"--popover":                 true,
+	"--popover-foreground":      true,
+	"--primary":                 true,
+	"--primary-foreground":      true,
+	"--secondary":               true,
+	"--secondary-foreground":    true,
+	"--muted":                   true,
+	"--muted-foreground":        true,
+	"--accent":                  true,
+	"--accent-foreground":       true,
+	"--border":                  true,
+	"--input":                   true,
+	"--ring":                    true,
+	"--board-header":            true,
+	"--board-header-foreground": true,
+	"--thread-hover":            true,
+	"--post-header":             true,
+	"--quote-text":              true,
+	"--link-text":               true,
+	"--link":                    true,
+}
+
+// themeTokenHSLRE matches an HSL triplet in the exact format the app's theme
+// tokens use: "120 60% 35%" (hue 0-360, saturation/lightness 0-100%). Only
+// such self-contained color triplets are admitted — no url(), calc(), var(),
+// rgba() or anything that could smuggle CSS or escape the token value.
+var themeTokenHSLRE = regexp.MustCompile(`^[0-9]{1,3} [0-9]{1,3}% [0-9]{1,3}%$`)
+
+// maxThemeTokens caps the number of variables in a profile theme payload.
+const maxThemeTokens = 64
+
+// sanitizeProfileThemeTokens validates a profile auto-theme payload (a JSON
+// object of CSS variables → HSL triplets). Only allow-listed --* keys with
+// well-formed HSL values survive; anything else is dropped. Applied on write
+// AND read so legacy or forged rows never inject unexpected CSS.
+//
+// Accepts either a decoded map (generic CRUD read path) or a raw JSON blob
+// (write path: normalizeJSONValuesForDB marshals nested objects to []byte).
+func sanitizeProfileThemeTokens(v interface{}) map[string]string {
+	out := map[string]string{}
+	var m map[string]interface{}
+	switch t := v.(type) {
+	case map[string]interface{}:
+		m = t
+	case map[string]string:
+		for key, val := range t {
+			if len(out) >= maxThemeTokens {
+				break
+			}
+			if !allowedThemeTokenVars[key] || !themeTokenHSLRE.MatchString(val) {
+				continue
+			}
+			out[key] = val
+		}
+		return out
+	case []byte:
+		if err := json.Unmarshal(t, &m); err != nil {
+			return out
+		}
+	case string:
+		if err := json.Unmarshal([]byte(t), &m); err != nil {
+			return out
+		}
+	default:
+		return out
+	}
+	for key, val := range m {
+		if len(out) >= maxThemeTokens {
+			break
+		}
+		if !allowedThemeTokenVars[key] {
+			continue
+		}
+		s, ok := val.(string)
+		if !ok || !themeTokenHSLRE.MatchString(s) {
+			continue
+		}
+		out[key] = s
+	}
+	return out
+}
+
 // sanitizeProfileCustomizationRow sanitizes the user-supplied fields of a
 // profile_customization row in place. Applied on the read path so rows that
 // predate server-side sanitization are neutralized for every viewer.
@@ -262,5 +392,11 @@ func sanitizeProfileCustomizationRow(row map[string]interface{}) {
 	}
 	if s, ok := row["profile_badge_text"].(string); ok {
 		row["profile_badge_text"] = sanitizeProfileBadgeText(s)
+	}
+	if s, ok := row["background_url"].(string); ok {
+		row["background_url"] = sanitizeProfileBackgroundURL(s)
+	}
+	if v, ok := row["theme_tokens"]; ok {
+		row["theme_tokens"] = sanitizeProfileThemeTokens(v)
 	}
 }

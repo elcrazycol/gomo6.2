@@ -195,6 +195,10 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
   const { profile, avatarUrl, usernameColor, customization, placeholders } = data;
   const p = profile as Record<string, unknown>;
 
+  // Profile background (avatar + background) — shown as a small banner strip.
+  const profileBackgroundUrl = (p.background_url as string | null) || null;
+  const bgUrl = profileBackgroundUrl ? storageUrl("post-images", profileBackgroundUrl) || profileBackgroundUrl : null;
+
   const usernameStyle = customization?.username_css
     ? parseCssToStyle(customization.username_css)
     : {};
@@ -218,7 +222,14 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
         onMouseEnter={handleCardMouseEnter}
         onMouseLeave={handleCardMouseLeave}
       >
-        <div className="bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg p-4 min-w-[280px] max-w-[320px]">
+        <div className="bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg min-w-[280px] max-w-[320px] overflow-hidden">
+          {bgUrl && (
+            <div className="h-20 w-full relative">
+              <img src={bgUrl} alt="" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/25" />
+            </div>
+          )}
+          <div className="p-4">
           <div className="flex items-start gap-3">
             {/* Avatar */}
             <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -335,7 +346,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
               })()}
             </div>
           </div>
-
+          </div>
         </div>
       </div>
     </div>

@@ -571,35 +571,77 @@ RETURNING *`
 		if !hasUID {
 			return "", nil, false
 		}
+		// PARTIAL upsert: only the fields present in the request body are
+		// updated. The frontend fires separate .upsert() calls for the
+		// background (background_url + regenerated theme_tokens), the theme
+		// toggle (theme_enabled alone) and the CSS editors — a naive full-row
+		// upsert would NULL-out every omitted column (background_url, tokens,
+		// CSS) on each toggle, silently destroying the profile styling.
+		cols := []string{"user_id"}
+		vals := []interface{}{uid}
+		sets := []string{}
+		arg := 2
+		add := func(column string, value interface{}, cast string) {
+			cols = append(cols, column)
+			vals = append(vals, value)
+			s := column + " = $" + strconv.Itoa(arg)
+			arg++
+			if cast != "" {
+				s += cast
+			}
+			sets = append(sets, s)
+		}
 		// L6: user-supplied CSS is never trusted — sanitize it down to the
 		// allow-list before it reaches the DB, because the stored value is later
 		// rendered inline on every viewer's screen.
-		usernameCSS := data["username_css"]
-		if s, ok := usernameCSS.(string); ok {
-			usernameCSS = sanitizeProfileCSS(s)
+		if v, ok := data["username_css"]; ok {
+			s, _ := v.(string)
+			add("username_css", sanitizeProfileCSS(s), "")
 		}
-		badgeText := data["profile_badge_text"]
-		if s, ok := badgeText.(string); ok {
-			badgeText = sanitizeProfileBadgeText(s)
+		if v, ok := data["profile_badge_text"]; ok {
+			s, _ := v.(string)
+			add("profile_badge_text", sanitizeProfileBadgeText(s), "")
 		}
-		badgeCSS := data["profile_badge_css"]
-		if s, ok := badgeCSS.(string); ok {
-			badgeCSS = sanitizeProfileCSS(s)
+		if v, ok := data["profile_badge_css"]; ok {
+			s, _ := v.(string)
+			add("profile_badge_css", sanitizeProfileCSS(s), "")
 		}
-		q := `INSERT INTO profile_customization (user_id, username_css, profile_badge_text, profile_badge_css, updated_at)
-VALUES ($1, $2, $3, $4, NOW())
-ON CONFLICT (user_id) DO UPDATE SET
-  username_css = EXCLUDED.username_css,
-  profile_badge_text = EXCLUDED.profile_badge_text,
-  profile_badge_css = EXCLUDED.profile_badge_css,
-  updated_at = NOW()
-RETURNING *`
-		return q, []interface{}{
-			uid,
-			usernameCSS,
-			badgeText,
-			badgeCSS,
-		}, true
+		// background_url is a storage key rendered as an <img> src on every
+		// viewer's screen — only bare relative keys are stored (see
+		// sanitizeProfileBackgroundURL), so absolute URLs never reach the DB.
+		// A present-but-null value clears the background (the remove action).
+		if v, ok := data["background_url"]; ok {
+			s, _ := v.(string)
+			add("background_url", sanitizeProfileBackgroundURL(s), "")
+		}
+		// Auto-theme: theme_enabled is a plain bool; theme_tokens is a JSONB
+		// payload of CSS variables rendered as inline styles on the profile
+		// page — sanitized to allow-listed --* keys with HSL values only.
+		if v, ok := data["theme_enabled"]; ok {
+			b, _ := v.(bool)
+			add("theme_enabled", b, "")
+		}
+		if v, ok := data["theme_tokens"]; ok {
+			themeTokens := sanitizeProfileThemeTokens(v)
+			themeTokensJSON := "{}"
+			if len(themeTokens) > 0 {
+				if b, err := json.Marshal(themeTokens); err == nil {
+					themeTokensJSON = string(b)
+				}
+			}
+			add("theme_tokens", themeTokensJSON, "::jsonb")
+		}
+		if len(sets) == 0 {
+			return "", nil, false
+		}
+		placeholders := make([]string, len(cols))
+		for i := range cols {
+			placeholders[i] = "$" + strconv.Itoa(i+1)
+		}
+		q := "INSERT INTO profile_customization (" + strings.Join(cols, ", ") + ", updated_at) VALUES (" + strings.Join(placeholders, ", ") + ", NOW()) " +
+			"ON CONFLICT (user_id) DO UPDATE SET " + strings.Join(sets, ", ") + ", updated_at = NOW() " +
+			"RETURNING *"
+		return q, vals, true
 	default:
 		return "", nil, false
 	}
