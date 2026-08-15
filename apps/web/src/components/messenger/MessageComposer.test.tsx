@@ -345,8 +345,8 @@ describe("MessageComposer", () => {
     expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
   });
 
-  describe("emoji panel ↔ keyboard lift", () => {
-    it("lifts the chat panel above the emoji swap panel while it is open", () => {
+  describe("emoji panel ↔ keyboard", () => {
+    it("keeps the chat panel's bottom at the emoji panel height while it is open", () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
       const { container } = render(
@@ -361,7 +361,7 @@ describe("MessageComposer", () => {
         </div>,
       );
       const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
-      expect(chatPanel.style.getPropertyValue("--emoji-panel-h")).toBe("340px");
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
     });
 
     it("releases the lift once the swap panel is gone", () => {
@@ -379,7 +379,43 @@ describe("MessageComposer", () => {
         </div>,
       );
       const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
-      expect(chatPanel.style.getPropertyValue("--emoji-panel-h")).toBe("");
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+    });
+
+    it("hands off to the real keyboard inset once it catches up on refocus close", async () => {
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Panel closes while the keyboard rises back to the same height — the
+      // composer must not drop (the local override keeps the panel height
+      // until the real inset catches up).
+      mockEmojiSwap.open = false;
+      mockEmojiSwap.height = 340;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+      await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px"));
     });
   });
 

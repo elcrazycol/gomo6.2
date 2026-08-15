@@ -5,7 +5,6 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
-import { isEditableElement } from "@/lib/mobileKeyboard";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import {
   prosemirrorToMessengerText,
@@ -118,13 +117,9 @@ export const MessageComposer = memo(function MessageComposer({
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const emojiSwap = useEmojiKeyboardSwap(editorRef);
-  const { isTouch, isOpen: keyboardOpen } = useMobileKeyboard();
-  const isTouchRef = useRef(isTouch);
-  isTouchRef.current = isTouch;
-  const keyboardOpenRef = useRef(keyboardOpen);
-  keyboardOpenRef.current = keyboardOpen;
-  const emojiOpenRef = useRef(emojiSwap.open);
-  emojiOpenRef.current = emojiSwap.open;
+  const { keyboardInset } = useMobileKeyboard();
+  const keyboardInsetRef = useRef(keyboardInset);
+  keyboardInsetRef.current = keyboardInset;
 
   const [expanded, setExpanded] = useState(false);
   const [fullMode, setFullMode] = useState(false);
@@ -301,302 +296,97 @@ export const MessageComposer = memo(function MessageComposer({
     panelExitTimerRef.current = setTimeout(() => setPanelExiting(false), 220);
   }, []);
 
-  // ── Emoji panel ↔ keyboard swap: keep the pill above the panel ────────────
-  // While the swap panel is open it occupies exactly the space the soft
-  // keyboard just left, so the chat panel (and the composer pill with it) must
-  // float at the panel's height instead of following --kb-inset — which drops
-  // to 0 the instant the keyboard hides, letting the panel slide over the pill
-  // (the "keyboard covers the pill" bug, wall comments pin instead).
+  // ── Emoji panel ↔ keyboard: the panel occupies the keyboard's space ──────
+  // The chat panel is bottom-anchored at --kb-inset (see messenger.css), so
+  // the composer — always in flow at the panel's bottom — floats above the
+  // keyboard with no pinning at all. While the keyboard-swap emoji panel is
+  // up the keyboard is gone and --kb-inset drops to 0, which would let the
+  // panel cover the composer; instead we override the chat panel's LOCAL
+  // --kb-inset with max(real keyboard inset, panel height) — the composer
+  // stays glued to the panel's top edge exactly like it rides the keyboard.
   //
-  // On close the pill stays glued to the top edge of the departing panel:
-  //  • refocus path (trigger toggle) — the keyboard rises back; hold the pill
-  //    at the panel height and hand off to --kb-inset the moment the keyboard
-  //    reaches it (no dip, no jump, even when the keyboard is taller than the
-  //    panel — e.g. a predictive-text bar);
+  // On close the same max() hands off seamlessly:
+  //  • refocus path (trigger toggle / tapping the editor) — the keyboard
+  //    rises back; once it reaches the panel height the override drops and
+  //    the real --kb-inset takes over from the same position (no dip, no
+  //    jump, even when the keyboard is taller than the panel);
   //  • no-refocus path (outside tap / Escape) — the keyboard is not coming
-  //    back; glide the pill down in sync with the panel's exit animation
-  //    instead of holding then teleporting.
+  //    back; glide the override to 0 in sync with the panel's exit slide.
+  const [emojiPanelInset, setEmojiPanelInset] = useState(0);
+  const emojiPanelInsetRef = useRef(0);
+  emojiPanelInsetRef.current = emojiPanelInset;
+  const emojiGlideRafRef = useRef<number | null>(null);
+
+  const cancelEmojiGlide = useCallback(() => {
+    if (emojiGlideRafRef.current !== null) {
+      cancelAnimationFrame(emojiGlideRafRef.current);
+      emojiGlideRafRef.current = null;
+    }
+  }, []);
+
+  // Open → hold the panel height. The keyboard was just up at the same height,
+  // so the composer does not move at all.
+  useEffect(() => {
+    if (emojiSwap.open && emojiSwap.height > 0) {
+      cancelEmojiGlide();
+      setEmojiPanelInset(emojiSwap.height);
+    }
+  }, [emojiSwap.open, emojiSwap.height, cancelEmojiGlide]);
+
+  // Close with the keyboard returning (refocus): hold until the real inset
+  // catches up with the panel height, then hand off — the composer keeps
+  // riding whatever is at the bottom the whole time.
+  useEffect(() => {
+    if (emojiPanelInset > 0 && keyboardInset >= emojiPanelInset - 4) {
+      cancelEmojiGlide();
+      setEmojiPanelInset(0);
+    }
+  }, [keyboardInset, emojiPanelInset, cancelEmojiGlide]);
+
+  // Close without a returning keyboard (outside tap / Escape): once it is
+  // clear the keyboard is not coming back, glide the composer down in sync
+  // with the panel's exit slide instead of holding then teleporting.
+  useEffect(() => {
+    if (emojiSwap.open) return;
+    const settle = window.setTimeout(() => {
+      if (keyboardInsetRef.current > 0) return; // keyboard is back — the handoff above handles it
+      const startInset = emojiPanelInsetRef.current;
+      if (startInset <= 0) return;
+      const startedAt = performance.now();
+      const step = (now: number) => {
+        if (emojiGlideRafRef.current === null) return; // cancelled by a handoff
+        const progress = Math.min(1, (now - startedAt) / 260);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const height = Math.round(startInset * (1 - eased));
+        if (height <= 0) {
+          emojiGlideRafRef.current = null;
+          setEmojiPanelInset(0);
+          return;
+        }
+        setEmojiPanelInset(height);
+        emojiGlideRafRef.current = requestAnimationFrame(step);
+      };
+      emojiGlideRafRef.current = requestAnimationFrame(step);
+    }, 150);
+    return () => window.clearTimeout(settle);
+  }, [emojiSwap.open]);
+
+  // Publish max(real keyboard inset, emoji panel height) as the chat panel's
+  // LOCAL --kb-inset so its bottom edge floats above whichever is up; remove
+  // the override when idle so the root value (0) applies.
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
-    const swapHeight = emojiSwap.height;
-    if (emojiSwap.open && swapHeight > 0) {
-      chatPanel.style.setProperty("--emoji-panel-h", `${swapHeight}px`);
-      return;
-    }
-    if (swapHeight <= 0) {
-      chatPanel.style.removeProperty("--emoji-panel-h");
-      return;
-    }
-    const startedAt = Date.now();
-    let timer: number | null = null;
-    let glideRaf: number | null = null;
-    let done = false;
+    const combined = Math.max(keyboardInset, emojiPanelInset);
+    if (combined > 0) chatPanel.style.setProperty("--kb-inset", `${combined}px`);
+    else chatPanel.style.removeProperty("--kb-inset");
+  }, [keyboardInset, emojiPanelInset]);
 
-    const cleanup = () => {
-      done = true;
-      if (timer !== null) clearTimeout(timer);
-      if (glideRaf !== null) cancelAnimationFrame(glideRaf);
-      timer = null;
-      glideRaf = null;
-    };
-
-    const finish = () => {
-      cleanup();
-      chatPanel.style.removeProperty("--emoji-panel-h");
-    };
-
-    const glideDown = () => {
-      if (done) return;
-      cleanup();
-      const animStart = performance.now();
-      const glide = (now: number) => {
-        if (done) return;
-        const p = Math.min(1, (now - animStart) / 240);
-        const eased = 1 - Math.pow(1 - p, 3);
-        const h = Math.round(swapHeight * (1 - eased));
-        if (h <= 0) {
-          chatPanel.style.removeProperty("--emoji-panel-h");
-          done = true;
-          return;
-        }
-        chatPanel.style.setProperty("--emoji-panel-h", `${h}px`);
-        glideRaf = requestAnimationFrame(glide);
-      };
-      glideRaf = requestAnimationFrame(glide);
-    };
-
-    const poll = () => {
-      if (done) return;
-      const inset =
-        parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-inset")) || 0;
-      const elapsed = Date.now() - startedAt;
-      // The keyboard rose back to the panel's height → hand off to --kb-inset
-      // (the pill keeps riding the keyboard from the same position).
-      if (inset >= swapHeight - 8) {
-        finish();
-        return;
-      }
-      // The keyboard is coming back (the editor was refocused): hold the pill
-      // at the panel height until it arrives.
-      const active = document.activeElement;
-      const editorFocused =
-        active instanceof HTMLElement &&
-        !!rootRef.current?.contains(active) &&
-        isEditableElement(active);
-      if (editorFocused) {
-        if (elapsed > 2000) finish();
-        else timer = window.setTimeout(poll, 40);
-        return;
-      }
-      // No refocus: the keyboard is not coming back — glide the pill down in
-      // sync with the panel's exit animation instead of holding then jumping.
-      if (elapsed >= 150) {
-        glideDown();
-        return;
-      }
-      timer = window.setTimeout(poll, 40);
-    };
-    timer = window.setTimeout(poll, 40);
-    return cleanup;
-  }, [emojiSwap.open, emojiSwap.height]);
-
-  // ── Keyboard pinning (wall-comments mechanism) ────────────────────────────
-  // The whole chat panel used to lift by --kb-inset, which reflowed the
-  // message list (header/content jump) and was unreliable on some devices
-  // (the pill ended up under the keyboard). Instead the composer bar itself
-  // pins position:fixed above the keyboard exactly like WallCommentTree:
-  //  • applyPin runs SYNCHRONOUSLY on focus — the bar is fixed before iOS can
-  //    focus-scroll it, and at that moment --kb-inset is still 0, so the pin
-  //    lands exactly where the bar already is (zero visual change);
-  //  • as the keyboard slides up, bottom:--kb-inset rides the bar up with it;
-  //  • while the emoji swap panel is open it replaces the keyboard at the
-  //    same height (bottom:--emoji-panel-h wins), so the bar stays glued to
-  //    its top edge;
-  //  • the messages area reserves the bar's space via --composer-pinned-h
-  //    (ResizeObserver) + the keyboard height, so the last message always
-  //    scrolls to just above the bar.
-  const applyPin = useCallback(() => {
-    const anchor = rootRef.current;
-    if (!anchor || !isTouchRef.current) return;
-    // Measure the in-flow geometry BEFORE switching to fixed: a fixed element
-    // measures against the viewport, so mirroring the same rect keeps the bar
-    // pixel-aligned with the chat column.
-    const rect = anchor.getBoundingClientRect();
-    anchor.classList.add("composer-pinned");
-    anchor.setAttribute("data-kb-locked", "true");
-    anchor.style.left = `${rect.left}px`;
-    anchor.style.width = `${rect.width}px`;
-    // Reserve the bar's space in the messages list right away — a
-    // ResizeObserver would not fire here (the bar's size does not change when
-    // it switches to fixed), so without this the last messages would slide
-    // under the pinned bar for a frame.
-    const chatPanel = anchor.closest<HTMLElement>(".chat-panel");
-    if (chatPanel) chatPanel.style.setProperty("--composer-pinned-h", `${anchor.offsetHeight}px`);
-  }, []);
-
-  const clearPin = useCallback(() => {
-    const anchor = rootRef.current;
-    if (!anchor) return;
-    anchor.classList.remove("composer-pinned");
-    anchor.removeAttribute("data-kb-locked");
-    anchor.style.left = "";
-    anchor.style.width = "";
-    const chatPanel = anchor.closest<HTMLElement>(".chat-panel");
-    if (chatPanel) chatPanel.style.removeProperty("--composer-pinned-h");
-  }, []);
-
-  // Pin while the composer's own editor owns focus; release only when the
-  // focus truly left AND the keyboard is gone AND no swap panel is up.
-  useEffect(() => {
-    const anchor = rootRef.current;
-    if (!anchor) return;
-
-    const onFocusIn = (e: FocusEvent) => {
-      if (!anchor.contains(e.target as Node)) return;
-      if (!isEditableElement(e.target as HTMLElement | null)) return;
-      applyPin();
-    };
-    const onFocusOut = (e: FocusEvent) => {
-      const related = e.relatedTarget as HTMLElement | null;
-      if (related && anchor.contains(related)) return;
-      if (!keyboardOpenRef.current && !emojiOpenRef.current) clearPin();
-    };
-    // Another editable anywhere took the keyboard — hand the pin over.
-    const onDocFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target || !isEditableElement(target) || anchor.contains(target)) return;
-      if (!emojiOpenRef.current) clearPin();
-    };
-
-    anchor.addEventListener("focusin", onFocusIn);
-    anchor.addEventListener("focusout", onFocusOut);
-    document.addEventListener("focusin", onDocFocusIn);
-
-    // Editor already focused at mount (autoFocus / restore) — pin right away.
-    if (
-      isTouchRef.current
-      && anchor.contains(document.activeElement)
-      && isEditableElement(document.activeElement)
-    ) {
-      applyPin();
-    }
-
-    return () => {
-      anchor.removeEventListener("focusin", onFocusIn);
-      anchor.removeEventListener("focusout", onFocusOut);
-      document.removeEventListener("focusin", onDocFocusIn);
-    };
-  }, [applyPin, clearPin]);
-
-  // The swap panel replaces the keyboard → keep the bar pinned at the panel's
-  // height for as long as it is up (the editor is blurred by the swap, so the
-  // focus listeners alone would release it and the panel would cover the pill).
-  //
-  // On close WITHOUT refocus (outside tap / Escape) the panel slides down over
-  // ~240ms; the pill must ride that descent (--emoji-panel-h glides to 0), so
-  // the pin is released only after the glide finishes — otherwise the bar
-  // teleports to the bottom while the departing panel is still over it.
-  const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (emojiSwap.open) {
-      if (emojiCloseTimerRef.current) {
-        clearTimeout(emojiCloseTimerRef.current);
-        emojiCloseTimerRef.current = null;
-      }
-      applyPin();
-    } else {
-      const active = document.activeElement;
-      const editorFocused =
-        active instanceof HTMLElement
-        && !!rootRef.current?.contains(active)
-        && isEditableElement(active);
-      if (editorFocused) {
-        if (emojiCloseTimerRef.current) {
-          clearTimeout(emojiCloseTimerRef.current);
-          emojiCloseTimerRef.current = null;
-        }
-        return; // keyboard coming back — the --emoji-panel-h handoff keeps the pin
-      }
-      if (emojiCloseTimerRef.current) return;
-      // The panel's exit slide takes ~240ms, and the --emoji-panel-h glide only
-      // starts after a ~150ms settle — release the pin only once both are done
-      // (the bar rode the panel to the bottom; unpinning then is invisible).
-      emojiCloseTimerRef.current = setTimeout(() => {
-        emojiCloseTimerRef.current = null;
-        // Re-check: the user may have refocused the editor while we waited.
-        const nowActive = document.activeElement;
-        const nowFocused =
-          nowActive instanceof HTMLElement
-          && !!rootRef.current?.contains(nowActive)
-          && isEditableElement(nowActive);
-        if (!nowFocused && !emojiSwap.open) clearPin();
-      }, 430);
-    }
-  }, [emojiSwap.open, applyPin, clearPin]);
-
+  // Clean up the local override and any in-flight glide on unmount.
   useEffect(() => () => {
-    if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current);
-  }, []);
-
-  // Release once the keyboard has fully closed and focus left the bar (the
-  // pin bottom follows --kb-inset down during the dismissal, so the bar rides
-  // the keyboard to the bottom and only then returns to the flow).
-  const prevKeyboardOpenRef = useRef(keyboardOpen);
-  useEffect(() => {
-    const wasOpen = prevKeyboardOpenRef.current;
-    prevKeyboardOpenRef.current = keyboardOpen;
-    if (!wasOpen || keyboardOpen) return;
-    if (emojiOpenRef.current) return;
-    if (rootRef.current?.contains(document.activeElement)) return;
-    clearPin();
-  }, [keyboardOpen, clearPin]);
-
-  // While pinned, keep the bar aligned with the chat column when the viewport
-  // changes (orientation, URL bar, rotation).
-  useEffect(() => {
-    if (!isTouch) return;
-    const realign = () => {
-      const anchor = rootRef.current;
-      const chatPanel = anchor?.closest<HTMLElement>(".chat-panel");
-      if (!anchor || !chatPanel || !anchor.classList.contains("composer-pinned")) return;
-      const rect = chatPanel.getBoundingClientRect();
-      anchor.style.left = `${rect.left}px`;
-      anchor.style.width = `${rect.width}px`;
-    };
-    window.addEventListener("resize", realign);
-    window.addEventListener("orientationchange", realign);
-    window.visualViewport?.addEventListener("resize", realign);
-    return () => {
-      window.removeEventListener("resize", realign);
-      window.removeEventListener("orientationchange", realign);
-      window.visualViewport?.removeEventListener("resize", realign);
-    };
-  }, [isTouch]);
-
-  // Reserve the bar's space in the message list while pinned: publish its
-  // height as --composer-pinned-h on the chat panel (the messages area pads
-  // itself by that + the keyboard height), updated live as the bar grows
-  // (banners, attachments, full-mode editor).
-  useEffect(() => {
-    const anchor = rootRef.current;
-    const chatPanel = anchor?.closest<HTMLElement>(".chat-panel");
-    if (!anchor || !chatPanel) return;
-    const updatePad = () => {
-      if (anchor.classList.contains("composer-pinned")) {
-        chatPanel.style.setProperty("--composer-pinned-h", `${anchor.offsetHeight}px`);
-      } else {
-        chatPanel.style.removeProperty("--composer-pinned-h");
-      }
-    };
-    updatePad();
-    const ro = new ResizeObserver(updatePad);
-    ro.observe(anchor);
-    return () => {
-      ro.disconnect();
-      chatPanel.style.removeProperty("--composer-pinned-h");
-    };
-  }, []);
+    cancelEmojiGlide();
+    rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
+  }, [cancelEmojiGlide]);
 
   // ── Expand / collapse ──────────────────────────────────────────────────────
   const requestCollapse = useCallback(() => {
