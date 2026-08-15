@@ -133,13 +133,28 @@ describe("MessageList virtualization", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     h.storeState.isLoadingMore = true;
     const { container } = mountList();
+    expect(container.querySelector(".msg-history-header")?.classList.contains("is-loading")).toBe(true);
     expect(container.querySelector(".msg-history-loader")).not.toBeNull();
   });
 
-  it("hides the history loader when idle", () => {
+  it("keeps the header at a constant height when idle (spacer, not a popped-out loader)", () => {
     h.storeState.messages = [makeMessage("a")];
+    h.storeState.hasMoreMessages = true;
     const { container } = mountList();
+    // The header stays mounted so appearing/disappearing loading states never
+    // shift the items below it.
+    expect(container.querySelector(".msg-history-header")).not.toBeNull();
     expect(container.querySelector(".msg-history-loader")).toBeNull();
+    expect(container.querySelector(".msg-history-spacer")).not.toBeNull();
+  });
+
+  it("shows the end-of-history marker when there is nothing older to load", () => {
+    h.storeState.messages = [makeMessage("a")];
+    h.storeState.hasMoreMessages = false;
+    const { container } = mountList();
+    const header = container.querySelector(".msg-history-header");
+    expect(header?.classList.contains("is-end")).toBe(true);
+    expect(header?.textContent).toContain("Начало переписки");
   });
 
   it("renders the bottom gap footer element", () => {
