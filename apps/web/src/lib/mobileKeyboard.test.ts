@@ -443,6 +443,56 @@ describe("keyboard-open scroll corrections", () => {
     // …but no NEW scroll corrections ran.
     expect(getScrollWrites()).toBe(writesAfterOpen);
   });
+
+  it("re-opens when the keyboard comes up without any visual-viewport events (focus poll)", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    dispose = initMobileKeyboard();
+
+    input.focus();
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+
+    // iOS quirk: the keyboard slides up but NO resize event fires on re-focus.
+    // vv.height is a live property, so the focus poll detects it exactly.
+    vv.height = 500;
+    vi.advanceTimersByTime(300);
+
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+  });
+
+  it("re-opens after a transient false close from a stale final event (close verify)", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    dispose = initMobileKeyboard();
+
+    input.focus();
+    // Keyboard opens normally: 800 → 500 (delta 300).
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+
+    // The final frame of the open animation reports the PRE-keyboard geometry
+    // (WebKit quirk): delta 0 → the state falsely closes while the keyboard
+    // is actually still up.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+
+    // The real viewport is still 500 (the 800 was a stale report) and no more
+    // events fire. The close verify re-measures and restores the open state.
+    vv.height = 500;
+    vi.advanceTimersByTime(200);
+
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+  });
 });
 
 describe("getScrollContext", () => {

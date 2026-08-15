@@ -69,6 +69,16 @@ const SCROLL_GAP_PX = 12;
 const CLOSE_DEBOUNCE_MS = 120;
 /** Below this delta the keyboard is gone for sure — close immediately. */
 const CLOSE_IMMEDIATE_THRESHOLD_PX = 24;
+/** After a committed close, re-measure this long later: the keyboard-open
+ *  animation can end with ONE transient resize event that reports the
+ *  pre-keyboard geometry (WebKit quirk), which would commit a false close
+ *  while the keyboard is still up. The verify re-opens it. */
+const CLOSE_VERIFY_MS = 150;
+/** While an editable is focused, re-measure this often: iOS can open the
+ *  soft keyboard on re-focus WITHOUT firing any visual-viewport events, so
+ *  the resize-driven state machine would never notice. visualViewport.height
+ *  is a LIVE property, so the poll detects the keyboard exactly. */
+const FOCUS_POLL_MS = 250;
 /** iOS scroll-to-dismiss: WebKit defers visualViewport resize events while a
  *  scroll gesture is running, so after the keyboard starts hiding the stale
  *  values would keep `--kb-inset` applied (composer floating mid-screen).
@@ -98,6 +108,10 @@ let closeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let dismissUntil = 0;
 let dismissalActive = false;
 let dismissProbeTimer: ReturnType<typeof setTimeout> | null = null;
+// Re-measures shortly after a committed close — see scheduleCloseVerify.
+let closeVerifyTimer: ReturnType<typeof setTimeout> | null = null;
+// Light poll while an editable is focused — see scheduleFocusPoll.
+let focusPollTimer: ReturnType<typeof setTimeout> | null = null;
 let gestureStart: { x: number; y: number } | null = null;
 let dismissAnimFrame: number | null = null;
 // True while the current touch began on a `[data-kb-locked]` element (a
@@ -184,6 +198,10 @@ export function initMobileKeyboard(): () => void {
     closeDebounceTimer = null;
     if (dismissProbeTimer) clearTimeout(dismissProbeTimer);
     dismissProbeTimer = null;
+    if (closeVerifyTimer) clearTimeout(closeVerifyTimer);
+    closeVerifyTimer = null;
+    if (focusPollTimer) clearTimeout(focusPollTimer);
+    focusPollTimer = null;
     if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
     dismissAnimFrame = null;
     gestureStart = null;
@@ -490,6 +508,10 @@ function handleMetricsChanged() {
       clearTimeout(closeDebounceTimer);
       closeDebounceTimer = null;
     }
+    if (closeVerifyTimer) {
+      clearTimeout(closeVerifyTimer);
+      closeVerifyTimer = null;
+    }
     applyState(next);
   } else if (state.isOpen) {
     const delta = currentVisualDelta();
@@ -497,6 +519,7 @@ function handleMetricsChanged() {
       // Keyboard fully gone — close right away so full-screen surfaces expand
       // in sync with the collapse instead of lagging a debounce window.
       applyState(next);
+      scheduleCloseVerify();
     } else {
       // Still mid-transition (delta 24–60): hold the open state for a beat.
       if (closeDebounceTimer) clearTimeout(closeDebounceTimer);
@@ -504,6 +527,7 @@ function handleMetricsChanged() {
         closeDebounceTimer = null;
         const again = computeRaw();
         if (!again.isOpen) applyState(again);
+        scheduleCloseVerify();
       }, CLOSE_DEBOUNCE_MS);
     }
   } else {
@@ -530,6 +554,10 @@ function handleFocusIn(e: FocusEvent) {
   }
   dismissUntil = 0;
   if (!state.isTouch) return;
+  // While an editable is focused, keep re-measuring — a keyboard that opens
+  // without visual-viewport events must still be detected (see
+  // scheduleFocusPoll).
+  scheduleFocusPoll();
   // Focus inside a fixed/sticky bar (pinned wall composer, messenger shell):
   // the bar is already positioned above the keyboard by the app, so the
   // browser's own focus-scroll must not move the page — iOS yanks it (and
@@ -556,7 +584,12 @@ function handleFocusIn(e: FocusEvent) {
 
 function handleFocusOut() {
   // Keep `focusedEditable` — the scroll keeper still targets it while the
-  // keyboard is animating closed. Just cancel pending scrolls.
+  // keyboard is animating closed. Just cancel pending scrolls and stop the
+  // focus poll (the resize events take over the close detection).
+  if (focusPollTimer) {
+    clearTimeout(focusPollTimer);
+    focusPollTimer = null;
+  }
   clearPendingScrolls();
 }
 
@@ -711,6 +744,43 @@ function startDismissalAnimation() {
 
   if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
   dismissAnimFrame = requestAnimationFrame(step);
+}
+
+/**
+ * The keyboard-open animation can end with ONE transient resize event that
+ * reports the pre-keyboard geometry (WebKit quirk), committing a false close
+ * while the keyboard is still up. Re-measure shortly after every committed
+ * close and re-open if the keyboard is actually still there, so bottom-
+ * anchored bars never stay stuck under the keyboard.
+ */
+function scheduleCloseVerify() {
+  if (closeVerifyTimer) clearTimeout(closeVerifyTimer);
+  closeVerifyTimer = setTimeout(() => {
+    closeVerifyTimer = null;
+    if (dismissalActive) return;
+    const again = computeRaw();
+    if (again.isOpen && !state.isOpen) applyState(again);
+  }, CLOSE_VERIFY_MS);
+}
+
+/**
+ * iOS can open the soft keyboard without firing ANY visual-viewport events
+ * (notably on re-focus after a prior dismissal), so the resize-driven state
+ * machine would never notice and bottom-anchored bars would sit under the
+ * keyboard. visualViewport.height is a LIVE property, so a light poll while
+ * an editable is focused detects the keyboard exactly. The poll only ever
+ * OPENS the state — it never closes it (a real dismissal still goes through
+ * the resize/debounce paths).
+ */
+function scheduleFocusPoll() {
+  if (focusPollTimer) clearTimeout(focusPollTimer);
+  focusPollTimer = setTimeout(() => {
+    focusPollTimer = null;
+    if (!focusedEditable || !focusedEditable.isConnected || dismissalActive) return;
+    const again = computeRaw();
+    if (again.isOpen && !state.isOpen) applyState(again);
+    scheduleFocusPoll();
+  }, FOCUS_POLL_MS);
 }
 
 /**
