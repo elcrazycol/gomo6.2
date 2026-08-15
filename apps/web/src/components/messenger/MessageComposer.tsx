@@ -371,15 +371,23 @@ export const MessageComposer = memo(function MessageComposer({
     return () => window.clearTimeout(settle);
   }, [emojiSwap.open]);
 
-  // Publish max(real keyboard inset, emoji panel height) as the chat panel's
-  // LOCAL --kb-inset so its bottom edge floats above whichever is up; remove
-  // the override when idle so the root value (0) applies.
+  // While the emoji panel is up (or just closed), publish max(real keyboard
+  // inset, panel height) as the chat panel's LOCAL --kb-inset so its bottom
+  // edge floats above the panel. With NO emoji involvement the chat panel is
+  // left completely untouched: it inherits the ROOT --kb-inset, which
+  // lib/mobileKeyboard updates synchronously on every visual-viewport event
+  // — the exact mechanism the wall comment composer uses, and therefore just
+  // as reliable (a React-driven local copy lagged the synchronous updates and
+  // left the pill under the keyboard on re-open).
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
+    if (emojiPanelInset <= 0) {
+      chatPanel.style.removeProperty("--kb-inset");
+      return;
+    }
     const combined = Math.max(keyboardInset, emojiPanelInset);
-    if (combined > 0) chatPanel.style.setProperty("--kb-inset", `${combined}px`);
-    else chatPanel.style.removeProperty("--kb-inset");
+    chatPanel.style.setProperty("--kb-inset", `${combined}px`);
   }, [keyboardInset, emojiPanelInset]);
 
   // Clean up the local override and any in-flight glide on unmount.
