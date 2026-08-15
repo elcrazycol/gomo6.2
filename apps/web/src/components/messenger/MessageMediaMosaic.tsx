@@ -5,6 +5,7 @@ import {
   getAttachmentAspectRatio,
   parseImageMeta,
   rememberMeasuredAttachmentRatio,
+  thumbHashToPlaceholderDataUrl,
   useAuthenticatedAttachmentUrl,
 } from "./attachmentMedia";
 
@@ -24,6 +25,10 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
   // displays an image instead of a dead placeholder.
   const previewKey = meta.preview_key || attachment.url;
   const url = useAuthenticatedAttachmentUrl(attachment, previewKey, true);
+  const placeholder = useMemo(
+    () => thumbHashToPlaceholderDataUrl(meta.thumb_hash) ?? meta.lqip ?? null,
+    [meta.thumb_hash, meta.lqip],
+  );
   const [isLoaded, setIsLoaded] = useState(false);
   const tileRef = useRef<HTMLButtonElement | null>(null);
 
@@ -47,7 +52,7 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
       onClick={() => onOpen(index)}
       aria-label={`Открыть ${attachment.name}`}          style={attachmentsTileStyle(attachment)}
     >
-      {meta.lqip && <img className="msg-attachment-lqip" src={meta.lqip} alt="" aria-hidden="true" />}
+      {placeholder && <img className="msg-attachment-lqip" src={placeholder} alt="" aria-hidden="true" />}
       {url && (isVideo ? (
         <video
           className="msg-media-mosaic-image msg-attachment-preview"
@@ -67,8 +72,8 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
           onLoad={handleImageLoad}
         />
       ))}
-      {!url && meta.lqip && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
-      {!url && !meta.lqip && <span className="msg-attachment-legacy-placeholder" aria-hidden="true">Открыть фото</span>}
+      {!url && placeholder && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
+      {!url && !placeholder && <span className="msg-attachment-legacy-placeholder" aria-hidden="true">Открыть фото</span>}
       {isVideo && (
         <span className="msg-media-mosaic-video" aria-hidden="true"><Play size={22} fill="currentColor" /></span>
       )}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -915,6 +916,7 @@ func (h *MessengerHandler) validateAttachments(c *gin.Context, userID string, at
 			var meta struct {
 				PreviewKey string `json:"preview_key"`
 				LQIP       string `json:"lqip"`
+				ThumbHash  string `json:"thumb_hash"`
 				Width      int    `json:"width"`
 				Height     int    `json:"height"`
 			}
@@ -924,7 +926,17 @@ func (h *MessengerHandler) validateAttachments(c *gin.Context, userID string, at
 			if meta.PreviewKey != att.URL+".preview.jpg" {
 				return fmt.Errorf("invalid image preview key")
 			}
-			if !strings.HasPrefix(meta.LQIP, "data:image/jpeg;base64,") || len(meta.LQIP) > 16*1024 {
+			// New uploads carry a ThumbHash placeholder (~30 bytes of base64);
+			// clients on an older web build still send an inline LQIP data URL.
+			// Accept either — never both-empty, never oversized/garbage.
+			if meta.ThumbHash != "" {
+				if len(meta.ThumbHash) > 128 {
+					return fmt.Errorf("invalid image placeholder")
+				}
+				if _, err := base64.StdEncoding.DecodeString(meta.ThumbHash); err != nil {
+					return fmt.Errorf("invalid image placeholder")
+				}
+			} else if !strings.HasPrefix(meta.LQIP, "data:image/jpeg;base64,") || len(meta.LQIP) > 16*1024 {
 				return fmt.Errorf("invalid image placeholder")
 			}
 			if meta.Width <= 0 || meta.Height <= 0 || meta.Width > 12000 || meta.Height > 12000 {

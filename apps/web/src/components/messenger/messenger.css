@@ -2079,11 +2079,13 @@ main.is-messenger-page {
   flex: 0 0 auto;
 }
 
+/* The reserved box is sized entirely by the inline width + aspect-ratio from
+   getAttachmentDisplayStyle — NO max-height/min-height clamps here, they would
+   break the aspect-ratio and make the box resize when the image loads. */
 .msg-attachment-image {
   position: relative;
   width: min(100%, 420px);
   max-width: 100%;
-  max-height: 300px;
   aspect-ratio: var(--attachment-ratio, 4 / 3);
   border-radius: 8px;
   overflow: hidden;
@@ -2094,7 +2096,6 @@ main.is-messenger-page {
 .message-content-media .msg-attachment-image {
   width: min(100%, 640px);
   max-width: 100%;
-  max-height: min(68dvh, 640px);
   border-radius: 0;
 }
 
@@ -2261,9 +2262,7 @@ main.is-messenger-page {
   transform: scale(1);
 }
 
-.msg-attachment-image.is-loading {
-  min-height: 160px;
-}
+
 
 .msg-attachment-legacy-placeholder {
   position: absolute;
@@ -3059,14 +3058,22 @@ main.is-messenger-page {
   }
 }
 
-/* ── History loader (top of the message list while older messages load) ── */
+/* ── History header (top of the message list) ──
+   Fixed-height box in all states (loading spinner / idle spacer / end of
+   history) so the header never shifts the items below it during prepends. */
+
+.msg-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  min-height: 34px;
+}
 
 .msg-history-loader {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 10px 0 6px;
   font-size: 12px;
   color: hsl(var(--muted-foreground));
   animation: msg-history-fade-in 0.15s ease-out;
@@ -3079,6 +3086,11 @@ main.is-messenger-page {
   border-top-color: hsl(var(--primary));
   border-radius: 50%;
   animation: msg-history-spin 0.8s linear infinite;
+}
+
+.msg-history-end-label {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground) / 0.8);
 }
 
 @keyframes msg-history-spin {

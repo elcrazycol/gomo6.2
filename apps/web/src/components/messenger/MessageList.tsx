@@ -225,11 +225,23 @@ export const MessageList = memo(
       () =>
         function HistoryLoaderHeader() {
           const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
-          if (!isLoadingMore) return null;
+          const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
+          // The header ALWAYS occupies the same fixed height — a header that
+          // pops in while loading (or collapses after) shifts every item below
+          // it and reads as a jump during history prepends. Loading spinner,
+          // idle spacer and the end marker are all the same box.
           return (
-            <div className="msg-history-loader" role="status" aria-live="polite">
-              <span className="msg-history-loader-spinner" aria-hidden="true" />
-              <span>Загружаем историю…</span>
+            <div className={`msg-history-header${isLoadingMore ? " is-loading" : ""}${hasMoreMessages ? "" : " is-end"}`}>
+              {isLoadingMore ? (
+                <span className="msg-history-loader" role="status" aria-live="polite">
+                  <span className="msg-history-loader-spinner" aria-hidden="true" />
+                  <span>Загружаем историю…</span>
+                </span>
+              ) : hasMoreMessages ? (
+                <span className="msg-history-spacer" aria-hidden="true" />
+              ) : (
+                <span className="msg-history-end-label">Начало переписки</span>
+              )}
             </div>
           );
         },
@@ -257,7 +269,11 @@ export const MessageList = memo(
               return message ? (message.client_id ?? message.id) : index;
             }}
             startReached={handleStartReached}
-            overscan={200}
+            // Start fetching older messages BEFORE the user hits the very top
+            // (startReached fires 400px early) and keep a generous overscan so
+            // the prepended items are rendered before they scroll into view.
+            increaseViewportBy={{ top: 400, bottom: 200 }}
+            overscan={400}
             components={listComponents}
             style={{ height: "100%" }}
             itemContent={(index) => {

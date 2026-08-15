@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	_ "image/png"
 
+	"go.n16f.net/thumbhash"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 )
@@ -23,15 +24,17 @@ const (
 	maxImagePixels   = 40_000_000
 )
 
-// ImageVariants contains a compact preview, an inline low-quality placeholder
-// and the metadata-stripped original. Original is a re-encode of the uploaded
-// image in its own format with EXIF/GPS/XMP removed (H2.2) — callers persist
-// it INSTEAD of the raw upload bytes so camera metadata never reaches viewers.
-// Formats without a pure-Go encoder (WebP) fall back to the raw bytes.
+// ImageVariants contains a compact preview, an inline low-quality placeholder,
+// a ThumbHash of the original and the metadata-stripped original. Original is a
+// re-encode of the uploaded image in its own format with EXIF/GPS/XMP removed
+// (H2.2) — callers persist it INSTEAD of the raw upload bytes so camera
+// metadata never reaches viewers. Formats without a pure-Go encoder (WebP)
+// fall back to the raw bytes.
 type ImageVariants struct {
 	Preview     []byte
 	Original    []byte
 	LQIP        string
+	ThumbHash   string
 	Width       int
 	Height      int
 	PreviewType string
@@ -85,10 +88,17 @@ func GenerateImageVariants(data []byte) (*ImageVariants, error) {
 		return nil, fmt.Errorf("encode lqip: %w", err)
 	}
 
+	// ThumbHash is a ~30-byte perceptual hash that the client renders as an
+	// instant colored placeholder. EncodeImage resizes internally (≤128px), so
+	// the full decoded image can be passed straight through. base64 keeps it
+	// JSON-friendly for the attachment meta column.
+	thumbHash := base64.StdEncoding.EncodeToString(thumbhash.EncodeImage(img))
+
 	return &ImageVariants{
 		Preview:     previewBytes,
 		Original:    original,
 		LQIP:        "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(lqipBytes),
+		ThumbHash:   thumbHash,
 		Width:       width,
 		Height:      height,
 		PreviewType: "image/jpeg",

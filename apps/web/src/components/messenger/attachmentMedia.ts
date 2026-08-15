@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { thumbHashToDataURL } from "thumbhash";
 import { storageUrl } from "@/utils/storage";
 import { apiClient } from "@/integrations/api/client";
 import {
@@ -17,6 +18,7 @@ export function parseImageMeta(attachment: Attachment): {
   height?: number;
   preview_key?: string;
   lqip?: string;
+  thumb_hash?: string;
 } {
   if (!attachment.meta) return {};
   try {
@@ -26,9 +28,29 @@ export function parseImageMeta(attachment: Attachment): {
       ...(typeof parsed.height === "number" ? { height: parsed.height } : {}),
       ...(typeof parsed.preview_key === "string" ? { preview_key: parsed.preview_key } : {}),
       ...(typeof parsed.lqip === "string" && parsed.lqip.startsWith("data:image/") ? { lqip: parsed.lqip } : {}),
+      ...(typeof parsed.thumb_hash === "string" ? { thumb_hash: parsed.thumb_hash } : {}),
     };
   } catch {
     return {};
+  }
+}
+
+/**
+ * Render a ThumbHash (base64, ~30 bytes) as a small colored PNG data URL that
+ * paints instantly — the placeholder for every new messenger image. Pure JS
+ * (no canvas), so it works anywhere and costs nothing on re-renders when
+ * memoized by the caller. Returns null for missing/garbage hashes (legacy
+ * attachments fall back to their LQIP instead).
+ */
+export function thumbHashToPlaceholderDataUrl(thumbHash?: string): string | null {
+  if (!thumbHash) return null;
+  try {
+    const binary = atob(thumbHash);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return thumbHashToDataURL(bytes);
+  } catch {
+    return null;
   }
 }
 
@@ -137,13 +159,32 @@ export function getAttachmentAspectRatio(attachment: Attachment): number {
   return attachment.type === "video" ? 16 / 9 : 4 / 3;
 }
 
-export function getAttachmentDisplayWidth(aspectRatio: number, viewportHeight: number): number {
-  if (typeof window === "undefined") return Math.min(640, 640 * aspectRatio);
-  // Keep very tall photos inside the viewport while retaining their exact
-  // proportions. The CSS max-width still lets the chat column shrink this
-  // value further on narrow screens.
-  const maxHeight = Math.min(viewportHeight * 0.68, 640);
-  return Math.min(640, Math.max(1, maxHeight * aspectRatio));
+/**
+ * Stable display size for a single image bubble. The box is sized from the
+ * attachment's own width/height ratio ONLY — no visual-viewport reactivity,
+ * no max-height clamp fighting the aspect-ratio. The keyboard / URL-bar
+ * resizes (which shrink `visualViewport.height` on mobile) can no longer
+ * reflow every photo in the list; the reserved space stays put and Virtuoso
+ * keeps the exact size. `width` is expressed as `min(100%, Xpx)` so the chat
+ * column still shrinks the image on narrow screens without breaking the box.
+ *
+ * Legacy images without meta keep the remembered/fallback ratio; the box
+ * corrects once on first load (see rememberMeasuredAttachmentRatio).
+ */
+export function getAttachmentDisplayStyle(
+  ratio: number,
+  opts: { maxWidth?: number; maxHeight?: number } = {},
+): CSSProperties {
+  const maxWidth = opts.maxWidth ?? 640;
+  const maxHeight = opts.maxHeight ?? 480;
+  // Tall images cap their WIDTH (never their height) so the aspect-ratio box
+  // always matches the real proportions: width = min(maxWidth, maxHeight*ratio).
+  const boxWidth = Math.min(maxWidth, Math.max(1, maxHeight * ratio));
+  return {
+    width: `min(100%, ${Math.round(boxWidth)}px)`,
+    aspectRatio: ratio,
+    "--attachment-ratio": ratio,
+  } as CSSProperties;
 }
 
 export function rememberMeasuredAttachmentRatio(attachment: Attachment, ratio: number): void {

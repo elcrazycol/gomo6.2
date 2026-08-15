@@ -375,6 +375,9 @@ github.com/yuin/gopher-lua
 github.com/yuin/gopher-lua/ast
 github.com/yuin/gopher-lua/parse
 github.com/yuin/gopher-lua/pm
+# go.n16f.net/thumbhash v1.1.0
+## explicit; go 1.24.0
+go.n16f.net/thumbhash
 # golang.org/x/arch v0.3.0
 ## explicit; go 1.17
 golang.org/x/arch/x86/x86asm
