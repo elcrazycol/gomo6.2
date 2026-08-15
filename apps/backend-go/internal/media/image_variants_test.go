@@ -8,6 +8,8 @@ import (
 	"image/png"
 	"strings"
 	"testing"
+
+	"go.n16f.net/thumbhash"
 )
 
 func TestGenerateImageVariants(t *testing.T) {
@@ -41,6 +43,21 @@ func TestGenerateImageVariants(t *testing.T) {
 	}
 	if len(lqip) >= 2048 {
 		t.Fatalf("LQIP is too large: %d bytes", len(lqip))
+	}
+	thumbHash, err := base64.StdEncoding.DecodeString(variants.ThumbHash)
+	if err != nil {
+		t.Fatalf("invalid ThumbHash: %v", err)
+	}
+	if len(thumbHash) == 0 || len(thumbHash) > 64 {
+		t.Fatalf("ThumbHash should be a tiny payload, got %d bytes", len(thumbHash))
+	}
+	// The hash must decode back into a renderable placeholder image.
+	img, err := thumbhash.DecodeImage(thumbHash)
+	if err != nil {
+		t.Fatalf("ThumbHash does not decode: %v", err)
+	}
+	if img.Bounds().Dx() <= 0 || img.Bounds().Dy() <= 0 {
+		t.Fatal("ThumbHash decoded to an empty image")
 	}
 }
 

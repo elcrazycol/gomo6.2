@@ -22,6 +22,7 @@ require (
 	github.com/pquerna/otp v1.5.0
 	github.com/redis/go-redis/v9 v9.6.3
 	github.com/swaggo/swag v1.16.4
+	go.n16f.net/thumbhash v1.1.0
 	golang.org/x/crypto v0.52.0
 	golang.org/x/image v0.43.0
 )

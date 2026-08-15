@@ -83,6 +83,7 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
 export type UploadedImageVariants = {
   preview_key: string;
   lqip: string;
+  thumb_hash?: string;
   width: number;
   height: number;
   content_type: string;

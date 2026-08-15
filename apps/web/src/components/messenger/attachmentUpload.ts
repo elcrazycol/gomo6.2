@@ -54,7 +54,11 @@ export async function uploadFilesAsAttachments(
             width: uploaded.variants.width,
             height: uploaded.variants.height,
             preview_key: uploaded.variants.preview_key,
-            lqip: uploaded.variants.lqip,
+            // ThumbHash (~30 bytes) is the placeholder for new attachments —
+            // the LQIP data URL (1-3KB) was dropped to keep the DB payload
+            // tiny. Old messages still carry lqip and render through the
+            // fallback path.
+            thumb_hash: uploaded.variants.thumb_hash,
             pipeline: "messenger-image-v2",
             source_size: file.size,
             stored_size: uploadSource.size,

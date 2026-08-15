@@ -86,6 +86,7 @@ type uploadResponse struct {
 		Variants *struct {
 			PreviewKey  string `json:"preview_key"`
 			LQIP        string `json:"lqip"`
+			ThumbHash   string `json:"thumb_hash"`
 			Width       int    `json:"width"`
 			Height      int    `json:"height"`
 			ContentType string `json:"content_type"`
@@ -124,6 +125,9 @@ func TestUploadFile_ContentBucket_ImageWithVariants(t *testing.T) {
 	}
 	if !strings.HasPrefix(resp.Data.Variants.LQIP, "data:image/jpeg;base64,") {
 		t.Error("LQIP must be a JPEG data URL")
+	}
+	if resp.Data.Variants.ThumbHash == "" {
+		t.Error("ThumbHash must be present for image uploads")
 	}
 	// Original + derivative must both be persisted in the bucket.
 	if _, ok := f.get("content", resp.Data.Key); !ok {

@@ -2079,11 +2079,13 @@ main.is-messenger-page {
   flex: 0 0 auto;
 }
 
+/* The reserved box is sized entirely by the inline width + aspect-ratio from
+   getAttachmentDisplayStyle — NO max-height/min-height clamps here, they would
+   break the aspect-ratio and make the box resize when the image loads. */
 .msg-attachment-image {
   position: relative;
   width: min(100%, 420px);
   max-width: 100%;
-  max-height: 300px;
   aspect-ratio: var(--attachment-ratio, 4 / 3);
   border-radius: 8px;
   overflow: hidden;
@@ -2094,7 +2096,6 @@ main.is-messenger-page {
 .message-content-media .msg-attachment-image {
   width: min(100%, 640px);
   max-width: 100%;
-  max-height: min(68dvh, 640px);
   border-radius: 0;
 }
 
@@ -2261,9 +2262,7 @@ main.is-messenger-page {
   transform: scale(1);
 }
 
-.msg-attachment-image.is-loading {
-  min-height: 160px;
-}
+
 
 .msg-attachment-legacy-placeholder {
   position: absolute;

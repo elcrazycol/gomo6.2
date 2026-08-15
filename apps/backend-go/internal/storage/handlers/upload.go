@@ -35,6 +35,7 @@ const (
 type imageVariantResponse struct {
 	PreviewKey  string `json:"preview_key"`
 	LQIP        string `json:"lqip"`
+	ThumbHash   string `json:"thumb_hash"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
 	ContentType string `json:"content_type"`
@@ -189,6 +190,7 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 		response["variants"] = &imageVariantResponse{
 			PreviewKey:  previewKey,
 			LQIP:        generated.LQIP,
+			ThumbHash:   generated.ThumbHash,
 			Width:       generated.Width,
 			Height:      generated.Height,
 			ContentType: generated.PreviewType,
@@ -296,6 +298,7 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		variants = &imageVariantResponse{
 			PreviewKey:  key + ".preview.jpg",
 			LQIP:        generated.LQIP,
+			ThumbHash:   generated.ThumbHash,
 			Width:       generated.Width,
 			Height:      generated.Height,
 			ContentType: generated.PreviewType,

@@ -201,7 +201,7 @@ export const messengerApi = {
     onProgress?: (percent: number) => void,
   ): Promise<{
     path: string;
-    variants?: { preview_key: string; lqip: string; width: number; height: number; content_type: string };
+    variants?: { preview_key: string; lqip: string; thumb_hash?: string; width: number; height: number; content_type: string };
   }> {
     const ext = file.name.split(".").pop() || "bin";
     const profile = await this.getMyProfile();

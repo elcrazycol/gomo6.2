@@ -69,7 +69,7 @@ export type Attachment = {
   name: string;
   size: number;
   mime: string;
-  /** JSON metadata: width, height, preview_key and inline lqip for images. */
+  /** JSON metadata: width, height, preview_key, thumb_hash (and lqip for legacy). */
   meta?: string | null;
   sort_order?: number;
 };

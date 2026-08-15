@@ -5,16 +5,16 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { storageUrl, giftImageUrl } from "@/utils/storage";
 import {
   getAttachmentAspectRatio,
-  getAttachmentDisplayWidth,
+  getAttachmentDisplayStyle,
   parseImageMeta,
   rememberMeasuredAttachmentRatio,
+  thumbHashToPlaceholderDataUrl,
   useAuthenticatedAttachmentUrl,
 } from "./attachmentMedia";
 import { MessengerLightbox } from "./MessengerLightbox";
 import { MessageMediaMosaic } from "./MessageMediaMosaic";
 import { chunkAttachments } from "./attachmentAlbum";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
-import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import { MessengerRichText } from "./MessengerRichText";
 import type { Attachment } from "./types";
 
@@ -145,10 +145,19 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
     : true;
   const url = useAuthenticatedAttachmentUrl(attachment, previewKey, previewEnabled);
   const [aspectRatio, setAspectRatio] = useState(() => getAttachmentAspectRatio(attachment));
-  // Visual-viewport height (keyboard/URL-bar aware via lib/mobileKeyboard) —
-  // window.innerHeight is the full screen even when the keyboard covers the
-  // lower half, which would size images too tall while typing.
-  const viewportHeight = useMobileKeyboard().viewportHeight;
+  // Placeholder: instant ThumbHash for new attachments, inline LQIP data URL
+  // for legacy ones, nothing otherwise (legacy placeholder box covers it).
+  const placeholder = useMemo(
+    () => thumbHashToPlaceholderDataUrl(meta.thumb_hash) ?? meta.lqip ?? null,
+    [meta.thumb_hash, meta.lqip],
+  );
+  // Reserved box: sized once from the ratio — never reflows when the keyboard
+  // or URL bar changes the visual viewport (the old width formula depended on
+  // viewportHeight and resized every photo on mobile while typing).
+  const displayStyle = useMemo(
+    () => getAttachmentDisplayStyle(aspectRatio, { maxWidth: fitToViewport ? 640 : 420 }),
+    [aspectRatio, fitToViewport],
+  );
   const isVisual = attachment.type === "image" || attachment.type === "video";
 
   useEffect(() => {
@@ -188,19 +197,15 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
       <div
         ref={imageRef}
         className={`msg-attachment-image${isPreviewReady ? " is-loaded" : " is-loading"}`}
-        style={{
-          aspectRatio,
-          "--attachment-ratio": aspectRatio,
-          ...(fitToViewport ? { width: getAttachmentDisplayWidth(aspectRatio, viewportHeight) } : {}),
-        } as React.CSSProperties}
+        style={displayStyle}
         aria-busy={!url}
       >
         {attachment.type === "image" ? (
           <button type="button" className="msg-attachment-open" onClick={() => setLightboxOpen(true)} aria-label={`Открыть ${attachment.name}`}>
-            {meta.lqip && <img className="msg-attachment-lqip" src={meta.lqip} alt="" aria-hidden="true" />}
+            {placeholder && <img className="msg-attachment-lqip" src={placeholder} alt="" aria-hidden="true" />}
             {url && <img className="msg-attachment-preview" src={url} alt={attachment.name} loading="lazy" decoding="async" fetchPriority="low" onLoad={(event) => { setIsPreviewReady(true); handleImageLoad(event); }} style={{ objectFit: "contain" }} />}
-            {!url && meta.lqip && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
-            {!url && !meta.lqip && <span className="msg-attachment-legacy-placeholder" aria-hidden="true">Открыть фото</span>}
+            {!url && placeholder && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
+            {!url && !placeholder && <span className="msg-attachment-legacy-placeholder" aria-hidden="true">Открыть фото</span>}
           </button>
         ) : (
           url && <video src={url} controls preload="metadata" onLoadedMetadata={(event) => { setIsPreviewReady(true); handleVideoMetadata(event); }} style={{ objectFit: "contain" }} />
