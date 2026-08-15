@@ -156,43 +156,11 @@ describe("MessageList virtualization", () => {
     expect(followOutput(false)).toBe(false);
   });
 
-  it("opens on the unread boundary and re-anchors it to the network snapshot, not the stale cache", async () => {
-    // First open after a reload: the message array is the IndexedDB cache,
-    // which lags the network by the newest messages. The initial paint uses
-    // the cache as a rough anchor, and once the network load finishes the
-    // boundary is recomputed against the authoritative snapshot.
-    h.storeState.openingUnreadCount = 2;
-    h.storeState.isMessagesLoading = true;
-    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
-    const { rerender } = mountList();
-
-    // First paint: boundary from the array in hand (the cache): 3 - 2 = 1.
-    expect(h.virtuosoProps.initialTopMostItemIndex).toEqual({ index: 1, align: "start" });
-    expect(h.virtuosoProps.alignToBottom).toBe(false);
-
-    // The network finishes, with the 2 unread messages the cache lacked.
-    h.storeState.isMessagesLoading = false;
-    h.storeState.messages = [
-      makeMessage("a"),
-      makeMessage("b"),
-      makeMessage("c"),
-      makeMessage("d"),
-      makeMessage("e"),
-    ];
-    await act(async () => {
-      rerender(<MessageList renderMessage={renderMessage} />);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-
-    // Re-anchored to the network snapshot: 5 - 2 = 3.
-    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 3, align: "start", behavior: "auto" });
-  });
-
-  it("opens at the very bottom for a read conversation (alignToBottom + initialTopMostItemIndex end)", () => {
+  it("always opens at the very bottom (alignToBottom, no boundary positioning)", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     mountList();
     expect(h.virtuosoProps.alignToBottom).toBe(true);
-    expect(h.virtuosoProps.initialTopMostItemIndex).toEqual({ index: 1, align: "end" });
+    expect(h.virtuosoProps.initialTopMostItemIndex).toBeUndefined();
   });
 
   it("loads older history when the top is reached", async () => {
@@ -308,55 +276,4 @@ describe("MessageList realtime appends", () => {
   });
 });
 
-describe("MessageList keyboard resize", () => {
-  it("re-pins the bottom when the visual viewport shrinks and the user is at the bottom", async () => {
-    const vvListeners = new Map<string, () => void>();
-    const vvStub = {
-      addEventListener: vi.fn((type: string, cb: () => void) => vvListeners.set(type, cb)),
-      removeEventListener: vi.fn((type: string) => vvListeners.delete(type)),
-      height: 800,
-      offsetTop: 0,
-      scroll: 0,
-    };
-    Object.defineProperty(window, "visualViewport", { configurable: true, value: vvStub });
 
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    mountList();
-    h.scrollToIndexSpy.mockClear();
-
-    await act(async () => {
-      vvListeners.get("resize")?.();
-      await new Promise((resolve) => setTimeout(resolve, 120));
-    });
-
-    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 1, align: "end", behavior: "auto" });
-  });
-
-  it("does not touch the scroll position for a user reading history", async () => {
-    const vvListeners = new Map<string, () => void>();
-    const vvStub = {
-      addEventListener: vi.fn((type: string, cb: () => void) => vvListeners.set(type, cb)),
-      removeEventListener: vi.fn((type: string) => vvListeners.delete(type)),
-      height: 800,
-      offsetTop: 0,
-      scroll: 0,
-    };
-    Object.defineProperty(window, "visualViewport", { configurable: true, value: vvStub });
-
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    mountList();
-
-    act(() => {
-      const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
-      atBottomChange(false);
-    });
-    h.scrollToIndexSpy.mockClear();
-
-    await act(async () => {
-      vvListeners.get("resize")?.();
-      await new Promise((resolve) => setTimeout(resolve, 120));
-    });
-
-    expect(h.scrollToIndexSpy).not.toHaveBeenCalled();
-  });
-});
