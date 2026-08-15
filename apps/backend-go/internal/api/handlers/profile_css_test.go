@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -117,6 +118,7 @@ func TestSanitizeProfileCustomizationRow(t *testing.T) {
 		"username_css":       "color: red; position: fixed",
 		"profile_badge_css":  "background: url(https://evil.example/x)",
 		"profile_badge_text": "B\tADGE",
+		"background_url":     "https://evil.example/tracker.png",
 	}
 	sanitizeProfileCustomizationRow(row)
 	if row["username_css"] != "color: red" {
@@ -128,11 +130,21 @@ func TestSanitizeProfileCustomizationRow(t *testing.T) {
 	if row["profile_badge_text"] != "BADGE" {
 		t.Fatalf("unexpected badge_text: %v", row["profile_badge_text"])
 	}
+	if row["background_url"] != "" {
+		t.Fatalf("unexpected background_url: %v", row["background_url"])
+	}
+
+	// Valid storage keys survive the read path.
+	row3 := map[string]interface{}{"background_url": "u1/background_1.webp"}
+	sanitizeProfileCustomizationRow(row3)
+	if row3["background_url"] != "u1/background_1.webp" {
+		t.Fatalf("valid background_url must survive: %v", row3["background_url"])
+	}
 
 	// Non-string values must be left untouched.
-	row2 := map[string]interface{}{"username_css": nil, "profile_badge_css": 42}
+	row2 := map[string]interface{}{"username_css": nil, "profile_badge_css": 42, "background_url": 42}
 	sanitizeProfileCustomizationRow(row2)
-	if row2["username_css"] != nil || row2["profile_badge_css"] != 42 {
+	if row2["username_css"] != nil || row2["profile_badge_css"] != 42 || row2["background_url"] != 42 {
 		t.Fatalf("non-string values must be left as-is: %#v", row2)
 	}
 }
@@ -143,10 +155,11 @@ func TestUniversalPost_ProfileCustomization_SanitizesCSS(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	const cleanUsername = "color: red; text-shadow: 0 0 4px #ff4500"
-	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(.*\).*RETURNING \*`).
+	// Partial upsert: only the fields present in the body are written.
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, username_css, profile_badge_text, profile_badge_css, updated_at\).*RETURNING \*`).
 		WithArgs("u1", cleanUsername, "VIP", "color: #fff").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css"}).
-			AddRow("1", "u1", cleanUsername, "VIP", "color: #fff"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css", "background_url"}).
+			AddRow("1", "u1", cleanUsername, "VIP", "color: #fff", nil))
 
 	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
 		"user_id":            "u1",
@@ -158,6 +171,122 @@ func TestUniversalPost_ProfileCustomization_SanitizesCSS(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── background_url: write path stores only sanitized storage keys ──────────
+
+func TestUniversalPost_ProfileCustomization_SanitizesBackgroundURL(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// The absolute URL is sanitized down to an empty string before storage.
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, background_url, updated_at\).*RETURNING \*`).
+		WithArgs("u1", "").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css", "background_url"}).
+			AddRow("1", "u1", nil, nil, nil, ""))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+		"user_id":        "u1",
+		"background_url": "https://evil.example/tracker.png",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// A second write with a valid key stores it verbatim.
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, background_url, updated_at\).*RETURNING \*`).
+		WithArgs("u1", "u1/background_456.png").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css", "background_url"}).
+			AddRow("1", "u1", nil, nil, nil, "u1/background_456.png"))
+
+	c2, w2 := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+		"user_id":        "u1",
+		"background_url": "u1/background_456.png",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c2)
+
+	if w2.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w2.Code, w2.Body.String())
+	}
+}
+
+// ─── Partial upserts: toggling the theme must not wipe other fields ─────────
+
+func TestUniversalPost_ProfileCustomization_PartialThemeToggle(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// The theme toggle sends ONLY user_id + theme_enabled. The partial upsert
+	// must touch just that column — background_url and theme_tokens (already
+	// stored) must survive.
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, theme_enabled, updated_at\).*ON CONFLICT \(user_id\) DO UPDATE SET theme_enabled = \$2, updated_at = NOW\(\).*RETURNING \*`).
+		WithArgs("u1", true).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "theme_enabled", "background_url", "theme_tokens"}).
+			AddRow("1", "u1", true, "u1/background_1.png", `{"--primary":"120 60% 35%"}`))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]interface{}{
+		"user_id":       "u1",
+		"theme_enabled": true,
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if resp.Data["background_url"] != "u1/background_1.png" {
+		t.Fatalf("background_url must survive a theme toggle, got %v", resp.Data["background_url"])
+	}
+}
+
+// ─── sanitizeProfileBackgroundURL ───────────────────────────────────────────
+
+func TestSanitizeProfileBackgroundURL(t *testing.T) {
+	valid := []string{
+		"u1/background_123.webp",
+		"550e8400-e29b-41d4-a716-446655440000/bg.png",
+		"u1/folder/image.avif",
+	}
+	for _, s := range valid {
+		if got := sanitizeProfileBackgroundURL(s); got != s {
+			t.Fatalf("expected %q to survive sanitization, got %q", s, got)
+		}
+	}
+
+	invalid := map[string]string{
+		"https://evil.example/x.png":   "absolute http URL",
+		"http://evil.example/x.png":    "absolute http URL",
+		"data:text/html;base64,xxx":    "data URI",
+		"//evil.example/x.png":         "protocol-relative URL",
+		"u1/background.png?track=1":    "query string",
+		"u1/background.png#frag":       "fragment",
+		"u1/../secret.png":             "path traversal",
+		"u1/background.png\n<script>":  "control characters",
+		"u1/back\"ground.png":          "double quote",
+		"javascript:alert(1)":          "javascript scheme",
+		"u1/background with space.png": "whitespace",
+		"u1/background.png'":           "single quote",
+	}
+	for s, reason := range invalid {
+		if got := sanitizeProfileBackgroundURL(s); got != "" {
+			t.Fatalf("expected %q (%s) to be rejected, got %q", s, reason, got)
+		}
+	}
+
+	// Empty input stays empty; over-long input is capped then validated.
+	if got := sanitizeProfileBackgroundURL(""); got != "" {
+		t.Fatalf("expected empty input to stay empty, got %q", got)
+	}
+	long := "u1/bg_" + strings.Repeat("a", maxProfileBackgroundURLLen) + ".png"
+	if got := sanitizeProfileBackgroundURL(long); len(got) > maxProfileBackgroundURLLen {
+		t.Fatalf("sanitized output must not exceed cap, got %d", len(got))
 	}
 }
 
@@ -195,5 +324,99 @@ func TestUniversalGet_ProfileCustomization_SanitizesLegacyRows(t *testing.T) {
 	}
 	if resp.Data[0]["profile_badge_text"] != "VIP" {
 		t.Fatalf("expected sanitized badge_text, got %v", resp.Data[0]["profile_badge_text"])
+	}
+}
+
+// ─── Profile auto-theme tokens ───────────────────────────────────────────────
+
+func TestSanitizeProfileThemeTokens(t *testing.T) {
+	// Allow-listed keys with HSL triplets survive.
+	in := map[string]interface{}{
+		"--primary":    "120 60% 35%",
+		"--background": "120 20% 95%",
+		"--ring":       "200 70% 50%",
+	}
+	out := sanitizeProfileThemeTokens(in)
+	if out["--primary"] != "120 60% 35%" {
+		t.Fatalf("expected --primary to survive, got %q", out["--primary"])
+	}
+	if out["--background"] != "120 20% 95%" {
+		t.Fatalf("expected --background to survive, got %q", out["--background"])
+	}
+	if len(out) != 3 {
+		t.Fatalf("expected 3 tokens, got %d", len(out))
+	} // Non-allow-listed keys, non-HSL values and non-strings are dropped.
+	bad := map[string]interface{}{
+		"--position":          "fixed",
+		"--primary":           "red",
+		"--primary-url":       "url(https://evil.example/x)",
+		"--primary-important": "120 60% 35% !important",
+		"--muted-foreground":  "calc(100% - 1px)",
+		"--ring":              42,
+		"--nope":              "120 60% 35%",
+	}
+	out2 := sanitizeProfileThemeTokens(bad)
+	if len(out2) != 0 {
+		t.Fatalf("expected all bad tokens dropped, got %v", out2)
+	}
+
+	// Oversized payloads are capped.
+	huge := map[string]interface{}{}
+	for i := 0; i < maxThemeTokens+10; i++ {
+		huge["--primary"] = "120 60% 35%"
+		huge[fmt.Sprintf("--custom%d", i)] = "120 60% 35%"
+	}
+	out3 := sanitizeProfileThemeTokens(huge)
+	if len(out3) > maxThemeTokens {
+		t.Fatalf("expected cap at %d, got %d", maxThemeTokens, len(out3))
+	}
+
+	// Non-object payloads yield an empty map.
+	if got := sanitizeProfileThemeTokens(nil); len(got) != 0 {
+		t.Fatalf("expected empty for nil, got %v", got)
+	}
+	if got := sanitizeProfileThemeTokens("nope"); len(got) != 0 {
+		t.Fatalf("expected empty for string, got %v", got)
+	}
+
+	// The write path hands over a JSON blob (normalizeJSONValuesForDB
+	// marshals nested objects to []byte) — that must sanitize the same way.
+	blob := []byte(`{"--primary":"120 60% 35%","--background":"120 20% 95%","--position":"fixed","--evil":"url(https://x)"}`)
+	out4 := sanitizeProfileThemeTokens(blob)
+	if out4["--primary"] != "120 60% 35%" || out4["--background"] != "120 20% 95%" {
+		t.Fatalf("expected blob tokens to survive, got %v", out4)
+	}
+	if len(out4) != 2 {
+		t.Fatalf("expected 2 tokens from blob, got %d: %v", len(out4), out4)
+	}
+	if got := sanitizeProfileThemeTokens([]byte(`not json`)); len(got) != 0 {
+		t.Fatalf("expected empty for invalid blob, got %v", got)
+	}
+
+	// map[string]string input (read path after sanitize returns this shape).
+	out5 := sanitizeProfileThemeTokens(map[string]string{"--primary": "120 60% 35%", "--position": "fixed"})
+	if out5["--primary"] != "120 60% 35%" || len(out5) != 1 {
+		t.Fatalf("expected map[string]string sanitized, got %v", out5)
+	}
+}
+
+func TestSanitizeProfileCustomizationRow_ThemeTokens(t *testing.T) {
+	row := map[string]interface{}{
+		"theme_tokens": map[string]interface{}{
+			"--primary":  "120 60% 35%",
+			"--position": "fixed",
+			"--evil":     "url(https://x)",
+		},
+	}
+	sanitizeProfileCustomizationRow(row)
+	tokens, ok := row["theme_tokens"].(map[string]string)
+	if !ok {
+		t.Fatalf("expected theme_tokens map, got %T", row["theme_tokens"])
+	}
+	if tokens["--primary"] != "120 60% 35%" {
+		t.Fatalf("expected --primary to survive, got %q", tokens["--primary"])
+	}
+	if len(tokens) != 1 {
+		t.Fatalf("expected only 1 token, got %d: %v", len(tokens), tokens)
 	}
 }

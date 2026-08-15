@@ -17,13 +17,15 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileSkeleton } from "@/components/skeletons/ContentSkeletons";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X, ImagePlus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 import { getProfileCustomization, parseCssToStyle, dispatchProfileCacheInvalidate, type ProfileCustomization } from "@/utils/profileCustomization";
+import { getProfileBackgroundVariant, type ProfileBackgroundVariant } from "@/utils/profileBackground";
+import { isValidThemeTokens, applyProfileThemeTokens } from "@/utils/profileTheme";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { AdminBadge } from "@/components/AdminBadge";
@@ -64,6 +66,9 @@ interface Profile {
   drops: number;
   created_at: string;
   avatar_url?: string | null;
+  background_url?: string | null;
+  theme_enabled?: boolean;
+  theme_tokens?: Record<string, string> | null;
   account_number?: number | null;
   is_online?: boolean;
   last_seen?: string | null;
@@ -170,6 +175,7 @@ const Profile = () => {
   const [newDisplayName, setNewDisplayName] = useState("");
   const [confirmUsername, setConfirmUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [backgroundUploading, setBackgroundUploading] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -221,6 +227,8 @@ const Profile = () => {
   const [privateHideAchievements, setPrivateHideAchievements] = useState(true);
   const [isMutualFriend, setIsMutualFriend] = useState<boolean | null>(null);
   const [privacyChecked, setPrivacyChecked] = useState(false);
+  // Viewer's profile-background display variant (Settings → Внешний вид).
+  const [bgVariant, setBgVariant] = useState<ProfileBackgroundVariant>(() => getProfileBackgroundVariant());
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -246,6 +254,29 @@ const Profile = () => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Re-read the viewer's background variant when it changes (same tab via the
+  // settings picker event, other tabs via the storage event).
+  useEffect(() => {
+    const handler = () => setBgVariant(getProfileBackgroundVariant());
+    window.addEventListener("profile-background:variant-change", handler);
+    window.addEventListener("storage", handler);
+    return () => {
+      window.removeEventListener("profile-background:variant-change", handler);
+      window.removeEventListener("storage", handler);
+    };
+  }, []);
+
+  // Owner's auto-theme (Settings → custom profile): while viewing a profile
+  // whose owner enabled it, apply their theme tokens to the page root so the
+  // header, buttons and cards match their background/avatar. Cleanup restores
+  // the viewer's own theme when leaving the profile.
+  useEffect(() => {
+    const tokens = profile?.theme_tokens;
+    if (!profile?.theme_enabled || !tokens || !isValidThemeTokens(tokens)) return;
+    const cleanup = applyProfileThemeTokens(tokens);
+    return cleanup;
+  }, [profile?.theme_enabled, profile?.theme_tokens]);
 
   // Load gift catalog (TTL-cached — public data that rarely changes)
   useEffect(() => {
@@ -746,6 +777,83 @@ const Profile = () => {
     }
   };
 
+  // ── Profile background (avatar + background) ──
+  const handleBackgroundUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId || !currentUser || currentUser.id !== userId) return;
+    setBackgroundUploading(true);
+    try {
+      const fileName = `${userId}/background_${Date.now()}.png`;
+      const uploaded = await uploadFile("post-images", fileName, file);
+
+      // Auto-theme: regenerate the theme tokens from the new background so
+      // the owner's theme always matches their latest image. Kept as a best
+      // effort — a failed extraction simply leaves the previous tokens.
+      let themeTokens: Record<string, string> | null = null;
+      try {
+        const { extractPaletteFromImage, buildThemeTokens } = await import("@/utils/profileTheme");
+        const palette = await extractPaletteFromImage(file);
+        themeTokens = buildThemeTokens(palette);
+      } catch {
+        // ignore — theme stays as-is when the image cannot be decoded
+      }
+
+      const { error } = await api.from("profile_customization").upsert({
+        user_id: userId,
+        background_url: uploaded.path,
+        ...(themeTokens ? { theme_tokens: themeTokens } : {}),
+      });
+      if (error) throw error;
+
+      setProfile((prev) => (prev ? { ...prev, background_url: uploaded.path, theme_tokens: themeTokens ?? prev.theme_tokens } : prev));
+      // Profile caches (hover cards, header, own page) hold the old value.
+      dispatchProfileCacheInvalidate();
+      toast.success("Фон профиля обновлён");
+    } catch (error) {
+      toast.error("Ошибка загрузки фона");
+      console.error(error);
+    } finally {
+      setBackgroundUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  // Toggle whether viewers see the owner's auto-theme on the profile page.
+  const handleThemeEnabledToggle = async (enabled: boolean) => {
+    if (!userId || !currentUser || currentUser.id !== userId) return;
+    try {
+      const { error } = await api.from("profile_customization").upsert({
+        user_id: userId,
+        theme_enabled: enabled,
+      });
+      if (error) throw error;
+      setProfile((prev) => (prev ? { ...prev, theme_enabled: enabled } : prev));
+      dispatchProfileCacheInvalidate();
+      toast.success(enabled ? "Тема профиля включена" : "Тема профиля выключена");
+    } catch (error) {
+      toast.error("Ошибка сохранения темы");
+      console.error(error);
+    }
+  };
+
+  const handleBackgroundRemove = async () => {
+    if (!userId || !currentUser || currentUser.id !== userId) return;
+    try {
+      const { error } = await api.from("profile_customization").upsert({
+        user_id: userId,
+        background_url: null,
+      });
+      if (error) throw error;
+
+      setProfile((prev) => (prev ? { ...prev, background_url: null } : prev));
+      dispatchProfileCacheInvalidate();
+      toast.success("Фон убран");
+    } catch (error) {
+      toast.error("Ошибка удаления фона");
+      console.error(error);
+    }
+  };
+
 
   // ── Nickname emoji (custom emoji shown right of the display name) ──
   const handleNicknameEmojiSelect = async (sel: { emojiId: string }) => {
@@ -917,10 +1025,252 @@ const Profile = () => {
     }
   };
 
+  // ── Derived profile-background values ────────────────────────────────────
+  // The owner uploads one image (background_url storage key); every viewer
+  // picks how it is displayed (Settings → Внешний вид → «Отображение фонов»).
+  const profileBackgroundUrl = profile?.background_url ?? null;
+  const bgUrl = profileBackgroundUrl ? storageUrl("post-images", profileBackgroundUrl) || profileBackgroundUrl : null;
+  // The "card" variant folds the header + stats into one card over the image.
+  const cardVariantActive = bgVariant === 'card' && !!bgUrl && !isEditing;
+
+  // Header row (avatar + identity + actions) — rendered inside the active
+  // background variant (banner strip / card / frosted panel / plain). Built
+  // only when the profile is loaded (the skeleton renders before that).
+  const headerRow = profile ? (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3 sm:gap-4">
+        {/* Avatar */}
+        {canViewSection(privateHideAvatar) && (
+        <div className="relative">
+          <div
+            {...(isOwnProfile && isEditing ? avatarDragHandlers : {})}
+            className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-all duration-150 ${
+              isOwnProfile && isEditing && isAvatarDragging
+                ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-105"
+                : ""
+            }`}
+            onClick={handleAvatarClick}
+          >
+            {avatarUploading ? (
+              <div className="w-full h-full flex items-center justify-center">
+                <PentagramLoader size="sm" />
+              </div>
+            ) : avatarUrl ? (
+              <img
+                src={storageUrl("post-images", avatarUrl) || avatarUrl}
+                alt="Avatar"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <User className="w-10 h-10 text-muted-foreground" />
+            )}
+          </div>
+          {isOwnProfile && isEditing && (
+            <label className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary rounded-full flex items-center justify-center cursor-pointer hover:bg-primary/80 transition-colors">
+              <Camera className="w-4 h-4 text-primary-foreground" />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                className="hidden"
+              />
+            </label>
+          )}
+        </div>
+        )}
+
+        {/* User Info */}
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            {isEditing && isOwnProfile ? (
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <Input
+                  value={newDisplayName || profile.display_name || profile.username}
+                  onChange={(e) => setNewDisplayName(e.target.value)}
+                  className="text-2xl font-bold h-auto p-0 border-none bg-transparent flex-1 min-w-0"
+                  placeholder="Имя отображения"
+                />
+                <EmojiPicker
+                  closeOnSelect
+                  onEmojiSelect={handleNicknameEmojiSelect}
+                  triggerRef={nicknameEmojiButtonRef}
+                >
+                  <button
+                    type="button"
+                    title={nicknameEmojiId ? "Изменить эмодзи никнейма" : "Выбрать эмодзи для никнейма"}
+                    className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-muted hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center overflow-hidden"
+                  >
+                    {nicknameEmojiId ? (
+                      <NicknameEmoji emojiId={nicknameEmojiId} className="h-5 w-5" />
+                    ) : (
+                      <Smile className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </button>
+                </EmojiPicker>
+                {nicknameEmojiId && (
+                  <button
+                    type="button"
+                    title="Убрать эмодзи никнейма"
+                    onClick={handleNicknameEmojiRemove}
+                    className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40 transition-colors flex items-center justify-center"
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 
+                  className="text-xl sm:text-2xl font-bold"
+                  style={{
+                    ...(customization?.username_css ? parseCssToStyle(customization.username_css) : {}),
+                    // Over the banner strip the name may kiss the image edge —
+                    // a light halo keeps it readable on busy backgrounds.
+                    ...(bgUrl && bgVariant === 'banner' ? { textShadow: '0 1px 3px rgba(255,255,255,0.75)' } : {}),
+                  }}
+                >
+                  {profile.display_name?.trim() || profile.username}
+                </h1>
+                {(nicknameEmojiId || profile.nickname_emoji_id) && <NicknameEmoji emojiId={nicknameEmojiId || profile.nickname_emoji_id} />}
+                {customization?.profile_badge_text && (
+                  <span
+                    className="px-2 py-1 rounded text-xs font-medium ml-2"
+                    style={customization.profile_badge_css ? parseCssToStyle(customization.profile_badge_css) : {}}
+                  >
+                    {customization.profile_badge_text}
+                  </span>
+                )}
+                <AdminBadge userId={userId!} />
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 gap-y-0.5 flex-wrap">                  <button
+                    type="button"
+                    className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''} ${bgUrl && bgVariant === 'banner' ? '[text-shadow:0_1px_2px_rgba(255,255,255,0.7)]' : ''}`}
+                    onClick={isOwnProfile ? () => setShowUsernameDialog(true) : undefined}
+                    disabled={!isOwnProfile}
+                  >
+                    @{profile.username}
+                  </button>
+            {showOnlineStatus && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <OnlineStatus
+                  userId={profile.id}
+                  isOnline={profile.is_online}
+                  lastSeen={profile.last_seen}
+                />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Edit Button */}
+      {isOwnProfile && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="p-1 h-8 w-8 hover:bg-primary/10 hover:text-primary transition-colors"
+          onClick={isEditing ? handleSaveAndExit : startEditing}
+        >
+          {isEditing ? (
+            <span className="text-green-500 text-lg">✓</span>
+          ) : (
+            <Edit2 className="w-4 h-4" />
+          )}
+        </Button>
+      )}
+
+      {/* Write Button and Friend Button for other users */}
+      {!isOwnProfile && currentUser && (
+        <div className="flex gap-2">
+          <FriendButton userId={userId!} isOwnProfile={isOwnProfile} />
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => navigate(`/messages?user=${userId}`)}
+            className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span className="hidden sm:inline">Написать</span>
+          </Button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  // Stats summary — rendered inside the "card" background variant or standalone.
+  const statsBlock = profile ? (() => {
+    const isOwn = currentUser?.id === userId;
+    const summaryAllowed = isOwn || (showProfileStats && canViewSection(privateHideStats));
+    if (!summaryAllowed) return null;
+    return (
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
+        <button
+          type="button"
+          onClick={() => navigate(`/stats?metric=posts&user=${userId}`)}
+          className="text-left"
+        >
+          <p className="text-xs sm:text-sm text-muted-foreground">Записи</p>
+          <p className="text-xl sm:text-2xl font-bold">{(profile.thread_count ?? 0) + (profile.wall_post_count ?? 0)}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/stats?metric=comments&user=${userId}`)}
+          className="text-left"
+        >
+          <p className="text-xs sm:text-sm text-muted-foreground">Комментарии</p>
+          <p className="text-xl sm:text-2xl font-bold">{profile.comment_count ?? 0}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/stats?metric=likes&user=${userId}`)}
+          className="text-left"
+        >
+          <p className="text-xs sm:text-sm text-muted-foreground">Лайков</p>
+          <p className="text-xl sm:text-2xl font-bold">{profile.likes_received_count ?? 0}</p>
+        </button>
+        {/* Total unique views across the author's wall posts —
+            clicks open the wall, where each post shows its own
+            counter. */}
+        <button
+          type="button"
+          onClick={() => setActiveTab('wall')}
+          className="text-left"
+        >
+          <p className="text-xs sm:text-sm text-muted-foreground">Просмотры</p>
+          <p className="text-xl sm:text-2xl font-bold">{formatCompactNumber(profile.views_received_count ?? 0)}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/stats?metric=garma&user=${userId}`)}
+          className="text-left"
+        >
+          <p className="text-xs sm:text-sm text-muted-foreground">Гарма</p>
+          <p className="text-xl sm:text-2xl font-bold">{profile.garma}</p>
+        </button>
+      </div>
+    );
+  })() : null;
+
   const showSkeleton = !profile || pageLoading;
 
   return (
-    <main className="max-w-2xl mx-auto p-4">
+    <main className="max-w-2xl mx-auto p-4 isolate">
+        {/* Full-page profile background (viewer variant: page / page_dim) */}
+        {bgUrl && (bgVariant === 'page' || bgVariant === 'page_dim') && (
+          <>
+            <div
+              className="fixed inset-0 -z-10 bg-cover bg-center"
+              style={{ backgroundImage: `url("${bgUrl}")` }}
+              aria-hidden="true"
+            />
+            {bgVariant === 'page_dim' && (
+              <div className="fixed inset-0 -z-10 bg-black/40" aria-hidden="true" />
+            )}
+          </>
+        )}
         {showSkeleton && <ProfileSkeleton />}
         {!showSkeleton && (
           <div className="space-y-6 animate-in fade-in duration-300">
@@ -933,166 +1283,75 @@ const Profile = () => {
 
           {/* Profile content */}
           {friendshipLoaded && (<>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 sm:gap-4">
-              {/* Avatar */}
-              {canViewSection(privateHideAvatar) && (
-              <div className="relative">
-                <div
-                  {...(isOwnProfile && isEditing ? avatarDragHandlers : {})}
-                  className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-all duration-150 ${
-                    isOwnProfile && isEditing && isAvatarDragging
-                      ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-105"
-                      : ""
-                  }`}
-                  onClick={handleAvatarClick}
-                >
-                  {avatarUploading ? (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <PentagramLoader size="sm" />
-                    </div>
-                  ) : avatarUrl ? (
-                    <img
-                      src={storageUrl("post-images", avatarUrl) || avatarUrl}
-                      alt="Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-10 h-10 text-muted-foreground" />
-                  )}
-                </div>
-                {isOwnProfile && isEditing && (
-                  <label className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary rounded-full flex items-center justify-center cursor-pointer hover:bg-primary/80 transition-colors">
-                    <Camera className="w-4 h-4 text-primary-foreground" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleAvatarUpload}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-              </div>
-              )}
-
-              {/* User Info */}
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  {isEditing && isOwnProfile ? (
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Input
-                        value={newDisplayName || profile.display_name || profile.username}
-                        onChange={(e) => setNewDisplayName(e.target.value)}
-                        className="text-2xl font-bold h-auto p-0 border-none bg-transparent flex-1 min-w-0"
-                        placeholder="Имя отображения"
-                      />
-                      <EmojiPicker
-                        closeOnSelect
-                        onEmojiSelect={handleNicknameEmojiSelect}
-                        triggerRef={nicknameEmojiButtonRef}
-                      >
-                        <button
-                          type="button"
-                          title={nicknameEmojiId ? "Изменить эмодзи никнейма" : "Выбрать эмодзи для никнейма"}
-                          className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-muted hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center overflow-hidden"
-                        >
-                          {nicknameEmojiId ? (
-                            <NicknameEmoji emojiId={nicknameEmojiId} className="h-5 w-5" />
-                          ) : (
-                            <Smile className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </button>
-                      </EmojiPicker>
-                      {nicknameEmojiId && (
-                        <button
-                          type="button"
-                          title="Убрать эмодзи никнейма"
-                          onClick={handleNicknameEmojiRemove}
-                          className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40 transition-colors flex items-center justify-center"
-                        >
-                          <X className="h-4 w-4 text-muted-foreground" />
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h1 
-                        className="text-xl sm:text-2xl font-bold"
-                        style={customization?.username_css ? parseCssToStyle(customization.username_css) : {}}
-                      >
-                        {profile.display_name?.trim() || profile.username}
-                      </h1>
-                      {(nicknameEmojiId || profile.nickname_emoji_id) && <NicknameEmoji emojiId={nicknameEmojiId || profile.nickname_emoji_id} />}
-                      {customization?.profile_badge_text && (
-                        <span
-                          className="px-2 py-1 rounded text-xs font-medium ml-2"
-                          style={customization.profile_badge_css ? parseCssToStyle(customization.profile_badge_css) : {}}
-                        >
-                          {customization.profile_badge_text}
-                        </span>
-                      )}
-                      <AdminBadge userId={userId!} />
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 gap-y-0.5 flex-wrap">
-                  <button
-                    type="button"
-                    className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''}`}
-                    onClick={isOwnProfile ? () => setShowUsernameDialog(true) : undefined}
-                    disabled={!isOwnProfile}
-                  >
-                    @{profile.username}
-                  </button>
-                  {showOnlineStatus && (
-                    <>
-                      <span className="text-muted-foreground">·</span>
-                      <OnlineStatus
-                        userId={profile.id}
-                        isOnline={profile.is_online}
-                        lastSeen={profile.last_seen}
-                      />
-                    </>
-                  )}
-                </div>
+          {cardVariantActive ? (
+            <div className="relative overflow-hidden rounded-2xl border border-border">
+              <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url("${bgUrl}")` }} />
+              <div className="absolute inset-0 bg-black/25" />
+              <div className="relative z-10 space-y-4 p-4 sm:p-5">
+                {headerRow}
+                {statsBlock}
               </div>
             </div>
-
-            {/* Edit Button */}
-            {isOwnProfile && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="p-1 h-8 w-8 hover:bg-primary/10 hover:text-primary transition-colors"
-                onClick={isEditing ? handleSaveAndExit : startEditing}
-              >
-                {isEditing ? (
-                  <span className="text-green-500 text-lg">✓</span>
-                ) : (
-                  <Edit2 className="w-4 h-4" />
+          ) : isEditing || (bgUrl && (bgVariant === 'banner' || bgVariant === 'card')) ? (
+            <div className="relative overflow-hidden">
+              <div className={`h-24 sm:h-28 w-full ${bgUrl ? "bg-cover bg-center" : "bg-muted/60"}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}>
+                {bgUrl && !isEditing && <div className="absolute inset-x-0 top-0 h-24 sm:h-28 bg-gradient-to-b from-black/45 via-black/20 to-transparent" />}
+                {isOwnProfile && isEditing && (
+                  <div className="absolute top-2 right-2 flex gap-2">
+                    <label className="flex items-center gap-1.5 h-8 px-3 rounded-full bg-background/85 backdrop-blur cursor-pointer hover:bg-background transition-colors text-xs font-medium">
+                      <ImagePlus className="w-4 h-4" />
+                      {bgUrl ? "Заменить фон" : "Добавить фон"}
+                      <input type="file" accept="image/*" onChange={handleBackgroundUpload} className="hidden" />
+                    </label>
+                    {bgUrl && (
+                      <button
+                        type="button"
+                        onClick={handleBackgroundRemove}
+                        className="h-8 w-8 rounded-full bg-background/85 backdrop-blur flex items-center justify-center hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                        title="Убрать фон"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 )}
-              </Button>
-            )}
-
-            {/* Write Button and Friend Button for other users */}
-            {!isOwnProfile && currentUser && (
-              <div className="flex gap-2">
-                <FriendButton userId={userId!} isOwnProfile={isOwnProfile} />
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => navigate(`/messages?user=${userId}`)}
-                  className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  <span className="hidden sm:inline">Написать</span>
-                </Button>
+                {backgroundUploading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-background/40">
+                    <PentagramLoader size="sm" />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+              <div className="relative -mt-8 sm:-mt-10 px-4">
+                {headerRow}
+              </div>
+            </div>
+          ) : bgUrl && (bgVariant === 'page' || bgVariant === 'page_dim') ? (
+            headerRow
+          ) : (
+            headerRow
+          )}
 
           {isEditing ? (
             <div className="space-y-4">
+              {/* Auto-theme toggle: when on, viewers see this profile in the
+                  owner's theme (generated from the background/avatar). */}
+              {isOwnProfile && (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-3 py-2.5">
+                  <div>
+                    <Label htmlFor="profile-theme-toggle" className="text-sm font-semibold">
+                      Тема профиля
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Показывать посетителям тему, сгенерированную из фона и аватара
+                    </p>
+                  </div>
+                  <Switch
+                    id="profile-theme-toggle"
+                    checked={!!profile?.theme_enabled}
+                    onCheckedChange={handleThemeEnabledToggle}
+                  />
+                </div>
+              )}
               <div>
                 <Label>О себе</Label>
                 <GomoRichEditor
@@ -1133,59 +1392,9 @@ const Profile = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {/** stats visibility logic */}
-              {(() => {
-                const isOwn = currentUser?.id === userId;
-                const summaryAllowed = isOwn || (showProfileStats && canViewSection(privateHideStats));
-                if (!summaryAllowed) return null;
-                return (
-                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/stats?metric=posts&user=${userId}`)}
-                      className="text-left"
-                    >
-                      <p className="text-xs sm:text-sm text-muted-foreground">Записи</p>
-                      <p className="text-xl sm:text-2xl font-bold">{(profile.thread_count ?? 0) + (profile.wall_post_count ?? 0)}</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/stats?metric=comments&user=${userId}`)}
-                      className="text-left"
-                    >
-                      <p className="text-xs sm:text-sm text-muted-foreground">Комментарии</p>
-                      <p className="text-xl sm:text-2xl font-bold">{profile.comment_count ?? 0}</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/stats?metric=likes&user=${userId}`)}
-                      className="text-left"
-                    >
-                      <p className="text-xs sm:text-sm text-muted-foreground">Лайков</p>
-                      <p className="text-xl sm:text-2xl font-bold">{profile.likes_received_count ?? 0}</p>
-                    </button>
-                    {/* Total unique views across the author's wall posts —
-                        clicks open the wall, where each post shows its own
-                        counter. */}
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('wall')}
-                      className="text-left"
-                    >
-                      <p className="text-xs sm:text-sm text-muted-foreground">Просмотры</p>
-                      <p className="text-xl sm:text-2xl font-bold">{formatCompactNumber(profile.views_received_count ?? 0)}</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/stats?metric=garma&user=${userId}`)}
-                      className="text-left"
-                    >
-                      <p className="text-xs sm:text-sm text-muted-foreground">Гарма</p>
-                      <p className="text-xl sm:text-2xl font-bold">{profile.garma}</p>
-                    </button>
-                  </div>
-                );
-              })()}
+              {/** stats visibility logic — moved to the statsBlock const; the
+                  "card" background variant renders it inside the card. */}
+              {cardVariantActive ? null : statsBlock}
 
               {profile.bio && !isNonFriendOnPrivate && (
                 <div className="text-sm">
