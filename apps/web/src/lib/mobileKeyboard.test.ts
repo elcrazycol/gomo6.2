@@ -493,6 +493,30 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.documentElement.classList.contains("kb-open")).toBe(true);
     expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
   });
+
+  it("glides with the LIVE viewport every frame, not just on resize events", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    dispose = initMobileKeyboard();
+    input.focus();
+
+    // The keyboard slides up but fires NO resize events (the choppy-event
+    // quirk). The per-frame follow reads the live viewport anyway, so the CSS
+    // vars track the keyboard smoothly at 60fps instead of stepping.
+    vv.height = 500;
+    vi.advanceTimersByTime(16);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+    expect(document.documentElement.style.getPropertyValue("--app-vh")).toBe("500px");
+
+    // The keyboard keeps rising — still no events.
+    vv.height = 620;
+    vi.advanceTimersByTime(16);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("180px");
+    expect(document.documentElement.style.getPropertyValue("--app-vh")).toBe("620px");
+  });
 });
 
 describe("getScrollContext", () => {

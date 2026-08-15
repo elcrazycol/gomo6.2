@@ -134,6 +134,14 @@ vi.mock("@/hooks/useEmojiKeyboardSwap", () => ({
   useEmojiKeyboardSwap: () => mockEmojiSwap,
 }));
 
+const { mockMobileKeyboard } = vi.hoisted(() => ({
+  mockMobileKeyboard: { keyboardInset: 0 } as any,
+}));
+
+vi.mock("@/hooks/useMobileKeyboard", () => ({
+  useMobileKeyboard: () => mockMobileKeyboard,
+}));
+
 // CSS.supports is not available in jsdom
 beforeAll(() => {
   if (typeof CSS === "undefined") {
@@ -183,6 +191,7 @@ describe("MessageComposer", () => {
     editorSpies.toolbarVisibility.length = 0;
     mockEmojiSwap.open = false;
     mockEmojiSwap.isTouch = false;
+    mockMobileKeyboard.keyboardInset = 0;
   });
 
   afterEach(() => {
@@ -380,6 +389,44 @@ describe("MessageComposer", () => {
       );
       const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+    });
+
+    it("keeps the composer glued to the panel while it is open, even when the keyboard height matches at swap time", () => {
+      // At the moment the swap opens the keyboard is still up at the panel
+      // height — the handoff must not fire then (it would drop the lift and
+      // the composer would fall under the panel as the keyboard dismisses).
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      mockMobileKeyboard.keyboardInset = 340;
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // The keyboard dismisses (inset → 0) — the composer must NOT follow it
+      // down; the panel now occupies that space.
+      mockMobileKeyboard.keyboardInset = 0;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
     });
 
     it("hands off to the real keyboard inset once it catches up on refocus close", async () => {
