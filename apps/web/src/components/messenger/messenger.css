@@ -869,12 +869,14 @@ main.is-messenger-page {
 }
 
 .message-bubble.is-new {
-  animation: bubble-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  /* One-shot entrance for live arrivals: transform-only, so it never affects
+     layout/measurement and cannot shift the virtual list. */
+  animation: bubble-in 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes bubble-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .message-bubble.is-mine {

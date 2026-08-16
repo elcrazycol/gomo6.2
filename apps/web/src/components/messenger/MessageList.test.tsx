@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
 import { render, act, cleanup, fireEvent } from "@testing-library/react";
 import { MessageList, type MessageListHandle } from "./MessageList";
+import { clearAllScrollPositions, getScrollPosition, saveScrollPosition } from "./scrollPosition";
 import type { MessageView } from "./types";
 
 // ── Hoisted shared state (accessible from vi.mock factories) ──────────────
@@ -38,6 +39,7 @@ vi.mock("@tanstack/react-virtual", () => {
             end: (index + 1) * 72,
           })),
         getTotalSize: () => count * 72,
+        getOffsetForIndex: (index: number) => [index * 72, "start"] as const,
         measureElement: () => undefined,
         scrollToIndex: h.scrollToIndexSpy,
       };
@@ -67,6 +69,9 @@ const makeMessage = (id: string): MessageView => ({
 
 const renderMessage = (message: MessageView) => <div data-testid={`msg-${message.id}`}>{message.content}</div>;
 
+const renderMessageWithNewFlag = (message: MessageView, _prev: MessageView | null, extras: { isNew: boolean }) =>
+  <div data-testid={`msg-${message.id}`} className={extras.isNew ? "is-new-wrapper" : ""}>{message.content}</div>;
+
 const mountList = () => {
   const ref: React.RefObject<MessageListHandle | null> = { current: null };
   const utils = render(<MessageList ref={ref} renderMessage={renderMessage} />);
@@ -82,10 +87,13 @@ const stubScroller = (
   scroller: HTMLElement,
   opts: { scrollHeight?: number; scrollTop?: number; clientHeight?: number } = {},
 ) => {
+  // Capture the element's current value first: layout effects (bottom pin,
+  // anchor restore) run during mount, so by the time the stub is installed the
+  // scrollTop may already be meaningful.
   const state = {
-    scrollHeight: opts.scrollHeight ?? 0,
-    scrollTop: opts.scrollTop ?? 0,
-    clientHeight: opts.clientHeight ?? 0,
+    scrollHeight: opts.scrollHeight ?? scroller.scrollHeight,
+    scrollTop: opts.scrollTop ?? scroller.scrollTop,
+    clientHeight: opts.clientHeight ?? scroller.clientHeight,
   };
   Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => state.scrollHeight });
   Object.defineProperty(scroller, "scrollTop", {
@@ -120,6 +128,7 @@ afterEach(() => {
   h.storeState.loadMoreMessages.mockClear();
   h.scrollToIndexSpy.mockClear();
   h.virtualizerOpts = {};
+  clearAllScrollPositions();
 });
 
 describe("MessageList virtualization", () => {
@@ -267,6 +276,58 @@ describe("MessageList virtualization", () => {
     });
     expect(h.scrollToIndexSpy).toHaveBeenCalledWith(1, { align: "center" });
   });
+
+  it("restores the saved scroll position when returning to the chat", () => {
+    // The user left this conversation with message "b" 20px below the top of
+    // the viewport (top of the list is HISTORY_HEADER_HEIGHT 34 + row.start).
+    saveScrollPosition("c1", { messageId: "b", offset: 20 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { container, scroller } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 216, clientHeight: 400 });
+    // 34 (header) + 72 (row b) + 20 (offset) = 126.
+    expect(metrics.scrollTop).toBe(126);
+    // The user is not at the bottom, so the FAB is visible.
+    expect(container.querySelector(".scroll-to-bottom-btn")).not.toBeNull();
+  });
+
+  it("auto-loads history until the saved anchor message is present", () => {
+    saveScrollPosition("c1", { messageId: "z", offset: 0 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    h.storeState.hasMoreMessages = true;
+    const { scroller, rerender } = mountList();
+    // The anchor is not in the first batch — history must be requested.
+    expect(h.storeState.loadMoreMessages).toHaveBeenCalledWith("c1");
+    const metrics = stubScroller(scroller, { scrollHeight: 288, clientHeight: 400 });
+
+    // The older page arrives with the anchor prepended.
+    h.storeState.messages = [makeMessage("z"), makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    rerender(<MessageList renderMessage={renderMessage} />);
+    // Jumps to message "z" at the top: 34 (header) + 0 + 0 = 34.
+    expect(metrics.scrollTop).toBe(34);
+  });
+
+  it("gives up hunting the anchor and opens at the bottom when history ends", () => {
+    saveScrollPosition("c1", { messageId: "z", offset: 0 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    h.storeState.hasMoreMessages = false;
+    const { scroller } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 144, scrollTop: 144, clientHeight: 400 });
+    expect(h.storeState.loadMoreMessages).not.toHaveBeenCalled();
+    // Falls back to the bottom (isAtBottomRef starts true).
+    expect(metrics.scrollTop).toBe(144);
+  });
+
+  it("scrollToBottom cancels the saved position", () => {
+    saveScrollPosition("c1", { messageId: "b", offset: 20 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { ref, scroller } = mountList();
+    const scrollToSpy = vi.fn();
+    scroller.scrollTo = scrollToSpy;
+    act(() => {
+      ref.current?.scrollToBottom();
+    });
+    expect(getScrollPosition("c1")).toBeUndefined();
+  });
 });
 
 describe("MessageList realtime appends", () => {
@@ -321,5 +382,39 @@ describe("MessageList realtime appends", () => {
     metrics.scrollTop = 1600; // back at the bottom (2000 - 1600 - 400 = 0)
     scrollScroller(scroller);
     expect(container.querySelector(".scroll-to-bottom-btn")).toBeNull();
+  });
+
+  it("animates live arrivals at the bottom and clears the flag after the animation", () => {
+    vi.useFakeTimers();
+    try {
+      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+      const { container, rerender } = mountList();
+      // isAtBottomRef starts true — the arrival is visible, so it animates.
+      h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+      act(() => rerender(<MessageList renderMessage={renderMessageWithNewFlag} />));
+      expect(container.querySelector('[data-testid="msg-c"]')?.className).toContain("is-new-wrapper");
+
+      // Once the entrance has played, the flag is cleared so scrolling away
+      // and back never replays it.
+      act(() => {
+        vi.advanceTimersByTime(1300);
+      });
+      expect(container.querySelector('[data-testid="msg-c"]')?.className).not.toContain("is-new-wrapper");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not animate arrivals while scrolled up — only counts them in the pill", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { container, scroller, rerender } = mountList();
+    stubScroller(scroller, { scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
+    scrollScroller(scroller);
+
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    rerender(<MessageList renderMessage={renderMessageWithNewFlag} />);
+
+    expect(container.querySelector('[data-testid="msg-c"]')?.className).not.toContain("is-new-wrapper");
+    expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("1");
   });
 });
