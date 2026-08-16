@@ -698,9 +698,6 @@ main.is-messenger-page {
 
 /* ── Message scroll area ── */
 
-/* Applied to the react-virtuoso scroller (components.Scroller in MessageList).
-   The list owns its anchor while history is prepended (firstItemIndex), so the
-   browser must not apply a second scroll anchor that fights it. */
 .message-scroll-wrap {
   min-width: 0;
   max-width: 100%;
@@ -712,6 +709,8 @@ main.is-messenger-page {
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: clip;
   padding: 0;
@@ -722,10 +721,19 @@ main.is-messenger-page {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Virtuoso keeps the List at width: 100%. Keep the gutter inside that width
-   so bubbles fit the viewport instead of becoming 100% + horizontal margins. */
-.message-virtuoso-list {
+/* The virtual list is a positioned spacer of the full content height; items
+   are absolutely positioned inside it (top: header + row.start). The gutter
+   lives on the item so bubbles fit the viewport width. */
+.message-virtual-list {
   --message-gutter: clamp(16px, 2.5vw, 32px);
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.message-virtual-item {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -733,18 +741,9 @@ main.is-messenger-page {
   padding-inline: var(--message-gutter);
 }
 
-.message-virtuoso-list > [data-index],
-.message-virtuoso-list > [data-item-index] {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-}
-
-/* Bottom gap between the last message and the composer. Rendered by
-   Virtuoso's Footer (components.Footer) so it participates in the scroll
-   math and stays visible at the bottom — scroller padding alone would sit
-   below the fold because Virtuoso aligns items to the viewport bottom. */
+/* Bottom gap between the last message and the composer. A list element so it
+   participates in the scroll math and stays visible at the bottom — scroller
+   padding alone would sit below the fold. */
 .message-list-footer {
   height: 12px;
 }
@@ -2977,7 +2976,7 @@ main.is-messenger-page {
     height: 10px;
   }
 
-  .message-virtuoso-list {
+  .message-virtual-list {
     --message-gutter: 12px;
   }
 

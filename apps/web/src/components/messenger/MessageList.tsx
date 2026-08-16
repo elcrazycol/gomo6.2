@@ -4,23 +4,24 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
+  useLayoutEffect,
   useRef,
   useState,
-  type HTMLAttributes,
   type ReactNode,
 } from "react";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown } from "lucide-react";
 import { useMessengerStore } from "@/stores/messengerStore";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
+import { getAttachmentAspectRatio } from "./attachmentMedia";
 
-// firstItemIndex counts down as older messages are prepended (history loads).
-// It must never go negative — Virtuoso warns and anchoring misbehaves — so it
-// starts at a large value and decreases from there (the "very high value"
-// pattern from the Virtuoso docs).
-const INITIAL_FIRST_INDEX = 1_000_000;
+// ── Layout constants (kept in sync with messenger.css) ────────────────────
+const HISTORY_HEADER_HEIGHT = 34; // .msg-history-header — fixed in every state
+const BOTTOM_GAP_HEIGHT = 12;     // .message-list-footer — gap under the last message
+const AT_BOTTOM_SLACK = 80;       // px of trailing space still treated as "at the bottom"
+const TOP_LOAD_ZONE = 300;        // px from the top that arms the history loader
+const OVERSCAN = 12;              // items rendered beyond the viewport (ТЗ: 8–15)
 
 export interface MessageRenderExtras {
   dateLabel: string | null;
@@ -41,15 +42,47 @@ interface MessageListProps {
 }
 
 /**
- * Owns the react-virtuoso instance for the open conversation. Deliberately
- * minimal — Virtuoso's built-ins do the work, nothing fights the scroller:
- *  - alignToBottom starts at the newest message and keeps the bottom pinned
- *    through layout changes (keyboard, composer growth) — no manual scrolls,
- *  - followOutput (callback form) follows appends only while the user is at
- *    the bottom — reading history is never interrupted,
- *  - older history loads at the top (startReached) and prepends via
- *    firstItemIndex, keeping virtual indices stable so the view never jumps,
- *  - "N new messages" pill + entrance animation for realtime appends.
+ * Estimate the rendered height of a message BEFORE it is measured, so virtual
+ * offsets don't drift when items are prepended or scrolled into view.
+ *  - Media bubbles: the reserved box size is derived from the attachment
+ *    aspect ratio (same math as getAttachmentDisplayStyle), so the estimate
+ *    matches the real height almost exactly — images never reflow the list.
+ *  - Text bubbles: one line ≈ 21px + bubble chrome; a rough char-per-line
+ *    count keeps the estimate within a line or two of the measured height.
+ */
+function estimateMessageHeight(message: MessageView | undefined): number {
+  if (!message) return 72;
+  const visual = message.attachments?.filter((a) => a.type === "image" || a.type === "video") ?? [];
+  const onlyMedia = visual.length > 0 && (message.attachments?.length ?? 0) === visual.length;
+  if (onlyMedia) {
+    const ratio = getAttachmentAspectRatio(visual[0]);
+    if (Number.isFinite(ratio) && ratio > 0) {
+      // getAttachmentDisplayStyle: boxWidth = min(420, 480 * ratio).
+      const boxWidth = Math.min(420, 480 * ratio);
+      const boxHeight = Math.round(boxWidth / ratio);
+      const captionLines = message.content?.trim()
+        ? Math.max(1, Math.ceil(message.content.length / 55))
+        : 0;
+      return 14 + boxHeight + captionLines * 21;
+    }
+  }
+  const chars = message.content?.length ?? 0;
+  const lines = chars === 0 ? 1 : Math.max(1, Math.ceil(chars / 55));
+  return 18 + lines * 21;
+}
+
+/**
+ * Owns the virtualized message list for the open conversation (@tanstack/react-virtual).
+ *
+ * The list is plain top-anchored content: index 0 = oldest message at the top,
+ * the newest message at the bottom. All chat behavior is explicit and
+ * deterministic — nothing fights the scroller:
+ *  - the view opens and re-pins at the bottom while the user is there (layout
+ *    effect on total size: covers appends, image loads, measurement changes),
+ *  - older history prepends at the top and scrollTop is compensated by the
+ *    scrollHeight delta in the same frame, so visible messages never shift,
+ *  - the loader fires near the top (scroll zone + in-flight guard + cooldown),
+ *  - "N new messages" pill + entrance animation only when scrolled up.
  *
  * It is mounted per conversation (`key={conversation.id}` in ChatView), so all
  * refs/state below reset naturally when switching chats.
@@ -64,93 +97,88 @@ export const MessageList = memo(
     const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
     const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
 
-    const virtuosoRef = useRef<VirtuosoHandle>(null);
-    const scrollerElRef = useRef<HTMLDivElement | null>(null);
+    const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-    const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
     const [isAtBottom, setIsAtBottom] = useState(true);
     const [newMessageCount, setNewMessageCount] = useState(0);
     const [newMessageIds, setNewMessageIds] = useState<Set<string>>(() => new Set());
 
     const isAtBottomRef = useRef(true);
     const loadingMoreRef = useRef(false);
-    const prevFirstIdRef = useRef<string | null>(null);
+    const lastLoadAtRef = useRef(0);
+    const prevFirstKeyRef = useRef<{ key: string | null; scrollHeight: number }>({ key: null, scrollHeight: 0 });
     const prevLastIdRef = useRef<string | null>(null);
 
-    const handleAtBottomChange = useCallback((atBottom: boolean) => {
-      isAtBottomRef.current = atBottom;
-      setIsAtBottom(atBottom);
-      if (atBottom) setNewMessageCount(0);
-    }, []);
+    // Identity key matches the store's dedup key (id || client_id), so a temp
+    // message later replaced by its server twin keeps its virtual slot.
+    const messageKey = useCallback((m: MessageView) => m.client_id ?? m.id, []);
 
-    // ── True-bottom helpers ────────────────────────────────────────────
-    // Virtuoso's scrollToIndex(LAST, align:"end") lands SHORT of the real
-    // bottom while item heights above are still being measured (the offset
-    // tree is built from estimates), and the residual offsetBottom then flips
-    // atBottom to false — after which followOutput/alignToBottom give up and
-    // live messages stop following. Scrolling the element to scrollHeight is
-    // exact (the virtualized content renders accurate spacers), so the follow
-    // is always the true bottom.
-    const scrollToTrueBottom = useCallback(() => {
-      const scroller = scrollerElRef.current;
-      if (scroller) scroller.scrollTop = scroller.scrollHeight;
-    }, []);
+    const virtualizer = useVirtualizer({
+      count: messages.length,
+      getScrollElement: () => scrollerRef.current,
+      estimateSize: (index) => estimateMessageHeight(messages[index]),
+      overscan: OVERSCAN,
+      getItemKey: (index) => messageKey(messages[index]),
+    });
 
-    // Open every conversation at the newest message. alignToBottom alone does
-    // NOT position the initial view (it only pins growth), so without this the
-    // chat opens at an arbitrary spot (top of history, middle, wherever the
-    // first batch happens to land). The index is captured ONCE from the first
-    // non-empty batch and never updated: a changing initialTopMostItemIndex
-    // makes Virtuoso re-scroll on every data change (the "jumps to center"
-    // bug). With a fixed index Virtuoso does its own measured landing.
-    const [initialTopMostIndex, setInitialTopMostIndex] = useState<number | undefined>(undefined);
-    if (initialTopMostIndex === undefined && messages.length > 0) {
-      setInitialTopMostIndex(messages.length - 1);
-    }
-
-    // ── Imperative API (send-scroll, pinned-message jump) ──────────────
-    const scrollToBottom = useCallback(() => {
-      const scroller = scrollerElRef.current;
-      if (scroller) {
-        if (typeof scroller.scrollTo === "function") {
-          scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
-        } else {
-          scroller.scrollTop = scroller.scrollHeight;
-        }
+    // ── Scroll: at-bottom tracking + history loader near the top ────────
+    const handleScroll = useCallback(() => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
+      if (atBottom !== isAtBottomRef.current) {
+        isAtBottomRef.current = atBottom;
+        setIsAtBottom(atBottom);
+        if (atBottom) setNewMessageCount(0);
       }
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      setNewMessageCount(0);
-    }, []);
-
-    const scrollToMessage = useCallback((messageId: string) => {
-      const index = useMessengerStore.getState().messages.findIndex((m) => m.id === messageId);
-      if (index < 0) return;
-      // Virtuoso's scrollToIndex takes the DATA index (0-based); with the
-      // large firstItemIndex used for history prepends the virtual index
-      // would clamp to the data range and pinned jumps would land at the
-      // bottom.
-      virtuosoRef.current?.scrollToIndex({
-        index,
-        align: "center",
-        behavior: "smooth",
-      });
-    }, []);
-
-    useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage }), [scrollToBottom, scrollToMessage]);
-
-    // ── Load older history when reaching the top ───────────────────────
-    const handleStartReached = useCallback(() => {
-      if (!hasMoreMessages || isLoadingMore || loadingMoreRef.current || !conversationId) return;
-      loadingMoreRef.current = true;
-      loadMoreMessages(conversationId).finally(() => {
-        loadingMoreRef.current = false;
-      });
+      const now = Date.now();
+      if (
+        el.scrollTop <= TOP_LOAD_ZONE &&
+        hasMoreMessages &&
+        !isLoadingMore &&
+        !loadingMoreRef.current &&
+        conversationId &&
+        now - lastLoadAtRef.current > 500
+      ) {
+        lastLoadAtRef.current = now;
+        loadingMoreRef.current = true;
+        loadMoreMessages(conversationId).finally(() => {
+          loadingMoreRef.current = false;
+        });
+      }
     }, [hasMoreMessages, isLoadingMore, conversationId, loadMoreMessages]);
 
-    // ── Detect realtime appends → "N new messages" pill + follow ──────
-    // The follow (snap to the true bottom while the user is at the bottom) is
-    // handled here, deterministically; followOutput is disabled (see below).
+    // ── Pin to the bottom while the user is at the bottom ───────────────
+    // Re-anchors on every total-size change (appends, image loads, measured
+    // corrections) in the same frame, so the bottom never visibly slides.
+    const totalSize = virtualizer.getTotalSize();
+    useLayoutEffect(() => {
+      if (!isAtBottomRef.current) return;
+      const el = scrollerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }, [totalSize]);
+
+    // ── Compensate prepends (older history / cache → network replace) ───
+    // When messages are added at the TOP, every visible message shifts down by
+    // the prepended height. The scrollHeight delta compensation restores the
+    // view in the same frame — no jump, no flicker.
+    useLayoutEffect(() => {
+      const el = scrollerRef.current;
+      const scrollHeight = el?.scrollHeight ?? 0;
+      if (messages.length === 0) {
+        prevFirstKeyRef.current = { key: null, scrollHeight };
+        return;
+      }
+      const firstKey = messageKey(messages[0]);
+      const prev = prevFirstKeyRef.current;
+      if (prev.key !== null && prev.key !== firstKey) {
+        const delta = scrollHeight - prev.scrollHeight;
+        if (el && delta !== 0) el.scrollTop += delta;
+      }
+      prevFirstKeyRef.current = { key: firstKey, scrollHeight };
+    });
+
+    // ── Realtime appends → "N new messages" pill + entrance animation ───
     useEffect(() => {
       if (messages.length === 0) {
         prevLastIdRef.current = null;
@@ -172,179 +200,101 @@ export const MessageList = memo(
               // Own optimistic messages are not counted in the pill.
               const incoming = appended.filter((m) => m.localStatus !== "sending").length;
               if (incoming > 0) setNewMessageCount((count) => count + incoming);
-            } else {
-              // Deterministic follow: snap to the real bottom after the append
-              // commits. followOutput alone cannot be trusted here — its target
-              // is computed from still-unmeasured heights, so it lands short
-              // and then stops following entirely.
-              requestAnimationFrame(scrollToTrueBottom);
             }
           }
         }
       }
       prevLastIdRef.current = lastId;
-    }, [messages, scrollToTrueBottom]);
+    }, [messages]);
 
-    // ── Keep virtual indices stable when older messages are prepended ──
-    // This must happen in the SAME render as the messages change (render-phase
-    // update — React re-renders before the browser paints). Adjusting
-    // firstItemIndex in a passive effect paints one frame where every item
-    // window is shifted by the prepend count — the visible flicker every time
-    // older history loads. Covers both the "load history" path and the
-    // cache → network replace (the cached first message usually survives
-    // inside the network snapshot, so anchoring on it keeps the position).
-    if (messages.length > 0) {
-      // Identity key matches the store's dedup key (id || client_id), so a
-      // temp message later replaced by its server twin counts as the same
-      // anchor and never triggers a spurious index shift.
-      const currentFirst = messages[0].id || messages[0].client_id;
-      const prevFirstId = prevFirstIdRef.current;
-      if (prevFirstId !== null && currentFirst !== prevFirstId) {
-        const index = messages.findIndex((m) => (m.id || m.client_id) === prevFirstId);
-        if (index > 0) setFirstItemIndex((f) => f - index);
-        prevFirstIdRef.current = currentFirst;
-      } else if (prevFirstId === null) {
-        prevFirstIdRef.current = currentFirst;
+    // ── Imperative API (send-scroll, pinned-message jump) ───────────────
+    const scrollToBottom = useCallback(() => {
+      const el = scrollerRef.current;
+      if (el) {
+        if (typeof el.scrollTo === "function") {
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        } else {
+          el.scrollTop = el.scrollHeight;
+        }
       }
-    }
+      isAtBottomRef.current = true;
+      setIsAtBottom(true);
+      setNewMessageCount(0);
+    }, []);
 
-    // The scroller carries the chat scroll classes + a11y role. The Footer
-    // renders the real bottom gap (list element, not padding, so it is
-    // included in the scroll math). The Header shows the history loader while
-    // older messages are fetched; it reads the store directly so the
-    // components object stays stable (a changing identity would make Virtuoso
-    // redo its internal subscriptions).
-    const CustomScroller = useMemo(
-      () =>
-        forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CustomScroller({ className, ...props }, scrollerRef) {
-          return (
-            <div
-              ref={(el) => {
-                scrollerElRef.current = el;
-                if (typeof scrollerRef === "function") scrollerRef(el);
-                else if (scrollerRef) scrollerRef.current = el;
-              }}
-              {...props}
-              className={`message-scroll${className ? ` ${className}` : ""}`}
-              role="log"
-              aria-label="Сообщения"
-              aria-live="polite"
-            />
-          );
-        }),
-      [],
+    const scrollToMessage = useCallback(
+      (messageId: string) => {
+        const index = messages.findIndex((m) => m.id === messageId);
+        if (index < 0) return;
+        virtualizer.scrollToIndex(index, { align: "center" });
+      },
+      [messages, virtualizer],
     );
-    const CustomList = useMemo(
-      () =>
-        forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CustomList({ className, style, children, ...props }, listRef) {
-          return (
-            <div
-              ref={listRef}
-              {...props}
-              className={`message-virtuoso-list${className ? ` ${className}` : ""}`}
-              style={{ ...style, boxSizing: "border-box", width: "100%", minWidth: 0, maxWidth: "100%" }}
-            >
-              {children}
-            </div>
-          );
-        }),
-      [],
-    );
-    const MessageListFooter = useMemo(
-      () =>
-        function MessageListFooter() {
-          return <div className="message-list-footer" aria-hidden="true" />;
-        },
-      [],
-    );
-    const HistoryLoaderHeader = useMemo(
-      () =>
-        function HistoryLoaderHeader() {
-          const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
-          const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
-          // The header ALWAYS occupies the same fixed height — a header that
-          // pops in while loading (or collapses after) shifts every item below
-          // it and reads as a jump during history prepends. Loading spinner,
-          // idle spacer and the end marker are all the same box.
-          return (
-            <div className={`msg-history-header${isLoadingMore ? " is-loading" : ""}${hasMoreMessages ? "" : " is-end"}`}>
-              {isLoadingMore ? (
-                <span className="msg-history-loader" role="status" aria-live="polite">
-                  <span className="msg-history-loader-spinner" aria-hidden="true" />
-                  <span>Загружаем историю…</span>
-                </span>
-              ) : hasMoreMessages ? (
-                <span className="msg-history-spacer" aria-hidden="true" />
-              ) : (
-                <span className="msg-history-end-label">Начало переписки</span>
-              )}
-            </div>
-          );
-        },
-      [],
-    );
-    const listComponents = useMemo(
-      () => ({ Scroller: CustomScroller, List: CustomList, Header: HistoryLoaderHeader, Footer: MessageListFooter }),
-      [CustomScroller, CustomList, HistoryLoaderHeader, MessageListFooter],
-    );
+
+    useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage }), [scrollToBottom, scrollToMessage]);
 
     if (messages.length === 0) return null;
+
+    const virtualItems = virtualizer.getVirtualItems();
+    const contentHeight = HISTORY_HEADER_HEIGHT + totalSize + BOTTOM_GAP_HEIGHT;
 
     return (
       <>
         <div className="message-scroll-wrap">
-          <Virtuoso
-            ref={virtuosoRef}
-            // data (not totalCount) lets Virtuoso see the actual items: stable
-            // per-item keys (client_id/id) keep the DOM and measurements when
-            // the store replaces the array, and itemContent gets the item
-            // directly instead of re-deriving it from a stale closure index.
-            data={messages}
-            firstItemIndex={firstItemIndex}
-            initialTopMostItemIndex={initialTopMostIndex}
-            alignToBottom
-            // The bottom gap below the last message (footer + row margins) leaves
-            // a small offsetBottom that otherwise flips atBottom to false the
-            // moment a follow scroll lands — and with it disables both
-            // followOutput and alignToBottom. The threshold treats that zone
-            // as "at the bottom" so live messages keep following.
-            atBottomThreshold={64}
-            // Realtime messages arrive while the user is at the bottom: with
-            // the default probe the estimate comes from the FIRST mounted item
-            // (the last message — possibly a tall image), and every unmeasured
-            // bubble above it gets corrected violently on fast scrolls.
-            // defaultItemHeight keeps the initial estimate near the common
-            // compact-bubble height so corrections are small.
-            defaultItemHeight={44}
-            // followOutput is disabled: its scroll target is computed from
-            // still-unmeasured heights, so it lands short and its residual
-            // offsetBottom flips atBottom to false — after which live messages
-            // stop following entirely. The append effect below snaps to the
-            // exact bottom instead (deterministic, no estimate slop).
-            followOutput={false}
-            atBottomStateChange={handleAtBottomChange}
-            computeItemKey={(_, message) => message.client_id ?? message.id}
-            startReached={handleStartReached}
-            // NOTE: increaseViewportBy is intentionally NOT used — combined with
-            // overscan it puts react-virtuoso 4.18 into an unbounded
-            // visible-range feedback loop ("Maximum call stack size exceeded",
-            // petyosi/react-virtuoso#1467, closed as not planned). The generous
-            // overscan below still renders prepended items ahead of the
-            // viewport, which is the early-load head start that matters.
-            overscan={400}
-            components={listComponents}
-            style={{ height: "100%" }}
-            itemContent={(index, message) => {
-              const dataIndex = index - firstItemIndex;
-              if (!message) return null;
-              const prev = dataIndex > 0 ? messages[dataIndex - 1] : null;
-              return renderMessage(message, prev, {
-                dateLabel: getDateSeparator(prev, message),
-                isConsecutive: isConsecutive(prev, message),
-                isNew: newMessageIds.has(message.id),
-              });
-            }}
-          />
+          <div
+            ref={scrollerRef}
+            className="message-scroll"
+            role="log"
+            aria-label="Сообщения"
+            aria-live="polite"
+            onScroll={handleScroll}
+          >
+            <div className="message-virtual-list" style={{ height: contentHeight }}>
+              {/* Fixed-height box in all states (loading / idle / end) so the
+                  header never shifts the items below it during prepends. */}
+              <div className={`msg-history-header${isLoadingMore ? " is-loading" : ""}${hasMoreMessages ? "" : " is-end"}`}>
+                {isLoadingMore ? (
+                  <span className="msg-history-loader" role="status" aria-live="polite">
+                    <span className="msg-history-loader-spinner" aria-hidden="true" />
+                    <span>Загружаем историю…</span>
+                  </span>
+                ) : hasMoreMessages ? (
+                  <span className="msg-history-spacer" aria-hidden="true" />
+                ) : (
+                  <span className="msg-history-end-label">Начало переписки</span>
+                )}
+              </div>
+
+              {virtualItems.map((row) => {
+                const message = messages[row.index];
+                if (!message) return null;
+                const prev = row.index > 0 ? messages[row.index - 1] : null;
+                return (
+                  <div
+                    key={row.key}
+                    data-index={row.index}
+                    ref={virtualizer.measureElement}
+                    className="message-virtual-item"
+                    style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + row.start, left: 0, right: 0 }}
+                  >
+                    {renderMessage(message, prev, {
+                      dateLabel: getDateSeparator(prev, message),
+                      isConsecutive: isConsecutive(prev, message),
+                      isNew: newMessageIds.has(message.id),
+                    })}
+                  </div>
+                );
+              })}
+
+              {/* Real bottom gap — a list element so it participates in the
+                  scroll math (scroller padding would sit below the fold). */}
+              <div
+                className="message-list-footer"
+                aria-hidden="true"
+                style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + totalSize, left: 0, right: 0 }}
+              />
+            </div>
+          </div>
         </div>
 
         {!isAtBottom && (
