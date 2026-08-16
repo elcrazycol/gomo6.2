@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
-import { render, act, cleanup } from "@testing-library/react";
+import { render, act, cleanup, fireEvent } from "@testing-library/react";
 import { MessageList, type MessageListHandle } from "./MessageList";
+import { clearAllScrollPositions, getScrollPosition, saveScrollPosition } from "./scrollPosition";
 import type { MessageView } from "./types";
 
 // ── Hoisted shared state (accessible from vi.mock factories) ──────────────
 const h = vi.hoisted(() => ({
-  virtuosoProps: {} as Record<string, unknown>,
+  virtualizerOpts: {} as Record<string, unknown>,
   scrollToIndexSpy: vi.fn(),
   storeState: {
     selectedConversationId: "c1",
@@ -20,48 +21,30 @@ const h = vi.hoisted(() => ({
 }));
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
-// A minimal Virtuoso stand-in: captures its props, wires the scroller ref and
-// renders every item via itemContent, so MessageList's own logic (indices,
-// prepends, callbacks) is exercised deterministically.
-vi.mock("react-virtuoso", () => {
-  const Virtuoso = React.forwardRef(function VirtuosoMock(
-    props: Record<string, unknown>,
-    ref: React.Ref<unknown>,
-  ) {
-    h.virtuosoProps = props;
-    if (typeof ref === "object" && ref !== null) {
-      (ref as { current: { scrollToIndex: typeof h.scrollToIndexSpy } | null }).current = {
+// A minimal useVirtualizer stand-in: captures its options (so the tests can
+// assert count/getItemKey/overscan/estimateSize) and synthesizes virtual rows
+// for every message. measureElement is a no-op ref callback.
+vi.mock("@tanstack/react-virtual", () => {
+  return {
+    useVirtualizer: (opts: Record<string, unknown>) => {
+      h.virtualizerOpts = opts;
+      const count = (opts.count as number) ?? 0;
+      return {
+        getVirtualItems: () =>
+          Array.from({ length: count }, (_, index) => ({
+            index,
+            key: index,
+            start: index * 72,
+            size: 72,
+            end: (index + 1) * 72,
+          })),
+        getTotalSize: () => count * 72,
+        getOffsetForIndex: (index: number) => [index * 72, "start"] as const,
+        measureElement: () => undefined,
         scrollToIndex: h.scrollToIndexSpy,
       };
-    }
-    const scrollerRef = props.scrollerRef as ((el: HTMLDivElement | null) => void) | undefined;
-    const data = props.data as unknown[] | undefined;
-    const itemContent = props.itemContent as ((index: number, item?: unknown) => React.ReactNode) | undefined;
-    const computeItemKey = props.computeItemKey as ((index: number, item?: unknown) => unknown) | undefined;
-    const components = props.components as {
-      Scroller?: React.ComponentType<React.HTMLAttributes<HTMLDivElement> & React.RefAttributes<HTMLDivElement>>;
-      List?: React.ComponentType<{ style?: React.CSSProperties; children?: React.ReactNode }>;
-      Header?: React.ComponentType;
-      Footer?: React.ComponentType;
-    };
-    const Scroller = components?.Scroller;
-    const List = components?.List;
-    const Header = components?.Header;
-    const Footer = components?.Footer;
-    const count = (props.totalCount as number | undefined) ?? data?.length ?? 0;
-    const items = Array.from({ length: count }, (_, index) => {
-      const item = data?.[index];
-      return <div key={(computeItemKey?.(index, item) ?? index) as React.Key}>{itemContent?.(index, item)}</div>;
-    });
-    return Scroller && List ? (
-      <Scroller ref={(el: HTMLDivElement | null) => scrollerRef?.(el)} style={{ height: "100%" }}>
-        {Header ? <Header /> : null}
-        <List>{items}</List>
-        {Footer ? <Footer /> : null}
-      </Scroller>
-    ) : null;
-  });
-  return { Virtuoso };
+    },
+  };
 });
 
 vi.mock("@/stores/messengerStore", () => ({
@@ -86,6 +69,9 @@ const makeMessage = (id: string): MessageView => ({
 
 const renderMessage = (message: MessageView) => <div data-testid={`msg-${message.id}`}>{message.content}</div>;
 
+const renderMessageWithNewFlag = (message: MessageView, _prev: MessageView | null, extras: { isNew: boolean }) =>
+  <div data-testid={`msg-${message.id}`} className={extras.isNew ? "is-new-wrapper" : ""}>{message.content}</div>;
+
 const mountList = () => {
   const ref: React.RefObject<MessageListHandle | null> = { current: null };
   const utils = render(<MessageList ref={ref} renderMessage={renderMessage} />);
@@ -93,6 +79,38 @@ const mountList = () => {
   if (!scroller) throw new Error("scroller not rendered");
   return { ...utils, scroller, ref };
 };
+
+// jsdom has no layout engine: scrollHeight/clientHeight are always 0 and
+// scrollTop is a plain property. Stub them with a mutable fake so the
+// scroll/anchor logic is exercised deterministically.
+const stubScroller = (
+  scroller: HTMLElement,
+  opts: { scrollHeight?: number; scrollTop?: number; clientHeight?: number } = {},
+) => {
+  // Capture the element's current value first: layout effects (bottom pin,
+  // anchor restore) run during mount, so by the time the stub is installed the
+  // scrollTop may already be meaningful.
+  const state = {
+    scrollHeight: opts.scrollHeight ?? scroller.scrollHeight,
+    scrollTop: opts.scrollTop ?? scroller.scrollTop,
+    clientHeight: opts.clientHeight ?? scroller.clientHeight,
+  };
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => state.scrollHeight });
+  Object.defineProperty(scroller, "scrollTop", {
+    configurable: true,
+    get: () => state.scrollTop,
+    set: (v: number) => {
+      state.scrollTop = v;
+    },
+  });
+  Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => state.clientHeight });
+  return state;
+};
+
+const scrollScroller = (scroller: HTMLElement) =>
+  act(() => {
+    fireEvent.scroll(scroller);
+  });
 
 beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0));
@@ -109,27 +127,44 @@ afterEach(() => {
   h.storeState.hasMoreMessages = false;
   h.storeState.loadMoreMessages.mockClear();
   h.scrollToIndexSpy.mockClear();
-  h.virtuosoProps = {};
+  h.virtualizerOpts = {};
+  clearAllScrollPositions();
 });
 
 describe("MessageList virtualization", () => {
-  it("adjusts firstItemIndex in the same render as a history prepend (no flicker frame)", () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { rerender } = mountList();
-    const initialIndex = h.virtuosoProps.firstItemIndex as number;
-    expect(initialIndex).toBe(1_000_000);
+  it("configures the virtualizer per the spec", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    mountList();
+    expect(h.virtualizerOpts.count).toBe(3);
+    // getItemKey is strictly the message identity (client_id || id).
+    const getItemKey = h.virtualizerOpts.getItemKey as (index: number) => unknown;
+    expect(getItemKey(0)).toBe("a");
+    expect(getItemKey(2)).toBe("c");
+    // overscan: ТЗ requires 8–15 items.
+    expect(h.virtualizerOpts.overscan).toBeGreaterThanOrEqual(8);
+    expect(h.virtualizerOpts.overscan).toBeLessThanOrEqual(15);
+    // estimateSize returns a sane positive number.
+    const estimateSize = h.virtualizerOpts.estimateSize as (index: number) => number;
+    expect(estimateSize(0)).toBeGreaterThan(0);
+    expect(estimateSize(1)).toBeGreaterThan(0);
+    // getScrollElement returns the scroller element.
+    const getScrollElement = h.virtualizerOpts.getScrollElement as () => HTMLElement | null;
+    expect(getScrollElement()?.classList.contains("message-scroll")).toBe(true);
+  });
 
-    // Older messages are prepended (history load). The virtual index must
-    // already reflect the prepend in THIS render so item windows never shift
-    // for a visible frame.
-    h.storeState.messages = [makeMessage("x"), makeMessage("a"), makeMessage("b")];
-    rerender(<MessageList renderMessage={renderMessage} />);
-    expect(h.virtuosoProps.firstItemIndex).toBe(initialIndex - 1);
+  it("renders every virtual item with its message content", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { container } = mountList();
+    expect(container.querySelectorAll(".message-virtual-item").length).toBe(3);
+    expect(container.querySelector('[data-index="0"]')?.textContent).toContain("msg-a");
+    expect(container.querySelector('[data-index="2"]')?.textContent).toContain("msg-c");
+  });
 
-    // The anchored message "a" keeps its key: its virtual index is unchanged
-    // (1_000_000 before, (1_000_000 - 1) + 1 after).
-    const computeItemKey = h.virtuosoProps.computeItemKey as (index: number, item?: MessageView) => unknown;
-    expect(computeItemKey(initialIndex, makeMessage("a"))).toBe("a");
+  it("renders the bottom gap and the history header", () => {
+    h.storeState.messages = [makeMessage("a")];
+    const { container } = mountList();
+    expect(container.querySelector(".message-list-footer")).not.toBeNull();
+    expect(container.querySelector(".msg-history-header")).not.toBeNull();
   });
 
   it("shows the history loader while older messages are being fetched", () => {
@@ -138,17 +173,6 @@ describe("MessageList virtualization", () => {
     const { container } = mountList();
     expect(container.querySelector(".msg-history-header")?.classList.contains("is-loading")).toBe(true);
     expect(container.querySelector(".msg-history-loader")).not.toBeNull();
-  });
-
-  it("keeps the header at a constant height when idle (spacer, not a popped-out loader)", () => {
-    h.storeState.messages = [makeMessage("a")];
-    h.storeState.hasMoreMessages = true;
-    const { container } = mountList();
-    // The header stays mounted so appearing/disappearing loading states never
-    // shift the items below it.
-    expect(container.querySelector(".msg-history-header")).not.toBeNull();
-    expect(container.querySelector(".msg-history-loader")).toBeNull();
-    expect(container.querySelector(".msg-history-spacer")).not.toBeNull();
   });
 
   it("shows the end-of-history marker when there is nothing older to load", () => {
@@ -160,69 +184,80 @@ describe("MessageList virtualization", () => {
     expect(header?.textContent).toContain("Начало переписки");
   });
 
-  it("renders the bottom gap footer element", () => {
+  it("loads older history when scrolled near the top", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { container } = mountList();
-    expect(container.querySelector(".message-list-footer")).not.toBeNull();
-  });
-
-  it("disables followOutput — the append effect owns the deterministic follow", () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    mountList();
-    // followOutput is off: its target comes from unmeasured heights and lands
-    // short; the append effect snaps to the exact bottom instead.
-    expect(h.virtuosoProps.followOutput).toBe(false);
-  });
-
-  it("opens at the newest message of the first batch (captured once, not on every append)", () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { rerender } = mountList();
-    expect(h.virtuosoProps.alignToBottom).toBe(true);
-    // First non-empty batch: index of the last message.
-    expect(h.virtuosoProps.initialTopMostItemIndex).toBe(1);
-
-    // Appends must NOT move the captured initial index (a changing value makes
-    // Virtuoso re-scroll on every data change).
-    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
-    rerender(<MessageList renderMessage={renderMessage} />);
-    expect(h.virtuosoProps.initialTopMostItemIndex).toBe(1);
-  });
-
-  it("loads older history when the top is reached", async () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { scroller, rerender } = mountList();
+    stubScroller(scroller, { scrollHeight: 2000, scrollTop: 0, clientHeight: 400 });
     h.storeState.hasMoreMessages = true;
-    mountList();
-    const startReached = h.virtuosoProps.startReached as () => void;
-    await act(async () => {
-      startReached();
-      await Promise.resolve();
-    });
+    rerender(<MessageList renderMessage={renderMessage} />);
+    scrollScroller(scroller);
     expect(h.storeState.loadMoreMessages).toHaveBeenCalledWith("c1");
   });
 
-  it("does not load history while a request is already in flight", async () => {
-    h.storeState.messages = [makeMessage("a")];
+  it("does not load history while scrolled down", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    h.storeState.hasMoreMessages = true;
+    const { scroller } = mountList();
+    stubScroller(scroller, { scrollHeight: 2000, scrollTop: 1500, clientHeight: 400 });
+    scrollScroller(scroller);
+    expect(h.storeState.loadMoreMessages).not.toHaveBeenCalled();
+  });
+
+  it("does not fire duplicate history loads while one is in flight", async () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     h.storeState.hasMoreMessages = true;
     let resolveLoad: (() => void) | undefined;
     h.storeState.loadMoreMessages.mockReturnValue(new Promise<void>((resolve) => {
       resolveLoad = resolve;
     }));
-    mountList();
-    const startReached = h.virtuosoProps.startReached as () => void;
-    await act(async () => {
-      startReached();
-      await Promise.resolve();
-    });
-    expect(h.storeState.loadMoreMessages).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      startReached();
-      await Promise.resolve();
-    });
+    const { scroller } = mountList();
+    stubScroller(scroller, { scrollHeight: 2000, scrollTop: 0, clientHeight: 400 });
+    scrollScroller(scroller);
+    scrollScroller(scroller);
     expect(h.storeState.loadMoreMessages).toHaveBeenCalledTimes(1);
     resolveLoad?.();
   });
 
-  it("scrollToBottom jumps to the last message", () => {
+  it("pins the view to the bottom while at the bottom when content grows", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 216, scrollTop: 216, clientHeight: 400 });
+    // A message arrives while the user is at the bottom (isAtBottomRef starts true).
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c"), makeMessage("d")];
+    metrics.scrollHeight = 288; // the browser content grew
+    rerender(<MessageList renderMessage={renderMessage} />);
+    expect(metrics.scrollTop).toBe(288);
+  });
+
+  it("compensates scrollTop when older messages are prepended while scrolled up", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
+    // The user scrolled away from the bottom.
+    scrollScroller(scroller);
+    expect(h.storeState.loadMoreMessages).not.toHaveBeenCalled();
+
+    // History is prepended; the browser content grows by the prepended height.
+    h.storeState.messages = [makeMessage("x"), makeMessage("y"), makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    metrics.scrollHeight = 2000 + 144;
+    rerender(<MessageList renderMessage={renderMessage} />);
+    expect(metrics.scrollTop).toBe(500 + 144);
+  });
+
+  it("does not shift the view when a message is updated in place (same first key)", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 2000, scrollTop: 700, clientHeight: 400 });
+    scrollScroller(scroller);
+    h.storeState.messages = [
+      { ...makeMessage("a"), content: "edited" },
+      makeMessage("b"),
+    ];
+    rerender(<MessageList renderMessage={renderMessage} />);
+    expect(metrics.scrollTop).toBe(700);
+  });
+
+  it("scrollToBottom jumps to the true bottom (smooth)", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
     const { ref, scroller } = mountList();
     const scrollToSpy = vi.fn();
@@ -239,20 +274,68 @@ describe("MessageList virtualization", () => {
     act(() => {
       ref.current?.scrollToMessage("b");
     });
-    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 1, align: "center", behavior: "smooth" });
+    expect(h.scrollToIndexSpy).toHaveBeenCalledWith(1, { align: "center" });
+  });
+
+  it("restores the saved scroll position when returning to the chat", () => {
+    // The user left this conversation with message "b" 20px below the top of
+    // the viewport (top of the list is HISTORY_HEADER_HEIGHT 34 + row.start).
+    saveScrollPosition("c1", { messageId: "b", offset: 20 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { container, scroller } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 216, clientHeight: 400 });
+    // 34 (header) + 72 (row b) + 20 (offset) = 126.
+    expect(metrics.scrollTop).toBe(126);
+    // The user is not at the bottom, so the FAB is visible.
+    expect(container.querySelector(".scroll-to-bottom-btn")).not.toBeNull();
+  });
+
+  it("auto-loads history until the saved anchor message is present", () => {
+    saveScrollPosition("c1", { messageId: "z", offset: 0 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    h.storeState.hasMoreMessages = true;
+    const { scroller, rerender } = mountList();
+    // The anchor is not in the first batch — history must be requested.
+    expect(h.storeState.loadMoreMessages).toHaveBeenCalledWith("c1");
+    const metrics = stubScroller(scroller, { scrollHeight: 288, clientHeight: 400 });
+
+    // The older page arrives with the anchor prepended.
+    h.storeState.messages = [makeMessage("z"), makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    rerender(<MessageList renderMessage={renderMessage} />);
+    // Jumps to message "z" at the top: 34 (header) + 0 + 0 = 34.
+    expect(metrics.scrollTop).toBe(34);
+  });
+
+  it("gives up hunting the anchor and opens at the bottom when history ends", () => {
+    saveScrollPosition("c1", { messageId: "z", offset: 0 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    h.storeState.hasMoreMessages = false;
+    const { scroller } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 144, scrollTop: 144, clientHeight: 400 });
+    expect(h.storeState.loadMoreMessages).not.toHaveBeenCalled();
+    // Falls back to the bottom (isAtBottomRef starts true).
+    expect(metrics.scrollTop).toBe(144);
+  });
+
+  it("scrollToBottom cancels the saved position", () => {
+    saveScrollPosition("c1", { messageId: "b", offset: 20 });
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { ref, scroller } = mountList();
+    const scrollToSpy = vi.fn();
+    scroller.scrollTo = scrollToSpy;
+    act(() => {
+      ref.current?.scrollToBottom();
+    });
+    expect(getScrollPosition("c1")).toBeUndefined();
   });
 });
 
 describe("MessageList realtime appends", () => {
   it("shows the N-new-messages pill when a message arrives while scrolled up", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { container, rerender } = mountList();
-
-    // The user scrolled away from the bottom.
-    act(() => {
-      const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
-      atBottomChange(false);
-    });
+    const { container, scroller, rerender } = mountList();
+    stubScroller(scroller, { scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
+    scrollScroller(scroller);
 
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c"), makeMessage("d")];
     rerender(<MessageList renderMessage={renderMessage} />);
@@ -263,12 +346,9 @@ describe("MessageList realtime appends", () => {
 
   it("counts only incoming messages, not the user's own optimistic ones", () => {
     h.storeState.messages = [makeMessage("a")];
-    const { container, rerender } = mountList();
-
-    act(() => {
-      const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
-      atBottomChange(false);
-    });
+    const { container, scroller, rerender } = mountList();
+    stubScroller(scroller, { scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
+    scrollScroller(scroller);
 
     const own = makeMessage("mine");
     own.localStatus = "sending";
@@ -278,11 +358,13 @@ describe("MessageList realtime appends", () => {
     expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("1");
   });
 
-  it("stays quiet while at the bottom — the followOutput scroll is Virtuoso's job", () => {
+  it("stays quiet while at the bottom — the pin follows appends", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { container, rerender } = mountList();
+    const { container, scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 144, scrollTop: 144, clientHeight: 400 });
 
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    metrics.scrollHeight = 216;
     rerender(<MessageList renderMessage={renderMessage} />);
 
     expect(container.querySelector(".scroll-to-bottom-btn")).toBeNull();
@@ -290,17 +372,49 @@ describe("MessageList realtime appends", () => {
 
   it("clears the pill when the user returns to the bottom", () => {
     h.storeState.messages = [makeMessage("a")];
-    const { container, rerender } = mountList();
-
-    const atBottomChange = h.virtuosoProps.atBottomStateChange as (atBottom: boolean) => void;
-    act(() => atBottomChange(false));
+    const { container, scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
+    scrollScroller(scroller);
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     rerender(<MessageList renderMessage={renderMessage} />);
     expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("1");
 
-    act(() => atBottomChange(true));
+    metrics.scrollTop = 1600; // back at the bottom (2000 - 1600 - 400 = 0)
+    scrollScroller(scroller);
     expect(container.querySelector(".scroll-to-bottom-btn")).toBeNull();
   });
+
+  it("animates live arrivals at the bottom and clears the flag after the animation", () => {
+    vi.useFakeTimers();
+    try {
+      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+      const { container, rerender } = mountList();
+      // isAtBottomRef starts true — the arrival is visible, so it animates.
+      h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+      act(() => rerender(<MessageList renderMessage={renderMessageWithNewFlag} />));
+      expect(container.querySelector('[data-testid="msg-c"]')?.className).toContain("is-new-wrapper");
+
+      // Once the entrance has played, the flag is cleared so scrolling away
+      // and back never replays it.
+      act(() => {
+        vi.advanceTimersByTime(1300);
+      });
+      expect(container.querySelector('[data-testid="msg-c"]')?.className).not.toContain("is-new-wrapper");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not animate arrivals while scrolled up — only counts them in the pill", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { container, scroller, rerender } = mountList();
+    stubScroller(scroller, { scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
+    scrollScroller(scroller);
+
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    rerender(<MessageList renderMessage={renderMessageWithNewFlag} />);
+
+    expect(container.querySelector('[data-testid="msg-c"]')?.className).not.toContain("is-new-wrapper");
+    expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("1");
+  });
 });
-
-

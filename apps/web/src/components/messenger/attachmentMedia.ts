@@ -164,8 +164,8 @@ export function getAttachmentAspectRatio(attachment: Attachment): number {
  * attachment's own width/height ratio ONLY — no visual-viewport reactivity,
  * no max-height clamp fighting the aspect-ratio. The keyboard / URL-bar
  * resizes (which shrink `visualViewport.height` on mobile) can no longer
- * reflow every photo in the list; the reserved space stays put and Virtuoso
- * keeps the exact size. `width` is expressed as `min(100%, Xpx)` so the chat
+ * reflow every photo in the list; the reserved space stays put and the
+ * virtualizer keeps the exact size. `width` is expressed as `min(100%, Xpx)` so the chat
  * column still shrinks the image on narrow screens without breaking the box.
  *
  * Legacy images without meta keep the remembered/fallback ratio; the box
