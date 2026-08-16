@@ -35,8 +35,9 @@ vi.mock("react-virtuoso", () => {
       };
     }
     const scrollerRef = props.scrollerRef as ((el: HTMLDivElement | null) => void) | undefined;
-    const itemContent = props.itemContent as (index: number) => React.ReactNode;
-    const computeItemKey = props.computeItemKey as ((index: number) => unknown) | undefined;
+    const data = props.data as unknown[] | undefined;
+    const itemContent = props.itemContent as ((index: number, item?: unknown) => React.ReactNode) | undefined;
+    const computeItemKey = props.computeItemKey as ((index: number, item?: unknown) => unknown) | undefined;
     const components = props.components as {
       Scroller?: React.ComponentType<React.HTMLAttributes<HTMLDivElement> & React.RefAttributes<HTMLDivElement>>;
       List?: React.ComponentType<{ style?: React.CSSProperties; children?: React.ReactNode }>;
@@ -47,9 +48,11 @@ vi.mock("react-virtuoso", () => {
     const List = components?.List;
     const Header = components?.Header;
     const Footer = components?.Footer;
-    const items = Array.from({ length: props.totalCount as number }, (_, index) => (
-      <div key={(computeItemKey?.(index) ?? index) as React.Key}>{itemContent(index)}</div>
-    ));
+    const count = (props.totalCount as number | undefined) ?? data?.length ?? 0;
+    const items = Array.from({ length: count }, (_, index) => {
+      const item = data?.[index];
+      return <div key={(computeItemKey?.(index, item) ?? index) as React.Key}>{itemContent?.(index, item)}</div>;
+    });
     return Scroller && List ? (
       <Scroller ref={(el: HTMLDivElement | null) => scrollerRef?.(el)} style={{ height: "100%" }}>
         {Header ? <Header /> : null}
@@ -125,8 +128,8 @@ describe("MessageList virtualization", () => {
 
     // The anchored message "a" keeps its key: its virtual index is unchanged
     // (1_000_000 before, (1_000_000 - 1) + 1 after).
-    const computeItemKey = h.virtuosoProps.computeItemKey as (index: number) => unknown;
-    expect(computeItemKey(initialIndex)).toBe("a");
+    const computeItemKey = h.virtuosoProps.computeItemKey as (index: number, item?: MessageView) => unknown;
+    expect(computeItemKey(initialIndex, makeMessage("a"))).toBe("a");
   });
 
   it("shows the history loader while older messages are being fetched", () => {
@@ -163,19 +166,26 @@ describe("MessageList virtualization", () => {
     expect(container.querySelector(".message-list-footer")).not.toBeNull();
   });
 
-  it("follows new messages only while the user is at the bottom (never yanks a scrolled-up reader)", () => {
+  it("disables followOutput — the append effect owns the deterministic follow", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     mountList();
-    const followOutput = h.virtuosoProps.followOutput as (atBottom: boolean) => boolean | string;
-    expect(followOutput(true)).toBe("smooth");
-    expect(followOutput(false)).toBe(false);
+    // followOutput is off: its target comes from unmeasured heights and lands
+    // short; the append effect snaps to the exact bottom instead.
+    expect(h.virtuosoProps.followOutput).toBe(false);
   });
 
-  it("always opens at the very bottom (alignToBottom, no boundary positioning)", () => {
+  it("opens at the newest message of the first batch (captured once, not on every append)", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    mountList();
+    const { rerender } = mountList();
     expect(h.virtuosoProps.alignToBottom).toBe(true);
-    expect(h.virtuosoProps.initialTopMostItemIndex).toBeUndefined();
+    // First non-empty batch: index of the last message.
+    expect(h.virtuosoProps.initialTopMostItemIndex).toBe(1);
+
+    // Appends must NOT move the captured initial index (a changing value makes
+    // Virtuoso re-scroll on every data change).
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    rerender(<MessageList renderMessage={renderMessage} />);
+    expect(h.virtuosoProps.initialTopMostItemIndex).toBe(1);
   });
 
   it("loads older history when the top is reached", async () => {
@@ -214,11 +224,13 @@ describe("MessageList virtualization", () => {
 
   it("scrollToBottom jumps to the last message", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
-    const { ref } = mountList();
+    const { ref, scroller } = mountList();
+    const scrollToSpy = vi.fn();
+    scroller.scrollTo = scrollToSpy;
     act(() => {
       ref.current?.scrollToBottom();
     });
-    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 2, align: "end", behavior: "smooth" });
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: expect.any(Number), behavior: "smooth" });
   });
 
   it("scrollToMessage centers the requested message", () => {

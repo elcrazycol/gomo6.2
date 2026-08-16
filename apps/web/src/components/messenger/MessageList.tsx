@@ -65,6 +65,7 @@ export const MessageList = memo(
     const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
 
     const virtuosoRef = useRef<VirtuosoHandle>(null);
+    const scrollerElRef = useRef<HTMLDivElement | null>(null);
 
     const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
     const [isAtBottom, setIsAtBottom] = useState(true);
@@ -82,15 +83,41 @@ export const MessageList = memo(
       if (atBottom) setNewMessageCount(0);
     }, []);
 
+    // ── True-bottom helpers ────────────────────────────────────────────
+    // Virtuoso's scrollToIndex(LAST, align:"end") lands SHORT of the real
+    // bottom while item heights above are still being measured (the offset
+    // tree is built from estimates), and the residual offsetBottom then flips
+    // atBottom to false — after which followOutput/alignToBottom give up and
+    // live messages stop following. Scrolling the element to scrollHeight is
+    // exact (the virtualized content renders accurate spacers), so the follow
+    // is always the true bottom.
+    const scrollToTrueBottom = useCallback(() => {
+      const scroller = scrollerElRef.current;
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    }, []);
+
+    // Open every conversation at the newest message. alignToBottom alone does
+    // NOT position the initial view (it only pins growth), so without this the
+    // chat opens at an arbitrary spot (top of history, middle, wherever the
+    // first batch happens to land). The index is captured ONCE from the first
+    // non-empty batch and never updated: a changing initialTopMostItemIndex
+    // makes Virtuoso re-scroll on every data change (the "jumps to center"
+    // bug). With a fixed index Virtuoso does its own measured landing.
+    const [initialTopMostIndex, setInitialTopMostIndex] = useState<number | undefined>(undefined);
+    if (initialTopMostIndex === undefined && messages.length > 0) {
+      setInitialTopMostIndex(messages.length - 1);
+    }
+
     // ── Imperative API (send-scroll, pinned-message jump) ──────────────
     const scrollToBottom = useCallback(() => {
-      const length = useMessengerStore.getState().messages.length;
-      if (length === 0) return;
-      virtuosoRef.current?.scrollToIndex({
-        index: length - 1,
-        align: "end",
-        behavior: "smooth",
-      });
+      const scroller = scrollerElRef.current;
+      if (scroller) {
+        if (typeof scroller.scrollTo === "function") {
+          scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
+        } else {
+          scroller.scrollTop = scroller.scrollHeight;
+        }
+      }
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       setNewMessageCount(0);
@@ -121,10 +148,9 @@ export const MessageList = memo(
       });
     }, [hasMoreMessages, isLoadingMore, conversationId, loadMoreMessages]);
 
-    // ── Detect realtime appends → "N new messages" pill + animation ────
-    // Scrolling to the bottom on append is left to Virtuoso's native
-    // followOutput (see below), which only follows while the user is at the
-    // bottom — no custom scroll code, no fights with user scrolling.
+    // ── Detect realtime appends → "N new messages" pill + follow ──────
+    // The follow (snap to the true bottom while the user is at the bottom) is
+    // handled here, deterministically; followOutput is disabled (see below).
     useEffect(() => {
       if (messages.length === 0) {
         prevLastIdRef.current = null;
@@ -146,12 +172,18 @@ export const MessageList = memo(
               // Own optimistic messages are not counted in the pill.
               const incoming = appended.filter((m) => m.localStatus !== "sending").length;
               if (incoming > 0) setNewMessageCount((count) => count + incoming);
+            } else {
+              // Deterministic follow: snap to the real bottom after the append
+              // commits. followOutput alone cannot be trusted here — its target
+              // is computed from still-unmeasured heights, so it lands short
+              // and then stops following entirely.
+              requestAnimationFrame(scrollToTrueBottom);
             }
           }
         }
       }
       prevLastIdRef.current = lastId;
-    }, [messages]);
+    }, [messages, scrollToTrueBottom]);
 
     // ── Keep virtual indices stable when older messages are prepended ──
     // This must happen in the SAME render as the messages change (render-phase
@@ -187,7 +219,11 @@ export const MessageList = memo(
         forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CustomScroller({ className, ...props }, scrollerRef) {
           return (
             <div
-              ref={scrollerRef}
+              ref={(el) => {
+                scrollerElRef.current = el;
+                if (typeof scrollerRef === "function") scrollerRef(el);
+                else if (scrollerRef) scrollerRef.current = el;
+              }}
               {...props}
               className={`message-scroll${className ? ` ${className}` : ""}`}
               role="log"
@@ -259,26 +295,47 @@ export const MessageList = memo(
         <div className="message-scroll-wrap">
           <Virtuoso
             ref={virtuosoRef}
-            totalCount={messages.length}
+            // data (not totalCount) lets Virtuoso see the actual items: stable
+            // per-item keys (client_id/id) keep the DOM and measurements when
+            // the store replaces the array, and itemContent gets the item
+            // directly instead of re-deriving it from a stale closure index.
+            data={messages}
             firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={initialTopMostIndex}
             alignToBottom
-            followOutput={(atBottom) => (atBottom ? "smooth" : false)}
+            // The bottom gap below the last message (footer + row margins) leaves
+            // a small offsetBottom that otherwise flips atBottom to false the
+            // moment a follow scroll lands — and with it disables both
+            // followOutput and alignToBottom. The threshold treats that zone
+            // as "at the bottom" so live messages keep following.
+            atBottomThreshold={64}
+            // Realtime messages arrive while the user is at the bottom: with
+            // the default probe the estimate comes from the FIRST mounted item
+            // (the last message — possibly a tall image), and every unmeasured
+            // bubble above it gets corrected violently on fast scrolls.
+            // defaultItemHeight keeps the initial estimate near the common
+            // compact-bubble height so corrections are small.
+            defaultItemHeight={44}
+            // followOutput is disabled: its scroll target is computed from
+            // still-unmeasured heights, so it lands short and its residual
+            // offsetBottom flips atBottom to false — after which live messages
+            // stop following entirely. The append effect below snaps to the
+            // exact bottom instead (deterministic, no estimate slop).
+            followOutput={false}
             atBottomStateChange={handleAtBottomChange}
-            computeItemKey={(index) => {
-              const message = messages[index - firstItemIndex];
-              return message ? (message.client_id ?? message.id) : index;
-            }}
+            computeItemKey={(_, message) => message.client_id ?? message.id}
             startReached={handleStartReached}
-            // Start fetching older messages BEFORE the user hits the very top
-            // (startReached fires 400px early) and keep a generous overscan so
-            // the prepended items are rendered before they scroll into view.
-            increaseViewportBy={{ top: 400, bottom: 200 }}
+            // NOTE: increaseViewportBy is intentionally NOT used — combined with
+            // overscan it puts react-virtuoso 4.18 into an unbounded
+            // visible-range feedback loop ("Maximum call stack size exceeded",
+            // petyosi/react-virtuoso#1467, closed as not planned). The generous
+            // overscan below still renders prepended items ahead of the
+            // viewport, which is the early-load head start that matters.
             overscan={400}
             components={listComponents}
             style={{ height: "100%" }}
-            itemContent={(index) => {
+            itemContent={(index, message) => {
               const dataIndex = index - firstItemIndex;
-              const message = messages[dataIndex];
               if (!message) return null;
               const prev = dataIndex > 0 ? messages[dataIndex - 1] : null;
               return renderMessage(message, prev, {
