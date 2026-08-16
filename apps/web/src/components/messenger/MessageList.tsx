@@ -99,7 +99,7 @@ function estimateMessageHeight(message: MessageView | undefined): number {
  *
  * It is mounted per conversation (`key={conversation.id}` in ChatView), so all
  * refs/state below reset naturally when switching chats — the scroll anchor is
- * the only thing that survives (the session-scoped scrollPosition module).
+ * the only thing that survives (the sessionStorage-backed scrollPosition module).
  */
 
 /**
