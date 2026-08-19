@@ -530,7 +530,7 @@ const Profile = () => {
     } finally {
       setThreadsLoading(false);
     }
-  }, [userId]);
+  }, [userId, t]);
 
   useEffect(() => {
     if (activeTab === 'threads' && userThreads.length === 0) {
