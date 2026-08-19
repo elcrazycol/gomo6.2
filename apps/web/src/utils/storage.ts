@@ -92,10 +92,11 @@ export type UploadedImageVariants = {
 export type UploadFileResult = {
   path: string;
   variants?: UploadedImageVariants;
+  video?: { poster_key: string; content_type: string };
 };
 
 type UploadBody = {
-  data?: { key?: string; variants?: UploadedImageVariants };
+  data?: { key?: string; variants?: UploadedImageVariants; video?: { poster_key: string; content_type: string } };
   error?: string;
 };
 
@@ -106,6 +107,7 @@ const toResult = (body: UploadBody, fallbackKey: string, ok: boolean, status?: n
   return {
     path: body.data?.key || fallbackKey,
     ...(body.data?.variants ? { variants: body.data.variants } : {}),
+    ...(body.data?.video ? { video: body.data.video } : {}),
   };
 };
 

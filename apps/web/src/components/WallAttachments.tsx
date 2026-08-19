@@ -162,8 +162,8 @@ export const WallAttachments = ({
             <MediaPlayer
               key={`${galleryKey}-${index}`}
               kind="video"
-              poster={attachment.poster ?? undefined}
-              sources={[{ src: storageUrl("content", attachment.url) ?? attachment.url, type: attachment.mime || "video/webm" }]}
+              poster={resolveUrl(attachment.poster) ?? undefined}
+              sources={[{ src: resolveUrl(attachment.url) ?? attachment.url, type: attachment.mime || "video/mp4" }]}
               className="max-w-3xl"
             />
           );

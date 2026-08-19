@@ -54,7 +54,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM --platform=$TARGETPLATFORM alpine:3.23
 
 RUN sed -i 's/https/http/g' /etc/apk/repositories && \
-    apk --no-cache add ca-certificates curl
+    apk --no-cache add ca-certificates curl ffmpeg
 WORKDIR /root/
 
 COPY --from=builder /app/main .
