@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, Search, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import { getSourceKeys, getNamespaces, pluralFormKey, type SourceKey } from "@/i18n/keys";
-import { getActiveLanguage, loadCommunityTranslations } from "@/i18n";
+import { getActiveLanguage, loadCommunityTranslations, refreshLanguageResources } from "@/i18n";
 import { LANGUAGES } from "@/i18n/languages";
 import {
   listTranslations,
@@ -100,7 +100,8 @@ const Translate = () => {
 
   const refreshActiveLocale = async () => {
     if (getActiveLanguage() === targetLang) {
-      await loadCommunityTranslations(targetLang);
+      const loaded = await loadCommunityTranslations(targetLang);
+      if (loaded) await refreshLanguageResources(targetLang);
     }
   };
 
