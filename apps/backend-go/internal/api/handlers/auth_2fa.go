@@ -90,7 +90,7 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 			}
 			cancel()
 		}
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid 2FA code"))
+		c.JSON(http.StatusUnauthorized, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid 2FA code", nil))
 		return
 	}
 
@@ -173,12 +173,12 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 		// M1 (security audit): the enrollment password check is a password
 		// oracle for a session holder — throttle per account like login.
 		if h.isAuthActionLocked(userClaims.UserID) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
 			return
 		}
 		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(req.Password)) != nil {
 			h.recordAuthActionFailure(userClaims.UserID)
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
 			return
 		}
 		h.clearAuthActionLock(userClaims.UserID)
@@ -253,14 +253,14 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 	// per-account counter as setup/disable/password, so a session holder cannot
 	// brute-force the verification code.
 	if h.isAuthActionLocked(userClaims.UserID) {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid code. Please try again."))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid code. Please try again.", nil))
 		return
 	}
 	// Validate the TOTP code
 	valid, err := h.validateTOTP(*totpSecret, req.Code)
 	if err != nil || !valid {
 		h.recordAuthActionFailure(userClaims.UserID)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid code. Please try again."))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid code. Please try again.", nil))
 		return
 	}
 	h.clearAuthActionLock(userClaims.UserID)
@@ -330,7 +330,7 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	// auth actions — a stolen session must not be able to brute-force the TOTP
 	// or recovery code needed to strip 2FA.
 	if h.isAuthActionLocked(userClaims.UserID) {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid 2FA code"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid 2FA code", nil))
 		return
 	}
 	valid, err := h.validateTOTPWithRecovery(userClaims.UserID, *totpSecret, req.Code)
@@ -342,7 +342,7 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	}
 	if !valid {
 		h.recordAuthActionFailure(userClaims.UserID)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid 2FA code"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid 2FA code", nil))
 		return
 	}
 	h.clearAuthActionLock(userClaims.UserID)

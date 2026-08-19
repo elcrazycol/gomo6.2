@@ -48,7 +48,17 @@ export interface ApiResponse<T> {
   data: T | T[] | null;
   count?: number;
   error?: string | null;
+  code?: string | null;
+  params?: unknown;
   has_more?: boolean;
+}
+
+// An Error thrown by ApiClient, augmented with the structured error code/params
+// the backend emits for client-rendered messages.
+export interface ApiClientError extends Error {
+  status?: number;
+  code?: string;
+  params?: unknown;
 }
 
 // Decode JWT payload without verification (for expiry check only)
@@ -257,14 +267,18 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        const err = new Error(data.error || `HTTP ${response.status}`) as Error & { status?: number };
+        const err = new Error(data.error || `HTTP ${response.status}`) as ApiClientError;
         err.status = response.status;
+        err.code = data.code ?? undefined;
+        err.params = data.params;
         throw err;
       }
 
       // Check unified {success, data} format
       if (data != null && data.success === false) {
-        const err = new Error(data.error || 'Request failed');
+        const err = new Error(data.error || 'Request failed') as ApiClientError;
+        err.code = data.code ?? undefined;
+        err.params = data.params;
         throw err;
       }
       return data;

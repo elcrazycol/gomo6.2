@@ -13,6 +13,7 @@ import { TermsOfService } from "@/components/TermsOfService";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { useQueryClient } from "@tanstack/react-query";
 import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "@/services/passkeys";
+import { apiErrorMessage } from "@/utils/apiErrors";
 import { Shield } from "lucide-react";
 import TurnstileWidget, { isTurnstileEnabled, type TurnstileWidgetHandle } from "@/components/TurnstileWidget";
 
@@ -93,11 +94,7 @@ const Auth = () => {
         });
 
         if (error) {
-          if (error.message.includes("Invalid login credentials")) {
-            toast.error(t('auth.invalidCredentials'));
-          } else {
-            toast.error(error.message);
-          }
+          toast.error(apiErrorMessage(error, t));
           turnstileRef.current?.reset();
           return;
         }
@@ -134,11 +131,7 @@ const Auth = () => {
         });
 
         if (error) {
-          if (error.message.includes("already registered")) {
-            toast.error(t('auth.usernameTaken'));
-          } else {
-            toast.error(error.message);
-          }
+          toast.error(apiErrorMessage(error, t));
           turnstileRef.current?.reset();
           return;
         }
@@ -184,7 +177,7 @@ const Auth = () => {
       const { error } = await api.auth.verify2FA(partialToken, totpCode, trustDevice);
 
       if (error) {
-        toast.error(t('auth.invalid2faCode'));
+        toast.error(apiErrorMessage(error, t));
         setLoading(false);
         return;
       }

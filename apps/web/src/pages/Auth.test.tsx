@@ -244,7 +244,7 @@ describe("Auth Page", () => {
   it("shows error toast on invalid login credentials", async () => {
     mockSignIn.mockResolvedValue({
       data: null,
-      error: { message: "Invalid login credentials" },
+      error: { code: "invalid_credentials", message: "Invalid credentials" },
     });
 
     renderComponent();
@@ -344,7 +344,7 @@ describe("Auth Page", () => {
   it("shows error on duplicate username during registration", async () => {
     mockSignUp.mockResolvedValue({
       data: null,
-      error: { message: "already registered" },
+      error: { code: "username_taken", message: "already registered" },
     });
 
     renderComponent();
@@ -452,7 +452,7 @@ describe("Auth Page", () => {
 
     mockVerify2FA.mockResolvedValue({
       data: null,
-      error: { message: "Invalid 2FA code" },
+      error: { code: "invalid_2fa_code", message: "Invalid 2FA code" },
     });
 
     renderComponent();

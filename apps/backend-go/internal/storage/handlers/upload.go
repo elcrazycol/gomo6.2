@@ -317,7 +317,7 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	if isVideoKey(key) {
 		generatedVideo, videoErr := media.GenerateVideoVariants(c.Request.Context(), data, filepath.Ext(key))
 		if videoErr != nil {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("не удалось обработать видео: "+videoErr.Error()))
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrVideoProcessing, "Failed to process video", map[string]string{"reason": videoErr.Error()}))
 			return
 		}
 		// FFmpeg always writes MP4, so the key and MIME stay truthful even for

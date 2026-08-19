@@ -155,6 +155,23 @@ const en: LocaleResources = {
     noNotifications: "No notifications",
     viewAll: "View all →",
   },
+  error: {
+    username_length: "Username must be 3-20 characters",
+    username_chars: "Username may contain only Latin letters and digits (a-z, A-Z, 0-9)",
+    username_taken: "This username is already taken",
+    invalid_credentials: "Invalid username or password",
+    wrong_password: "Current password is incorrect",
+    invalid_2fa_code: "Invalid 2FA code",
+    post_empty: "Post cannot be empty",
+    slug_format: "Slug: Latin letters, digits, - or _, 2-25 characters",
+    slug_reserved: "Slug is reserved by the system",
+    slug_taken: "This slug is already taken",
+    emoji_format: "Invalid emoji format",
+    emoji_unavailable: "This emoji is unavailable",
+    video_processing: "Failed to process video",
+    generic: "Something went wrong",
+    network: "Network error. Check your internet connection.",
+  },
 };
 
 export default en;

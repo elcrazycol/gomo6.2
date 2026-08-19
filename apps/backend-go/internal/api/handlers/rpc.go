@@ -217,7 +217,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	req.Content = strings.TrimSpace(req.Content)
 
 	if req.Content == "" && len(req.Attachments) == 0 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Пост не может быть пустым"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrPostEmpty, "Post cannot be empty", nil))
 		return
 	}
 

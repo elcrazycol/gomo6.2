@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
+import { apiErrorMessage } from "@/utils/apiErrors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -159,6 +161,7 @@ const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; o
 };
 
 const Profile = () => {
+  const { t } = useTranslation();
   const { userId } = useParams();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -1007,7 +1010,13 @@ const Profile = () => {
 
       const result = await res.json();
       if (!res.ok) {
-        toast.error(result.error || "Ошибка изменения юзернейма");
+        toast.error(
+          apiErrorMessage(
+            { code: result.code, params: result.params, message: result.error },
+            t,
+            "error.generic"
+          )
+        );
         return;
       }
 

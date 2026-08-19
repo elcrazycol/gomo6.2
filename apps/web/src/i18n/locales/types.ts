@@ -9,6 +9,7 @@ export interface LocaleResources {
   auth: Record<string, string>;
   settings: Record<string, string>;
   notif: Record<string, string>;
+  error: Record<string, string>;
 }
 
 export type LocaleNamespace = keyof LocaleResources;

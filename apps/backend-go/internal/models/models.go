@@ -309,6 +309,8 @@ type APIResponse struct {
 	Success    bool        `json:"success"`
 	Data       interface{} `json:"data,omitempty"`
 	Error      *string     `json:"error,omitempty"`
+	Code       *string     `json:"code,omitempty"`
+	Params     interface{} `json:"params,omitempty"`
 	Count      *int        `json:"count,omitempty"`
 	NextCursor *string     `json:"next_cursor,omitempty"`
 	HasMore    *bool       `json:"has_more,omitempty"`

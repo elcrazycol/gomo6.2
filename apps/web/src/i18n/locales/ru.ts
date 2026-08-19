@@ -158,6 +158,23 @@ const ru: LocaleResources = {
     noNotifications: "Нет уведомлений",
     viewAll: "Все →",
   },
+  error: {
+    username_length: "Юзернейм должен быть от 3 до 20 символов",
+    username_chars: "Юзернейм может содержать только буквы латиницы и цифры (a-z, A-Z, 0-9)",
+    username_taken: "Этот юзернейм уже занят",
+    invalid_credentials: "Неверный логин или пароль",
+    wrong_password: "Текущий пароль неверен",
+    invalid_2fa_code: "Неверный код 2FA",
+    post_empty: "Пост не может быть пустым",
+    slug_format: "Слаг: латиница, цифры, - или _, от 2 до 25 символов",
+    slug_reserved: "Слаг зарезервирован системой",
+    slug_taken: "Такой слаг уже занят",
+    emoji_format: "Неверный формат эмодзи",
+    emoji_unavailable: "Этот эмодзи недоступен",
+    video_processing: "Не удалось обработать видео",
+    generic: "Произошла ошибка",
+    network: "Ошибка сети. Проверьте подключение к интернету.",
+  },
 };
 
 export default ru;
