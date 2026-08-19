@@ -747,6 +747,17 @@ RETURNING *, (xmax = 0) AS inserted`
 			}
 			add("theme_tokens", themeTokensJSON, "::jsonb")
 		}
+		// Language is intentionally part of the same partial upsert. Without
+		// this branch a language-only request fell through to a plain INSERT,
+		// which hit the existing profile_customization(user_id) row and returned
+		// HTTP 500 on every language change.
+		if v, ok := data["language"]; ok {
+			language, _ := v.(string)
+			language = strings.TrimSpace(language)
+			if language != "" {
+				add("language", language, "")
+			}
+		}
 		if len(sets) == 0 {
 			return "", nil, false
 		}

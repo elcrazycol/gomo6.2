@@ -18,6 +18,17 @@ export function LanguageSelector({ userId }: LanguageSelectorProps) {
   const language = useLanguageStore((s) => s.language);
   const changeLanguage = useLanguageStore((s) => s.changeLanguage);
 
+  const handleLanguageChange = async (code: string) => {
+    try {
+      await changeLanguage(code, userId);
+    } catch (error) {
+      // The local language and community catalog may already be applied. A
+      // profile persistence failure (for example while the backend is being
+      // migrated) must not become an unhandled promise rejection.
+      console.error("Failed to change language", error);
+    }
+  };
+
   const known = LANGUAGES.some((l) => l.code === language);
   const options = known
     ? LANGUAGES
@@ -32,7 +43,7 @@ export function LanguageSelector({ userId }: LanguageSelectorProps) {
           <p className="text-xs text-muted-foreground">{t("settings.languageDescription")}</p>
         </div>
       </div>
-      <Select value={language} onValueChange={(code) => changeLanguage(code, userId)}>
+      <Select value={language} onValueChange={(code) => { void handleLanguageChange(code); }}>
         <SelectTrigger className="w-[180px]" aria-label={t("settings.language")}>
           <SelectValue />
         </SelectTrigger>

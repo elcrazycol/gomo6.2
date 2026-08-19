@@ -2,7 +2,7 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import ru from "./locales/ru";
 import en from "./locales/en";
-import { DEFAULT_LANGUAGE } from "./languages";
+import { DEFAULT_LANGUAGE, LANGUAGES } from "./languages";
 
 // Flat map of bundled base locales. Community translations (from the DB) are
 // overlaid at runtime on top of these via addResourceBundle, so the bundled
@@ -68,8 +68,22 @@ export function applyTranslationOverrides(code: string, flat: Record<string, str
 }
 
 /**
- * Fetch community translations for a locale from the backend and overlay them.
- * Safe to call repeatedly; failures are ignored (bundled locales still work).
+ * Rebuild one locale from its bundled base plus the current top proposals. This
+ * also removes stale community values after a proposal is deleted or replaced.
+ */
+function rebuildTranslationResources(code: string, flat: Record<string, string>): void {
+  i18n.removeResourceBundle(code, "translation");
+  const base = BASE_RESOURCES[code as keyof typeof BASE_RESOURCES];
+  if (base) {
+    i18n.addResourceBundle(code, "translation", base.translation, false, false);
+  }
+  applyTranslationOverrides(code, flat);
+}
+
+/**
+ * Fetch community translations for a locale and apply the highest-voted
+ * proposal for every key. Safe to call repeatedly; failures are ignored
+ * (bundled locales still work).
  */
 export async function loadCommunityTranslations(code: string): Promise<void> {
   if (code === DEFAULT_LANGUAGE) return; // ru is the bundled source
@@ -80,7 +94,13 @@ export async function loadCommunityTranslations(code: string): Promise<void> {
     if (!res.ok) return;
     const json = await res.json().catch(() => null);
     const rows: Array<Record<string, unknown>> = Array.isArray(json?.data) ? json.data : [];
-    // Highest-voted value per key wins.
+    // The API already sorts this way, but keep the rule here as well: the
+    // highest net-voted proposal wins, with newest winning ties.
+    rows.sort((a, b) => {
+      const votes = Number(b.votes ?? 0) - Number(a.votes ?? 0);
+      if (votes !== 0) return votes;
+      return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+    });
     const best = new Map<string, string>();
     for (const row of rows) {
       const key = row.key as string | undefined;
@@ -88,7 +108,12 @@ export async function loadCommunityTranslations(code: string): Promise<void> {
       if (!key || typeof value !== "string") continue;
       if (!best.has(key)) best.set(key, value);
     }
-    applyTranslationOverrides(code, Object.fromEntries(best));
+    rebuildTranslationResources(code, Object.fromEntries(best));
+    // addResourceBundle does not reliably notify react-i18next. Re-emitting
+    // languageChanged makes a currently active locale update immediately.
+    if (getActiveLanguage() === code) {
+      await i18n.changeLanguage(code);
+    }
   } catch {
     // network/5xx — keep bundled locale
   }
@@ -98,7 +123,9 @@ void i18n.use(initReactI18next).init({
   resources: BASE_RESOURCES,
   lng: getStoredLanguage(),
   fallbackLng: DEFAULT_LANGUAGE,
-  supportedLngs: Object.keys(BASE_RESOURCES),
+  // Every picker language is a valid i18next language. Most start without a
+  // bundled catalog and receive their effective strings from the API.
+  supportedLngs: LANGUAGES.map((language) => language.code),
   nonExplicitSupportedLngs: true,
   load: "currentOnly",
   ns: ["translation"],
