@@ -1075,20 +1075,26 @@ main.is-messenger-page {
 
 .message-bubble.is-measuring .message-meta,
 .message-bubble.is-measuring .message-content-text::after,
-.message-bubble.is-measuring .message-content-stack {
+.message-bubble.is-measuring .message-content-stack::after {
   display: none;
 }
 
 /* Measure one-line messages with the same right-side reserve they will have
-   after the metadata is positioned. This prevents a late wrap/overlap. */
+   after the metadata is positioned. This prevents a late wrap/overlap. The
+   reserve applies to both plain-text (.message-content-text) and emoji /
+   rich-text (.message-content-stack) messages so the time/status pill never
+   paints over the last emoji or link. */
 .message-bubble.is-measuring .message-content-text,
-.message-bubble.is-compact .message-content-text {
+.message-bubble.is-compact .message-content-text,
+.message-bubble.is-measuring .message-content-stack,
+.message-bubble.is-compact .message-content-stack {
   box-sizing: border-box;
   display: block;
   padding-right: var(--message-meta-reserve);
 }
 
-.message-bubble.is-multiline .message-content-text::after {
+.message-bubble.is-multiline .message-content-text::after,
+.message-bubble.is-multiline .message-content-stack::after {
   content: "";
   display: inline-block;
   width: var(--message-meta-reserve);
@@ -1096,7 +1102,8 @@ main.is-messenger-page {
   vertical-align: bottom;
 }
 
-.message-bubble.is-compact .message-content-text::after {
+.message-bubble.is-compact .message-content-text::after,
+.message-bubble.is-compact .message-content-stack::after {
   display: none;
 }
 

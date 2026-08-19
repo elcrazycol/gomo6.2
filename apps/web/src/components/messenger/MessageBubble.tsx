@@ -179,7 +179,12 @@ export const MessageBubble = memo(function MessageBubble({
       return;
     }
 
-    const content = bubble.querySelector<HTMLElement>(".message-content-text");
+    // Plain-text messages render a `.message-content-text` <p>; emoji / rich-text
+    // messages render a `.message-content-stack` <div>. Both carry the shared
+    // `.message-content` class, so measuring that one class covers every
+    // single-line case and keeps the time/status pill from overlapping the
+    // last emoji (or link) the way it used to.
+    const content = bubble.querySelector<HTMLElement>(".message-content");
     if (!content) {
       setIsCompact(false);
       setHasMeasuredLines(false);

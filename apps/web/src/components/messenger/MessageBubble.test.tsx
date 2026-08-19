@@ -4,6 +4,17 @@ import { MessageBubble } from "./MessageBubble";
 import { rememberAttachmentAspectRatio, __resetAttachmentRatioCacheForTests } from "@/utils/attachmentRatioCache";
 import type { MessageView } from "./types";
 
+// Emoji messages resolve their images through the shared emoji data context;
+// a bare Map keeps them on the neutral inline-placeholder path so the bubble
+// layout can be asserted without a provider + network.
+vi.mock("@/contexts/EmojiDataContext", () => ({
+  useEmojiData: () => ({
+    allEmojis: new Map(),
+    failedEmojiIds: new Set(),
+    resolveEmojis: async () => undefined,
+  }),
+}));
+
 beforeEach(() => {
   localStorage.clear();
   __resetAttachmentRatioCacheForTests();
@@ -227,6 +238,47 @@ describe("MessageBubble", () => {
       const bubble = container.querySelector(".message-bubble");
       expect(bubble).toHaveClass("is-compact");
       expect(container.querySelector(".message-meta")).toBeInTheDocument();
+    } finally {
+      if (originalGetClientRects) {
+        Object.defineProperty(rangePrototype, "getClientRects", {
+          configurable: true,
+          value: originalGetClientRects,
+        });
+      } else {
+        delete rangePrototype.getClientRects;
+      }
+    }
+  });
+
+  it("keeps the time/status pill clear of a single-line emoji message", () => {
+    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
+    const originalGetClientRects = rangePrototype.getClientRects;
+    const rect = { top: 10, width: 80, height: 14 } as DOMRect;
+    const rectList = {
+      0: rect,
+      length: 1,
+      item: (index: number) => index === 0 ? rect : null,
+    } as unknown as DOMRectList;
+
+    Object.defineProperty(rangePrototype, "getClientRects", {
+      configurable: true,
+      value: () => rectList,
+    });
+
+    try {
+      const { container } = render(
+        <MessageBubble
+          message={createMessage({ content: "[e:emoji1]" })}
+          {...defaultProps}
+          isMine={true}
+        />,
+      );
+
+      const bubble = container.querySelector(".message-bubble");
+      // Emoji-only messages render through the rich-text stack, not the plain
+      // <p>; the compact measurement must apply to it too.
+      expect(container.querySelector(".message-content-stack")).toBeInTheDocument();
+      expect(bubble).toHaveClass("is-compact");
     } finally {
       if (originalGetClientRects) {
         Object.defineProperty(rangePrototype, "getClientRects", {
