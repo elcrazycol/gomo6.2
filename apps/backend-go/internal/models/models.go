@@ -229,6 +229,7 @@ type Notification struct {
 	RelatedWallPostID    *string    `json:"related_wall_post_id" db:"related_wall_post_id"`
 	RelatedWallCommentID *string    `json:"related_wall_comment_id" db:"related_wall_comment_id"`
 	RelatedWallUserID    *string    `json:"related_wall_user_id" db:"related_wall_user_id"`
+	RelatedWallPostIDs   JSONB      `json:"related_wall_post_ids" db:"related_wall_post_ids"`
 	IsRead               bool       `json:"is_read" db:"is_read"`
 	GroupCount           int        `json:"group_count" db:"group_count"`
 	CreatedAt            *time.Time `json:"created_at" db:"created_at"`

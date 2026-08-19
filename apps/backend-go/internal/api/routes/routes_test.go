@@ -253,6 +253,7 @@ var expectedRoutes = []string{
 	"DELETE /api/v1/posts/:id",
 	"GET /api/v1/threads/:id/likes",
 	"GET /api/v1/notifications",
+	"GET /api/v1/notifications/:id",
 	"PUT /api/v1/notifications/:id/read",
 	"PUT /api/v1/notifications/read-all",
 	"GET /api/v1/notifications/unread-count",

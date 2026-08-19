@@ -541,6 +541,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 			// Notifications
 			protected.GET("/notifications", notificationsHandler.GetNotifications)
+			protected.GET("/notifications/:id", notificationsHandler.GetNotification)
 			protected.PUT("/notifications/:id/read", notificationsHandler.MarkAsRead)
 			protected.PUT("/notifications/read-all", notificationsHandler.MarkAllAsRead)
 			protected.GET("/notifications/unread-count", notificationsHandler.GetUnreadCount)

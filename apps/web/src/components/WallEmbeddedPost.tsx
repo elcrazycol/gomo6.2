@@ -17,6 +17,8 @@ interface EmbeddedWallPostProps {
   currentUserId: string | null;
   currentUsername: string;
   onImageClick: (items: LightboxItem[], index: number) => void;
+  /** Hide the "Оригинальная запись" header (used when the post is not a repost embed). */
+  hideHeader?: boolean;
 }
 
 export const EmbeddedWallPost = ({
@@ -24,6 +26,7 @@ export const EmbeddedWallPost = ({
   currentUserId,
   currentUsername,
   onImageClick,
+  hideHeader = false,
 }: EmbeddedWallPostProps) => {
   const navigate = useNavigate();
   const attachments = normalizeAttachments(post);
@@ -39,12 +42,14 @@ export const EmbeddedWallPost = ({
       role="button"
       tabIndex={0}
     >
-      <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-        <Repeat2 className="h-3.5 w-3.5" />
-        <span>Оригинальная запись</span>
-      </div>
+      {!hideHeader && (
+        <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          <Repeat2 className="h-3.5 w-3.5" />
+          <span>Оригинальная запись</span>
+        </div>
+      )}
 
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+      <div className={`${hideHeader ? "" : "mb-2"} flex flex-wrap items-center gap-2`}>
         <UserBadge
           userId={post.author_id}
           username={post.author.username}

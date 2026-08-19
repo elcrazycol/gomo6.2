@@ -744,6 +744,10 @@ class ApiClient {
     return this.request<Notification[]>(`/api/v1/notifications${query ? `?${query}` : ''}`);
   }
 
+  async getNotification(id: string): Promise<ApiResponse<Notification>> {
+    return this.request<Notification>(`/api/v1/notifications/${id}`);
+  }
+
   async markNotificationAsRead(id: string): Promise<ApiResponse<void>> {
     return this.request<void>(`/api/v1/notifications/${id}/read`, {
       method: 'PUT',

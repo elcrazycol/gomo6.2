@@ -4315,6 +4315,7 @@ export interface components {
             related_wall_post_id?: string | null;
             related_wall_comment_id?: string | null;
             related_wall_user_id?: string | null;
+            related_wall_post_ids?: string[];
             is_read: boolean;
             group_count?: number;
             created_at: string;

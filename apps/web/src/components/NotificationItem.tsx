@@ -46,6 +46,12 @@ const TYPE_STYLES: Record<string, TypeStyle> = {
 
 const DEFAULT_STYLE: TypeStyle = { Icon: Bell, text: "text-muted-foreground", bg: "bg-muted" };
 
+const pluralPosts = (n: number) => {
+  if (n % 10 === 1 && n % 100 !== 11) return "запись";
+  if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) return "записи";
+  return "записей";
+};
+
 interface NotificationItemProps {
   notification: Notification;
   /** Board slug resolved for forum (thread) notifications. */
@@ -142,17 +148,39 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
     </div>
   );
 
-  if (link === "#") {
-    return (
-      <button type="button" className="block w-full" onClick={() => onOpen?.(notification.id)}>
-        {body}
-      </button>
-    );
-  }
+  // A wall_post_like burst (>1 liked post) gets a footer that opens a
+  // dedicated page listing exactly those posts — the X "show N posts" pattern.
+  const likeCount = notification.related_wall_post_ids?.length ?? 0;
+  const showLikes = notification.type === "wall_post_like" && likeCount > 1;
 
-  return (
+  const row = link === "#" ? (
+    <button type="button" className="block w-full" onClick={() => onOpen?.(notification.id)}>
+      {body}
+    </button>
+  ) : (
     <Link to={link} className="block w-full" onClick={() => onOpen?.(notification.id)}>
       {body}
     </Link>
+  );
+
+  if (!showLikes) {
+    return row;
+  }
+
+  return (
+    <div>
+      {row}
+      <Link
+        to={`/notify/wall-likes/${notification.id}`}
+        className="block w-full px-4 pb-3 text-left text-sm font-medium text-primary transition-colors hover:text-primary/80 sm:pl-16"
+        onClick={(e) => {
+          // Mark read without following the row link above.
+          e.stopPropagation();
+          onOpen?.(notification.id);
+        }}
+      >
+        Показать {likeCount} {pluralPosts(likeCount)}
+      </Link>
+    </div>
   );
 };

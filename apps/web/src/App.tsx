@@ -97,6 +97,7 @@ const SearchResults = lazyWithRetry(() => import("./pages/SearchResults"));
 const Stats = lazyWithRetry(() => import("./pages/Stats"));
 const Wallet = lazyWithRetry(() => import("./pages/Wallet"));
 const Notify = lazyWithRetry(() => import("./pages/Notify"));
+const NotificationLikes = lazyWithRetry(() => import("./pages/NotificationLikes"));
 const OAuthConsent = lazyWithRetry(() => import("./pages/OAuthConsent"));
 const Achievements = lazyWithRetry(() => import("./pages/Achievements"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
@@ -249,6 +250,7 @@ const App = () => {
                       <Route path="stats" element={<AuthGuard><LazyPage component={Stats} /></AuthGuard>} />
                       <Route path="wallet" element={<AuthGuard><LazyPage component={Wallet} /></AuthGuard>} />
                       <Route path="notify" element={<AuthGuard><LazyPage component={Notify} /></AuthGuard>} />
+                      <Route path="notify/wall-likes/:notificationId" element={<AuthGuard><LazyPage component={NotificationLikes} /></AuthGuard>} />
                       <Route path="search" element={<LazyPage component={SearchResults} />} />
                       <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
                       <Route path="g" element={<LazyPage component={GomoSubs} />} />
