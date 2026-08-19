@@ -1,4 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
+import { getIntlLanguage } from "@/i18n/dateLocale";
 import { apiClient, type SessionInfo } from "@/integrations/api/client";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
@@ -34,7 +37,7 @@ function formatDeviceName(session: SessionInfo) {
   const parts: string[] = [];
   if (session.browser_name && session.browser_name !== "Unknown") parts.push(session.browser_name);
   if (session.os_name && session.os_name !== "Unknown") parts.push(session.os_name);
-  return parts.length > 0 ? parts.join(" · ") : "Неизвестное устройство";
+  return parts.length > 0 ? parts.join(" · ") : i18n.t("settings.unknownDevice");
 }
 
 function formatTimeAgo(dateStr: string) {
@@ -46,11 +49,11 @@ function formatTimeAgo(dateStr: string) {
   const diffH = Math.floor(diffMin / 60);
   const diffD = Math.floor(diffH / 24);
 
-  if (diffMin < 1) return "только что";
-  if (diffMin < 60) return `${diffMin} мин. назад`;
-  if (diffH < 24) return `${diffH} ч. назад`;
-  if (diffD < 7) return `${diffD} дн. назад`;
-  return date.toLocaleDateString("ru-RU");
+  if (diffMin < 1) return i18n.t("time.justNow");
+  if (diffMin < 60) return i18n.t("time.minutesShort", { count: diffMin });
+  if (diffH < 24) return i18n.t("time.hoursShort", { count: diffH });
+  if (diffD < 7) return i18n.t("time.daysShort", { count: diffD });
+  return date.toLocaleDateString(getIntlLanguage());
 }
 
 /** Where the device is: "RU, Москва-стиль" is overkill — flag + country + IP. */
@@ -62,6 +65,7 @@ function formatLocation(session: SessionInfo) {
 }
 
 export function SessionsSettings() {
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -71,11 +75,11 @@ export function SessionsSettings() {
       const data = await apiClient.getSessions();
       setSessions(data);
     } catch {
-      toast.error("Не удалось загрузить список сессий");
+      toast.error(t("settings.sessionsLoadError"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadSessions();
@@ -97,10 +101,10 @@ export function SessionsSettings() {
         window.location.href = "/auth";
         return;
       }
-      toast.success("Сессия завершена — устройство выведено из аккаунта");
+      toast.success(t("settings.sessionEnded"));
       setSessions((prev) => prev.filter((s) => s.id !== session.id));
     } catch {
-      toast.error("Не удалось завершить сессию");
+      toast.error(t("settings.sessionEndError"));
     } finally {
       setActionLoading(null);
     }
@@ -112,12 +116,12 @@ export function SessionsSettings() {
       const result = await apiClient.deleteAllOtherSessions();
       toast.success(
         result.deleted > 0
-          ? `Завершено сессий: ${result.deleted}`
-          : "Других активных сессий нет"
+          ? t("settings.sessionsEnded", { count: result.deleted })
+          : t("settings.noOtherSessions")
       );
       setSessions((prev) => prev.filter((s) => s.is_current));
     } catch {
-      toast.error("Не удалось завершить сессии");
+      toast.error(t("settings.sessionsEndError"));
     } finally {
       setActionLoading(null);
     }
@@ -137,10 +141,9 @@ export function SessionsSettings() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h3 className="text-lg font-semibold">Устройства и сессии</h3>
+          <h3 className="text-lg font-semibold">{t("settings.devicesAndSessions")}</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Входы в аккаунт с разных устройств. Здесь можно завершить любую
-            сессию — устройство будет выведено мгновенно.
+            {t("settings.sessionsDescription")}
           </p>
         </div>
         <Button
@@ -149,7 +152,7 @@ export function SessionsSettings() {
           className="shrink-0 text-muted-foreground"
           onClick={loadSessions}
           disabled={actionLoading !== null}
-          aria-label="Обновить список сессий"
+          aria-label={t("settings.refreshSessions")}
         >
           <RefreshCw
             className={`h-4 w-4 ${actionLoading ? "animate-spin" : ""}`}
@@ -158,7 +161,7 @@ export function SessionsSettings() {
       </div>
 
       {sessions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Нет активных сессий</p>
+        <p className="text-sm text-muted-foreground">{t("settings.noActiveSessions")}</p>
       ) : (
         <div className="space-y-3">
           {sessions.map((session) => (
@@ -181,13 +184,13 @@ export function SessionsSettings() {
                     </span>
                     {session.is_current ? (
                       <span className="text-xs bg-primary/15 text-primary px-1.5 py-0.5 rounded-full shrink-0">
-                        Это устройство
+                        {t("settings.thisDevice")}
                       </span>
                     ) : (
                       session.online && (
                         <span className="text-xs bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-1">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          В сети
+                          {t("settings.online")}
                         </span>
                       )
                     )}
@@ -198,12 +201,12 @@ export function SessionsSettings() {
                       <MapPin className="h-3 w-3 shrink-0" />
                       <span className="truncate">
                         {flagEmoji(session.country_code)}{" "}
-                        {formatLocation(session) || "Расположение неизвестно"}
+                        {formatLocation(session) || t("settings.locationUnknown")}
                       </span>
                     </div>
                     <div className="truncate">
-                      Вход: <span className="text-foreground/80">{formatTimeAgo(session.created_at)}</span>
-                      {" · "}Активность: <span className="text-foreground/80">{formatTimeAgo(session.last_active_at)}</span>
+                      {t("settings.loginAt")}: <span className="text-foreground/80">{formatTimeAgo(session.created_at)}</span>
+                      {" · "}{t("settings.activityAt")}: <span className="text-foreground/80">{formatTimeAgo(session.last_active_at)}</span>
                     </div>
                   </div>
                 </div>
@@ -220,12 +223,12 @@ export function SessionsSettings() {
                   {session.is_current ? (
                     <>
                       <LogOut className="h-4 w-4" />
-                      <span className="hidden sm:inline">Выйти</span>
+                      <span className="hidden sm:inline">{t("nav.logout")}</span>
                     </>
                   ) : (
                     <>
                       <Trash2 className="h-4 w-4" />
-                      <span className="hidden sm:inline">Завершить</span>
+                      <span className="hidden sm:inline">{t("settings.endSession")}</span>
                     </>
                   )}
                 </Button>
@@ -245,7 +248,7 @@ export function SessionsSettings() {
             className="gap-2"
           >
             <Trash2 className="h-4 w-4" />
-            Завершить все другие сессии ({otherSessions.length})
+            {t("settings.endAllOtherSessions", { count: otherSessions.length })}
           </Button>
         </div>
       )}

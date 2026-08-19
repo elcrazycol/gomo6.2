@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
+import { useTranslation } from "react-i18next";
 import { safeDate } from "@/utils/safeDate";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 
@@ -28,6 +29,7 @@ export function OnlineStatus({
   className = "",
   realtime = true
 }: OnlineStatusProps) {
+  const { t } = useTranslation();
   const dateLocale = useDateLocale();
 
   // Subscribe to real-time status updates if userId is provided
@@ -42,7 +44,7 @@ export function OnlineStatus({
       <div className={`flex items-center gap-1.5 ${className}`}>
         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
         {showText && (
-          <span className="text-sm text-muted-foreground">в сети</span>
+          <span className="text-sm text-muted-foreground">{t("time.online")}</span>
         )}
       </div>
     );
@@ -55,13 +57,13 @@ export function OnlineStatus({
 
       let label: string;
       if (justNow) {
-        label = showText ? "был(а) только что" : "только что";
+        label = showText ? t("time.wasOnlineJustNow") : t("time.justNow");
       } else {
         const timeAgo = formatDistanceToNow(lastSeenDate, {
           addSuffix: true,
           locale: dateLocale,
         });
-        label = showText ? `был(а) в сети ${timeAgo}` : timeAgo;
+        label = showText ? t("time.wasOnline", { time: timeAgo }) : timeAgo;
       }
 
       return (
@@ -69,7 +71,7 @@ export function OnlineStatus({
           {label}
         </span>
       );
-    } catch (error) {
+    } catch {
       // Invalid date, don't show anything
       return null;
     }

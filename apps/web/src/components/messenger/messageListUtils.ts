@@ -1,3 +1,5 @@
+import i18n from "@/i18n";
+import { getIntlLanguage } from "@/i18n/dateLocale";
 import type { MessageView } from "./types";
 
 /**
@@ -31,7 +33,7 @@ export function getDateSeparator(
   const today = now.toDateString();
   const yesterday = new Date(now.getTime() - 86400000).toDateString();
 
-  if (currDate === today) return "сегодня";
-  if (currDate === yesterday) return "вчера";
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(new Date(curr.sent_at));
+  if (currDate === today) return i18n.t("time.today");
+  if (currDate === yesterday) return i18n.t("time.yesterday");
+  return new Intl.DateTimeFormat(getIntlLanguage(), { day: "numeric", month: "long" }).format(new Date(curr.sent_at));
 }

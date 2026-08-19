@@ -75,40 +75,86 @@ export function notificationThumbTarget(notif: Notification): { kind: "wall" | "
  * migration still carry a baked `title`, which we fall back to when `params` is
  * empty.
  */
-export function notificationTitle(notif: Notification, t: TFunction): string {
-  const params = notif.params as NotificationParams | undefined;
-  if (params && Object.keys(params).length > 0) {
+/**
+ * i18next normally interpolates these variables. Community proposals are
+ * user-authored, though, and some of them arrive with a slightly different
+ * interpolation configuration or literal braces. Keep a small defensive
+ * pass so notifications never display `{{actor}}` to the user.
+ */
+export function interpolateNotification(text: string, params: NotificationParams): string {
+  const values: Record<string, string> = {
+    actor: params.actor ?? "",
+    count: params.count == null ? "" : String(params.count),
+    gift: params.gift_name ?? "",
+    name: params.achievement_name ?? "",
+  };
+  return text.replace(/\{\{\s*(actor|count|gift|name)\s*\}\}/g, (_, key: string) => values[key]);
+}
+
+export function notificationTitle(notif: Notification, t: TFunction, actorName?: string): string {
+  const rawParams = notif.params;
+  const params: NotificationParams = {
+    ...(rawParams && typeof rawParams === "object" ? rawParams : {}),
+    // Legacy rows may have no structured actor, but the actor profile is
+    // loaded separately by NotificationItem. Use it as a compatibility path.
+    actor: (rawParams && typeof rawParams === "object" && typeof rawParams.actor === "string" && rawParams.actor.trim()
+      ? rawParams.actor
+      : actorName) ?? "",
+  };
+  const hasParams = Boolean(rawParams && typeof rawParams === "object" && Object.keys(rawParams).length > 0);
+  if (hasParams) {
+    let key: string | null = null;
+    let values: Record<string, unknown> = {};
     switch (notif.type) {
       case "like":
-        // A like with a related post is a post-like; without one it is a thread-like.
-        return notif.related_post_id
-          ? t("notif.likePost", { actor: params.actor })
-          : t("notif.likeThread", { actor: params.actor });
+        key = notif.related_post_id ? "notif.likePost" : "notif.likeThread";
+        values = { actor: params.actor };
+        break;
       case "reply":
-        return t("notif.reply", { actor: params.actor });
+        key = "notif.reply";
+        values = { actor: params.actor };
+        break;
       case "wall_post":
-        return t("notif.wallPost", { actor: params.actor });
+        key = "notif.wallPost";
+        values = { actor: params.actor };
+        break;
       case "wall_post_like":
-        return (params.count ?? 0) > 1
-          ? t("notif.wallPostLikeGroup", { actor: params.actor, count: params.count })
-          : t("notif.wallPostLike", { actor: params.actor });
+        key = (params.count ?? 0) > 1 ? "notif.wallPostLikeGroup" : "notif.wallPostLike";
+        values = { actor: params.actor, count: params.count };
+        break;
       case "wall_comment":
-        return t("notif.wallComment", { actor: params.actor });
+        key = "notif.wallComment";
+        values = { actor: params.actor };
+        break;
       case "wall_comment_reply":
-        return t("notif.wallCommentReply", { actor: params.actor });
+        key = "notif.wallCommentReply";
+        values = { actor: params.actor };
+        break;
       case "wall_repost":
-        return t("notif.wallRepost", { actor: params.actor });
+        key = "notif.wallRepost";
+        values = { actor: params.actor };
+        break;
       case "friend_request":
-        return t("notif.friendRequest", { actor: params.actor });
+        key = "notif.friendRequest";
+        values = { actor: params.actor };
+        break;
       case "friend_accepted":
-        return t("notif.friendAccepted", { actor: params.actor });
+        key = "notif.friendAccepted";
+        values = { actor: params.actor };
+        break;
       case "gift_received":
-        return params.anonymous
-          ? t("notif.giftReceivedAnonymous", { gift: params.gift_name })
-          : t("notif.giftReceived", { actor: params.actor, gift: params.gift_name });
+        key = params.anonymous ? "notif.giftReceivedAnonymous" : "notif.giftReceived";
+        values = { actor: params.actor, gift: params.gift_name };
+        break;
       case "achievement_unlock":
-        return t("notif.achievementUnlock", { name: params.achievement_name });
+        key = "notif.achievementUnlock";
+        values = { name: params.achievement_name };
+        break;
     }
+    if (key) return interpolateNotification(t(key, values), params);
   }
-  return notif.title || "";
+
+  // Older rows and hand-created test/dev rows can still contain a template in
+  // `title` without a params JSONB payload. Never expose the braces literally.
+  return interpolateNotification(notif.title || "", params);
 }

@@ -82,7 +82,7 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
   const { Icon } = style;
   const link = notificationLink(notification, threadSlug);
   const avatarSrc = storageUrl("post-images", actor?.avatarUrl);
-  const title = notificationTitle(notification, t);
+  const title = notificationTitle(notification, t, actor?.username);
   const fallback = (actor?.username || title).trim().charAt(0).toUpperCase() || "?";
 
   // The title is "@username did something" — bold the leading @handle for the

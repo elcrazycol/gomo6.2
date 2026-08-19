@@ -4,6 +4,7 @@ import { ArrowUpRight, ArrowDownLeft, ShoppingCart, Gift, Droplets, Copy, Check 
 import { toast } from "sonner";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { getIntlLanguage } from "@/i18n/dateLocale";
 import type { TransactionItemData } from "./TransactionItem";
 
 interface TransactionDetailProps {
@@ -20,7 +21,7 @@ const TYPE_CONFIG: Record<string, { icon: typeof ArrowUpRight; color: string; la
 };
 
 function formatFullDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString("ru-RU", {
+  return new Date(dateStr).toLocaleString(getIntlLanguage(), {
     day: "numeric",
     month: "long",
     year: "numeric",

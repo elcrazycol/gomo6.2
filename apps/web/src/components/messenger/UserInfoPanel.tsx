@@ -9,6 +9,7 @@ import { storageUrl, giftImageUrl } from "@/utils/storage";
 import { formatPresence, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { useLanguageStore } from "@/stores/languageStore";
 import { messengerApi } from "@/services/messengerApi";
 import { apiClient } from "@/integrations/api/client";
 import type { GroupMember } from "./types";
@@ -46,6 +47,8 @@ export function UserInfoPanel({
   groupAvatarUrl,
   memberCount,
 }: Props) {
+  const language = useLanguageStore((state) => state.language);
+  void language;
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
   const [showCatalog, setShowCatalog] = useState(false);
   const [selectedGift, setSelectedGift] = useState<GiftCatalogItem | null>(null);

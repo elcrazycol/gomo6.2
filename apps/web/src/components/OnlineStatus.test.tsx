@@ -18,7 +18,7 @@ vi.mock("@/hooks/useRealtimeStatus", () => ({
 describe("OnlineStatus", () => {
   it("shows online indicator when isOnline is true", () => {
     render(<OnlineStatus userId="u1" isOnline />);
-    expect(screen.getByText("в сети")).toBeInTheDocument();
+    expect(screen.getByText("онлайн")).toBeInTheDocument();
   });
 
   it("shows green dot when online", () => {
