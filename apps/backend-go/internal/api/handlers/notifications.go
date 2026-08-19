@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,7 @@ type notificationPayload struct {
 	RelatedWallCommentID interface{} `json:"related_wall_comment_id"`
 	RelatedWallUserID    interface{} `json:"related_wall_user_id"`
 	IsRead               bool        `json:"is_read"`
+	GroupCount           int         `json:"group_count"`
 	CreatedAt            string      `json:"created_at"`
 }
 
@@ -85,29 +87,38 @@ func CreateWallNotification(db *sql.DB, redisClient *redis.Client, hub *websocke
 
 // insertNotification is the single INSERT + cache invalidation + WebSocket
 // broadcast path shared by every notification type across the codebase.
+// Repeated same-actor, same-type events within the grouping window are folded
+// into one row (group_count increments) instead of producing one row each.
 func insertNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, n *models.Notification) (*models.Notification, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not available")
 	}
 
+	// Try to merge into an existing burst group first (best-effort).
+	if merged := mergeNotificationGroup(db, n); merged != nil {
+		afterNotificationCreated(redisClient, hub, merged)
+		return merged, nil
+	}
+
 	now := time.Now()
 	n.IsRead = false
+	n.GroupCount = 1
 	n.CreatedAt = &now
 
 	query := `
-		INSERT INTO notifications (user_id, type, title, message, related_thread_id, related_post_id, related_user_id, related_wall_post_id, related_wall_comment_id, related_wall_user_id, is_read, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id, related_wall_post_id, related_wall_comment_id, related_wall_user_id, is_read, created_at
+		INSERT INTO notifications (user_id, type, title, message, related_thread_id, related_post_id, related_user_id, related_wall_post_id, related_wall_comment_id, related_wall_user_id, is_read, created_at, group_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id, related_wall_post_id, related_wall_comment_id, related_wall_user_id, is_read, created_at, group_count
 	`
 
 	var retCreatedAt time.Time
 	err := db.QueryRow(query,
 		n.UserID, n.Type, n.Title, n.Message, n.RelatedThreadID, n.RelatedPostID, n.RelatedUserID,
-		n.RelatedWallPostID, n.RelatedWallCommentID, n.RelatedWallUserID, false, now,
+		n.RelatedWallPostID, n.RelatedWallCommentID, n.RelatedWallUserID, false, now, 1,
 	).Scan(
 		&n.ID, &n.UserID, &n.Type, &n.Title, &n.Message, &n.RelatedThreadID,
 		&n.RelatedPostID, &n.RelatedUserID, &n.RelatedWallPostID, &n.RelatedWallCommentID,
-		&n.RelatedWallUserID, &n.IsRead, &retCreatedAt,
+		&n.RelatedWallUserID, &n.IsRead, &retCreatedAt, &n.GroupCount,
 	)
 
 	if err != nil {
@@ -116,13 +127,166 @@ func insertNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 	}
 
 	n.CreatedAt = &retCreatedAt
+	afterNotificationCreated(redisClient, hub, n)
 
-	// Invalidate cache for this user's notifications
+	return n, nil
+}
+
+// notificationGroupWindowHours is how long a burst of same-actor, same-type
+// events stays merged into a single notification row. New activity inside the
+// window extends the group; activity after it starts a fresh notification.
+const notificationGroupWindowHours = 24
+
+// groupableNotificationTypes are the events that can be folded into a burst
+// group. One-off events (friend_request, friend_accepted, gifts, achievements)
+// are deliberately excluded.
+var groupableNotificationTypes = map[string]bool{
+	"like":               true,
+	"reply":              true,
+	"wall_post":          true,
+	"wall_post_like":     true,
+	"wall_comment":       true,
+	"wall_comment_reply": true,
+	"wall_repost":        true,
+}
+
+// mergeNotificationGroup folds n into the most recent matching notification of
+// the same recipient, type and actor when it falls inside the grouping window.
+// It returns the merged notification, or nil when there is nothing to merge
+// into (the caller then inserts a fresh row). Errors are non-fatal: the caller
+// falls back to a normal insert, so a grouping hiccup never drops a notification.
+func mergeNotificationGroup(db *sql.DB, n *models.Notification) *models.Notification {
+	if n.RelatedUserID == nil || !groupableNotificationTypes[n.Type] {
+		return nil
+	}
+
+	var (
+		existingID          string
+		existingCount       int
+		existingThread      *string
+		existingPost        *string
+		existingWallPost    *string
+		existingWallComment *string
+		existingWallUser    *string
+	)
+
+	err := db.QueryRow(`
+		SELECT id, group_count, related_thread_id, related_post_id,
+		       related_wall_post_id, related_wall_comment_id, related_wall_user_id
+		FROM notifications
+		WHERE user_id = $1 AND type = $2 AND related_user_id = $3
+		  AND created_at >= now() - $4 * interval '1 hour'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, n.UserID, n.Type, *n.RelatedUserID, notificationGroupWindowHours).Scan(
+		&existingID, &existingCount, &existingThread, &existingPost,
+		&existingWallPost, &existingWallComment, &existingWallUser,
+	)
+	if err != nil {
+		return nil // no matching group (sql.ErrNoRows) or lookup error
+	}
+
+	newCount := existingCount + 1
+	title := groupedNotificationTitle(n.Type, actorHandle(n.Title), newCount)
+	if title == "" {
+		title = n.Title
+	}
+
+	// Prefer the new event's related refs (the freshest target); keep the
+	// existing ones when the new event doesn't set them.
+	merged := *n
+	merged.ID = existingID
+	merged.Title = title
+	merged.Message = ""
+	merged.RelatedThreadID = firstNonNilString(n.RelatedThreadID, existingThread)
+	merged.RelatedPostID = firstNonNilString(n.RelatedPostID, existingPost)
+	merged.RelatedWallPostID = firstNonNilString(n.RelatedWallPostID, existingWallPost)
+	merged.RelatedWallCommentID = firstNonNilString(n.RelatedWallCommentID, existingWallComment)
+	merged.RelatedWallUserID = firstNonNilString(n.RelatedWallUserID, existingWallUser)
+	merged.IsRead = false
+	merged.GroupCount = newCount
+
+	var retCreatedAt time.Time
+	err = db.QueryRow(`
+		UPDATE notifications
+		SET group_count = $1, is_read = false, created_at = now(),
+		    title = $2, message = '',
+		    related_thread_id = $3, related_post_id = $4,
+		    related_wall_post_id = $5, related_wall_comment_id = $6,
+		    related_wall_user_id = $7
+		WHERE id = $8
+		RETURNING created_at
+	`, newCount, title, merged.RelatedThreadID, merged.RelatedPostID,
+		merged.RelatedWallPostID, merged.RelatedWallCommentID, merged.RelatedWallUserID,
+		existingID).Scan(&retCreatedAt)
+	if err != nil {
+		log.Printf("[Notifications] Error merging notification group: %v", err)
+		return nil // fall back to a fresh insert
+	}
+
+	merged.CreatedAt = &retCreatedAt
+	return &merged
+}
+
+// actorHandle returns the leading "@username" token of a notification title.
+// Groupable notification titles always start with the actor's handle.
+func actorHandle(title string) string {
+	if idx := strings.IndexByte(title, ' '); idx > 0 {
+		return title[:idx]
+	}
+	return title
+}
+
+// groupedNotificationTitle builds the X-style "@user did N of your things"
+// title for a burst group. Returns "" when the type has no group template.
+func groupedNotificationTitle(notifType, actorHandle string, count int) string {
+	name := strings.TrimPrefix(actorHandle, "@")
+	switch notifType {
+	case "like":
+		return fmt.Sprintf("@%s оценил(а) %d из ваших постов", name, count)
+	case "wall_post_like":
+		return fmt.Sprintf("@%s оценил(а) %d из ваших записей", name, count)
+	case "reply":
+		return fmt.Sprintf("@%s ответил(а) на %d из ваших постов", name, count)
+	case "wall_comment":
+		return fmt.Sprintf("@%s прокомментировал(а) %d из ваших записей", name, count)
+	case "wall_comment_reply":
+		return fmt.Sprintf("@%s ответил(а) на %d из ваших комментариев", name, count)
+	case "wall_repost":
+		return fmt.Sprintf("@%s репостнул(а) %d из ваших записей", name, count)
+	case "wall_post":
+		return fmt.Sprintf("@%s написал(а) на вашей стене %d %s", name, count, ruPlural(count, "запись", "записи", "записей"))
+	}
+	return ""
+}
+
+// ruPlural returns the correct Russian noun form for a numeral.
+func ruPlural(n int, one, few, many string) string {
+	if n%10 == 1 && n%100 != 11 {
+		return one
+	}
+	if n%10 >= 2 && n%10 <= 4 && (n%100 < 12 || n%100 > 14) {
+		return few
+	}
+	return many
+}
+
+// firstNonNilString returns a when non-nil, otherwise b.
+func firstNonNilString(a, b *string) *string {
+	if a != nil {
+		return a
+	}
+	return b
+}
+
+// afterNotificationCreated invalidates the user's notification cache and
+// broadcasts the notification over WebSocket. Shared by the fresh-insert and
+// group-merge paths so both deliver identically.
+func afterNotificationCreated(redisClient *redis.Client, hub *websocket.Hub, n *models.Notification) {
 	if redisClient != nil {
 		middleware.InvalidateCacheForNotification(redisClient, n.UserID)
 	}
 
-	// Publish WebSocket event for real-time delivery
 	if hub != nil {
 		payload := notificationPayload{
 			ID:                   n.ID,
@@ -138,15 +302,14 @@ func insertNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 			RelatedWallCommentID: nullableString(n.RelatedWallCommentID),
 			RelatedWallUserID:    nullableString(n.RelatedWallUserID),
 			IsRead:               n.IsRead,
-			CreatedAt:            retCreatedAt.Format(time.RFC3339Nano),
+			GroupCount:           n.GroupCount,
+			CreatedAt:            n.CreatedAt.Format(time.RFC3339Nano),
 		}
 
 		if err := hub.PublishNewNotification(payload); err != nil {
 			log.Printf("[Notifications] Error publishing WS event: %v", err)
 		}
 	}
-
-	return n, nil
 }
 
 // nullableString returns nil if s is nil, otherwise returns *s as string
@@ -183,7 +346,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	query := `
 		SELECT id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id,
 		       related_wall_post_id, related_wall_comment_id, related_wall_user_id,
-		       is_read, created_at
+		       is_read, created_at, group_count
 		FROM notifications 
 		WHERE user_id = $1
 	`
@@ -238,7 +401,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 			&notification.Title, &notification.Message, &notification.RelatedThreadID,
 			&notification.RelatedPostID, &notification.RelatedUserID,
 			&notification.RelatedWallPostID, &notification.RelatedWallCommentID, &notification.RelatedWallUserID,
-			&notification.IsRead, &notification.CreatedAt,
+			&notification.IsRead, &notification.CreatedAt, &notification.GroupCount,
 		)
 		if err != nil {
 			serverError(c, "handler error", err)

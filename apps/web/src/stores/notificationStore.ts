@@ -66,14 +66,23 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       if (!notif || !notif.id) return;
 
       set((state) => {
-        const exists = state.notifications.some((n) => n.id === notif.id);
-        const notifications = exists
-          ? state.notifications
+        // A burst group is merged server-side and re-sent with the same id,
+        // updated title/count and a bumped created_at. Replace it in place and
+        // move it to the top instead of adding a duplicate row.
+        const existing = state.notifications.find((n) => n.id === notif.id);
+        const notifications = existing
+          ? [notif, ...state.notifications.filter((n) => n.id !== notif.id)]
           : [notif, ...state.notifications];
 
         const update: Partial<NotificationStore> = { notifications };
 
-        if (!notif.is_read) {
+        if (existing) {
+          if (existing.is_read && !notif.is_read) {
+            update.unreadCount = state.unreadCount + 1;
+          } else if (!existing.is_read && notif.is_read) {
+            update.unreadCount = Math.max(0, state.unreadCount - 1);
+          }
+        } else if (!notif.is_read) {
           update.unreadCount = state.unreadCount + 1;
         }
 

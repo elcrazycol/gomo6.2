@@ -4316,6 +4316,7 @@ export interface components {
             related_wall_comment_id?: string | null;
             related_wall_user_id?: string | null;
             is_read: boolean;
+            group_count?: number;
             created_at: string;
         };
         APIResponse_NotificationArray: components["schemas"]["APIResponse"] & {
