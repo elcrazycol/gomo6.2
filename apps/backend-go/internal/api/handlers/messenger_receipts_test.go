@@ -28,18 +28,17 @@ func TestMarkRead_Success(t *testing.T) {
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	// Get message sent_at (now with conversation_id check)
-	now := time.Now()
-	mock.ExpectQuery(`SELECT sent_at FROM chat_messages WHERE id = \$1 AND conversation_id = \$2`).
+	// Verify the message exists in this conversation
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2\)`).
 		WithArgs(testMsg1, testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"sent_at"}).AddRow(now))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Transaction
 	mock.ExpectBegin()
 
-	// Combined mark read + delivered
-	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*SELECT m.id, \$2.*ON CONFLICT.*DO UPDATE SET read_at = NOW\(\), delivered_at = COALESCE`).
-		WithArgs(testConv1, testUser1, now).
+	// Single-message read receipt (per-message read_at)
+	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*SELECT m.id, \$2.*ON CONFLICT.*DO UPDATE SET read_at = COALESCE\(chat_receipts.read_at, NOW\(\)\), delivered_at = COALESCE`).
+		WithArgs(testConv1, testUser1, testMsg1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// Reset unread (recomputed from messages strictly newer than the marker)
@@ -67,9 +66,9 @@ func TestMarkRead_MessageNotFound(t *testing.T) {
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	mock.ExpectQuery(`SELECT sent_at FROM chat_messages WHERE id = \$1 AND conversation_id = \$2`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2\)`).
 		WithArgs(testMsg999, testConv1).
-		WillReturnError(sqlmock.ErrCancelled)
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	handler.MarkRead(c)
 
@@ -102,13 +101,12 @@ func TestMarkRead_ThroughMiddleware(t *testing.T) {
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	now := time.Now()
-	mock.ExpectQuery(`SELECT sent_at FROM chat_messages WHERE id = \$1 AND conversation_id = \$2`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2\)`).
 		WithArgs(testMsg1, testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"sent_at"}).AddRow(now))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*ON CONFLICT.*DO UPDATE SET read_at = NOW\(\), delivered_at = COALESCE`).
-		WithArgs(testConv1, testUser1, now).
+	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*ON CONFLICT.*DO UPDATE SET read_at = COALESCE\(chat_receipts.read_at, NOW\(\)\), delivered_at = COALESCE`).
+		WithArgs(testConv1, testUser1, testMsg1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	mock.ExpectExec(`UPDATE chat_members cm.*SET unread_count =.*last_read_message_id = \$2.*WHERE cm\.conversation_id = \$1 AND cm\.user_id = \$3`).
