@@ -42,3 +42,18 @@ export function notificationLink(notif: Notification, threadSlug?: string): stri
 
   return "#";
 }
+
+/**
+ * Decide which content a notification should preview with a thumbnail. Wall
+ * events preview the wall post; a reply previews its thread; a like previews
+ * the liked post (or the thread when it is a thread-like).
+ */
+export function notificationThumbTarget(notif: Notification): { kind: "wall" | "post" | "thread"; id: string } | null {
+  if (notif.related_wall_post_id) return { kind: "wall", id: notif.related_wall_post_id };
+  if (notif.type === "reply") {
+    return notif.related_thread_id ? { kind: "thread", id: notif.related_thread_id } : null;
+  }
+  if (notif.related_post_id) return { kind: "post", id: notif.related_post_id };
+  if (notif.related_thread_id) return { kind: "thread", id: notif.related_thread_id };
+  return null;
+}

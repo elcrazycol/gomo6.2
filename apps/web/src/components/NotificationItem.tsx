@@ -18,6 +18,7 @@ import {
 
 import type { Notification } from "@/integrations/api/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { NotificationThumb } from "@/components/NotificationThumb";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { notificationLink } from "@/utils/notifications";
 import { storageUrl } from "@/utils/storage";
@@ -130,6 +131,10 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
           {formatDistanceToNow(safeDate(notification.created_at), { locale: ru, addSuffix: true })}
         </p>
       </div>
+
+      {notification.related_wall_post_id || notification.related_post_id || notification.related_thread_id ? (
+        <NotificationThumb notification={notification} />
+      ) : null}
 
       {!hideUnreadDot && !notification.is_read && (
         <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
