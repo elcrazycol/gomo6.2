@@ -1,15 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// jsdom lacks Blob.arrayBuffer; the video transcoding path reads the source
-// file bytes through it.
-if (typeof File !== "undefined" && !File.prototype.arrayBuffer) {
-  File.prototype.arrayBuffer = async function arrayBufferPolyfill(this: Blob) {
-    return new Response(this).arrayBuffer();
-  };
-}
-
-// jsdom does not implement URL.createObjectURL; the poster generation path
-// uses it for the extracted video frame.
+// jsdom does not implement URL.createObjectURL; the audio-duration fallback
+// in extractAudioMetadata uses it.
 if (typeof URL.createObjectURL !== "function") {
   let objectUrlCounter = 0;
   URL.createObjectURL = () => `blob:mock-poster-${++objectUrlCounter}`;
@@ -32,16 +24,6 @@ vi.mock("@/utils/storage", () => ({ storageUrl: mockStorageUrl, uploadFile: mock
 vi.mock("@/lib/imageProcessing", () => ({ prepareMessengerImage: mockPrepareMessengerImage }));
 vi.mock("sonner", () => ({ toast: mockToast }));
 vi.mock("music-metadata", () => ({ parseBlob: mockParseBlob }));
-
-vi.mock("@ffmpeg/ffmpeg", () => ({
-  FFmpeg: class {
-    load = vi.fn().mockResolvedValue(undefined);
-    writeFile = vi.fn();
-    exec = vi.fn().mockResolvedValue(undefined);
-    readFile = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]));
-    deleteFile = vi.fn();
-  },
-}));
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -98,7 +80,8 @@ describe("uploadAttachments", () => {
       storedSize: 100,
       compressed: true,
     });
-    mockUploadFile.mockResolvedValue({ path: "user-1/photo.webp", variants });
+    // The backend stores under the generated key and returns it as `path`.
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({ path: key, variants }));
 
     const results = await uploadAttachments([file]);
 
@@ -125,6 +108,8 @@ describe("uploadAttachments", () => {
       "token-abc",
       false,
       expect.any(Function),
+      // Images have no server-side processing phase, so no onUploadComplete.
+      undefined,
     );
   });
 
@@ -138,7 +123,7 @@ describe("uploadAttachments", () => {
 
   it("uses storageUrl for private buckets (wall) instead of the bare key", async () => {
     mockStorageUrl.mockImplementation((_bucket: string, key: string) => `https://cdn.test/${key}`);
-    mockUploadFile.mockResolvedValue({ path: "user-1/wall.png", variants });
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({ path: key, variants }));
 
     const results = await uploadAttachments([makeFile("wall.png", "image/png")], "wall");
 
@@ -151,6 +136,7 @@ describe("uploadAttachments", () => {
       "token-abc",
       false,
       expect.any(Function),
+      undefined,
     );
   });
 
@@ -166,37 +152,46 @@ describe("uploadAttachments", () => {
   });
 
   it("rejects files that are too large to even upload", async () => {
-    const huge = makeFile("big.bin", "application/octet-stream", 30 * 1024 * 1024);
+    const huge = makeFile("big.bin", "application/octet-stream", 51 * 1024 * 1024);
 
     await expect(uploadAttachments([huge])).rejects.toThrow("Файл слишком большой и не удалось сжать");
     expect(mockToast.warning).toHaveBeenCalledWith(
-      "Файл больше 25MB — прикрепите меньший",
+      "Файл больше 50MB — прикрепите меньший",
       { id: "big.bin" },
     );
     expect(mockUploadFile).not.toHaveBeenCalled();
   });
 
-  it("transcodes videos to webm and attaches a poster", async () => {
+  // Video compression runs server-side (ffmpeg): the backend returns the
+  // transcoded mp4 key plus a generated poster; there is no browser-side webm.
+  it("uploads videos and attaches the server-transcoded mp4 and poster", async () => {
     const video = makeFile("clip.mp4", "video/mp4", 2 * 1024 * 1024);
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({
+      path: key,
+      video: { poster_key: `${key}.poster.jpg`, content_type: "video/mp4" },
+    }));
 
     const results = await uploadAttachments([video]);
 
     expect(results[0].type).toBe("video");
-    expect(results[0].mime).toBe("video/webm");
-    expect(results[0].name).toBe("clip.webm");
-    expect(results[0].poster).toContain("blob:");
+    expect(results[0].mime).toBe("video/mp4");
+    expect(results[0].name).toBe("clip.mp4");
+    // content bucket: the bare poster key is used as-is.
+    expect(results[0].poster).toContain(".poster.jpg");
     expect(mockUploadFile).toHaveBeenCalledWith(
       "content",
-      expect.stringMatching(/\.webm$/),
+      expect.stringMatching(/\.mp4$/),
       expect.any(File),
       "token-abc",
       false,
+      expect.any(Function),
+      // Videos get an onUploadComplete callback for the processing phase.
       expect.any(Function),
     );
   });
 
   it("rejects oversized videos before transcoding", async () => {
-    const video = makeFile("huge.mp4", "video/mp4", 30 * 1024 * 1024);
+    const video = makeFile("huge.mp4", "video/mp4", 51 * 1024 * 1024);
 
     await expect(uploadAttachments([video])).rejects.toThrow(
       "Файл слишком большой и не удалось сжать",

@@ -216,7 +216,7 @@ export const uploadAttachments = async (
         // and often fails. Backend accepts all common audio formats.
         audioMetadata = await extractAudioMetadata(original);
       } else if (file.size > MAX_FILE_SIZE) {
-        throw new Error("Файл больше 25MB — прикрепите меньший");
+        throw new Error("Файл больше 50MB — прикрепите меньший");
       }
 
       // Показываем сжатие

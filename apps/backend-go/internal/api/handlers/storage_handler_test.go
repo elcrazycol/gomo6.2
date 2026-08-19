@@ -120,10 +120,13 @@ func TestUploadFile_WrongFileType(t *testing.T) {
 
 func TestUploadFile_FileTooLarge(t *testing.T) {
 	h := setupStorageHandler(t)
-	largeData := make([]byte, 11*1024*1024) // 11MB > 10MB max
-	req := newUploadRequest(t, "file", "test.png", "image/png", largeData, map[string]string{"bucket": "uploads"})
+	// uploads requires an authenticated session, so set claims or the request
+	// 401s before the size check is ever reached.
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set("claims", &auth.Claims{UserID: "user-1"})
+	largeData := make([]byte, 50*1024*1024+1) // 1 byte over the 50MB cap
+	req := newUploadRequest(t, "file", "test.png", "image/png", largeData, map[string]string{"bucket": "uploads"})
 	c.Request = req
 
 	h.UploadFile(c)
