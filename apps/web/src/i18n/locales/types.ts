@@ -10,6 +10,10 @@ export interface LocaleResources {
   settings: Record<string, string>;
   notif: Record<string, string>;
   error: Record<string, string>;
+  tags: Record<string, string>;
+  board: Record<string, string>;
+  thread: Record<string, string>;
+  profile: Record<string, string>;
 }
 
 export type LocaleNamespace = keyof LocaleResources;
