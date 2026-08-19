@@ -862,6 +862,32 @@ func TestWallAttachmentAccess_AnonymousViewerPublicWallAllowed(t *testing.T) {
 	}
 }
 
+// A derivative key (video poster / image preview) must authorize against its
+// BASE object: the suffix is stripped before the LIKE pattern is built, so a
+// poster referenced only by the base video URL still resolves. Regression for
+// og:video previews, which point og:image at <key>.poster.jpg through /og/wall.
+func TestWallAttachmentAccess_VideoPosterKeyAuthorizesAgainstBase(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPublic/1786303495874_clip.mp4.poster.jpg"
+	// The suffix is stripped, so the query pattern is the base video key.
+	pattern := "%" + escapeLikePattern("uPublic/1786303495874_clip.mp4") + "%"
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "", "uPublic").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	found, allowed := wallAttachmentAccess(db, "", "uPublic", key)
+	if !found || !allowed {
+		t.Fatalf("expected a public-wall video poster to be served, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWallAttachmentAccess_MutualFriendOnPrivateWallAllowed(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

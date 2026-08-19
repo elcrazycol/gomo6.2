@@ -101,6 +101,50 @@ WHERE p.id = $1`)).
 	}
 }
 
+// A wall post whose only attachment is a video must emit og:video (playable
+// preview for Telegram/WhatsApp) pointing at the public /og/wall proxy, plus
+// the generated poster as og:image.
+func TestRenderWallPostVideo(t *testing.T) {
+	h, mock := setupSocialPreview(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT p.title, p.content, p.image_url, p.attachments,
+       u.username, COALESCE(u.display_name, ''), COALESCE(u.avatar_url, ''),
+       COALESCE(ps.private_profile, false), COALESCE(ps.private_hide_wall, false),
+       COALESCE(author_ps.private_hide_avatar, false)
+FROM profile_wall_posts p
+LEFT JOIN users u ON u.id = p.author_id
+LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
+WHERE p.id = $1`)).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"title", "content", "image_url", "attachments",
+			"username", "display_name", "avatar_url", "private_profile", "private_hide_wall", "private_hide_avatar",
+		}).AddRow(
+			"Мой клип", "Смотрите видео!", nil,
+			[]byte(`[{"url":"/storage/v1/object/wall/u1/clip.mp4","type":"video","mime":"video/mp4","poster":"/storage/v1/object/wall/u1/clip.mp4.poster.jpg"}]`),
+			"alice", "Alice", "u1/avatar.webp", false, false, false,
+		))
+
+	c, w := newOGContext(http.MethodGet, "/profile/u1/wall/p1", "TelegramBot")
+	h.Render(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		`property="og:video" content="https://gomo6.wtf/og/wall/u1/clip.mp4"`,
+		`property="og:video:secure_url" content="https://gomo6.wtf/og/wall/u1/clip.mp4"`,
+		`property="og:video:type" content="video/mp4"`,
+		`property="og:image" content="https://gomo6.wtf/og/wall/u1/clip.mp4.poster.jpg"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response missing %q", want)
+		}
+	}
+}
+
 func TestRenderWallPostPrivateDoesNotLeak(t *testing.T) {
 	h, mock := setupSocialPreview(t)
 
@@ -167,6 +211,46 @@ WHERE t.id = $1 AND b.slug = $2`)).
 		`property="og:title" content="Как дела на планете?"`,
 		`property="og:image" content="https://gomo6.wtf/storage/v1/object/content/u1/thread.webp"`,
 		`property="og:url" content="https://gomo6.wtf/g/my-sub/thread/t1"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response missing %q", want)
+		}
+	}
+}
+
+// A thread whose only attachment is a video gets og:video (public content
+// bucket) with the poster as og:image.
+func TestRenderThreadVideo(t *testing.T) {
+	h, mock := setupSocialPreview(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
+       COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
+       COALESCE(b.visibility, 'public')
+FROM threads t
+LEFT JOIN users u ON u.id = t.user_id
+LEFT JOIN boards b ON t.board_id = b.id
+WHERE t.id = $1 AND b.slug = $2`)).
+		WithArgs("t1", "my-sub").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"title", "content", "image_url", "image_urls", "attachments",
+			"display_name", "username", "avatar_url", "visibility",
+		}).AddRow(
+			"Видео-тред", "Смотрим", nil, nil,
+			[]byte(`[{"url":"u1/clip.mp4","type":"video","mime":"video/mp4","poster":"u1/clip.mp4.poster.jpg"}]`),
+			"Alice", "alice", "u1/avatar.webp", "public",
+		))
+
+	c, w := newOGContext(http.MethodGet, "/g/my-sub/thread/t1", "Twitterbot/1.0")
+	h.Render(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		`property="og:video" content="https://gomo6.wtf/storage/v1/object/content/u1/clip.mp4"`,
+		`property="og:video:type" content="video/mp4"`,
+		`property="og:image" content="https://gomo6.wtf/storage/v1/object/content/u1/clip.mp4.poster.jpg"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("response missing %q", want)

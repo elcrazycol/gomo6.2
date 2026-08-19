@@ -114,6 +114,11 @@ type ogMeta struct {
 	// in post-images, thread media in content, wall media in the private wall
 	// bucket). Only consulted when the stored value is not already a URL.
 	ImageBucket string
+	// Video attachment (server-transcoded H.264/AAC MP4). Crawlers that honor
+	// og:video (Telegram, WhatsApp, …) render a playable preview; the generated
+	// JPEG poster is used as the og:image for everyone else.
+	VideoURL  string
+	VideoType string
 }
 
 // defaultSiteMeta is the fallback card (root page, unknown content, private
@@ -296,6 +301,16 @@ WHERE p.id = $1`
 	}
 	if img := firstImageFromAttachments(attachments); img != "" {
 		meta.ImageURL = img
+	} else if url, poster := firstVideoFromAttachments(attachments); url != "" {
+		// Video-only post: emit og:video for playable previews and use the
+		// generated poster as the og:image so crawlers that don't render video
+		// still show a thumbnail.
+		meta.VideoURL = url
+		meta.VideoType = "video/mp4"
+		meta.ImageURL = poster
+		if meta.ImageURL == "" {
+			meta.ImageURL = imageURL.String
+		}
 	} else {
 		meta.ImageURL = imageURL.String
 	}
@@ -395,6 +410,15 @@ WHERE t.id = $1 AND b.slug = $2`
 		ImageBucket:  "content",
 	}
 	meta.ImageURL = firstImageCandidate(imageURL.String, imageURLs, attachments)
+	if meta.ImageURL == "" {
+		// No image attachment — a video-only thread still gets a playable card
+		// with the generated poster as the og:image.
+		if url, poster := firstVideoFromAttachments(attachments); url != "" {
+			meta.VideoURL = url
+			meta.VideoType = "video/mp4"
+			meta.ImageURL = poster
+		}
+	}
 	return meta
 }
 
@@ -436,9 +460,10 @@ WHERE slug = $1`
 // attachmentMeta mirrors the frontend AttachmentMeta shape (a subset of the
 // JSONB `attachments` column).
 type attachmentMeta struct {
-	URL  string `json:"url"`
-	Type string `json:"type"`
-	Mime string `json:"mime"`
+	URL    string `json:"url"`
+	Type   string `json:"type"`
+	Mime   string `json:"mime"`
+	Poster string `json:"poster"`
 }
 
 // firstImageFromAttachments returns the URL of the first image attachment, or
@@ -459,6 +484,26 @@ func firstImageFromAttachments(raw []byte) string {
 		}
 	}
 	return ""
+}
+
+// firstVideoFromAttachments returns the URL and poster of the first video
+// attachment, or ("", "") when there are none.
+func firstVideoFromAttachments(raw []byte) (url, poster string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", ""
+	}
+	var atts []attachmentMeta
+	if err := json.Unmarshal(raw, &atts); err != nil {
+		return "", ""
+	}
+	for _, a := range atts {
+		if a.Type == "video" || strings.HasPrefix(strings.ToLower(a.Mime), "video/") {
+			if u := strings.TrimSpace(a.URL); u != "" {
+				return u, strings.TrimSpace(a.Poster)
+			}
+		}
+	}
+	return "", ""
 }
 
 // firstImageCandidate picks the first usable image URL from the thread's
@@ -548,6 +593,15 @@ func (m *ogMeta) finalize(c *gin.Context) {
 		m.ImageBucket = "post-images"
 	}
 	m.ImageURL = imageURL(c, m.ImageURL, m.ImageBucket)
+	if m.VideoURL != "" {
+		// The MP4 lives in the same bucket as the poster, so the same rewrite
+		// applies (private wall → public /og/wall proxy, content → public
+		// storage path), keeping the video behind the same visibility gate.
+		m.VideoURL = imageURL(c, m.VideoURL, m.ImageBucket)
+	}
+	if m.VideoType == "" {
+		m.VideoType = "video/mp4"
+	}
 	m.BodyImage = m.ImageURL
 	m.BodyImageAlt = m.ImageAlt
 	m.AuthorAvatar = imageURL(c, m.AuthorAvatar, "post-images")
@@ -627,6 +681,9 @@ var ogPageTemplate = template.Must(template.New("og-page").Parse(`<!doctype html
 <meta property="og:url" content="{{.URL}}">
 {{if .ImageURL}}<meta property="og:image" content="{{.ImageURL}}">
 <meta property="og:image:alt" content="{{.ImageAlt}}">{{end}}
+{{if .VideoURL}}<meta property="og:video" content="{{.VideoURL}}">
+<meta property="og:video:secure_url" content="{{.VideoURL}}">
+<meta property="og:video:type" content="{{.VideoType}}">{{end}}
 
 <meta name="twitter:card" content="{{if .ImageURL}}summary_large_image{{else}}summary{{end}}">
 <meta name="twitter:title" content="{{.Title}}">

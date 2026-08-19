@@ -1049,7 +1049,19 @@ func escapeLikePattern(s string) string {
 // falls back to the uploader-scoped check so orphaned files of private users
 // stay unreadable. DB errors fail closed (found=false, allowed=false).
 func wallAttachmentAccess(db *sql.DB, viewerID, uploaderID, key string) (found, allowed bool) {
-	pattern := "%" + escapeLikePattern(key) + "%"
+	// Derivative objects (.preview.jpg / .poster.jpg) are implementation
+	// details of their base object: authorize them against the base key so
+	// previews and video posters stay reachable wherever the original is. The
+	// visibility predicate still gates the base object, so a private file's
+	// derivative stays private — this only widens matching, never access.
+	base := key
+	switch {
+	case strings.HasSuffix(base, ".preview.jpg"):
+		base = strings.TrimSuffix(base, ".preview.jpg")
+	case strings.HasSuffix(base, ".poster.jpg"):
+		base = strings.TrimSuffix(base, ".poster.jpg")
+	}
+	pattern := "%" + escapeLikePattern(base) + "%"
 
 	// Single query mirroring the wall read predicate against each referencing
 	// post's wall owner (p.user_id). EXISTS short-circuits on the first
