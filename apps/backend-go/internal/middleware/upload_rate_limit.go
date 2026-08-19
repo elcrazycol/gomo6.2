@@ -63,12 +63,11 @@ func (rl *UploadRateLimiter) AllowCount(userID string) bool {
 
 	key := fmt.Sprintf("ratelimit:upload:count:%s", userID)
 
-	count, err := rl.redis.Incr(ctx, key).Result()
+	// INCR + EXPIRE atomically in one Lua script so a lost TTL can never leave
+	// a permanently-stuck counter (see incrWithTTL).
+	count, err := incrWithTTL(ctx, rl.redis, key, time.Minute)
 	if err != nil {
 		return true // fail open on Redis errors
-	}
-	if count == 1 {
-		rl.redis.Expire(ctx, key, time.Minute)
 	}
 	return count <= int64(rl.maxPerMinute)
 }

@@ -278,7 +278,20 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const resolved = toArray(rpcResult.data);
       mergeResolvedEmojis(resolved, unresolved);
     } catch (err) {
+      // A failed resolve (429, network, 5xx) must NOT leave the ids unresolved:
+      // every render of EmojiInline/CustomEmojiNode/NicknameEmoji would then
+      // re-fire this request (REST + RPC fallback = 2 requests per emoji per
+      // render), turning a transient rate-limit into a self-sustaining storm
+      // that burns the global budget. Mark the ids failed so the components
+      // render a neutral placeholder and stop re-requesting; a later
+      // loadSubscribedData / refreshData round-trip clears the failure and
+      // resolves them once the server is healthy again.
       console.error('Error resolving emojis:', err);
+      setFailedEmojiIds(prev => {
+        const next = new Set(prev);
+        for (const id of unresolved) next.add(id);
+        return next;
+      });
     }
   }, [allEmojis, failedEmojiIds, mergeResolvedEmojis]);
 
