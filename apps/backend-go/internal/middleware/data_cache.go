@@ -64,6 +64,14 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Translation proposals can change after every submit/vote/delete. There
+		// is no generic CRUD write path to invalidate their GET cache, so caching
+		// this endpoint would keep the runtime catalog stale for the full TTL.
+		if strings.Contains(c.Request.URL.Path, "/translations") {
+			c.Next()
+			return
+		}
+
 		// Skip caching for notifications — user_id comes from auth claims, not query params,
 		// so the cache key would collide across different users and invalidation would never match.
 		if strings.Contains(c.Request.URL.Path, "notifications") {

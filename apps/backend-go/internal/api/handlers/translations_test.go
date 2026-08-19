@@ -32,6 +32,22 @@ func claimsFor(userID string) *auth.Claims {
 	return &auth.Claims{UserID: userID}
 }
 
+func TestListTranslations_AnonymousUsesNullUUID(t *testing.T) {
+	h, mock := setupTranslationsHandler(t)
+
+	mock.ExpectQuery(`(?s).*NULLIF\(\$1, ''\)::uuid.*WHERE v\.locale = \$2.*`).
+		WithArgs("", "uk").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "key", "locale", "value", "user_id", "votes", "created_at", "username", "my_vote"}).
+			AddRow("v1", "settings.language", "uk", "Мова", "u1", 3, "2026-08-20T00:00:00Z", "alice", 0))
+
+	c, w := newGETContext("/api/v1/translations", map[string]string{"locale": "uk"})
+	h.ListTranslations(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+}
+
 func TestSubmitTranslation_InsertsNewProposal(t *testing.T) {
 	h, mock := setupTranslationsHandler(t)
 

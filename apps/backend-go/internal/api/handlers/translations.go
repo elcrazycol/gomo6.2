@@ -66,7 +66,10 @@ func (h *TranslationsHandler) ListTranslations(c *gin.Context) {
 		       COALESCE(vo.direction, 0)
 		FROM translation_values v
 		LEFT JOIN users u ON u.id = v.user_id
-		LEFT JOIN translation_votes vo ON vo.value_id = v.id AND vo.user_id = $1
+		-- Empty viewer IDs are used for anonymous reads. Cast NULLIF first;
+		-- comparing a UUID column with '' otherwise makes PostgreSQL reject the
+		-- entire public endpoint with "invalid input syntax for type uuid".
+		LEFT JOIN translation_votes vo ON vo.value_id = v.id AND vo.user_id = NULLIF($1, '')::uuid
 		WHERE v.locale = $2`
 	args := []interface{}{viewerID, locale}
 

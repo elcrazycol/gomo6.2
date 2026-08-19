@@ -45,6 +45,11 @@ export function getLanguageInfo(code: string): LanguageInfo | undefined {
   return byCode.get(code);
 }
 
+export function normalizeLanguage(code: string): string {
+  const base = code.trim().toLowerCase().split("-")[0];
+  return byCode.has(base) ? base : DEFAULT_LANGUAGE;
+}
+
 export function languageName(code: string): string {
-  return getLanguageInfo(code)?.nativeName ?? code;
+  return getLanguageInfo(normalizeLanguage(code))?.nativeName ?? code;
 }
