@@ -124,9 +124,12 @@ function normalizeConversationUnread(conversation: ConversationView, selectedId:
 
 // ─── Batched delivered/read receipts ─────────────────────────────────────────
 // Delivered receipts stay batched (a prefix marker: receiving the newest
-// message implies every older one was delivered too). Read receipts are
-// per-message and sent immediately — each on-screen message gets its own real
-// read_at, so a reload can never discard the only request that clears it.
+// message implies every older one was delivered too). Read receipts use the
+// Telegram-style "read line": the UI reports the NEWEST fully-visible message
+// once per scroll/layout pass, the store debounces it and the backend marks
+// the whole prefix up to it in a single request. Messages below the fold are
+// never reported, so they stay unread — and a scroll burst costs one request,
+// not one per message.
 
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 type PendingReceipt = { messageId: string; sentAt?: string };
@@ -134,11 +137,15 @@ const pendingDelivered = new Map<string, PendingReceipt>(); // convId → latest
 const lastFlushed = {
   delivered: new Map<string, PendingReceipt>(),
 };
-// convId → set of message ids whose read receipt was already sent (or is in
-// flight). Dedup per message — not per "latest marker" — so scrolling up can
-// mark older messages read individually.
-const sentRead = new Map<string, Set<string>>();
+// convId → newest read line reported by the UI but not yet sent.
+const pendingReadLine = new Map<string, PendingReceipt>();
+// convId → newest read line already confirmed sent. Read state is monotonic:
+// only a line NEWER than this ever fires a request.
+const lastSentReadLine = new Map<string, PendingReceipt>();
 const localReadThrough = new Map<string, string>(); // convId → newest locally read sent_at
+
+let readFlushTimer: ReturnType<typeof setTimeout> | null = null;
+const READ_FLUSH_DELAY_MS = 400;
 
 function isLaterReceipt(candidate: PendingReceipt, current?: PendingReceipt): boolean {
   if (!current) return true;
@@ -189,9 +196,11 @@ function flushPending(): void {
 
 export function  destroyMessenger(): void {
   if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+  if (readFlushTimer) { clearTimeout(readFlushTimer); readFlushTimer = null; }
   pendingDelivered.clear();
   lastFlushed.delivered.clear();
-  sentRead.clear();
+  pendingReadLine.clear();
+  lastSentReadLine.clear();
   lastReceiptsLoad.clear();
   // Clear all typing timers
   for (const timer of typingTimers.values()) clearTimeout(timer);
@@ -208,29 +217,48 @@ export function queueMarkDelivered(conversationId: string, messageId: string, se
 }
 
 export function queueMarkRead(conversationId: string, messageId: string, sentAt?: string): void {
-  let sent = sentRead.get(conversationId);
-  if (!sent) {
-    sent = new Set();
-    sentRead.set(conversationId, sent);
-  }
-  if (sent.has(messageId)) return;
-  sent.add(messageId);
+  const receipt = { messageId, sentAt };
+  // Keep only the newest read line. The backend marks the whole prefix up to
+  // it, so older lines are subsumed — no reason to ever send them.
+  const existing = pendingReadLine.get(conversationId);
+  if (isLaterReceipt(receipt, existing)) pendingReadLine.set(conversationId, receipt);
   if (sentAt) {
     const previous = localReadThrough.get(conversationId);
     if (!previous || Date.parse(sentAt) >= Date.parse(previous)) localReadThrough.set(conversationId, sentAt);
   }
-  // Reset the UI immediately, then send the read receipt immediately. Read
-  // state must not depend on a 2-second timer surviving a page reload.
+  // Reset the UI immediately — the conversation the user is looking at is
+  // read from their perspective even before the server confirms. The server
+  // recomputes the true unread_count from the read line on the next fetch.
   useMessengerStore.setState((s) => ({
     conversations: s.conversations.map((c) =>
       c.id === conversationId ? { ...c, unread_count: 0 } : c,
     ),
   }));
-  messengerApi.markRead(conversationId, messageId).catch(() => {
-    // Drop the dedup marker on failure so the message is retried the next time
-    // it becomes visible.
-    sent.delete(messageId);
-  });
+  scheduleReadFlush();
+}
+
+function scheduleReadFlush(): void {
+  if (readFlushTimer) clearTimeout(readFlushTimer);
+  readFlushTimer = setTimeout(flushPendingReads, READ_FLUSH_DELAY_MS);
+}
+
+function flushPendingReads(): void {
+  readFlushTimer = null;
+  if (pendingReadLine.size === 0) return;
+
+  // Detach the batch before sending. Only lines NEWER than the last confirmed
+  // one are worth a request (scrolling up must never re-mark anything).
+  const batch = [...pendingReadLine.entries()];
+  pendingReadLine.clear();
+
+  for (const [convId, receipt] of batch) {
+    if (!isLaterReceipt(receipt, lastSentReadLine.get(convId))) continue;
+    lastSentReadLine.set(convId, receipt);
+    messengerApi.markRead(convId, receipt.messageId).catch(() => {
+      // Drop the confirmed marker so the next visibility pass retries.
+      if (sameReceipt(lastSentReadLine.get(convId), receipt)) lastSentReadLine.delete(convId);
+    });
+  }
 }
 
 // ─── Typing indicator auto-clear ────────────────────────────────────────────
@@ -242,9 +270,15 @@ const RECEIPTS_COOLDOWN_MS = 3000;
 // A failed/retried receipt must still leave the page reliably. `keepalive` is
 // set on the request itself; pagehide also starts the final pending attempt.
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", flushPending);
+  window.addEventListener("pagehide", () => {
+    flushPending();
+    flushPendingReads();
+  });
   window.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushPending();
+    if (document.visibilityState === "hidden") {
+      flushPending();
+      flushPendingReads();
+    }
   });
 }
 
@@ -842,6 +876,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     loadMoreRequestGeneration++;
     // Flush pending reads/delivered before switching so DB stays in sync
     flushPending();
+    flushPendingReads();
     // Clear messages immediately to prevent stale messages from previous conversation
     const openingUnreadCount = id
       ? get().conversations.find((conversation) => conversation.id === id)?.unread_count ?? 0

@@ -9,6 +9,7 @@ import type { MessageView } from "./types";
 const h = vi.hoisted(() => ({
   virtualizerOpts: {} as Record<string, unknown>,
   scrollToIndexSpy: vi.fn(),
+  queueMarkReadMock: vi.fn(),
   storeState: {
     selectedConversationId: "c1",
     messages: [] as MessageView[],
@@ -17,6 +18,7 @@ const h = vi.hoisted(() => ({
     hasMoreMessages: false,
     isLoadingMore: false,
     loadMoreMessages: vi.fn(() => Promise.resolve()),
+    me: null as { id: string; username: string } | null,
   },
 }));
 
@@ -61,6 +63,7 @@ vi.mock("@/stores/messengerStore", () => ({
     (selector: (state: typeof h.storeState) => unknown) => selector(h.storeState),
     { getState: () => h.storeState },
   ),
+  queueMarkRead: (...args: unknown[]) => h.queueMarkReadMock(...args),
 }));
 
 const makeMessage = (id: string): MessageView => ({
@@ -75,6 +78,10 @@ const makeMessage = (id: string): MessageView => ({
   sent_at: "2026-08-08T12:00:00.000Z",
   client_id: id,
 });
+
+// Messages from the other side of the chat (read receipts only matter for
+// other users' messages).
+const makeIncomingMessage = (id: string): MessageView => ({ ...makeMessage(id), sender_user_id: "u2" });
 
 const renderMessage = (message: MessageView) => <div data-testid={`msg-${message.id}`}>{message.content}</div>;
 
@@ -135,7 +142,9 @@ afterEach(() => {
   h.storeState.isLoadingMore = false;
   h.storeState.hasMoreMessages = false;
   h.storeState.loadMoreMessages.mockClear();
+  h.storeState.me = null;
   h.scrollToIndexSpy.mockClear();
+  h.queueMarkReadMock.mockClear();
   h.virtualizerOpts = {};
   clearAllScrollPositions();
 });
@@ -430,5 +439,78 @@ describe("MessageList realtime appends", () => {
 
     expect(container.querySelector('[data-testid="msg-c"]')?.className).not.toContain("is-new-wrapper");
     expect(container.querySelector(".scroll-to-bottom-badge")?.textContent).toBe("1");
+  });
+});
+
+describe("MessageList read line", () => {
+  // The virtualizer mock renders every item 72px tall; the history header is
+  // 34px. itemBottom = 34 + (index + 1) * 72.
+  it("reports ONE read line — the newest fully-visible incoming message", () => {
+    h.storeState.me = { id: "u1", username: "me" };
+    h.storeState.messages = [
+      makeIncomingMessage("a"),
+      makeIncomingMessage("b"),
+      makeIncomingMessage("c"),
+      makeIncomingMessage("d"),
+      makeIncomingMessage("e"),
+    ];
+    const { scroller } = mountList();
+    // Viewport bottom at 178: a (bottom 106) and b (bottom 178) fully
+    // visible; c (bottom 250) and everything after are below the fold.
+    stubScroller(scroller, { scrollHeight: 406, scrollTop: 34, clientHeight: 144 });
+    scrollScroller(scroller);
+
+    // Exactly one read-line request, for the newest visible message.
+    expect(h.queueMarkReadMock).toHaveBeenCalledTimes(1);
+    expect(h.queueMarkReadMock).toHaveBeenCalledWith("c1", "b", "2026-08-08T12:00:00.000Z");
+  });
+
+  it("keeps messages below the fold unread — never reports them", () => {
+    h.storeState.me = { id: "u1", username: "me" };
+    h.storeState.messages = [
+      makeIncomingMessage("a"),
+      makeIncomingMessage("b"),
+      makeIncomingMessage("c"),
+      makeIncomingMessage("d"),
+      makeIncomingMessage("e"),
+    ];
+    const { scroller } = mountList();
+    // Viewport bottom at 178 → c/d/e are below the fold and must never be
+    // reported as read.
+    stubScroller(scroller, { scrollHeight: 406, scrollTop: 34, clientHeight: 144 });
+    scrollScroller(scroller);
+
+    expect(h.queueMarkReadMock).toHaveBeenCalledTimes(1);
+    expect(h.queueMarkReadMock).toHaveBeenCalledWith("c1", "b", expect.any(String));
+    expect(h.queueMarkReadMock.mock.calls[0]![1]).not.toBe("c");
+    expect(h.queueMarkReadMock.mock.calls[0]![1]).not.toBe("d");
+    expect(h.queueMarkReadMock.mock.calls[0]![1]).not.toBe("e");
+  });
+
+  it("skips own messages when computing the read line", () => {
+    h.storeState.me = { id: "u1", username: "me" };
+    h.storeState.messages = [
+      makeIncomingMessage("a"),
+      makeMessage("own"), // my own message — never anchored as read line
+      makeIncomingMessage("b"),
+    ];
+    const { scroller } = mountList();
+    stubScroller(scroller, { scrollHeight: 250, scrollTop: 0, clientHeight: 400 });
+    scrollScroller(scroller);
+
+    // The newest incoming message is b, even though an own message sits
+    // between a and b.
+    expect(h.queueMarkReadMock).toHaveBeenCalledTimes(1);
+    expect(h.queueMarkReadMock).toHaveBeenCalledWith("c1", "b", expect.any(String));
+  });
+
+  it("stays silent when no incoming message is on screen (own-only viewport)", () => {
+    h.storeState.me = { id: "u1", username: "me" };
+    h.storeState.messages = [makeMessage("own1"), makeMessage("own2")];
+    const { scroller } = mountList();
+    stubScroller(scroller, { scrollHeight: 200, scrollTop: 0, clientHeight: 400 });
+    scrollScroller(scroller);
+
+    expect(h.queueMarkReadMock).not.toHaveBeenCalled();
   });
 });
