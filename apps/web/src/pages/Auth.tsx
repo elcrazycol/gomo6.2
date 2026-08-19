@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
@@ -15,16 +16,17 @@ import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "
 import { Shield } from "lucide-react";
 import TurnstileWidget, { isTurnstileEnabled, type TurnstileWidgetHandle } from "@/components/TurnstileWidget";
 
-const authSchema = z.object({
-  username: z.string().trim().min(3, "Юзернейм минимум 3 символа").max(20, "Юзернейм максимум 20 символов"),
-  password: z.string().min(6, "Пароль минимум 6 символов"),
-});
-
-const codeSchema = z.object({
-  code: z.string().min(6, "Код должен содержать минимум 6 символов"),
-});
-
 const Auth = () => {
+  const { t } = useTranslation();
+  const authSchema = z.object({
+    username: z.string().trim().min(3, t('auth.usernameMin3')).max(20, t('auth.usernameMax20')),
+    password: z.string().min(6, t('auth.passwordMin6')),
+  });
+
+  const codeSchema = z.object({
+    code: z.string().min(6, t('auth.codeMin6')),
+  });
+
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -70,13 +72,13 @@ const Auth = () => {
     }
 
     if (!isLogin && !agreedToTerms) {
-      toast.error("Необходимо согласиться с пользовательским соглашением");
+      toast.error(t('auth.agreeTerms'));
       return;
     }
 
     // Turnstile gate: a fresh widget token is required before any auth request.
     if (isTurnstileEnabled() && !turnstileToken) {
-      toast.error("Подтвердите, что вы не робот");
+      toast.error(t('auth.confirmNotRobot'));
       return;
     }
 
@@ -92,7 +94,7 @@ const Auth = () => {
 
         if (error) {
           if (error.message.includes("Invalid login credentials")) {
-            toast.error("Неверный логин или пароль");
+            toast.error(t('auth.invalidCredentials'));
           } else {
             toast.error(error.message);
           }
@@ -117,7 +119,7 @@ const Auth = () => {
         await wsService.disconnect();
         await wsService.connect();
 
-        toast.success("Вход выполнен");
+        toast.success(t('auth.loginSuccess'));
         navigate(redirectTo, { replace: true });
       } else {
         const { error } = await api.auth.signUp({
@@ -133,7 +135,7 @@ const Auth = () => {
 
         if (error) {
           if (error.message.includes("already registered")) {
-            toast.error("Этот юзернейм уже занят");
+            toast.error(t('auth.usernameTaken'));
           } else {
             toast.error(error.message);
           }
@@ -156,11 +158,11 @@ const Auth = () => {
         await wsService.disconnect();
         await wsService.connect();
 
-        toast.success("Регистрация успешна! Можете войти.");
+        toast.success(t('auth.registerSuccess'));
         setIsLogin(true);
       }
     } catch (_: unknown) {
-      toast.error("Произошла ошибка");
+      toast.error(t('auth.genericError'));
       turnstileRef.current?.reset();
     } finally {
       setLoading(false);
@@ -172,7 +174,7 @@ const Auth = () => {
 
     const validation = codeSchema.safeParse({ code: totpCode });
     if (!validation.success) {
-      toast.error("Введите 6-значный код из аутентификатора");
+      toast.error(t('auth.enter2faCode'));
       return;
     }
 
@@ -182,7 +184,7 @@ const Auth = () => {
       const { error } = await api.auth.verify2FA(partialToken, totpCode, trustDevice);
 
       if (error) {
-        toast.error("Неверный код 2FA");
+        toast.error(t('auth.invalid2faCode'));
         setLoading(false);
         return;
       }
@@ -196,10 +198,10 @@ const Auth = () => {
       await wsService.disconnect();
       await wsService.connect();
 
-      toast.success("Вход выполнен");
+      toast.success(t('auth.loginSuccess'));
       navigate(redirectTo, { replace: true });
     } catch (_: unknown) {
-      toast.error("Ошибка проверки кода");
+      toast.error(t('auth.verifyError'));
     } finally {
       setLoading(false);
     }
@@ -209,7 +211,7 @@ const Auth = () => {
     if (!isLogin) return; // only for login mode
 
     if (!supportsWebAuthn()) {
-      toast.error("Ваш браузер не поддерживает Passkeys");
+      toast.error(t('auth.noPasskeys'));
       return;
     }
 
@@ -240,10 +242,10 @@ const Auth = () => {
       await wsService.disconnect();
       await wsService.connect();
 
-      toast.success("Вход выполнен");
+      toast.success(t('auth.loginSuccess'));
       navigate(redirectTo, { replace: true });
     } catch (err) {
-      const msg = (err as Error).message || "Ошибка входа по passkey";
+      const msg = (err as Error).message || t('auth.passkeyLoginError');
       if (!msg.includes("cancelled") && !msg.includes("AbortError")) {
         toast.error(msg);
       }
@@ -268,17 +270,17 @@ const Auth = () => {
               <PentagramLoader size="md" />
             </div>
             <h1 className="text-4xl font-bold text-primary mb-2">gomo6</h1>
-            <p className="text-muted-foreground">Двухфакторная аутентификация</p>
+            <p className="text-muted-foreground">{t('auth.twoFactorAuth')}</p>
           </div>
 
           <div className="bg-card border border-border p-6 rounded">
             <h2 className="text-xl font-bold mb-4 text-center">
-              Подтверждение входа
+              {t('auth.confirmLogin')}
             </h2>
 
             <form onSubmit={handleVerify2FA} className="space-y-4">
               <div>
-                <Label htmlFor="totp-code">Код из аутентификатора</Label>
+                <Label htmlFor="totp-code">{t('auth.authCodeLabel')}</Label>
                 <Input
                   id="totp-code"
                   type="text"
@@ -305,12 +307,12 @@ const Auth = () => {
                   htmlFor="trust-device"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                 >
-                  Запомнить это устройство на 30 дней
+                  {t('auth.rememberDevice')}
                 </label>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading || totpCode.length < 6}>
-                {loading ? "Проверка..." : "Подтвердить"}
+                {loading ? t('auth.verifying') : t('common.confirm')}
               </Button>
             </form>
 
@@ -320,7 +322,7 @@ const Auth = () => {
                 className="text-link hover:underline"
                 disabled={loading}
               >
-                Назад к входу
+                {t('auth.backToLogin')}
               </button>
             </div>
           </div>
@@ -337,12 +339,12 @@ const Auth = () => {
             <PentagramLoader size="md" />
           </div>
           <h1 className="text-4xl font-bold text-primary mb-2">gomo6</h1>
-          <p className="text-muted-foreground">Имиджборд</p>
+          <p className="text-muted-foreground">{t('auth.imageboard')}</p>
         </div>
 
         <div className="bg-card border border-border p-6 rounded">
           <h2 className="text-xl font-bold mb-4 text-center">
-            {isLogin ? "Вход" : "Регистрация"}
+            {isLogin ? t('auth.loginTitle') : t('auth.registerTitle')}
           </h2>
 
           <form onSubmit={handleAuth} className="space-y-4">
@@ -369,7 +371,7 @@ const Auth = () => {
             </div>
 
             <div>
-              <Label htmlFor="username">Юзернейм</Label>
+              <Label htmlFor="username">{t('auth.username')}</Label>
               <Input
                 id="username"
                 type="text"
@@ -379,25 +381,25 @@ const Auth = () => {
                 required
                 disabled={loading}
               />
-              <p className="text-xs text-muted-foreground mt-1">Чувствителен к регистру</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('auth.caseSensitive')}</p>
             </div>
 
             {!isLogin && (
               <div>
-                <Label htmlFor="display-name">Имя отображения <span className="text-muted-foreground">(необязательно)</span></Label>
+                <Label htmlFor="display-name">{t('auth.displayName')} <span className="text-muted-foreground">{t('auth.displayNameOptional')}</span></Label>
                 <Input
                   id="display-name"
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Как вас называть?"
+                  placeholder={t('auth.displayNamePlaceholder')}
                   disabled={loading}
                 />
               </div>
             )}
 
             <div>
-              <Label htmlFor="password">Пароль</Label>
+              <Label htmlFor="password">{t('auth.password')}</Label>
               <Input
                 id="password"
                 type="password"
@@ -422,13 +424,13 @@ const Auth = () => {
                     htmlFor="terms"
                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                   >
-                    Вы согласны с{" "}
+                    {t('auth.termsAgree')}{" "}
                     <button
                       type="button"
                       onClick={() => setShowTerms(true)}
                       className="text-link hover:underline"
                     >
-                      пользовательским соглашением GOMO6
+                      {t('auth.termsLink')}
                     </button>
                   </label>
                 </div>
@@ -446,7 +448,7 @@ const Auth = () => {
             )}
 
             <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms)}>
-              {loading ? "Загрузка..." : isLogin ? "Войти" : "Зарегистрироваться"}
+              {loading ? t('common.loading') : isLogin ? t('auth.login') : t('auth.registerBtn')}
             </Button>
 
             {isLogin && supportsWebAuthn() && (
@@ -456,7 +458,7 @@ const Auth = () => {
                     <span className="w-full border-t" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">или</span>
+                    <span className="bg-card px-2 text-muted-foreground">{t('auth.or')}</span>
                   </div>
                 </div>
                 <Button
@@ -467,7 +469,7 @@ const Auth = () => {
                   disabled={loading}
                 >
                   <Shield className="h-4 w-4" />
-                  Войти по Passkey
+                  {t('auth.passkeyLogin')}
                 </Button>
               </>
             )}
@@ -484,7 +486,7 @@ const Auth = () => {
               className="text-link hover:underline"
               disabled={loading}
             >
-              {isLogin ? "Нет аккаунта? Регистрация" : "Уже есть аккаунт? Вход"}
+              {isLogin ? t('auth.noAccountRegister') : t('auth.haveAccountLogin')}
             </button>
           </div>
         </div>
