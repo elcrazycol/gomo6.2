@@ -145,6 +145,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Client-side error reporting handler
 	clientErrorsHandler := handlers.NewClientErrorsHandler(db)
+	translationsHandler := handlers.NewTranslationsHandler(db)
 
 	// Admin-only request metrics (per-route counts, latency, 4xx/5xx/429).
 	// Zero-dependency in-memory counters from MetricsMiddleware. Use this to spot
@@ -305,6 +306,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/user_gifts", giftsHandler.GetUserGifts)
 		// Client-side JavaScript error reporting (public, rate-limited)
 		rest.POST("/client-errors", clientErrorsHandler.ReportClientError)
+
+		// Community translations — public read (serves the effective overlay),
+		// ranked by net votes with the caller's own vote when authenticated.
+		rest.GET("/translations", translationsHandler.ListTranslations)
 
 		// Drops packages (public)
 		rest.GET("/drops/packages", dropsHandler.GetDropsPackages)
@@ -619,6 +624,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				// Emoji packs (protected)
 				protected.GET("/my-emoji-packs", emojiPacksHandler.GetMyPacks)
 				protected.GET("/my-emoji-subscriptions", emojiPacksHandler.GetMySubscriptions)
+
+				// Community translations — writes/votes require auth (same group as
+				// friends/messenger writes).
+				protected.POST("/translations", translationsHandler.SubmitTranslation)
+				protected.POST("/translations/:id/vote", translationsHandler.VoteTranslation)
+				protected.DELETE("/translations/:id", translationsHandler.DeleteTranslation)
 
 				// Emoji pack writes use the generic CRUD handler but must be routed
 				// through the authenticated/RLS group. Previously only GET routes

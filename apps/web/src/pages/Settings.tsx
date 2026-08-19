@@ -18,6 +18,7 @@ import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { LanguageSelector } from "@/components/LanguageSelector";
 
 
 const defaultPrivacySettings = {
@@ -542,6 +543,18 @@ const Settings = () => {
               </TabsList>
 
               <TabsContent value="appearance" className="space-y-4">
+                {/* Язык интерфейса */}
+                <LanguageSelector userId={user?.id ?? null} />
+                <div className="bg-card border border-border p-4 sm:p-6">
+                  <h2 className="text-lg font-semibold mb-2">Переводы</h2>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Помогите перевести интерфейс на свой язык — предлагайте переводы и голосуйте за лучшие.
+                  </p>
+                  <Link to="/translate">
+                    <Button variant="outline">Открыть редактор переводов</Button>
+                  </Link>
+                </div>
+
                 {/* Темы — сворачиваемая секция */}
                 <Collapsible open={themesExpanded} onOpenChange={setThemesExpanded}>
                   <CollapsibleTrigger asChild>
