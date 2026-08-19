@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
@@ -20,7 +21,7 @@ import type { Notification } from "@/integrations/api/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { NotificationThumb } from "@/components/NotificationThumb";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
-import { notificationLink } from "@/utils/notifications";
+import { notificationLink, notificationTitle } from "@/utils/notifications";
 import { storageUrl } from "@/utils/storage";
 import { safeDate } from "@/utils/safeDate";
 
@@ -40,17 +41,11 @@ const TYPE_STYLES: Record<string, TypeStyle> = {
   wall_post: { Icon: Pencil, text: "text-sky-500", bg: "bg-sky-500/15" },
   friend_request: { Icon: UserPlus, text: "text-sky-500", bg: "bg-sky-500/15" },
   friend_accepted: { Icon: UserCheck, text: "text-emerald-500", bg: "bg-emerald-500/15" },
-  gift: { Icon: Gift, text: "text-purple-500", bg: "bg-purple-500/15" },
+  gift_received: { Icon: Gift, text: "text-purple-500", bg: "bg-purple-500/15" },
   achievement_unlock: { Icon: Trophy, text: "text-amber-500", bg: "bg-amber-500/15" },
 };
 
 const DEFAULT_STYLE: TypeStyle = { Icon: Bell, text: "text-muted-foreground", bg: "bg-muted" };
-
-const pluralPosts = (n: number) => {
-  if (n % 10 === 1 && n % 100 !== 11) return "запись";
-  if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) return "записи";
-  return "записей";
-};
 
 interface NotificationItemProps {
   notification: Notification;
@@ -63,6 +58,7 @@ interface NotificationItemProps {
 }
 
 export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadDot }: NotificationItemProps) => {
+  const { t } = useTranslation();
   const { loadProfile } = useProfileCache();
   const [actor, setActor] = useState<{ avatarUrl?: string; username?: string } | null>(null);
 
@@ -85,14 +81,15 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
   const { Icon } = style;
   const link = notificationLink(notification, threadSlug);
   const avatarSrc = storageUrl("post-images", actor?.avatarUrl);
-  const fallback = (actor?.username || notification.title).trim().charAt(0).toUpperCase() || "?";
+  const title = notificationTitle(notification, t);
+  const fallback = (actor?.username || title).trim().charAt(0).toUpperCase() || "?";
 
   // The title is "@username did something" — bold the leading @handle for the
   // X look. Friend/gift/achievement titles may not carry a handle, in which
   // case the whole title renders uniformly.
-  const firstSpace = notification.title.indexOf(" ");
-  const lead = firstSpace > 0 ? notification.title.slice(0, firstSpace) : notification.title;
-  const rest = firstSpace > 0 ? notification.title.slice(firstSpace) : "";
+  const firstSpace = title.indexOf(" ");
+  const lead = firstSpace > 0 ? title.slice(0, firstSpace) : title;
+  const rest = firstSpace > 0 ? title.slice(firstSpace) : "";
   const leadIsHandle = lead.startsWith("@");
 
   const body = (
@@ -127,7 +124,7 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
               <span className="text-foreground/90">{rest}</span>
             </>
           ) : (
-            <span className="font-medium">{notification.title}</span>
+            <span className="font-medium">{title}</span>
           )}
           {notification.message ? (
             <span className="text-muted-foreground"> {notification.message}</span>
@@ -179,7 +176,7 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
           onOpen?.(notification.id);
         }}
       >
-        Показать {likeCount} {pluralPosts(likeCount)}
+        {t("notif.showPosts", { count: likeCount })}
       </Link>
     </div>
   );

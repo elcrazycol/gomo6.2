@@ -185,27 +185,23 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 	var giftName string
 	h.db.QueryRow("SELECT name FROM gift_catalog WHERE id = $1", giftID).Scan(&giftName)
 
-	// Get sender name
+	// Get sender name (empty for anonymous gifts — the frontend localizes the
+	// "anonymous" marker itself).
 	var senderName string
-	if isAnonymous {
-		senderName = "Аноним"
-	} else {
+	if !isAnonymous {
 		h.db.QueryRow("SELECT username FROM users WHERE id = $1", senderID).Scan(&senderName)
-		if senderName == "" {
-			senderName = "Пользователь"
-		}
 	}
 
-	title := fmt.Sprintf("🎁 %s подарил(а) вам %s", senderName, giftName)
-	message := fmt.Sprintf("Вы получили подарок «%s» от %s", giftName, senderName)
+	params := models.NotificationParams{Actor: senderName, Anonymous: isAnonymous, GiftName: giftName}
+	paramsJSON := string(marshalNotificationParams(&params))
 
 	var notificationID string
 	var createdAt time.Time
 	err := h.db.QueryRow(`
-		INSERT INTO notifications (user_id, type, title, message, is_read, created_at)
-		VALUES ($1, 'gift_received', $2, $3, false, $4)
+		INSERT INTO notifications (user_id, type, title, message, is_read, created_at, params)
+		VALUES ($1, 'gift_received', '', '', false, $2, $3::jsonb)
 		RETURNING id, created_at
-	`, recipientID, title, message, time.Now()).Scan(&notificationID, &createdAt)
+	`, recipientID, time.Now(), paramsJSON).Scan(&notificationID, &createdAt)
 	if err != nil {
 		log.Printf("[Gifts] notification insert error: %v", err)
 		return
@@ -217,11 +213,16 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 
 	if h.hub != nil {
 		if err := h.hub.PublishNewNotification(map[string]interface{}{
-			"id":              notificationID,
-			"user_id":         recipientID,
-			"type":            "gift_received",
-			"title":           title,
-			"message":         message,
+			"id":      notificationID,
+			"user_id": recipientID,
+			"type":    "gift_received",
+			"title":   "",
+			"message": "",
+			"params": map[string]interface{}{
+				"actor":     senderName,
+				"anonymous": isAnonymous,
+				"gift_name": giftName,
+			},
 			"notification_id": notificationID,
 			"is_read":         false,
 			"created_at":      createdAt.Format(time.RFC3339Nano),

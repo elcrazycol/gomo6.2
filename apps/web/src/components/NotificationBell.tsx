@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Bell } from "lucide-react";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { Button } from "@/components/ui/button";
 import { NotificationItem } from "@/components/NotificationItem";
 
 export const NotificationBell = ({ userId }: { userId: string }) => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [showCard, setShowCard] = useState(false);
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -61,15 +63,15 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
           onMouseLeave={scheduleClose}
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
-            <h3 className="font-bold">Уведомления</h3>
+            <h3 className="font-bold">{t("nav.notifications")}</h3>
             <Link to="/notify" className="text-xs text-primary hover:underline">
-              Все →
+              {t("notif.viewAll")}
             </Link>
           </div>
 
           {notifications.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              Нет уведомлений
+              {t("notif.noNotifications")}
             </p>
           ) : (
             <div className="max-h-96 divide-y divide-border/60 overflow-y-auto">

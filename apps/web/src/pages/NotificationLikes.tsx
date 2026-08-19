@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
@@ -10,13 +11,8 @@ import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { type WallPost, normalizeWallPostRecord } from "@/utils/wallNormalizers";
 
-const pluralPosts = (n: number) => {
-  if (n % 10 === 1 && n % 100 !== 11) return "запись";
-  if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) return "записи";
-  return "записей";
-};
-
 const NotificationLikes = () => {
+  const { t } = useTranslation();
   const { notificationId } = useParams();
   const { loadProfile } = useProfileCache();
 
@@ -114,22 +110,24 @@ const NotificationLikes = () => {
           className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          <span>Назад к уведомлениям</span>
+          <span>{t("notif.backToNotifications")}</span>
         </Link>
       </div>
 
       <header>
         <h1 className="text-lg font-bold">
-          {actor?.username ? `@${actor.username} оценил(а) эти записи` : "Записи, которые понравились"}
+          {actor?.username
+            ? t("notif.likedThesePosts", { actor: actor.username })
+            : t("notif.postsTheyLiked")}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {posts.length > 0 ? `${posts.length} ${pluralPosts(posts.length)}` : ""}
+          {posts.length > 0 ? t("common.posts", { count: posts.length }) : ""}
         </p>
       </header>
 
       {error || posts.length === 0 ? (
         <div className="py-16 text-center text-sm text-muted-foreground">
-          Записи не найдены.
+          {t("notif.postsNotFound")}
         </div>
       ) : (
         <div className="space-y-4">

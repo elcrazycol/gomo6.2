@@ -317,7 +317,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	// that DM, so no reply notification carrying a content snippet may reach them
 	// (it would leak the DM content via notifications REST + WS).
 	if threadAuthor != "" && threadAuthor != claims.UserID && !req.IsPrivate {
-		title := fmt.Sprintf("@%s ответил(а) в вашем треде", claims.Username)
+		params := &models.NotificationParams{Actor: claims.Username}
 		shortContent := post.Content
 		if len(shortContent) > 100 {
 			shortContent = shortContent[:100] + "..."
@@ -328,7 +328,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 				notifHub = castHub
 			}
 		}
-		_, _ = CreateNotification(h.db, h.redis, notifHub, threadAuthor, "reply", title, shortContent, &req.ThreadID, &post.ID, &claims.UserID)
+		_, _ = CreateNotification(h.db, h.redis, notifHub, threadAuthor, "reply", shortContent, params, &req.ThreadID, &post.ID, &claims.UserID)
 	}
 
 	if h.redis != nil {

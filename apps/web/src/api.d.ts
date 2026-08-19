@@ -4318,6 +4318,14 @@ export interface components {
             related_wall_post_ids?: string[];
             is_read: boolean;
             group_count?: number;
+            /** Structured, language-neutral display data (see backend NotificationParams). */
+            params?: {
+                actor?: string;
+                anonymous?: boolean;
+                gift_name?: string;
+                achievement_name?: string;
+                count?: number;
+            };
             created_at: string;
         };
         APIResponse_NotificationArray: components["schemas"]["APIResponse"] & {

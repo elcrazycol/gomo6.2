@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { apiClient, type Notification } from "@/integrations/api/client";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ interface NotifWithSlug extends Notification {
 }
 
 const Notify = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [user, setUser] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
@@ -133,17 +135,17 @@ const Notify = () => {
     <main className="mx-auto w-full max-w-2xl">
       <header className="sticky top-0 z-20 border-b border-border/60 bg-background/85 backdrop-blur">
         <div className="flex items-center gap-1 px-2 py-2.5">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="h-9 w-9" title="Назад">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="h-9 w-9" title={t("common.back")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="flex-1 text-lg font-bold">Уведомления</h1>
+          <h1 className="flex-1 text-lg font-bold">{t("nav.notifications")}</h1>
           {unreadCount > 0 && (
             <Button
               variant="ghost"
               size="icon"
               onClick={markAllAsRead}
               className="h-9 w-9 text-muted-foreground hover:text-foreground"
-              title="Прочитать все"
+              title={t("notif.markAllRead")}
             >
               <CheckCheck className="h-4 w-4" />
             </Button>
@@ -151,18 +153,18 @@ const Notify = () => {
         </div>
 
         <div className="flex">
-          {(["all", "unread"] as const).map((t) => {
-            const active = tab === t;
+          {(["all", "unread"] as const).map((tabKey) => {
+            const active = tab === tabKey;
             return (
               <button
-                key={t}
+                key={tabKey}
                 type="button"
-                onClick={() => setTab(t)}
+                onClick={() => setTab(tabKey)}
                 className={`relative flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
                   active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {t === "all" ? "Все" : "Непрочитанные"}
+                {tabKey === "all" ? t("notif.all") : t("notif.unread")}
                 {active && <span className="absolute inset-x-6 bottom-0 h-0.5 rounded-full bg-primary" />}
               </button>
             );
@@ -173,7 +175,7 @@ const Notify = () => {
       {slugifiedNotifs.length === 0 ? (
         <div className="px-4 py-16 text-center">
           <p className="text-sm text-muted-foreground">
-            {tab === "unread" ? "Нет непрочитанных уведомлений" : "Нет уведомлений"}
+            {tab === "unread" ? t("notif.noUnreadNotifications") : t("notif.noNotifications")}
           </p>
         </div>
       ) : (
@@ -199,7 +201,7 @@ const Notify = () => {
 
           {!hasMore && slugifiedNotifs.length > 0 && (
             <p className="py-4 text-center text-xs text-muted-foreground">
-              Все уведомления загружены
+              {t("notif.allLoaded")}
             </p>
           )}
         </div>
