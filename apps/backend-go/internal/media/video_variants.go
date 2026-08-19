@@ -49,7 +49,9 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string) (*Vi
 	// size and CPU time for a tiny but very long source.
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", input,
 		"-t", fmt.Sprintf("%d", int(maxVideoDuration.Seconds())), "-map", "0:v:0", "-map", "0:a?",
-		"-vf", "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease",
+		// H.264 requires even dimensions for yuv420p. Pad only the final row /
+		// column when a camera produces an odd-sized frame.
+		"-vf", "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2",
 		"-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-maxrate", "2M", "-bufsize", "4M", "-threads", "2",
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", output)
 	if _, err := cmd.CombinedOutput(); err != nil {
@@ -58,7 +60,9 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string) (*Vi
 		}
 		return nil, fmt.Errorf("unsupported or damaged video")
 	}
-	posterCmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", "1", "-i", output,
+	// Use the first frame rather than seeking to one second: short clips are
+	// valid videos too and may end before the old one-second seek point.
+	posterCmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", "0", "-i", output,
 		"-frames:v", "1", "-vf", "scale=w='min(640,iw)':h=-2", "-q:v", "5", poster)
 	if _, err := posterCmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("create preview")
