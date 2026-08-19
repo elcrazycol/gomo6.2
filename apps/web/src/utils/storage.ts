@@ -119,6 +119,7 @@ function uploadWithProgress(
   headers: Record<string, string>,
   fallbackKey: string,
   onProgress: (percent: number) => void,
+  onUploadComplete?: () => void,
 ): Promise<UploadFileResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -131,6 +132,13 @@ function uploadWithProgress(
       if (e.lengthComputable && e.total > 0) {
         onProgress(Math.round((e.loaded / e.total) * 100));
       }
+    };
+    // Fires when the request body (the whole file) has reached the server but
+    // BEFORE the server replies — i.e. while it is still processing (for
+    // videos: the ffmpeg transcode). Lets the UI switch to a clear
+    // "processing" state instead of freezing on the last byte percentage.
+    xhr.upload.onload = () => {
+      onUploadComplete?.();
     };
     xhr.onload = () => {
       let body: UploadBody = {};
@@ -153,6 +161,7 @@ export const uploadFile = async (
   token?: string,
   prepareImage = true,
   onProgress?: (percent: number) => void,
+  onUploadComplete?: () => void,
 ): Promise<UploadFileResult> => {
   const safeBucket = bucket.trim();
   let safeKey = key.replace(/^\/+/, "");
@@ -191,8 +200,8 @@ export const uploadFile = async (
   const url = `${API_BASE_URL}/storage/v1/upload`;
 
   // Real upload progress requires XHR — fetch has none.
-  if (onProgress) {
-    return uploadWithProgress(url, formData, headers, safeKey, onProgress);
+  if (onProgress || onUploadComplete) {
+    return uploadWithProgress(url, formData, headers, safeKey, onProgress, onUploadComplete);
   }
 
   const res = await fetch(url, {

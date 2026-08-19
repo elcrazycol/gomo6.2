@@ -98,6 +98,7 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
           : file.type.startsWith("video/") ? "video"
           : file.type.startsWith("audio/") ? "audio"
           : "file",
+        phase: "upload",
       }));
 
       setUploadingFiles((prev) => [...prev, ...newUploadingFiles]);
@@ -107,7 +108,7 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
           const entry = newUploadingFiles[progress.index];
           if (!entry || cancelledRef.current.has(entry.id)) return;
           setUploadingFiles((prev) =>
-            prev.map((f) => (f.id === entry.id ? { ...f, progress: progress.percent } : f))
+            prev.map((f) => (f.id === entry.id ? { ...f, progress: progress.percent, phase: progress.phase } : f))
           );
         });
         const kept = uploaded.filter((_, i) => !cancelledRef.current.has(newUploadingFiles[i]?.id));
@@ -117,7 +118,7 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
 
         newUploadingFiles.forEach((entry) => {
           setUploadingFiles((prev) =>
-            prev.map((f) => (f.id === entry.id ? { ...f, progress: 100 } : f))
+            prev.map((f) => (f.id === entry.id ? { ...f, progress: 100, phase: "done" } : f))
           );
         });
         const timer = window.setTimeout(() => {

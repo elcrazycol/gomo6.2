@@ -162,10 +162,20 @@ const inferType = (file: File): AttachmentType => {
   return "file";
 };
 
+/**
+ * Upload phase tells the UI what the file is actually doing:
+ *  - "upload": bytes are still being sent to the server (percent is live);
+ *  - "processing": bytes are on the server, which is now encoding the video
+ *    (the slow ffmpeg step) — percent is meaningless, show a waiting state;
+ *  - "done": the server replied, attachment is ready.
+ */
+export type AttachmentUploadPhase = "upload" | "processing" | "done";
+
 export type AttachmentUploadProgress = {
   index: number;
   name: string;
   percent: number;
+  phase?: AttachmentUploadPhase;
 };
 
 export const uploadAttachments = async (
@@ -236,16 +246,33 @@ export const uploadAttachments = async (
 
     // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access).
     // The XHR path reports real byte progress — the local mapping keeps the bar moving
-    // smoothly from 2% (processing done) to ~95% while the body uploads, then 100% below.
-    onProgress?.({ index, name: original.name, percent: 2 });
-    const uploaded = await uploadFile(bucket, key, file, session.access_token, false, (p) => {
-      onProgress?.({
-        index,
-        name: original.name,
-        percent: 2 + Math.round(Math.min(100, Math.max(0, p)) * 0.93),
-      });
-    });
-    onProgress?.({ index, name: original.name, percent: 100 });
+    // smoothly from 2% to ~95% while the body uploads. Videos then switch to the
+    // "processing" phase (server-side ffmpeg) and finish with "done".
+    onProgress?.({ index, name: original.name, percent: 2, phase: "upload" });
+    const uploaded = await uploadFile(
+      bucket,
+      key,
+      file,
+      session.access_token,
+      false,
+      (p) => {
+        onProgress?.({
+          index,
+          name: original.name,
+          percent: 2 + Math.round(Math.min(100, Math.max(0, p)) * 0.93),
+          phase: "upload",
+        });
+      },
+      // The bar only tracks bytes sent. Once the body is on the server the
+      // clip is being transcoded (ffmpeg) — switch to an explicit "processing"
+      // state so the user sees a spinner + message instead of a frozen 95%.
+      type === "video"
+        ? () => {
+            onProgress?.({ index, name: original.name, percent: 100, phase: "processing" });
+          }
+        : undefined,
+    );
+    onProgress?.({ index, name: original.name, percent: 100, phase: "done" });
     if (type === "image" && !uploaded.variants) {
       throw new Error("Сервер не вернул preview для изображения");
     }

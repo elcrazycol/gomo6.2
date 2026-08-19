@@ -1,11 +1,17 @@
 import { motion } from "framer-motion";
-import { Check, FileAudio2, FileText, FileVideo2, Image as ImageIcon, X } from "lucide-react";
+import { Check, FileAudio2, FileText, FileVideo2, Image as ImageIcon, Loader2, X } from "lucide-react";
+import type { AttachmentUploadPhase } from "@/utils/mediaUpload";
 
 export interface UploadingFileLike {
   id: string;
   name: string;
   progress: number;
   type: string;
+  /**
+   * "upload" (bytes leaving the device), "processing" (server is encoding the
+   * video — show a waiting state, progress is meaningless) or "done".
+   */
+  phase?: AttachmentUploadPhase;
 }
 
 const iconFor = (type: string) => {
@@ -24,8 +30,11 @@ const iconFor = (type: string) => {
 /**
  * Shared uploading-file chip used by the thread/post/wall uploaders. Shows the
  * file icon, name, a smoothly animated progress bar fed by real XHR bytes, the
- * live percent (or a check at 100%) and a cancel button. Wrap in a motion.div
- * with `chipMotion` inside your AnimatePresence for enter/exit animations.
+ * live percent (or a check at 100%) and a cancel button. While the server is
+ * transcoding a video the chip swaps the frozen percentage for a spinner and a
+ * "Обработка видео…" hint, so the wait reads as intentional. Wrap in a
+ * motion.div with `chipMotion` inside your AnimatePresence for enter/exit
+ * animations.
  */
 export const UploadProgressChip = ({
   file,
@@ -48,8 +57,17 @@ export const UploadProgressChip = ({
         />
       </div>
     </div>
-    <div className="flex-shrink-0 text-xs text-muted-foreground font-mono tabular-nums">
-      {file.progress >= 100 ? <Check className="w-4 h-4 text-emerald-500" /> : `${file.progress}%`}
+    <div className="flex-shrink-0 text-xs text-muted-foreground">
+      {file.phase === "processing" ? (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {file.type === "video" ? "Обработка видео…" : "Обработка…"}
+        </span>
+      ) : file.progress >= 100 ? (
+        <Check className="w-4 h-4 text-emerald-500" />
+      ) : (
+        <span className="font-mono tabular-nums">{file.progress}%</span>
+      )}
     </div>
     <button
       type="button"

@@ -124,6 +124,7 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
           progress: 0,
           name: file.name,
           type: typeOf(file),
+          phase: "upload",
         }));
 
         setUploadingFiles((prev) => [...prev, ...newUploadingFiles]);
@@ -133,7 +134,7 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
             const entry = newUploadingFiles[progress.index];
             if (!entry || cancelledRef.current.has(entry.id)) return;
             setUploadingFiles((prev) =>
-              prev.map((f) => (f.id === entry.id ? { ...f, progress: progress.percent } : f))
+              prev.map((f) => (f.id === entry.id ? { ...f, progress: progress.percent, phase: progress.phase } : f))
             );
           });
           // Drop results for chips the user cancelled mid-flight.
@@ -146,7 +147,7 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
           // they fade out into the freshly added thumbnails.
           newUploadingFiles.forEach((entry) => {
             setUploadingFiles((prev) =>
-              prev.map((f) => (f.id === entry.id ? { ...f, progress: 100 } : f))
+              prev.map((f) => (f.id === entry.id ? { ...f, progress: 100, phase: "done" } : f))
             );
           });
           const timer = window.setTimeout(() => {

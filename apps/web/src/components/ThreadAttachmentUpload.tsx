@@ -73,6 +73,7 @@ export const ThreadAttachmentUpload = ({ value, onChange, maxFiles = 8 }: Thread
           : file.type.startsWith("video/") ? "video"
           : file.type.startsWith("audio/") ? "audio"
           : "file",
+        phase: "upload",
       }));
 
       setUploadingFiles((prev) => [...prev, ...newUploadingFiles]);
@@ -82,7 +83,7 @@ export const ThreadAttachmentUpload = ({ value, onChange, maxFiles = 8 }: Thread
           const entry = newUploadingFiles[progress.index];
           if (!entry || cancelledRef.current.has(entry.id)) return;
           setUploadingFiles((prev) =>
-            prev.map((f) => (f.id === entry.id ? { ...f, progress: progress.percent } : f))
+            prev.map((f) => (f.id === entry.id ? { ...f, progress: progress.percent, phase: progress.phase } : f))
           );
         });
         const kept = uploaded.filter((_, i) => !cancelledRef.current.has(newUploadingFiles[i]?.id));
@@ -92,7 +93,7 @@ export const ThreadAttachmentUpload = ({ value, onChange, maxFiles = 8 }: Thread
 
         newUploadingFiles.forEach((entry) => {
           setUploadingFiles((prev) =>
-            prev.map((f) => (f.id === entry.id ? { ...f, progress: 100 } : f))
+            prev.map((f) => (f.id === entry.id ? { ...f, progress: 100, phase: "done" } : f))
           );
         });
         const timer = window.setTimeout(() => {

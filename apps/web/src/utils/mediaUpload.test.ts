@@ -267,6 +267,31 @@ describe("uploadAttachments", () => {
     expect(progress.some((p) => p.percent > 2 && p.percent < 100)).toBe(true);
   });
 
+  // Videos are transcoded server-side after the bytes arrive: the progress
+  // flow must go upload → processing → done so the UI can show a "waiting"
+  // state instead of a frozen bar at 95%.
+  it("signals a processing phase for videos while the server transcodes", async () => {
+    mockUploadFile.mockImplementation(
+      async (_b: string, _k: string, _f: File, _t?: string, _p?: boolean, _onProgress?: (p: number) => void, onUploadComplete?: () => void) => {
+        // The body reached the server (no further byte progress) — this is
+        // what triggers the "processing" phase.
+        onUploadComplete?.();
+        return {
+          path: "user-1/clip.mp4",
+          video: { poster_key: "user-1/clip.mp4.poster.jpg", content_type: "video/mp4" },
+        };
+      },
+    );
+    const phases: string[] = [];
+    const onProgress = (p: { index: number; name: string; percent: number; phase?: string }) => {
+      if (p.phase) phases.push(p.phase);
+    };
+
+    await uploadAttachments([makeFile("clip.mp4", "video/mp4")], "content", onProgress);
+
+    expect(phases).toEqual(["upload", "processing", "done"]);
+  });
+
   it("processes multiple files in order", async () => {
     mockUploadFile.mockResolvedValue({ path: "key", variants });
 
