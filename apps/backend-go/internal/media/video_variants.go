@@ -6,8 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -44,21 +42,13 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string) (*Vi
 
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
-	// A tiny, very long source can otherwise turn into a much larger 2 Mbps
-	// rendition. Probe before transcoding and keep a single wall clip bounded.
-	probe := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", input)
-	durationOutput, err := probe.Output()
-	if err != nil {
-		return nil, fmt.Errorf("unsupported or damaged video")
-	}
-	duration, err := strconv.ParseFloat(strings.TrimSpace(string(durationOutput)), 64)
-	if err != nil || duration <= 0 || duration > maxVideoDuration.Seconds() {
-		return nil, fmt.Errorf("video must be between 1 second and %d minutes", int(maxVideoDuration.Minutes()))
-	}
 	// CRF 28 + 720p gives phone recordings a substantial reduction while
-	// preserving faces and text. faststart makes playback begin quickly.
+	// preserving faces and text. `-t` is deliberately in the transcode command
+	// instead of a separate ffprobe gate: MP4/MOV files with valid media but
+	// unusual duration metadata still upload correctly. It also bounds output
+	// size and CPU time for a tiny but very long source.
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", input,
-		"-map", "0:v:0", "-map", "0:a?",
+		"-t", fmt.Sprintf("%d", int(maxVideoDuration.Seconds())), "-map", "0:v:0", "-map", "0:a?",
 		"-vf", "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease",
 		"-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-maxrate", "2M", "-bufsize", "4M", "-threads", "2",
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", output)

@@ -44,6 +44,14 @@ const ensureGlobalAudio = () => {
 };
 
 const ensurePlyrAssets = () => {
+  // CSP deliberately permits scripts/styles only from first-party origins.
+  // Native browser controls handle video/audio, range seeking and posters
+  // without a remote CDN dependency; returning null keeps the existing
+  // component's fallback controls intact and avoids CSP console errors.
+  return Promise.resolve(null);
+
+  /* v8 ignore start -- retained only as a reference while the old Plyr
+     integration is phased out. */
   if (typeof window === "undefined") return Promise.resolve(null);
 
   // CSS
@@ -69,6 +77,7 @@ const ensurePlyrAssets = () => {
   });
 
   return plyrLoader;
+  /* v8 ignore stop */
 };
 
 interface MediaPlayerProps {
