@@ -6,6 +6,7 @@ import { MessageContent } from "./MessageContent";
 import { messengerPlainPreview } from "./messengerRichTextUtils";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import type { MessageView } from "./types";
+import { useLanguageStore } from "@/stores/languageStore";
 
 const LONG_PRESS_DELAY = 400;
 const SWIPE_THRESHOLD = 80;
@@ -53,6 +54,9 @@ export const MessageBubble = memo(function MessageBubble({
   peerReadAt,
   peerDeliveredAt,
 }: Props) {
+  // Message bubbles are memoized; subscribe explicitly so their timestamps
+  // refresh when the language changes even if message props stay identical.
+  const language = useLanguageStore((state) => state.language);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const [isLongPressing, setIsLongPressing] = useState(false);
@@ -152,6 +156,8 @@ export const MessageBubble = memo(function MessageBubble({
     if (peerDeliveredAt) return <span className="status-double-check">✓✓</span>;
     return <span className="status-check">✓</span>;
   };
+
+  void language;
 
   const handleRowDoubleClick = useCallback(() => {
     if (!isTouchDevice) onReply(message);

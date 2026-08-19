@@ -1,10 +1,11 @@
+import i18n from "@/i18n";
+import { getDateLocale, getIntlLanguage } from "@/i18n/dateLocale";
+import { formatDistanceToNow } from "date-fns";
+
 export const formatTime = (dateStr: string | null): string => {
   if (!dateStr) return "";
-  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
+  return new Intl.DateTimeFormat(getIntlLanguage(), { hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
 };
-
-const READ_DATE_FORMAT = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" });
-const READ_TIME_FORMAT = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" });
 
 /**
  * When a message was read: «Сегодня в 14:32», «Вчера в 23:10» or
@@ -14,13 +15,14 @@ export const formatReadAt = (dateStr: string | null): string => {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return "";
-  const time = READ_TIME_FORMAT.format(d);
+  const time = formatTime(dateStr);
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) return `Сегодня в ${time}`;
+  if (d.toDateString() === now.toDateString()) return i18n.t("time.todayAt", { time });
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return `Вчера в ${time}`;
-  return `${READ_DATE_FORMAT.format(d)} в ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return i18n.t("time.yesterdayAt", { time });
+  const date = new Intl.DateTimeFormat(getIntlLanguage(), { day: "2-digit", month: "2-digit" }).format(d);
+  return i18n.t("time.dateAt", { date, time });
 };
 
 export const formatConversationDate = (dateStr: string | null): string => {
@@ -31,13 +33,10 @@ export const formatConversationDate = (dateStr: string | null): string => {
   const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
 
   if (diffDays === 0) return formatTime(dateStr);
-  if (diffDays === 1) return "Вчера";
-  if (diffDays < 7) return `${diffDays} дн.`;
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(d);
+  if (diffDays === 1) return i18n.t("time.yesterdayTitle");
+  if (diffDays < 7) return i18n.t("time.daysShortNoSuffix", { count: diffDays });
+  return new Intl.DateTimeFormat(getIntlLanguage(), { day: "2-digit", month: "2-digit" }).format(d);
 };
-
-import { formatDistanceToNow } from "date-fns";
-import { getDateLocale } from "@/i18n/dateLocale";
 
 // A user who went offline within the last minute reads as «был(а) только что»
 // instead of «был(а) в сети 1 минуту назад» — same rule as the profile's
@@ -46,12 +45,13 @@ import { getDateLocale } from "@/i18n/dateLocale";
 const JUST_NOW_MS = 60_000;
 
 export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | null): string => {
-  if (isOnline) return "онлайн";
-  if (!lastSeenAt) return "не в сети";
+  if (isOnline) return i18n.t("time.online");
+  if (!lastSeenAt) return i18n.t("time.offline");
   const d = new Date(lastSeenAt);
-  if (Number.isNaN(d.getTime())) return "не в сети";
-  if (Date.now() - d.getTime() <= JUST_NOW_MS) return "был(а) только что";
-  return `был(а) в сети ${formatDistanceToNow(d, { addSuffix: true, locale: getDateLocale() })}`;
+  if (Number.isNaN(d.getTime())) return i18n.t("time.offline");
+  if (Date.now() - d.getTime() <= JUST_NOW_MS) return i18n.t("time.wasOnlineJustNow");
+  const time = formatDistanceToNow(d, { addSuffix: true, locale: getDateLocale() });
+  return i18n.t("time.wasOnline", { time });
 };
 
 export const getInitials = (username: string): string => username.slice(0, 2).toUpperCase();

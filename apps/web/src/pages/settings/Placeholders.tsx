@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { storageUrl } from "@/utils/storage";
@@ -19,7 +20,6 @@ import { format } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { processProfileBio } from "@/utils/profileBio";
-import { pluralRu } from "@/utils/pluralRu";
 import { UserBadge } from "@/components/UserBadge";
 import { AdminBadge } from "@/components/AdminBadge";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
@@ -27,18 +27,19 @@ import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomi
 // Ключ 'post_count' сохранён для обратной совместимости с сохранёнными
 // user_placeholders, но теперь рендерит объединённое «записи» (треды + стена).
 const PRESET_PLACEHOLDERS = [
-  { value: '', label: 'Не выбрано' },
-  { value: 'bio', label: 'Описание профиля' },
-  { value: 'created_at', label: 'Дата регистрации' },
-  { value: 'post_count', label: 'Количество записей' },
-  { value: 'comment_count', label: 'Количество комментариев' },
-  { value: 'thread_count', label: 'Количество тредов' },
-  { value: 'account_number', label: 'Номер аккаунта' },
-  { value: 'id', label: 'ID пользователя' },
+  { value: '', labelKey: 'placeholderNone' },
+  { value: 'bio', labelKey: 'placeholderBio' },
+  { value: 'created_at', labelKey: 'placeholderCreatedAt' },
+  { value: 'post_count', labelKey: 'placeholderPostCount' },
+  { value: 'comment_count', labelKey: 'placeholderCommentCount' },
+  { value: 'thread_count', labelKey: 'placeholderThreadCount' },
+  { value: 'account_number', labelKey: 'placeholderAccountNumber' },
+  { value: 'id', labelKey: 'placeholderUserId' },
 ];
 
 const Placeholders = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const dateLocale = useDateLocale();
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,10 +130,10 @@ const Placeholders = () => {
 
       if (error) throw error;
 
-      toast.success("Плейсхолдеры сохранены");
+      toast.success(t("settings.placeholdersSaved"));
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Неизвестная ошибка';
-      toast.error(`Ошибка: ${msg}`);
+      const msg = error instanceof Error ? error.message : t("settings.unknownError");
+      toast.error(`${t("common.error")}: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -147,11 +148,11 @@ const Placeholders = () => {
       case 'created_at':
         return format(safeDate(profile.created_at), "dd.MM.yyyy", { locale: dateLocale });
       case 'post_count':
-        return pluralRu((profile.thread_count || 0) + (profile.wall_post_count || 0), 'запись', 'записи', 'записей');
+        return t("settings.placeholderPostsCount", { count: (profile.thread_count || 0) + (profile.wall_post_count || 0) });
       case 'comment_count':
-        return pluralRu(profile.comment_count || 0, 'комментарий', 'комментария', 'комментариев');
+        return t("settings.placeholderCommentsCount", { count: profile.comment_count || 0 });
       case 'thread_count':
-        return `${profile.thread_count || 0} ${profile.thread_count === 1 ? 'тред' : (profile.thread_count ?? 0) < 5 ? 'треда' : 'тредов'}`;
+        return t("settings.placeholderThreadsCount", { count: profile.thread_count || 0 });
       case 'account_number':
         return profile.account_number ? `#${profile.account_number}` : null;
       case 'id':
@@ -203,87 +204,87 @@ const Placeholders = () => {
   return (
     <main className="max-w-4xl mx-auto p-4 space-y-6">
           <div className="bg-card border border-border p-6">
-            <h2 className="text-lg font-semibold mb-4">Настройка плейсхолдеров</h2>
+            <h2 className="text-lg font-semibold mb-4">{t("settings.placeholderSettingsTitle")}</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Выберите плейсхолдеры, которые будут отображаться при наведении на ваше имя пользователя
+              {t("settings.placeholderSettingsDescription")}
             </p>
 
             <div className="space-y-6">
               <RadioGroup value={useCustom ? 'custom' : 'preset'} onValueChange={(v) => setUseCustom(v === 'custom')}>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="preset" id="preset" />
-                  <Label htmlFor="preset">Предустановленные плейсхолдеры</Label>
+                  <Label htmlFor="preset">{t("settings.presetPlaceholders")}</Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="custom" id="custom" />
-                  <Label htmlFor="custom">Кастомный плейсхолдер</Label>
+                  <Label htmlFor="custom">{t("settings.customPlaceholder")}</Label>
                 </div>
               </RadioGroup>
 
               {!useCustom ? (
                 <div className="space-y-4">
                   <div>
-                    <Label>Плейсхолдер 1</Label>
+                    <Label>{t("settings.placeholderOne")}</Label>
                     <select
                       value={placeholder1}
                       onChange={(e) => setPlaceholder1(e.target.value)}
                       className="w-full mt-1 p-2 border border-border rounded bg-background"
                     >
                       {PRESET_PLACEHOLDERS.map((p) => (
-                        <option key={p.value} value={p.value}>{p.label}</option>
+                        <option key={p.value} value={p.value}>{t(`settings.${p.labelKey}`)}</option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <Label>Плейсхолдер 2</Label>
+                    <Label>{t("settings.placeholderTwo")}</Label>
                     <select
                       value={placeholder2}
                       onChange={(e) => setPlaceholder2(e.target.value)}
                       className="w-full mt-1 p-2 border border-border rounded bg-background"
                     >
                       {PRESET_PLACEHOLDERS.map((p) => (
-                        <option key={p.value} value={p.value}>{p.label}</option>
+                        <option key={p.value} value={p.value}>{t(`settings.${p.labelKey}`)}</option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <Label>Плейсхолдер 3</Label>
+                    <Label>{t("settings.placeholderThree")}</Label>
                     <select
                       value={placeholder3}
                       onChange={(e) => setPlaceholder3(e.target.value)}
                       className="w-full mt-1 p-2 border border-border rounded bg-background"
                     >
                       {PRESET_PLACEHOLDERS.map((p) => (
-                        <option key={p.value} value={p.value}>{p.label}</option>
+                        <option key={p.value} value={p.value}>{t(`settings.${p.labelKey}`)}</option>
                       ))}
                     </select>
                   </div>
                 </div>
               ) : (
                 <div>
-                  <Label>Кастомный плейсхолдер</Label>
+                  <Label>{t("settings.customPlaceholder")}</Label>
                   <Textarea
                     value={customPlaceholder}
                     onChange={(e) => setCustomPlaceholder(e.target.value)}
-                    placeholder="Введите текст с тегами BBCode, например: [B]Описание[/B] | Дата регистрации | Количество постов"
+                    placeholder={t("settings.customPlaceholderPlaceholder")}
                     rows={3}
                     className="mt-1"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Поддерживаются теги: [B], [I], [U], [S], [col=#color], [size=N], [blur], [me], [dude]
+                    {t("settings.customPlaceholderHint")}
                   </p>
                 </div>
               )}
 
               <Button onClick={handleSave} disabled={saving}>
-                {saving ? "Сохранение..." : "Сохранить"}
+                {saving ? t("settings.saving") : t("common.save")}
               </Button>
             </div>
           </div>
 
           {/* Preview */}
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Предпросмотр</h3>
+            <h3 className="text-lg font-semibold mb-4">{t("settings.preview")}</h3>
             <div className="bg-post-header p-4 border border-border">
               <div className="flex items-start gap-3">
                 <img

@@ -5,6 +5,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl, giftImageUrl } from "@/utils/storage";
 import { useMessengerStore, selectSelectedConversation, queueMarkDelivered } from "@/stores/messengerStore";
+import { useLanguageStore } from "@/stores/languageStore";
 import { formatPresence, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
@@ -35,6 +36,7 @@ export const ChatView = memo(function ChatView({
   typingUsername,
   onTyping,
 }: Props) {
+  const language = useLanguageStore((state) => state.language);
   const conversation = useMessengerStore(selectSelectedConversation);
   const messages = useMessengerStore((s) => s.messages);
   const isLoading = useMessengerStore((s) => s.isMessagesLoading);
@@ -301,6 +303,7 @@ export const ChatView = memo(function ChatView({
       prev: MessageView | null,
       extras: { dateLabel: string | null; isConsecutive: boolean; isNew: boolean },
     ) => {
+      void language;
       if (!conversation || !me) return null;
       const { dateLabel, isConsecutive: isGrouped, isNew } = extras;
       const convReceipts = receipts.get(conversation.id) ?? [];
@@ -373,7 +376,7 @@ export const ChatView = memo(function ChatView({
         </div>
       );
     },
-    [conversation, me, messages, receipts, handleStartEdit, deleteMessage, togglePin, toggleNotesPin, sendMessage, handleReply, handleCopy],
+    [conversation, me, messages, receipts, language, handleStartEdit, deleteMessage, togglePin, toggleNotesPin, sendMessage, handleReply, handleCopy],
   );
 
   if (!conversation || !me) {

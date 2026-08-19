@@ -10,6 +10,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { type WallPost, normalizeWallPostRecord } from "@/utils/wallNormalizers";
+import { interpolateNotification } from "@/utils/notifications";
 
 const NotificationLikes = () => {
   const { t } = useTranslation();
@@ -117,7 +118,10 @@ const NotificationLikes = () => {
       <header>
         <h1 className="text-lg font-bold">
           {actor?.username
-            ? t("notif.likedThesePosts", { actor: actor.username })
+            ? interpolateNotification(
+                t("notif.likedThesePosts", { actor: actor.username }),
+                { actor: actor.username }
+              )
             : t("notif.postsTheyLiked")}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">

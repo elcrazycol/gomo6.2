@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import i18n from "@/i18n";
-import { notificationLink, isWallNotification, notificationTitle } from "./notifications";
+import { notificationLink, isWallNotification, notificationTitle, interpolateNotification } from "./notifications";
 import type { Notification } from "@/integrations/api/client";
 
 const base = {
@@ -57,6 +57,37 @@ describe("isWallNotification", () => {
 });
 
 describe("notificationTitle", () => {
+  it("replaces literal community interpolation variables defensively", () => {
+    const n: Notification = {
+      ...base,
+      type: "like",
+      related_post_id: "p1",
+      params: { actor: "alice" },
+    };
+    const rawT = (() => "@{{actor}} liked your post") as typeof i18n.t;
+    expect(notificationTitle(n, rawT)).toBe("@alice liked your post");
+  });
+
+  it("resolves actor placeholders in legacy rows without params", () => {
+    const n: Notification = {
+      ...base,
+      type: "like",
+      related_post_id: "p1",
+      title: "@{{actor}} liked your post",
+    };
+    const rawT = (() => "unused") as typeof i18n.t;
+    expect(notificationTitle(n, rawT, "alice")).toBe("@alice liked your post");
+  });
+
+  it("interpolates all notification variable names", () => {
+    expect(interpolateNotification("@{{actor}} · {{count}} · {{gift}} · {{name}}", {
+      actor: "alice",
+      count: 2,
+      gift_name: "Rose",
+      achievement_name: "Early bird",
+    })).toBe("@alice · 2 · Rose · Early bird");
+  });
+
   const t = i18n.t.bind(i18n);
 
   it("renders a post-like from params", () => {

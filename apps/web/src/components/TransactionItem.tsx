@@ -1,4 +1,6 @@
 import { ArrowUpRight, ArrowDownLeft, ShoppingCart, Gift, Droplets } from "lucide-react";
+import i18n from "@/i18n";
+import { getIntlLanguage } from "@/i18n/dateLocale";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 export interface TransactionItemData {
@@ -35,11 +37,11 @@ export function formatRelativeTime(dateStr: string): string {
   const diffHour = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHour / 24);
 
-  if (diffMin < 1) return "только что";
-  if (diffMin < 60) return `${diffMin} мин. назад`;
-  if (diffHour < 24) return `${diffHour} ч. назад`;
-  if (diffDay < 7) return `${diffDay} дн. назад`;
-  return date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  if (diffMin < 1) return i18n.t("time.justNow");
+  if (diffMin < 60) return i18n.t("time.minutesShort", { count: diffMin });
+  if (diffHour < 24) return i18n.t("time.hoursShort", { count: diffHour });
+  if (diffDay < 7) return i18n.t("time.daysShort", { count: diffDay });
+  return date.toLocaleDateString(getIntlLanguage(), { day: "numeric", month: "short" });
 }
 
 export function TransactionItem({ transaction, onSelect }: TransactionItemProps) {

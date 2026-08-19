@@ -264,7 +264,7 @@ describe("SessionsSettings", () => {
 
     await waitFor(() => {
       expect(mockDeleteAllOtherSessions).toHaveBeenCalled();
-      expect(toast.success).toHaveBeenCalledWith("Завершено сессий: 1");
+      expect(toast.success).toHaveBeenCalledWith("Завершена 1 сессия");
     });
     expect(screen.queryByText("Firefox · Linux")).not.toBeInTheDocument();
     expect(screen.getByText("Safari · macOS")).toBeInTheDocument();

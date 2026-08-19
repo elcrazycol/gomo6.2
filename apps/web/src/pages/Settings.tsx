@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
@@ -53,28 +54,29 @@ const defaultPrivacySettings = {
 
 const themeOptions: Array<{
   id: ColorTheme;
-  name: string;
-  description: string;
+  nameKey: string;
+  descriptionKey: string;
   accent: string;
   preview: string;
 }> = [
-  { id: "graphite", name: "Монохромный графит", description: "Строго, чисто, читаемо", accent: "#0078D7", preview: "linear-gradient(135deg, #1E1E1E 0%, #2D2D2D 50%, #3C3C3C 100%)" },
-  { id: "lavender", name: "Космический лавандовый", description: "Мягкий неон и уютный glow", accent: "#C6A9FF", preview: "linear-gradient(135deg, #1A1625 0%, #2D2440 55%, #B0FFE6 130%)" },
-  { id: "volcanic", name: "Вулканический пепел", description: "Антрацит и тлеющий оранжевый", accent: "#FF4D00", preview: "linear-gradient(135deg, #1F1F1F 0%, #2A2422 50%, #FF4D00 140%)" },
-  { id: "mint", name: "Мятный лимонад", description: "Светло, плоско, свежо", accent: "#00FFA3", preview: "linear-gradient(135deg, #F0FFF4 0%, #E6FFF1 55%, #F5FF7A 120%)" },
-  { id: "glitch", name: "Глитч-кор", description: "RGB-двоение и цифровой шум", accent: "#00FFFF", preview: "linear-gradient(135deg, #121212 0%, #1D1D1D 50%, #2A1030 100%)" },
-  { id: "acid", name: "Кислотный шторм", description: "Неон, кислотный glow, киберпанк", accent: "#39FF14", preview: "linear-gradient(135deg, #000000 0%, #081507 45%, #FF10F0 130%)" },
-  { id: "void", name: "Пустота", description: "Только черный, белый и воздух", accent: "#FFFFFF", preview: "linear-gradient(135deg, #000000 0%, #101010 45%, #4A4A4A 100%)" },
-  { id: "cannabis", name: "Зелёная каннабиоидная", description: "Старый фирменный зелёный", accent: "#3FA34D", preview: "linear-gradient(135deg, #1E2A1E 0%, #315C31 100%)" },
-  { id: "pink", name: "Розовая няшная", description: "Мягкая и яркая", accent: "#FF4FA3", preview: "linear-gradient(135deg, #2A1722 0%, #7C2B5B 100%)" },
-  { id: "blue", name: "Синяя депрессивная", description: "Холодная и спокойная", accent: "#4D7CFE", preview: "linear-gradient(135deg, #172033 0%, #27496D 100%)" },
-  { id: "blood", name: "Кроваво-красная", description: "Контрастная и жёсткая", accent: "#D62839", preview: "linear-gradient(135deg, #2A1113 0%, #701B26 100%)" },
-  { id: "pumpkin", name: "Оранжево-тыквенная", description: "Тёплая и насыщенная", accent: "#FF8A00", preview: "linear-gradient(135deg, #2B190C 0%, #8C4A0F 100%)" },
+  { id: "graphite", nameKey: "themeGraphite", descriptionKey: "themeGraphiteDescription", accent: "#0078D7", preview: "linear-gradient(135deg, #1E1E1E 0%, #2D2D2D 50%, #3C3C3C 100%)" },
+  { id: "lavender", nameKey: "themeLavender", descriptionKey: "themeLavenderDescription", accent: "#C6A9FF", preview: "linear-gradient(135deg, #1A1625 0%, #2D2440 55%, #B0FFE6 130%)" },
+  { id: "volcanic", nameKey: "themeVolcanic", descriptionKey: "themeVolcanicDescription", accent: "#FF4D00", preview: "linear-gradient(135deg, #1F1F1F 0%, #2A2422 50%, #FF4D00 140%)" },
+  { id: "mint", nameKey: "themeMint", descriptionKey: "themeMintDescription", accent: "#00FFA3", preview: "linear-gradient(135deg, #F0FFF4 0%, #E6FFF1 55%, #F5FF7A 120%)" },
+  { id: "glitch", nameKey: "themeGlitch", descriptionKey: "themeGlitchDescription", accent: "#00FFFF", preview: "linear-gradient(135deg, #121212 0%, #1D1D1D 50%, #2A1030 100%)" },
+  { id: "acid", nameKey: "themeAcid", descriptionKey: "themeAcidDescription", accent: "#39FF14", preview: "linear-gradient(135deg, #000000 0%, #081507 45%, #FF10F0 130%)" },
+  { id: "void", nameKey: "themeVoid", descriptionKey: "themeVoidDescription", accent: "#FFFFFF", preview: "linear-gradient(135deg, #000000 0%, #101010 45%, #4A4A4A 100%)" },
+  { id: "cannabis", nameKey: "themeCannabis", descriptionKey: "themeCannabisDescription", accent: "#3FA34D", preview: "linear-gradient(135deg, #1E2A1E 0%, #315C31 100%)" },
+  { id: "pink", nameKey: "themePink", descriptionKey: "themePinkDescription", accent: "#FF4FA3", preview: "linear-gradient(135deg, #2A1722 0%, #7C2B5B 100%)" },
+  { id: "blue", nameKey: "themeBlue", descriptionKey: "themeBlueDescription", accent: "#4D7CFE", preview: "linear-gradient(135deg, #172033 0%, #27496D 100%)" },
+  { id: "blood", nameKey: "themeBlood", descriptionKey: "themeBloodDescription", accent: "#D62839", preview: "linear-gradient(135deg, #2A1113 0%, #701B26 100%)" },
+  { id: "pumpkin", nameKey: "themePumpkin", descriptionKey: "themePumpkinDescription", accent: "#FF8A00", preview: "linear-gradient(135deg, #2B190C 0%, #8C4A0F 100%)" },
 ];
 
 const Settings = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -345,17 +347,17 @@ const Settings = () => {
 
   const handlePasswordChange = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      toast.error("Заполните все поля");
+      toast.error(t("settings.passwordFieldsRequired"));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      toast.error("Пароли не совпадают");
+      toast.error(t("settings.passwordsMismatch"));
       return;
     }
 
     if (newPassword.length < 6) {
-      toast.error("Пароль должен быть не менее 6 символов");
+      toast.error(t("settings.passwordMinLength"));
       return;
     }
 
@@ -367,14 +369,14 @@ const Settings = () => {
 
       if (error) throw error;
 
-      toast.success("Пароль успешно изменён");
+      toast.success(t("settings.passwordChanged"));
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       setShowPasswordDialog(false);
     } catch (error: unknown) {
-      const errMsg = error && typeof (error as { message?: string }).message === "string" ? (error as { message: string }).message : "неизвестная ошибка";
-      toast.error("Ошибка изменения пароля: " + errMsg);
+      const errMsg = error && typeof (error as { message?: string }).message === "string" ? (error as { message: string }).message : t("settings.unknownError");
+      toast.error(t("settings.passwordChangeError", { error: errMsg }));
     }
   };
 
@@ -426,16 +428,16 @@ const Settings = () => {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || 'Spotify не настроен на сервере');
+        toast.error(data.error || t("settings.spotifyNotConfigured"));
         return;
       }
       if (data.auth_url) {
         setSpotifyAuthUrl(data.auth_url);
       } else {
-        toast.error('Не удалось получить ссылку для авторизации');
+        toast.error(t("settings.spotifyAuthUrlError"));
       }
     } catch {
-      toast.error('Ошибка подключения к Spotify');
+      toast.error(t("settings.spotifyConnectError"));
     } finally {
       setSpotifyLoading(false);
     }
@@ -455,12 +457,12 @@ const Settings = () => {
         setSpotifyName(null);
         setSpotifyAvatar(null);
         setSpotifyAuthUrl(null);
-        toast.success('Spotify отключён');
+        toast.success(t("settings.spotifyDisconnected"));
       } else {
-        toast.error('Ошибка отключения');
+        toast.error(t("settings.spotifyDisconnectError"));
       }
     } catch {
-      toast.error('Ошибка отключения');
+      toast.error(t("settings.spotifyDisconnectError"));
     } finally {
       setSpotifyLoading(false);
     }
@@ -472,14 +474,14 @@ const Settings = () => {
     const status = params.get('spotify_status');
     const message = params.get('spotify_message');
     if (status === 'success') {
-      toast.success(message || 'Spotify подключён!');
+      toast.success(message || t("settings.spotifyConnected"));
       // Clean URL
       window.history.replaceState({}, '', location.pathname);
     } else if (status === 'error') {
-      toast.error(message || 'Ошибка подключения Spotify');
+      toast.error(message || t("settings.spotifyConnectError"));
       window.history.replaceState({}, '', location.pathname);
     }
-  }, []);
+  }, [location.pathname, location.search, t]);
 
   useEffect(() => {
     if (user) {
@@ -529,29 +531,29 @@ const Settings = () => {
       <main className="max-w-4xl mx-auto p-4">
           <div className="space-y-6">
             <div className="text-center">
-              <h1 className="text-2xl font-bold mb-2">Настройки</h1>
-              <p className="text-muted-foreground">Настройки профиля и приложения</p>
+              <h1 className="text-2xl font-bold mb-2">{t("settings.title")}</h1>
+              <p className="text-muted-foreground">{t("settings.subtitle")}</p>
             </div>
 
             <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
               <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 h-auto p-1">
-                <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 py-2">Внешний вид</TabsTrigger>
-                <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 py-2">Профиль</TabsTrigger>
-                <TabsTrigger value="account" className="text-xs sm:text-sm px-2 py-2">Аккаунт</TabsTrigger>
-                <TabsTrigger value="privacy" className="text-xs sm:text-sm px-2 py-2">Приватность</TabsTrigger>
-                <TabsTrigger value="integrations" className="text-xs sm:text-sm px-2 py-2">Интеграции</TabsTrigger>
+                <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 py-2">{t("settings.appearance")}</TabsTrigger>
+                <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 py-2">{t("settings.profile")}</TabsTrigger>
+                <TabsTrigger value="account" className="text-xs sm:text-sm px-2 py-2">{t("settings.account")}</TabsTrigger>
+                <TabsTrigger value="privacy" className="text-xs sm:text-sm px-2 py-2">{t("settings.privacy")}</TabsTrigger>
+                <TabsTrigger value="integrations" className="text-xs sm:text-sm px-2 py-2">{t("settings.integrations")}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="appearance" className="space-y-4">
                 {/* Язык интерфейса */}
                 <LanguageSelector userId={user?.id ?? null} />
                 <div className="bg-card border border-border p-4 sm:p-6">
-                  <h2 className="text-lg font-semibold mb-2">Переводы</h2>
+                  <h2 className="text-lg font-semibold mb-2">{t("settings.translations")}</h2>
                   <p className="text-sm text-muted-foreground mb-3">
-                    Помогите перевести интерфейс на свой язык — предлагайте переводы и голосуйте за лучшие.
+                    {t("settings.translationsDescription")}
                   </p>
                   <Link to="/translate">
-                    <Button variant="outline">Открыть редактор переводов</Button>
+                    <Button variant="outline">{t("settings.openTranslationEditor")}</Button>
                   </Link>
                 </div>
 
@@ -562,8 +564,8 @@ const Settings = () => {
                       <div className="flex items-center gap-2">
                         <Palette className="h-5 w-5" />
                         <div>
-                          <span className="text-lg font-semibold">Темы</span>
-                          <p className="text-sm text-muted-foreground">Тема применяется сразу и одинаково во всех разделах</p>
+                          <span className="text-lg font-semibold">{t("settings.themes")}</span>
+                          <p className="text-sm text-muted-foreground">{t("settings.themesDescription")}</p>
                         </div>
                       </div>
                       <ChevronDown className={`h-5 w-5 transition-transform ${themesExpanded ? 'rotate-180' : ''}`} />
@@ -573,7 +575,7 @@ const Settings = () => {
                     <div className="bg-card border border-border p-4 sm:p-6 space-y-6">
                   <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-3 py-2 sm:min-w-[220px]">
                     <Label htmlFor="dark-mode" className="text-sm font-semibold">
-                      Тёмный режим
+                      {t("settings.darkMode")}
                     </Label>
                     <Switch
                       id="dark-mode"
@@ -608,8 +610,8 @@ const Settings = () => {
                           <div className="relative space-y-2">
                             <div className="flex items-center justify-between gap-3">
                               <div>
-                                <div className="font-semibold leading-tight">{theme.name}</div>
-                                <div className="text-xs text-muted-foreground">{theme.description}</div>
+                                <div className="font-semibold leading-tight">{t(`settings.${theme.nameKey}`)}</div>
+                                <div className="text-xs text-muted-foreground">{t(`settings.${theme.descriptionKey}`)}</div>
                               </div>
                               <span
                                 className={`h-3 w-3 rounded-full border border-white/20 transition-all duration-300 ${
@@ -650,7 +652,7 @@ const Settings = () => {
                     <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
                           <div className="flex items-center gap-2">
                         <Type className="h-5 w-5" />
-                        <span className="text-lg font-semibold">Шрифт</span>
+                        <span className="text-lg font-semibold">{t("settings.font")}</span>
                           </div>
                       <ChevronDown className={`h-5 w-5 transition-transform ${fontSettingsExpanded ? 'rotate-180' : ''}`} />
                         </button>
@@ -660,19 +662,19 @@ const Settings = () => {
                     <div className="bg-card border border-border p-4 sm:p-6">
                         <div>
                           <Label htmlFor="google-font" className="text-sm font-medium">
-                            Шрифт из Google Fonts
+                            {t("settings.googleFont")}
                           </Label>
                           <div className="mt-2 space-y-2">
                             <Input
                               id="google-font"
                               type="text"
-                              placeholder="Введите название шрифта (например: Roboto, Open Sans, Montserrat)"
+                              placeholder={t("settings.googleFontPlaceholder")}
                               value={customFont}
                               onChange={(e) => handleFontChange(e.target.value)}
                               className="w-full"
                             />
                             <p className="text-xs text-muted-foreground">
-                              Введите точное название шрифта из{' '}
+                              {t("settings.googleFontHint")}
                               <a
                                 href="https://fonts.google.com/"
                                 target="_blank"
@@ -681,10 +683,10 @@ const Settings = () => {
                               >
                                 Google Fonts
                               </a>
-                              . Например: "Roboto", "Open Sans", "Montserrat", "Lato" и т.д.
+                              . {t("settings.googleFontExamples")}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              Оставьте поле пустым, чтобы использовать шрифт по умолчанию.
+                              {t("settings.googleFontEmptyHint")}
                             </p>
                         </div>
                       </div>
@@ -698,59 +700,51 @@ const Settings = () => {
               <TabsContent value="profile" className="space-y-4">
                 {/* Profile Customization */}
                 <div className="bg-card p-4 sm:p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Кастомизация профиля</h2>
+                  <h2 className="text-lg font-semibold mb-4">{t("settings.profileCustomization")}</h2>
                   <div className="space-y-4">
                     <div>
-                      <label className="text-sm font-medium">Основная кастомизация</label>
+                      <label className="text-sm font-medium">{t("settings.mainCustomization")}</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Настройте никнейм, аватар, био и другие элементы профиля
+                        {t("settings.mainCustomizationDescription")}
                       </p>
                       <Link to={`/profile/${user.id}`}>
-                        <Button variant="outline">
-                          Перейти в профиль
-                        </Button>
+                        <Button variant="outline">{t("settings.goToProfile")}</Button>
                       </Link>
                     </div>
                     <div>
-                      <label className="text-sm font-medium">Студия профиля</label>
+                      <label className="text-sm font-medium">{t("settings.profileStudio")}</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Весь дизайн профиля в одном месте: шапка, фон, тема, никнейм и бейдж
+                        {t("settings.profileStudioDescription")}
                       </p>
                       <Button
                         variant="default"
-                        onClick={() => navigate("/settings/prof-studio")}
-                      >
-                        Открыть студию
-                      </Button>
+                        onClick={() => navigate("/settings/prof-studio")}>{t("settings.openStudio")}</Button>
                     </div>
                   </div>
                 </div>
 
                 {/* Post Customization */}
                 <div className="bg-card p-4 sm:p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Кастомизация постов</h2>
+                  <h2 className="text-lg font-semibold mb-4">{t("settings.postCustomization")}</h2>
                   <div className="space-y-4">
                     <div>
-                      <label className="text-sm font-medium">Внешний вид постов</label>
+                      <label className="text-sm font-medium">{t("settings.postAppearance")}</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Настройте как выглядят ваши посты в треддах
+                        {t("settings.postAppearanceDescription")}
                       </p>
                       <Button
                         variant="outline"
-                        onClick={() => navigate("/settings/posts")}
-                      >
-                        Настроить
-                      </Button>
+                        onClick={() => navigate("/settings/posts")}>{t("settings.configure")}</Button>
                     </div>
                   </div>
                 </div>
 
                 {/* Interface Settings */}
                 <div className="bg-card p-4 sm:p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Интерфейс постов</h2>
+                  <h2 className="text-lg font-semibold mb-4">{t("settings.postInterface")}</h2>
                           <div className="space-y-4">
                             <div>
-                              <Label className="text-sm font-medium mb-3 block">Вид отправителя</Label>
+                              <Label className="text-sm font-medium mb-3 block">{t("settings.senderDisplay")}</Label>
                                 <div className="flex gap-4">
                                 <div className="flex-1">
                                   <Select value={senderDisplayType} onValueChange={handleSenderDisplayTypeChange}>
@@ -758,23 +752,22 @@ const Settings = () => {
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="classic">Классический</SelectItem>
-                                      <SelectItem value="modern">Современный</SelectItem>
+                                      <SelectItem value="classic">{t("settings.classic")}</SelectItem>
+                                      <SelectItem value="modern">{t("settings.modern")}</SelectItem>
                                     </SelectContent>
                                   </Select>
                                 </div>
-                                <div className="flex-1 bg-muted/30 border border-border p-3 rounded text-xs">
-                                  {senderDisplayType === 'classic' ? (
-                                    <>
+                                <div className="flex-1 bg-muted/30 border border-border p-3 rounded text-xs">{senderDisplayType === 'classic' ? (
+                                      <>
                                       <div className="font-mono text-primary">#03136507</div>
-                                      <div className="text-muted-foreground">· nickname · 2 дня назад</div>
+                                      <div className="text-muted-foreground">· nickname · {t("time.daysShort", { count: 2 })}</div>
                                     </>
                                   ) : (
                                     <div className="flex items-start gap-2">
                                       <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center text-xs">👤</div>
                                       <div>
                                         <div className="text-muted-foreground">nickname</div>
-                                        <div className="text-muted-foreground">2 дня назад</div>
+                                        <div className="text-muted-foreground">{t("time.daysShort", { count: 2 })}</div>
                                         <div className="font-mono text-primary text-[10px]">#03136507</div>
                                       </div>
                                     </div>
@@ -787,18 +780,18 @@ const Settings = () => {
 
                 {/* Placeholders */}
                 <div className="bg-card p-4 sm:p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Плейсхолдеры</h2>
+                  <h2 className="text-lg font-semibold mb-4">{t("settings.placeholders")}</h2>
                   <div className="space-y-4">
                     <div>
-                      <label className="text-sm font-medium">Плейсхолдеры профиля</label>
+                      <label className="text-sm font-medium">{t("settings.profilePlaceholders")}</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Выберите плейсхолдеры для отображения при наведении на пользователя
+                        {t("settings.profilePlaceholdersDescription")}
                       </p>
                         <Button
                           variant="outline"
                           onClick={() => navigate("/settings/placeholders")}
                         >
-                          Настроить
+                          {t("settings.configure")}
                         </Button>
                       </div>
                     </div>
@@ -807,55 +800,53 @@ const Settings = () => {
 
               <TabsContent value="account" className="space-y-4">
                 <div className="bg-card p-4 sm:p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Аккаунт</h2>
+                  <h2 className="text-lg font-semibold mb-4">{t("settings.account")}</h2>
                   <div className="space-y-4">
                     <div>
-                      <label className="text-sm font-medium">Профиль</label>
+                      <label className="text-sm font-medium">{t("settings.profile")}</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Управление информацией профиля
+                        {t("settings.accountProfileDescription")}
                       </p>
                       <Link to={`/profile/${user.id}`}>
-                        <Button variant="outline">
-                          Перейти в профиль
-                        </Button>
+                        <Button variant="outline">{t("settings.goToProfile")}</Button>
                       </Link>
                     </div>
                     <div>
-                      <label className="text-sm font-medium">Пароль</label>
+                      <label className="text-sm font-medium">{t("settings.password")}</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Измените пароль для защиты аккаунта
+                        {t("settings.passwordDescription")}
                       </p>
                       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
                         <DialogTrigger asChild>
                           <Button variant="outline">
-                            Сменить пароль
+                            {t("settings.changePassword")}
                           </Button>
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Изменить пароль</DialogTitle>
+                            <DialogTitle>{t("settings.changePassword")}</DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4">
                             <Input
                               type="password"
-                              placeholder="Текущий пароль"
+                              placeholder={t("auth.currentPassword")}
                               value={currentPassword}
                               onChange={(e) => setCurrentPassword(e.target.value)}
                             />
                             <Input
                               type="password"
-                              placeholder="Новый пароль"
+                              placeholder={t("auth.newPassword")}
                               value={newPassword}
                               onChange={(e) => setNewPassword(e.target.value)}
                             />
                             <Input
                               type="password"
-                              placeholder="Подтвердите новый пароль"
+                              placeholder={t("settings.confirmNewPassword")}
                               value={confirmPassword}
                               onChange={(e) => setConfirmPassword(e.target.value)}
                             />
                             <Button onClick={handlePasswordChange} className="w-full">
-                              Изменить пароль
+                              {t("settings.changePassword")}
                             </Button>
                           </div>
                         </DialogContent>
@@ -874,9 +865,9 @@ const Settings = () => {
 
                     {/* 2FA Section */}
                     <div className="border-t border-border pt-4 mt-4">
-                      <h3 className="text-lg font-semibold mb-2">Двухфакторная аутентификация (2FA)</h3>
+                      <h3 className="text-lg font-semibold mb-2">{t("settings.twoFactor")}</h3>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Защитите ваш аккаунт с помощью TOTP кода из аутентификатора
+                        {t("settings.twoFactorDescription")}
                       </p>
                       <TwoFASection userId={user.id} />
                     </div>
@@ -893,8 +884,8 @@ const Settings = () => {
                       <h2 className="text-lg font-semibold">Spotify</h2>
                       <p className="text-sm text-muted-foreground">
                         {spotifyConnected
-                          ? `Подключён как ${spotifyName || "Spotify-аккаунт"}`
-                          : "Показывайте, что вы слушаете, прямо в профиле"}
+                          ? t("settings.spotifyConnectedAs", { name: spotifyName || "Spotify" })
+                          : t("settings.spotifyDescription")}
                       </p>
                     </div>
                   </div>
@@ -911,12 +902,12 @@ const Settings = () => {
                             <div className="flex items-center gap-3 p-3 bg-background/50 rounded-lg border border-border">
                               <img
                                 src={spotifyAvatar}
-                                alt="Spotify avatar"
+                                alt={t("settings.spotifyAvatarAlt")}
                                 className="w-10 h-10 rounded-full"
                               />
                               <div>
                                 <p className="font-medium text-sm">{spotifyName || "Spotify"}</p>
-                                <p className="text-xs text-muted-foreground">Подключён</p>
+                                <p className="text-xs text-muted-foreground">{t("settings.connected")}</p>
                               </div>
                             </div>
                           )}
@@ -927,26 +918,25 @@ const Settings = () => {
                             className="gap-2"
                           >
                             <Trash2 className="h-4 w-4" />
-                            Отключить Spotify
+                            {t("settings.disconnectSpotify")}
                           </Button>
                         </>
                       ) : (
                         <>
                           <p className="text-sm text-muted-foreground">
-                            Подключите Spotify, чтобы на вашем профиле отображался текущий трек.
-                            Это работает в реальном времени — другие пользователи увидят, что вы слушаете.
+                            {t("settings.spotifyDescriptionLong")}
                           </p>
                           {spotifyAuthUrl ? (
                             <div className="space-y-3">
                               <p className="text-sm">
-                                Нажмите кнопку ниже, чтобы авторизоваться в Spotify:
+                                {t("settings.spotifyAuthorizeHint")}
                               </p>
                               <Button
                                 onClick={() => window.location.href = spotifyAuthUrl}
                                 className="gap-2 bg-[#1DB954] hover:bg-[#1ed760] text-black font-semibold"
                               >
                                 <Music className="h-4 w-4" />
-                                Подключить Spotify
+                                {t("settings.connectSpotify")}
                               </Button>
                             </div>
                           ) : (
@@ -955,7 +945,7 @@ const Settings = () => {
                               className="gap-2 bg-[#1DB954] hover:bg-[#1ed760] text-black font-semibold"
                             >
                               <Music className="h-4 w-4" />
-                              Подключить Spotify
+                              {t("settings.connectSpotify")}
                             </Button>
                           )}
                         </>
@@ -969,13 +959,13 @@ const Settings = () => {
                     {/* Private Profile */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Приватный профиль</h2>
+                        <h2 className="text-lg font-semibold">{t("settings.privateProfile")}</h2>
                         <Tooltip>
                           <TooltipTrigger>
                             <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>Скрывает контент профиля от пользователей, которые не являются вашими друзьями</p>
+                            <p>{t("settings.privateProfileDescription")}</p>
                           </TooltipContent>
                         </Tooltip>
                       </div>
@@ -983,7 +973,7 @@ const Settings = () => {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">Приватный режим</span>
+                            <span className="font-medium">{t("settings.privateMode")}</span>
                           </div>
                           <Switch
                             checked={privacySettings.private_profile}
@@ -994,7 +984,7 @@ const Settings = () => {
 
                         <div className={`space-y-3 pl-4 border-l-2 ${privacySettings.private_profile ? 'border-primary/30' : 'border-border opacity-50'}`}>
                           <div className="flex items-center justify-between">
-                            <span>Скрывать аватар</span>
+                            <span>{t("settings.hideAvatar")}</span>
                             <Switch
                               checked={privacySettings.private_hide_avatar}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_avatar', value)}
@@ -1003,13 +993,13 @@ const Settings = () => {
                           </div>
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <span>Скрывать стену</span>
+                              <span>{t("settings.hideWall")}</span>
                               <Tooltip>
                                 <TooltipTrigger>
                                   <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  <p>При включённом приватном профиле стена всегда скрыта от не-друзей — это гарантировано на сервере и не может быть отключено</p>
+                                  <p>{t("settings.hideWallHint")}</p>
                                 </TooltipContent>
                               </Tooltip>
                             </div>
@@ -1020,7 +1010,7 @@ const Settings = () => {
                             />
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Скрывать треды</span>
+                            <span>{t("settings.hideThreads")}</span>
                             <Switch
                               checked={privacySettings.private_hide_threads}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_threads', value)}
@@ -1028,7 +1018,7 @@ const Settings = () => {
                             />
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Скрывать статистику</span>
+                            <span>{t("settings.hideStats")}</span>
                             <Switch
                               checked={privacySettings.private_hide_stats}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_stats', value)}
@@ -1036,7 +1026,7 @@ const Settings = () => {
                             />
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Скрывать список друзей</span>
+                            <span>{t("settings.hideFriends")}</span>
                             <Switch
                               checked={privacySettings.private_hide_friends}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_friends', value)}
@@ -1044,7 +1034,7 @@ const Settings = () => {
                             />
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Скрывать подарки</span>
+                            <span>{t("settings.hideGifts")}</span>
                             <Switch
                               checked={privacySettings.private_hide_gifts}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_gifts', value)}
@@ -1052,7 +1042,7 @@ const Settings = () => {
                             />
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Скрывать достижения</span>
+                            <span>{t("settings.hideAchievements")}</span>
                             <Switch
                               checked={privacySettings.private_hide_achievements}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_achievements', value)}
@@ -1066,18 +1056,18 @@ const Settings = () => {
                     {/* Visibility */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Видимость</h2>
+                        <h2 className="text-lg font-semibold">{t("settings.visibility")}</h2>
                       </div>
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span>Показывать статус "В сети"</span>
+                            <span>{t("settings.showOnlineStatus")}</span>
                             <Tooltip>
                               <TooltipTrigger>
                                 <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Показывать статус "В сети" когда вы активны</p>
+                                <p>{t("settings.showOnlineStatusHint")}</p>
                               </TooltipContent>
                             </Tooltip>
                           </div>
@@ -1088,7 +1078,7 @@ const Settings = () => {
                           />
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Показывать статистику в профиле</span>
+                          <span>{t("settings.showProfileStats")}</span>
                           <Switch
                             checked={privacySettings.show_profile_stats ?? false}
                             onCheckedChange={(value) => updatePrivacySetting('show_profile_stats', value)}
@@ -1096,7 +1086,7 @@ const Settings = () => {
                           />
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Показывать подробную статистику (/stats)</span>
+                          <span>{t("settings.showDetailedStats")}</span>
                           <Switch
                             checked={privacySettings.show_detailed_stats ?? false}
                             onCheckedChange={(value) => updatePrivacySetting('show_detailed_stats', value)}
@@ -1104,7 +1094,7 @@ const Settings = () => {
                           />
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Показывать стену профиля</span>
+                          <span>{t("settings.showProfileWall")}</span>
                           <Switch
                             checked={privacySettings.show_profile_wall ?? true}
                             onCheckedChange={(value) => updatePrivacySetting('show_profile_wall', value)}
@@ -1112,7 +1102,7 @@ const Settings = () => {
                           />
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Разрешить посты от других</span>
+                          <span>{t("settings.allowWallPosts")}</span>
                           <Switch
                             checked={privacySettings.allow_wall_posts_from_others ?? true}
                             onCheckedChange={(value) => updatePrivacySetting('allow_wall_posts_from_others', value)}
@@ -1125,18 +1115,18 @@ const Settings = () => {
                     {/* Security */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Безопасность</h2>
+                        <h2 className="text-lg font-semibold">{t("settings.security")}</h2>
                       </div>
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span>Удалять метаданные с изображений</span>
+                            <span>{t("settings.removeMetadata")}</span>
                             <Tooltip>
                               <TooltipTrigger>
                                 <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Удаляет EXIF данные (геолокация, время съемки) для защиты приватности</p>
+                                <p>{t("settings.removeMetadataHint")}</p>
                               </TooltipContent>
                             </Tooltip>
                           </div>

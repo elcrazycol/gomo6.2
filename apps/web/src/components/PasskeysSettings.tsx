@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
@@ -7,6 +8,7 @@ import {
   serializeRegistration,
 } from "@/services/passkeys";
 import { apiClient } from "@/integrations/api/client";
+import { getIntlLanguage } from "@/i18n/dateLocale";
 import { Plus, Trash2, Shield } from "lucide-react";
 
 interface PasskeyInfo {
@@ -18,6 +20,7 @@ interface PasskeyInfo {
 }
 
 export function PasskeysSettings() {
+  const { t } = useTranslation();
   const [passkeys, setPasskeys] = useState<PasskeyInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -39,7 +42,7 @@ export function PasskeysSettings() {
 
   const handleAddPasskey = async () => {
     if (!supportsWebAuthn()) {
-      toast.error("Ваш браузер не поддерживает Passkeys");
+      toast.error(t("settings.passkeysUnsupported"));
       return;
     }
 
@@ -48,29 +51,29 @@ export function PasskeysSettings() {
       // Step 1: get registration options from server
       const optionsData = await apiClient.beginPasskeyRegistration();
       const wrapped = optionsData.options as Record<string, unknown>;
-      if (!wrapped) throw new Error("No options returned");
+      if (!wrapped) throw new Error(t("settings.passkeysNoOptions"));
       // go-webauthn nests options under {publicKey: {challenge, user, ...}}
       const options = wrapped.publicKey as Record<string, unknown>;
-      if (!options) throw new Error("No options returned");
+      if (!options) throw new Error(t("settings.passkeysNoOptions"));
 
       // Step 2: create credential in browser
       const publicKey = prepareRegistrationOptions(options);
       const credential = await navigator.credentials.create({
         publicKey,
       });
-      if (!credential) throw new Error("Failed to create passkey");
+      if (!credential) throw new Error(t("settings.passkeysCreateError"));
 
       // Step 3: serialize and send to server
       const serialized = serializeRegistration(credential as PublicKeyCredential);
-      const result = await apiClient.finishPasskeyRegistration(
+      await apiClient.finishPasskeyRegistration(
         (optionsData.name as string) || "Passkey",
         serialized
       );
 
-      toast.success("Passkey добавлен!");
+      toast.success(t("settings.passkeyAdded"));
       loadPasskeys();
     } catch (err) {
-      const msg = (err as Error).message || "Не удалось добавить passkey";
+      const msg = (err as Error).message || t("settings.passkeyAddError");
       toast.error(msg);
     } finally {
       setAdding(false);
@@ -80,16 +83,16 @@ export function PasskeysSettings() {
   const handleDelete = async (credId: string) => {
     try {
       await apiClient.deletePasskey(credId);
-      toast.success("Passkey удалён");
+      toast.success(t("settings.passkeyRemoved"));
       loadPasskeys();
     } catch {
-      toast.error("Не удалось удалить passkey");
+      toast.error(t("settings.passkeyRemoveError"));
     }
   };
 
   const formatDate = (dateStr: string) => {
     try {
-      return new Date(dateStr).toLocaleDateString("ru-RU", {
+      return new Date(dateStr).toLocaleDateString(getIntlLanguage(), {
         day: "numeric",
         month: "long",
         year: "numeric",
@@ -107,8 +110,7 @@ export function PasskeysSettings() {
           <div>
             <h3 className="text-lg font-semibold">Passkeys</h3>
             <p className="text-sm text-muted-foreground">
-              Беспарольный вход без фишинга. Используйте Touch ID, Face ID или
-              Windows Hello.
+              {t("settings.passkeysDescription")}
             </p>
           </div>
         </div>
@@ -120,12 +122,12 @@ export function PasskeysSettings() {
           className="gap-1"
         >
           <Plus className="h-4 w-4" />
-          {adding ? "Добавление..." : "Добавить"}
+          {adding ? t("settings.passkeyAdding") : t("settings.addPasskey")}
         </Button>
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Загрузка...</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       ) : passkeys.length > 0 ? (
         <div className="space-y-2">
           {passkeys.map((pk) => (
@@ -140,7 +142,7 @@ export function PasskeysSettings() {
                   <div className="text-xs text-muted-foreground">
                     {pk.attestation_type} · {formatDate(pk.created_at)}
                     {pk.last_used_at &&
-                      ` · последний раз: ${formatDate(pk.last_used_at)}`}
+                      ` · ${t("settings.passkeyLastUsed")}: ${formatDate(pk.last_used_at)}`}
                   </div>
                 </div>
               </div>
@@ -157,8 +159,7 @@ export function PasskeysSettings() {
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Нет сохранённых passkeys. Добавьте passkey для быстрого и безопасного
-          входа.
+          {t("settings.noPasskeysSaved")}
         </p>
       )}
     </div>

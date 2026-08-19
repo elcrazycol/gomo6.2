@@ -5,6 +5,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
+import { useLanguageStore } from "@/stores/languageStore";
 import { formatConversationDate, formatPresence, getInitials } from "./utils";
 import { NewChatDialog } from "./NewChatDialog";
 import type { ConversationView } from "./types";
@@ -30,6 +31,8 @@ const ConversationCard = memo(function ConversationCard({
   isCollapsed: boolean;
   myUserId: string | null;
 }) {
+  const language = useLanguageStore((state) => state.language);
+  void language;
   const isOnline = !conversation.is_group && conversation.other_is_online;
   const unread = conversation.unread_count ?? 0;
   const lastMessageIsMine = Boolean(myUserId && conversation.last_message_sender_id === myUserId);

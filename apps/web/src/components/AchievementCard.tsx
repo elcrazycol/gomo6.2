@@ -2,6 +2,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Pin, PinOff, Sparkles, Lock, Trophy } from "lucide-react";
 import { getAchievementIcon, IconSparkles } from "@/components/AchievementIcons";
+import { getIntlLanguage } from "@/i18n/dateLocale";
 
 export interface AchievementLevel {
   level: number;
@@ -441,7 +442,7 @@ export function AchievementCard({
           {/* Unlock date */}
           {achievement.unlocked_at && !compact && (
             <p className="text-[10px] text-muted-foreground/40 mt-1.5">
-              {new Date(achievement.unlocked_at).toLocaleDateString("ru-RU", {
+              {new Date(achievement.unlocked_at).toLocaleDateString(getIntlLanguage(), {
                 day: "numeric",
                 month: "long",
                 year: "numeric",
