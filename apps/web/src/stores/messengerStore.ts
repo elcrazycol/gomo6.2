@@ -123,19 +123,21 @@ function normalizeConversationUnread(conversation: ConversationView, selectedId:
 
 
 // ─── Batched delivered/read receipts ─────────────────────────────────────────
-// Delivered receipts remain batched. Read receipts are flushed immediately so
-// a reload cannot discard the only request that clears unread_count. The
-// backend uses WHERE sent_at <= target, so one latest marker covers the prefix.
+// Delivered receipts stay batched (a prefix marker: receiving the newest
+// message implies every older one was delivered too). Read receipts are
+// per-message and sent immediately — each on-screen message gets its own real
+// read_at, so a reload can never discard the only request that clears it.
 
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 type PendingReceipt = { messageId: string; sentAt?: string };
 const pendingDelivered = new Map<string, PendingReceipt>(); // convId → latest message
-const pendingRead = new Map<string, PendingReceipt>();       // convId → latest message
 const lastFlushed = {
   delivered: new Map<string, PendingReceipt>(),
-  read: new Map<string, PendingReceipt>(),
 };
-const flushRetries = new Map<string, number>(); // "read:convId" → attempt count
+// convId → set of message ids whose read receipt was already sent (or is in
+// flight). Dedup per message — not per "latest marker" — so scrolling up can
+// mark older messages read individually.
+const sentRead = new Map<string, Set<string>>();
 const localReadThrough = new Map<string, string>(); // convId → newest locally read sent_at
 
 function isLaterReceipt(candidate: PendingReceipt, current?: PendingReceipt): boolean {
@@ -161,18 +163,16 @@ function startFlushTimer(): void {
 }
 
 function flushPending(): void {
-  if (pendingDelivered.size === 0 && pendingRead.size === 0) {
+  if (pendingDelivered.size === 0) {
     if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
     return;
   }
 
-  // Detach batches before starting requests. A failed request can safely put
+  // Detach the batch before starting requests. A failed request can safely put
   // only its own newest receipt back into the queue instead of being erased by
   // a trailing clear().
   const deliveredBatch = [...pendingDelivered.entries()];
-  const readBatch = [...pendingRead.entries()];
   pendingDelivered.clear();
-  pendingRead.clear();
 
   for (const [convId, receipt] of deliveredBatch) {
     if (!isLaterReceipt(receipt, lastFlushed.delivered.get(convId))) continue;
@@ -185,33 +185,13 @@ function flushPending(): void {
       }
     });
   }
-
-  for (const [convId, receipt] of readBatch) {
-    if (!isLaterReceipt(receipt, lastFlushed.read.get(convId))) continue;
-    lastFlushed.read.set(convId, receipt);
-    messengerApi.markRead(convId, receipt.messageId).catch(() => {
-      const key = `read:${convId}`;
-      const attempts = (flushRetries.get(key) ?? 0) + 1;
-      flushRetries.set(key, attempts);
-      if (attempts < 3 && sameReceipt(lastFlushed.read.get(convId), receipt)) {
-        lastFlushed.read.delete(convId);
-        pendingRead.set(convId, receipt);
-        startFlushTimer();
-      } else if (sameReceipt(lastFlushed.read.get(convId), receipt)) {
-        lastFlushed.read.delete(convId);
-        flushRetries.delete(key);
-      }
-    });
-  }
 }
 
 export function  destroyMessenger(): void {
   if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
   pendingDelivered.clear();
-  pendingRead.clear();
   lastFlushed.delivered.clear();
-  lastFlushed.read.clear();
-  flushRetries.clear();
+  sentRead.clear();
   lastReceiptsLoad.clear();
   // Clear all typing timers
   for (const timer of typingTimers.values()) clearTimeout(timer);
@@ -228,21 +208,29 @@ export function queueMarkDelivered(conversationId: string, messageId: string, se
 }
 
 export function queueMarkRead(conversationId: string, messageId: string, sentAt?: string): void {
-  const receipt = { messageId, sentAt };
+  let sent = sentRead.get(conversationId);
+  if (!sent) {
+    sent = new Set();
+    sentRead.set(conversationId, sent);
+  }
+  if (sent.has(messageId)) return;
+  sent.add(messageId);
   if (sentAt) {
     const previous = localReadThrough.get(conversationId);
     if (!previous || Date.parse(sentAt) >= Date.parse(previous)) localReadThrough.set(conversationId, sentAt);
   }
-  const existing = pendingRead.get(conversationId);
-  if (isLaterReceipt(receipt, existing)) pendingRead.set(conversationId, receipt);
-  // Reset the UI immediately, then start the request immediately. Read state
-  // must not depend on a 2-second timer surviving a page reload.
+  // Reset the UI immediately, then send the read receipt immediately. Read
+  // state must not depend on a 2-second timer surviving a page reload.
   useMessengerStore.setState((s) => ({
     conversations: s.conversations.map((c) =>
       c.id === conversationId ? { ...c, unread_count: 0 } : c,
     ),
   }));
-  flushPending();
+  messengerApi.markRead(conversationId, messageId).catch(() => {
+    // Drop the dedup marker on failure so the message is retried the next time
+    // it becomes visible.
+    sent.delete(messageId);
+  });
 }
 
 // ─── Typing indicator auto-clear ────────────────────────────────────────────
@@ -476,16 +464,9 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // Notes content is device-encrypted: never persist it to the IndexedDB
       // cache (the store already holds the readable plaintext).
       if (!notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, msgs);
-      // The conversation is on screen: tell the server immediately that it is
-      // fully read, using the newest visible message (own or other). Relying on
-      // the other user's last message alone lets a conversation whose newest
-      // message is our own stay unread on the server, so the badge would come
-      // back after a reload. queueMarkRead flushes instantly and the backend
-      // treats the marker as a prefix (sent_at <= marker).
-      const lastVisible = [...msgs].reverse().find((m) => !m.is_deleted && !m.localStatus);
-      if (lastVisible) {
-        queueMarkRead(conversationId, lastVisible.id, lastVisible.sent_at);
-      }
+      // Read marking is owned by MessageList's visibility tracking: only the
+      // messages actually on screen get a read receipt (each with its own real
+      // read_at). Loading a conversation must not auto-read its whole history.
     } catch {
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
       set({

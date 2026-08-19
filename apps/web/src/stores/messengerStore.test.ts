@@ -155,7 +155,7 @@ describe("messengerStore", () => {
       expect(state.isMessagesLoading).toBe(false);
     });
 
-    it("marks the conversation read up to the newest visible message on open", async () => {
+    it("does not auto-mark read on open (visibility tracking owns read receipts)", async () => {
       vi.mocked(messengerApi.getMessages).mockResolvedValue([
         mockMsg({ id: "older", sent_at: "2025-06-01T11:00:00Z" }),
         mockMsg({ id: "newest", sent_at: "2025-06-01T12:00:00Z", sender_user_id: "u1" }),
@@ -164,9 +164,9 @@ describe("messengerStore", () => {
       useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
       await useMessengerStore.getState().loadMessages("conv-1");
 
-      // The newest message is our own, so the old ChatView-only trigger would
-      // have skipped it — the server-side unread counter must still be cleared.
-      expect(messengerApi.markRead).toHaveBeenCalledWith("conv-1", "newest");
+      // Read marking is visibility-based (MessageList), so loading a
+      // conversation must not auto-read its history.
+      expect(messengerApi.markRead).not.toHaveBeenCalled();
     });
 
     it("sets error on failure", async () => {
@@ -306,26 +306,29 @@ describe("messengerStore", () => {
       expect(useMessengerStore.getState().conversations[0].unread_count).toBe(0);
     });
 
-    it("flushes the read marker immediately and orders UUID messages by sent_at", async () => {
+    it("sends a per-message read receipt and dedupes repeated messages", async () => {
       useMessengerStore.setState({
         conversations: [mockConv({ id: "conv-1", unread_count: 2 })],
       });
       vi.mocked(messengerApi.markRead).mockResolvedValue({ ok: true });
 
-      // The newer message deliberately has a lexically smaller UUID.
-      queueMarkRead("conv-1", "ffffffff-ffff-ffff-ffff-ffffffffffff", "2025-06-01T12:00:00Z");
-      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000000", "2025-06-01T12:01:00Z");
+      // Two distinct messages each get their own receipt (individual read_at).
+      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
+      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000002", "2025-06-01T12:01:00Z");
+      // Re-reporting an already-sent message is a no-op.
+      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
       await Promise.resolve();
 
+      expect(messengerApi.markRead).toHaveBeenCalledTimes(2);
       expect(messengerApi.markRead).toHaveBeenNthCalledWith(
         1,
         "conv-1",
-        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        "00000000-0000-0000-0000-000000000001",
       );
       expect(messengerApi.markRead).toHaveBeenNthCalledWith(
         2,
         "conv-1",
-        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-0000-0000-000000000002",
       );
       expect(useMessengerStore.getState().conversations[0].unread_count).toBe(0);
     });

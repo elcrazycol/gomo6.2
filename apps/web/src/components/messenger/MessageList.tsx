@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown } from "lucide-react";
-import { useMessengerStore } from "@/stores/messengerStore";
+import { useMessengerStore, queueMarkRead } from "@/stores/messengerStore";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
@@ -162,6 +162,7 @@ function anchorTarget(
 export const MessageList = memo(
   forwardRef<MessageListHandle, MessageListProps>(function MessageList({ renderMessage, messagesOverride }, ref) {
     const conversationId = useMessengerStore((s) => s.selectedConversationId);
+    const meId = useMessengerStore((s) => s.me?.id);
     const storeMessages = useMessengerStore((s) => s.messages);
     // Notes self-chat passes a folder-filtered view; regular chats use the full list.
     const messages = messagesOverride ?? storeMessages;
@@ -202,6 +203,28 @@ export const MessageList = memo(
       getItemKey: (index) => messageKey(messages[index]),
     });
 
+    // ── Read receipts: mark every on-screen other-user message as read ──
+    // Read state is visibility-based and per-message: only messages actually
+    // intersecting the viewport get a receipt, each with its own real read_at.
+    // The store dedupes by message id, so calling this on every scroll/layout
+    // pass is cheap — only newly-visible messages fire a request.
+    const reportVisibleReads = useCallback(() => {
+      const el = scrollerRef.current;
+      if (!el || !conversationId || !meId) return;
+      const viewportTop = el.scrollTop;
+      const viewportBottom = viewportTop + el.clientHeight;
+      for (const item of virtualizer.getVirtualItems()) {
+        const message = messages[item.index];
+        if (!message) continue;
+        if (message.sender_user_id === meId || message.is_deleted) continue;
+        const itemTop = HISTORY_HEADER_HEIGHT + item.start;
+        const itemBottom = HISTORY_HEADER_HEIGHT + item.end;
+        if (itemBottom > viewportTop && itemTop < viewportBottom) {
+          queueMarkRead(conversationId, message.id, message.sent_at);
+        }
+      }
+    }, [conversationId, meId, messages, virtualizer]);
+
     // ── Scroll: at-bottom tracking + anchor capture + history loader ─────
     const handleScroll = useCallback(() => {
       const el = scrollerRef.current;
@@ -232,6 +255,8 @@ export const MessageList = memo(
         }
       }
 
+      reportVisibleReads();
+
       const now = Date.now();
       if (
         el.scrollTop <= TOP_LOAD_ZONE &&
@@ -247,7 +272,7 @@ export const MessageList = memo(
           loadingMoreRef.current = false;
         });
       }
-    }, [hasMoreMessages, isLoadingMore, conversationId, loadMoreMessages, messages, virtualizer]);
+    }, [hasMoreMessages, isLoadingMore, conversationId, loadMoreMessages, messages, virtualizer, reportVisibleReads]);
 
     // ── Capture the saved position on (re)mount BEFORE the pin effect below —
     // a passive effect would run after this layout effect and the anchor would
@@ -303,6 +328,13 @@ export const MessageList = memo(
       if (target === null) return;
       if (Math.abs(el.scrollTop - target) > ANCHOR_REALIGN_EPSILON) el.scrollTop = target;
     }, [totalSize, messages, keyboardInset, virtualizer]);
+
+    // ── Report read receipts after the scroll position has settled ───────
+    // Runs after the pin/anchor effect above so the viewport is final when the
+    // visible items are computed. handleScroll also reports on scroll events.
+    useLayoutEffect(() => {
+      reportVisibleReads();
+    }, [totalSize, messages, keyboardInset, reportVisibleReads]);
 
     // ── Auto-load history until the saved anchor message is present ──────
     // Returning to a chat deep in history: keep prepending older pages until
