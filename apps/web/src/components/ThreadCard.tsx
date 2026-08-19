@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -169,6 +169,7 @@ const ThreadCard = ({
   initialRecentLikers = [],
   initialRecentPost = null,
 }: ThreadCardProps) => {
+  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const [likesCount, setLikesCount] = useState(initialLikesCount);
   const [userLiked, setUserLiked] = useState(initialUserLiked);
@@ -270,13 +271,13 @@ const ThreadCard = ({
               </Link>
               <span className={`text-xs text-muted-foreground ${hideTimestampOnCompactMobile ? "compact-mobile-hide" : ""}`}>
                 {formatDistanceToNow(safeDate(thread.created_at), {
-                  locale: ru,
+                  locale: dateLocale,
                   addSuffix: true,
                 })}
                 {lastPostDate && (
                   <span className="hidden group-hover/title:inline">
                     {' | '}{formatDistanceToNow(safeDate(lastPostDate), {
-                      locale: ru,
+                      locale: dateLocale,
                       addSuffix: true,
                     })}
                   </span>
@@ -391,7 +392,7 @@ const ThreadCard = ({
                 </span>
                 <span className="text-muted-foreground text-xs">
                   {formatDistanceToNow(safeDate(initialRecentPost.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
                   })}
                 </span>

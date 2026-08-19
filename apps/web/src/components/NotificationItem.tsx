@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import {
   Bell,
   CornerDownRight,
@@ -59,6 +59,7 @@ interface NotificationItemProps {
 
 export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadDot }: NotificationItemProps) => {
   const { t } = useTranslation();
+  const dateLocale = useDateLocale();
   const { loadProfile } = useProfileCache();
   const [actor, setActor] = useState<{ avatarUrl?: string; username?: string } | null>(null);
 
@@ -131,7 +132,7 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
           ) : null}
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {formatDistanceToNow(safeDate(notification.created_at), { locale: ru, addSuffix: true })}
+          {formatDistanceToNow(safeDate(notification.created_at), { locale: dateLocale, addSuffix: true })}
         </p>
       </div>
 

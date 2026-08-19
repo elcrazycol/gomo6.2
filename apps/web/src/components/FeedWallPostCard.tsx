@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { Heart, MessageCircle, Repeat2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,6 +43,7 @@ export const FeedWallPostCard = ({
   currentUserColor,
   onImageClick,
 }: FeedWallPostCardProps) => {
+  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   // Reports the post as viewed once the card becomes visible in the viewport.
@@ -120,7 +121,7 @@ export const FeedWallPostCard = ({
                 />
                 <span className="text-xs text-muted-foreground">
                   {formatDistanceToNow(safeDate(post.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
                   })}
                 </span>

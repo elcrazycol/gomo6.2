@@ -1,7 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
@@ -74,6 +74,7 @@ export const WallPostCard = ({
   standalone = false,
 }: WallPostCardProps) => {
   const navigate = useNavigate();
+  const dateLocale = useDateLocale();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   // Reports the post as viewed once the card becomes visible in the viewport
   // (server dedupes per unique visitor — see usePostViewTracking).
@@ -354,7 +355,7 @@ export const WallPostCard = ({
                 />
                 <span className="text-xs text-muted-foreground">
                   {formatDistanceToNow(safeDate(post.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
                   })}
                 </span>

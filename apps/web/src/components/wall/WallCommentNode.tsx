@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { ChevronDown, Edit3, Ellipsis, Ghost, Heart, Loader2, Reply, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ export const WallCommentNode = ({
   depth,
   isLast,
 }: WallCommentNodeProps) => {
+  const dateLocale = useDateLocale();
   const ctx = useCommentTree();
   const {
     currentUserId,
@@ -188,7 +189,7 @@ export const WallCommentNode = ({
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="text-sm font-medium italic text-muted-foreground">Автор неизвестен</span>
                   <span className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
+                    {formatDistanceToNow(safeDate(comment.created_at), { locale: dateLocale, addSuffix: true })}
                   </span>
                 </div>
               ) : (
@@ -202,7 +203,7 @@ export const WallCommentNode = ({
                   </Link>
                   {comment.author.nickname_emoji_id && <NicknameEmoji emojiId={comment.author.nickname_emoji_id} />}
                   <span className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
+                    {formatDistanceToNow(safeDate(comment.created_at), { locale: dateLocale, addSuffix: true })}
                   </span>
                   {comment.updated_at !== comment.created_at && (
                     <span className="text-[11px] text-muted-foreground">(ред.)</span>

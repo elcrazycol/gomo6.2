@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { UserBadge } from "@/components/UserBadge";
@@ -78,6 +78,7 @@ const recordedVisits = new Set<string>();
 
 const Thread = () => {
   const { slug, threadId, channelSlug } = useParams();
+  const dateLocale = useDateLocale();
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
@@ -784,7 +785,7 @@ const Thread = () => {
                 />
                 <div className="text-muted-foreground">
                   {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
                   }) : 'только что'}
                 </div>
@@ -805,7 +806,7 @@ const Thread = () => {
               />
               {" · "}
               {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
-                locale: ru,
+                locale: dateLocale,
                 addSuffix: true,
               }) : 'только что'}
             </>
@@ -1078,7 +1079,7 @@ const Thread = () => {
                     />
                     <div className="text-muted-foreground">
                       {formatDistanceToNow(safeDate(thread.created_at), {
-                        locale: ru,
+                        locale: dateLocale,
                         addSuffix: true,
                       })}
                     </div>
@@ -1099,7 +1100,7 @@ const Thread = () => {
                   />
                   {" · "}
                   {formatDistanceToNow(safeDate(thread.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
                   })}
                 </>

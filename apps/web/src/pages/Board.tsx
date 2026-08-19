@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
@@ -91,6 +91,7 @@ const hasVisibilityTags = (content: string): boolean => {
 
 const Board = () => {
   const { slug, channelSlug } = useParams();
+  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
@@ -667,7 +668,7 @@ const Board = () => {
   };
 
   const rulesUpdatedLabel = board?.rules_updated_at
-    ? formatDistanceToNow(safeDate(board.rules_updated_at), { addSuffix: true, locale: ru })
+    ? formatDistanceToNow(safeDate(board.rules_updated_at), { addSuffix: true, locale: dateLocale })
     : null;
 
   const handleAcceptRules = async () => {
@@ -1411,7 +1412,7 @@ const Board = () => {
                               />
                               <span>
                                 {formatDistanceToNow(safeDate(thread.created_at), {
-                                  locale: ru,
+                                  locale: dateLocale,
                                   addSuffix: true,
                                 })}
                               </span>
@@ -1625,7 +1626,7 @@ const Board = () => {
                         />
                         <span>
                           {formatDistanceToNow(safeDate(thread.created_at), {
-                            locale: ru,
+                            locale: dateLocale,
                             addSuffix: true,
                           })}
                         </span>
@@ -1735,7 +1736,7 @@ const Board = () => {
                         />
                         <span className="text-xs text-muted-foreground">
                           {formatDistanceToNow(safeDate(thread.created_at), {
-                            locale: ru,
+                            locale: dateLocale,
                             addSuffix: true,
                           })}
                         </span>
@@ -1829,7 +1830,7 @@ const Board = () => {
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-sm text-muted-foreground">
                             {formatDistanceToNow(safeDate(thread.created_at), {
-                              locale: ru,
+                              locale: dateLocale,
                               addSuffix: true,
                             })}
                           </span>

@@ -6,7 +6,6 @@ vi.mock("date-fns", () => ({
   formatDistanceToNow: () => "2 часа назад",
 }));
 
-vi.mock("date-fns/locale", () => ({ ru: {} }));
 
 vi.mock("@/utils/safeDate", () => ({
   safeDate: (d: string) => new Date(d),

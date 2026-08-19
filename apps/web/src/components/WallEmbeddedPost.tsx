@@ -1,6 +1,6 @@
 import { type MouseEvent as ReactMouseEvent } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { useNavigate } from "react-router-dom";
 import { Repeat2 } from "lucide-react";
 
@@ -28,6 +28,7 @@ export const EmbeddedWallPost = ({
   onImageClick,
   hideHeader = false,
 }: EmbeddedWallPostProps) => {
+  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const attachments = normalizeAttachments(post);
   const handleOpenPost = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -61,7 +62,7 @@ export const EmbeddedWallPost = ({
         />
         <span className="text-xs text-muted-foreground">
           {formatDistanceToNow(safeDate(post.created_at), {
-            locale: ru,
+            locale: dateLocale,
             addSuffix: true,
           })}
         </span>

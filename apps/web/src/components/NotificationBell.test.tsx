@@ -44,7 +44,6 @@ vi.mock("date-fns", () => ({
   formatDistanceToNow: () => "2 часа назад",
 }));
 
-vi.mock("date-fns/locale", () => ({ ru: {} }));
 
 describe("NotificationBell", () => {
   beforeEach(() => {
