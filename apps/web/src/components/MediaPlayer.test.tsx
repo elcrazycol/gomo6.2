@@ -52,6 +52,19 @@ describe("MediaPlayer", () => {
     expect(container.querySelector(".custom-player")).toBeInTheDocument();
   });
 
+  it("caps and centers the video so tall clips do not bust the layout", () => {
+    const { container } = render(
+      <MediaPlayer
+        kind="video"
+        sources={[{ src: "test.mp4" }]}
+      />,
+    );
+    const video = container.querySelector("video");
+    expect(video?.className).toContain("max-h-[70vh]");
+    expect(video?.className).toContain("mx-auto");
+    expect(video?.className).toContain("max-w-full");
+  });
+
   it("renders multiple sources", () => {
     render(
       <MediaPlayer

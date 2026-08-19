@@ -302,13 +302,18 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
   }, [kind, sources, playerKey, title, playlistId, playlistIndex, onReady, onPlay, onPause]);
 
   const Element = kind === "video" ? "video" : "audio";
+  // Videos keep their aspect ratio but are capped at the same viewport height
+  // as wall photos (max-h-[70vh]) and centered horizontally, so a vertical
+  // phone clip no longer stretches to a ~1000px-tall column-busting block.
+  // Landscape clips still fill the column width as before.
+  const mediaClassName = kind === "video" ? "mx-auto block h-auto max-h-[70vh] w-auto max-w-full" : "w-full";
 
   return (
     <div className={`w-full rounded-xl border border-border bg-card/80 shadow-sm overflow-hidden ${className}`}>
       <div ref={mountRef}>
         <Element
           ref={mediaRef as unknown as React.LegacyRef<HTMLVideoElement> | undefined}
-          className="w-full"
+          className={mediaClassName}
           playsInline
           controls
           preload="metadata"
