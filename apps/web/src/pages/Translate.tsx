@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, Search, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import { getSourceKeys, getNamespaces, pluralFormKey, type SourceKey } from "@/i18n/keys";
+import { getActiveLanguage, loadCommunityTranslations } from "@/i18n";
 import { LANGUAGES } from "@/i18n/languages";
 import {
   listTranslations,
@@ -22,6 +23,12 @@ interface Entry {
   /** Plural form label ("one"/"few"/…) or empty for non-plural keys. */
   form: string;
   source: string;
+}
+
+function rankProposals(a: TranslationProposal, b: TranslationProposal): number {
+  const votes = b.votes - a.votes;
+  if (votes !== 0) return votes;
+  return b.created_at.localeCompare(a.created_at);
 }
 
 function entriesFor(key: SourceKey): Entry[] {
@@ -52,7 +59,7 @@ const Translate = () => {
       for (const row of rows) {
         const arr = next.get(row.key) ?? [];
         arr.push(row);
-        next.set(row.key, arr);
+        next.set(row.key, arr.sort(rankProposals));
       }
       setProposals(next);
     } catch {
@@ -87,6 +94,16 @@ const Translate = () => {
     );
   }, [sourceKeys, query]);
 
+  const completionPercent = translatedCount.total === 0
+    ? 0
+    : Math.round((translatedCount.done / translatedCount.total) * 100);
+
+  const refreshActiveLocale = async () => {
+    if (getActiveLanguage() === targetLang) {
+      await loadCommunityTranslations(targetLang);
+    }
+  };
+
   const markBusy = (id: string, on: boolean) =>
     setBusy((prev) => {
       const next = new Set(prev);
@@ -105,9 +122,10 @@ const Translate = () => {
         const next = new Map(prev);
         const arr = [...(next.get(entry.storageKey) ?? [])];
         arr.push(created);
-        next.set(entry.storageKey, arr.sort((a, b) => b.votes - a.votes));
+        next.set(entry.storageKey, arr.sort(rankProposals));
         return next;
       });
+      await refreshActiveLocale();
       setDrafts((prev) => {
         const next = new Map(prev);
         next.delete(entry.storageKey);
@@ -130,9 +148,10 @@ const Translate = () => {
         const arr = (next.get(proposal.key) ?? []).map((p) =>
           p.id === proposal.id ? { ...p, votes, my_vote } : p
         );
-        next.set(proposal.key, arr);
+        next.set(proposal.key, arr.sort(rankProposals));
         return next;
       });
+      await refreshActiveLocale();
     } catch {
       toast.error(t("common.error"));
     } finally {
@@ -147,9 +166,12 @@ const Translate = () => {
       setProposals((prev) => {
         const next = new Map(prev);
         const arr = (next.get(proposal.key) ?? []).filter((p) => p.id !== proposal.id);
-        next.set(proposal.key, arr);
+        next.set(proposal.key, arr.sort(rankProposals));
         return next;
       });
+      // Reloading also clears a stale runtime override if the deleted proposal
+      // was the winner and no fallback proposal remains.
+      await refreshActiveLocale();
     } catch {
       toast.error(t("common.error"));
     } finally {
@@ -162,8 +184,21 @@ const Translate = () => {
       <div className="text-center mb-6">
         <h1 className="text-2xl font-bold mb-1">{t("nav.translate")}</h1>
         <p className="text-muted-foreground text-sm">
-          {translatedCount.done}/{translatedCount.total} · {targetLang}
+          {translatedCount.done}/{translatedCount.total} · {completionPercent}% · {targetLang}
         </p>
+        <div
+          className="mx-auto mt-2 h-2 max-w-xs overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label={`${completionPercent}%`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={completionPercent}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-[width]"
+            style={{ width: `${completionPercent}%` }}
+          />
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4">

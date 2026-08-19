@@ -217,6 +217,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 	}
 
 	delta := 0
+	myVote := 0
 	switch {
 	case !existing.Valid:
 		if _, err := tx.ExecContext(c.Request.Context(),
@@ -226,6 +227,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 			return
 		}
 		delta = req.Direction
+		myVote = req.Direction
 	case int(existing.Int64) == req.Direction:
 		if _, err := tx.ExecContext(c.Request.Context(),
 			`DELETE FROM translation_votes WHERE value_id = $1 AND user_id = $2`,
@@ -242,6 +244,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 			return
 		}
 		delta = 2 * req.Direction // from -dir to +dir
+		myVote = req.Direction
 	}
 
 	var votes int
@@ -261,7 +264,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{"id": valueID, "votes": votes, "my_vote": req.Direction}))
+	c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{"id": valueID, "votes": votes, "my_vote": myVote}))
 }
 
 // DeleteTranslation removes the caller's own proposal (admins/moderators may

@@ -51,11 +51,13 @@ export const useLanguageStore = create<LanguageState>((set, get) => ({
   },
 
   changeLanguage: async (code: string, userId?: string | null) => {
-    if (code === get().language) return;
-    await setI18nLanguage(code);
+    if (code !== get().language) {
+      await setI18nLanguage(code);
+      set({ language: code });
+    }
+    // Also refresh when the selected language is already active. This is
+    // needed after a new community proposal is submitted in the editor.
     await loadCommunityTranslations(code);
-    set({ language: code });
-
     // Persist server-side when signed in; localStorage is already handled by
     // setI18nLanguage so guests keep their choice across reloads.
     if (userId) {
