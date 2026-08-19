@@ -20,8 +20,8 @@ import (
 // POST /api/v1/messenger/conversations/:id/read
 //
 // MarkRead godoc
-// @Summary      Mark a message as read
-// @Description  Record a per-message read receipt (individual read_at). The last_read_message_id / unread_count marker advances forward when this message is newer than the current marker.
+// @Summary      Mark messages as read
+// @Description  Mark every message up to (and including) the given message as read — the Telegram-style "read line". One request covers the whole prefix, so a scroll burst costs one request instead of one per message. Messages below the line keep read_at NULL (unread). Each message keeps its first real read_at (COALESCE). The last_read_message_id / unread_count marker advances forward when this message is newer than the current marker.
 // @Tags         Messenger
 // @Accept       json
 // @Produce      json
@@ -93,18 +93,20 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		}
 	}()
 
-	// A read receipt is per-message: only this exact message gets its read_at
-	// timestamp, so a recipient scrolling through history marks just the
-	// messages actually on screen (each with its own real time). The prefix
-	// marker (last_read_message_id / unread_count) is advanced separately below
-	// and only ever moves forward.
+	// The read line: ONE request marks the whole prefix up to (and including)
+	// the given message as read. Everything on screen is covered by a single
+	// batch — messages below the fold keep read_at NULL until they are
+	// actually scrolled into view. COALESCE preserves each message's FIRST
+	// real read time, so individual read_at values survive later batches.
+	// The prefix marker (last_read_message_id / unread_count) is advanced
+	// separately below and only ever moves forward.
 	_, err = tx.Exec(`
 		INSERT INTO chat_receipts (message_id, user_id, delivered_at, read_at)
 		SELECT m.id, $2, NOW(), NOW()
 		FROM chat_messages m
-		WHERE m.id = $3
-		  AND m.conversation_id = $1
+		WHERE m.conversation_id = $1
 		  AND m.sender_user_id != $2
+		  AND m.sent_at <= (SELECT sent_at FROM chat_messages WHERE id = $3 AND conversation_id = $1)
 		ON CONFLICT (message_id, user_id)
 		DO UPDATE SET read_at = COALESCE(chat_receipts.read_at, NOW()), delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
 	`, conversationID, claims.UserID, req.MessageID)

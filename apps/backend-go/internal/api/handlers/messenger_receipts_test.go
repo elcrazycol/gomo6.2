@@ -36,8 +36,9 @@ func TestMarkRead_Success(t *testing.T) {
 	// Transaction
 	mock.ExpectBegin()
 
-	// Single-message read receipt (per-message read_at)
-	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*SELECT m.id, \$2.*ON CONFLICT.*DO UPDATE SET read_at = COALESCE\(chat_receipts.read_at, NOW\(\)\), delivered_at = COALESCE`).
+	// Read-line receipt: ONE request marks the whole prefix up to the message
+	// (messages below the line stay unread); COALESCE preserves first read_at.
+	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*SELECT m.id, \$2.*m\.sent_at <= \(SELECT sent_at FROM chat_messages WHERE id = \$3 AND conversation_id = \$1\).*ON CONFLICT.*DO UPDATE SET read_at = COALESCE\(chat_receipts.read_at, NOW\(\)\), delivered_at = COALESCE`).
 		WithArgs(testConv1, testUser1, testMsg1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -105,7 +106,7 @@ func TestMarkRead_ThroughMiddleware(t *testing.T) {
 		WithArgs(testMsg1, testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*ON CONFLICT.*DO UPDATE SET read_at = COALESCE\(chat_receipts.read_at, NOW\(\)\), delivered_at = COALESCE`).
+	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*SELECT m.id, \$2.*m\.sent_at <= \(SELECT sent_at FROM chat_messages WHERE id = \$3 AND conversation_id = \$1\).*ON CONFLICT.*DO UPDATE SET read_at = COALESCE\(chat_receipts.read_at, NOW\(\)\), delivered_at = COALESCE`).
 		WithArgs(testConv1, testUser1, testMsg1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 

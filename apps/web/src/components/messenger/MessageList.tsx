@@ -203,26 +203,33 @@ export const MessageList = memo(
       getItemKey: (index) => messageKey(messages[index]),
     });
 
-    // ── Read receipts: mark every on-screen other-user message as read ──
-    // Read state is visibility-based and per-message: only messages actually
-    // intersecting the viewport get a receipt, each with its own real read_at.
-    // The store dedupes by message id, so calling this on every scroll/layout
-    // pass is cheap — only newly-visible messages fire a request.
+    // ── Read receipts: the "read line" (Telegram-style) ────────────────
+    // The UI reports exactly ONE message per pass: the newest message fully
+    // visible on screen. Everything above it was read; everything below the
+    // fold stays unread. The store debounces and the backend marks the whole
+    // prefix up to that message, so a scroll burst costs a single request
+    // instead of one per message (per-message marking exhausted the
+    // rate-limit budget and 429'd the whole app).
     const reportVisibleReads = useCallback(() => {
       const el = scrollerRef.current;
       if (!el || !conversationId || !meId) return;
-      const viewportTop = el.scrollTop;
-      const viewportBottom = viewportTop + el.clientHeight;
+      const viewportBottom = el.scrollTop + el.clientHeight;
+      // Virtual items are ordered oldest → newest; the last one whose bottom
+      // edge is at or above the viewport bottom is the read line.
+      let readLine: MessageView | null = null;
       for (const item of virtualizer.getVirtualItems()) {
         const message = messages[item.index];
         if (!message) continue;
         if (message.sender_user_id === meId || message.is_deleted) continue;
-        const itemTop = HISTORY_HEADER_HEIGHT + item.start;
         const itemBottom = HISTORY_HEADER_HEIGHT + item.end;
-        if (itemBottom > viewportTop && itemTop < viewportBottom) {
-          queueMarkRead(conversationId, message.id, message.sent_at);
+        if (itemBottom <= viewportBottom) {
+          readLine = message;
+        } else {
+          // Everything newer is even lower — stop scanning.
+          break;
         }
       }
+      if (readLine) queueMarkRead(conversationId, readLine.id, readLine.sent_at);
     }, [conversationId, meId, messages, virtualizer]);
 
     // ── Scroll: at-bottom tracking + anchor capture + history loader ─────

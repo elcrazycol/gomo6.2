@@ -306,31 +306,89 @@ describe("messengerStore", () => {
       expect(useMessengerStore.getState().conversations[0].unread_count).toBe(0);
     });
 
-    it("sends a per-message read receipt and dedupes repeated messages", async () => {
-      useMessengerStore.setState({
-        conversations: [mockConv({ id: "conv-1", unread_count: 2 })],
-      });
-      vi.mocked(messengerApi.markRead).mockResolvedValue({ ok: true });
+    it("collapses a scroll burst into ONE debounced read-line request (newest message)", async () => {
+      vi.useFakeTimers();
+      try {
+        useMessengerStore.setState({
+          conversations: [mockConv({ id: "conv-1", unread_count: 2 })],
+        });
+        vi.mocked(messengerApi.markRead).mockResolvedValue({ ok: true });
 
-      // Two distinct messages each get their own receipt (individual read_at).
-      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
-      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000002", "2025-06-01T12:01:00Z");
-      // Re-reporting an already-sent message is a no-op.
-      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
-      await Promise.resolve();
+        // A single scroll pass reports many visible messages; the backend
+        // marks the whole prefix up to the newest one, so only the newest
+        // line ever fires a request.
+        queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
+        queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000002", "2025-06-01T12:01:00Z");
+        // Older line reported again — subsumed by the pending newest line.
+        queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
+        // The debounce has not fired yet — nothing was sent.
+        expect(messengerApi.markRead).not.toHaveBeenCalled();
 
-      expect(messengerApi.markRead).toHaveBeenCalledTimes(2);
-      expect(messengerApi.markRead).toHaveBeenNthCalledWith(
-        1,
-        "conv-1",
-        "00000000-0000-0000-0000-000000000001",
-      );
-      expect(messengerApi.markRead).toHaveBeenNthCalledWith(
-        2,
-        "conv-1",
-        "00000000-0000-0000-0000-000000000002",
-      );
-      expect(useMessengerStore.getState().conversations[0].unread_count).toBe(0);
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(messengerApi.markRead).toHaveBeenCalledTimes(1);
+        expect(messengerApi.markRead).toHaveBeenCalledWith(
+          "conv-1",
+          "00000000-0000-0000-0000-000000000002",
+        );
+        expect(useMessengerStore.getState().conversations[0].unread_count).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("never sends a read line older than the last confirmed one (scrolling up)", async () => {
+      vi.useFakeTimers();
+      try {
+        useMessengerStore.setState({
+          conversations: [mockConv({ id: "conv-1", unread_count: 2 })],
+        });
+        vi.mocked(messengerApi.markRead).mockResolvedValue({ ok: true });
+
+        // User is at the bottom — the newest message is the read line.
+        queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000005", "2025-06-01T12:05:00Z");
+        await vi.advanceTimersByTimeAsync(500);
+        expect(messengerApi.markRead).toHaveBeenCalledTimes(1);
+
+        // Scrolling up reveals older messages — they are already covered by
+        // the prefix, so no second request may fire.
+        queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000003", "2025-06-01T12:03:00Z");
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(messengerApi.markRead).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("sends a new request when the read line advances further down", async () => {
+      vi.useFakeTimers();
+      try {
+        useMessengerStore.setState({
+          conversations: [mockConv({ id: "conv-1", unread_count: 2 })],
+        });
+        vi.mocked(messengerApi.markRead).mockResolvedValue({ ok: true });
+
+        queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
+        await vi.advanceTimersByTimeAsync(500);
+        // The user keeps scrolling down — the line advances, one more request.
+        queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000002", "2025-06-01T12:01:00Z");
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(messengerApi.markRead).toHaveBeenCalledTimes(2);
+        expect(messengerApi.markRead).toHaveBeenNthCalledWith(
+          1,
+          "conv-1",
+          "00000000-0000-0000-0000-000000000001",
+        );
+        expect(messengerApi.markRead).toHaveBeenNthCalledWith(
+          2,
+          "conv-1",
+          "00000000-0000-0000-0000-000000000002",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
