@@ -47,15 +47,11 @@ func (rl *MessengerRateLimiter) Allow(key string) bool {
 
 	redisKey := fmt.Sprintf("ratelimit:messenger:%s", key)
 
-	// INCR atomically increments and returns the new value
-	count, err := rl.redis.Incr(ctx, redisKey).Result()
+	// INCR + EXPIRE atomically in one Lua script so a lost TTL can never leave
+	// a permanently-stuck counter (see incrWithTTL).
+	count, err := incrWithTTL(ctx, rl.redis, redisKey, rl.window)
 	if err != nil {
 		return true // fail open on Redis errors
-	}
-
-	// Set expiry on first request in the window
-	if count == 1 {
-		rl.redis.Expire(ctx, redisKey, rl.window)
 	}
 
 	return count <= int64(rl.maxRequests)

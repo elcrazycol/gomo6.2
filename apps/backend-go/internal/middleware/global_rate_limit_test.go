@@ -113,6 +113,36 @@ func TestGlobalRateLimiter_PrefixesIndependent(t *testing.T) {
 	}
 }
 
+func TestGlobalRateLimiter_SelfHealsKeyWithoutTTL(t *testing.T) {
+	mr, rl := newGlobalLimiter(t, 3, 3)
+
+	// Simulate the stuck-counter bug: a counter key created without a TTL
+	// (a lost Expire from a previous INCR). It must not lock the user out
+	// forever — the next request re-arms the window so the counter resets
+	// after at most one window instead of accumulating forever.
+	key := "ratelimit:global:user:stuck"
+	mr.Set(key, "950") // no TTL, like the buggy leftover
+
+	// The self-healing script sees TTL < 0 and re-arms the window. The count
+	// (951) still exceeds the budget for the current window, so this request
+	// is denied — but the lockout is now bounded to one window, not permanent.
+	if rl.Allow("user:stuck", rl.maxRequestsPerUser) {
+		t.Fatal("count above budget must be denied within the current window")
+	}
+
+	ttl := mr.TTL(key)
+	if ttl <= 0 || ttl > time.Minute {
+		t.Fatalf("expected a re-armed TTL after self-heal, got %v", ttl)
+	}
+
+	// Once the (re-armed) window elapses the counter resets — the user is
+	// fully unblocked instead of being stuck forever.
+	mr.FastForward(61 * time.Second)
+	if !rl.Allow("user:stuck", rl.maxRequestsPerUser) {
+		t.Fatal("bucket must refill after the re-armed window elapses")
+	}
+}
+
 func TestGlobalRateLimiter_DefaultPrefixMatchesLegacyKeys(t *testing.T) {
 	// NewGlobalRateLimiter (no prefix) must keep using the "global" namespace
 	// so existing Redis keys stay valid across deployments.

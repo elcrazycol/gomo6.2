@@ -118,13 +118,9 @@ func (rl *GlobalRateLimiter) Allow(key string, maxRequests int) bool {
 
 	k := fmt.Sprintf("ratelimit:%s:%s", rl.prefix, key)
 
-	count, err := rl.redis.Incr(ctx, k).Result()
+	count, err := incrWithTTL(ctx, rl.redis, k, rl.window)
 	if err != nil {
 		return true
-	}
-
-	if count == 1 {
-		rl.redis.Expire(ctx, k, rl.window)
 	}
 
 	return count <= int64(maxRequests)
