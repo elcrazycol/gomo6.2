@@ -40,19 +40,24 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string) (*Vi
 		return nil, fmt.Errorf("write input: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
-	// CRF 28 + 720p gives phone recordings a substantial reduction while
-	// preserving faces and text. `-t` is deliberately in the transcode command
-	// instead of a separate ffprobe gate: MP4/MOV files with valid media but
-	// unusual duration metadata still upload correctly. It also bounds output
-	// size and CPU time for a tiny but very long source.
+	// 1-CPU VPS tuning: `-preset ultrafast` + a 30fps cap + no forced threading
+	// keep the encode light. 60fps clips encode ~2x faster after dropping
+	// frames, and x264's frame-thread sync on a single core only slows it down
+	// (the old `-threads 2` was counterproductive here). CRF 26 compensates the
+	// ultrafast preset, and the 2M maxrate keeps the output compact, so the
+	// stored MP4 stays small despite the faster preset. `-t` is deliberately in
+	// the transcode command instead of a separate ffprobe gate: MP4/MOV files
+	// with valid media but unusual duration metadata still upload correctly. It
+	// also bounds output size and CPU time for a tiny but very long source.
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", input,
 		"-t", fmt.Sprintf("%d", int(maxVideoDuration.Seconds())), "-map", "0:v:0", "-map", "0:a?",
-		// H.264 requires even dimensions for yuv420p. Pad only the final row /
+		// Drop to 30fps before scaling (cheaper), then scale to 720p. H.264
+		// requires even dimensions for yuv420p, so pad only the final row /
 		// column when a camera produces an odd-sized frame.
-		"-vf", "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2",
-		"-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-maxrate", "2M", "-bufsize", "4M", "-threads", "2",
+		"-vf", "fps=30,scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2",
+		"-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-maxrate", "2M", "-bufsize", "4M",
 		"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", output)
 	if _, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
