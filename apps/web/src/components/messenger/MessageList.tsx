@@ -11,7 +11,8 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown } from "lucide-react";
-import { useMessengerStore } from "@/stores/messengerStore";
+import { useMessengerStore, queueMarkRead } from "@/stores/messengerStore";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
 import { getAttachmentAspectRatio } from "./attachmentMedia";
@@ -28,9 +29,7 @@ const AT_BOTTOM_SLACK = 80;       // px of trailing space still treated as "at t
 const TOP_LOAD_ZONE = 300;        // px from the top that arms the history loader
 const OVERSCAN = 12;              // items rendered beyond the viewport (ТЗ: 8–15)
 const NEW_MESSAGE_ANIMATION_MS = 1200; // how long an incoming message may play its entrance
-const ANCHOR_RESTORE_MAX_CORRECTIONS = 100; // safety cap while measurements settle
-const ANCHOR_RESTORE_MAX_PAGES = 20;       // pages to auto-load while hunting a saved anchor
-const ANCHOR_USER_SCROLL_THRESHOLD = 8;    // px of user scroll that releases the anchor
+const ANCHOR_REALIGN_EPSILON = 2; // px of drift considered "already aligned"
 
 export interface MessageRenderExtras {
   dateLabel: string | null;
@@ -48,6 +47,13 @@ interface MessageListProps {
   /** Notes self-chat: a filtered view of the store messages (folder filter).
    *  When omitted the full store list is used. */
   messagesOverride?: MessageView[];
+}
+
+/** The anchor for a given scroll position: the top-most visible message and
+ *  how far its top has been scrolled past the viewport top (positive = above). */
+interface ScrollAnchor {
+  messageId: string;
+  offset: number;
 }
 
 /**
@@ -81,66 +87,93 @@ function estimateMessageHeight(message: MessageView | undefined): number {
 }
 
 /**
+ * Capture the top-most visible message and how far its top is above the
+ * viewport top. Derived from the virtualizer's measured/estimated offsets, not
+ * DOM rects — this is exact for both rendered and not-yet-rendered items and
+ * keeps the logic testable in jsdom (no layout engine needed).
+ */
+function captureAnchor(
+  virtualizer: ReturnType<typeof useVirtualizer>,
+  messages: MessageView[],
+  scrollTop: number,
+  clientHeight: number,
+): ScrollAnchor | null {
+  const items = virtualizer.getVirtualItems();
+  for (const item of items) {
+    const itemTop = HISTORY_HEADER_HEIGHT + item.start;
+    const itemBottom = HISTORY_HEADER_HEIGHT + item.end;
+    // Items above the viewport are skipped; the first item whose bottom is at
+    // or below the top edge is the top-most visible one.
+    if (itemBottom <= scrollTop) continue;
+    const message = messages[item.index];
+    if (!message) continue;
+    return { messageId: message.id, offset: scrollTop - itemTop };
+  }
+  return null;
+}
+
+/** The scrollTop that places `anchor` back where it was captured. */
+function anchorTarget(
+  virtualizer: ReturnType<typeof useVirtualizer>,
+  messages: MessageView[],
+  anchor: ScrollAnchor,
+): number | null {
+  const index = messages.findIndex((m) => m.id === anchor.messageId);
+  if (index < 0) return null;
+  const offset = virtualizer.getOffsetForIndex(index);
+  if (!offset) return null;
+  return HISTORY_HEADER_HEIGHT + offset[0] + anchor.offset;
+}
+
+/**
  * Owns the virtualized message list for the open conversation (@tanstack/react-virtual).
  *
  * The list is plain top-anchored content: index 0 = oldest message at the top,
  * the newest message at the bottom. All chat behavior is explicit and
  * deterministic — nothing fights the scroller:
- *  - the view opens and re-pins at the bottom while the user is there (layout
- *    effect on total size: covers appends, image loads, measurement changes),
- *  - older history prepends at the top and scrollTop is compensated by the
- *    scrollHeight delta in the same frame, so visible messages never shift,
- *  - the loader fires near the top (scroll zone + in-flight guard + cooldown),
- *  - returning to a chat restores the saved scroll anchor (message id + viewport
- *    offset from the session map), auto-loading history until the anchor is
- *    present; the anchor releases as soon as the user scrolls,
- *  - live arrivals animate only while the user is at the bottom; scrolled up
- *    they count toward the "N new messages" pill instead.
+ *
+ *  - **Bottom pin** — while the user is at the bottom, every layout change
+ *    (append, image load, measurement correction, keyboard open/close)
+ *    re-clamps scrollTop to the real bottom in the same frame.
+ *
+ *  - **Anchor stabilization** — the instant the user scrolls up, the message
+ *    at the top of the viewport (plus its pixel offset) is captured as the
+ *    "anchor". From then on every layout change re-derives the scrollTop that
+ *    keeps that exact message at that exact offset. Prepending older history,
+ *    estimate→measured corrections, image loads — none of them move the
+ *    visible content, because the anchor is restored in the same frame before
+ *    paint. This is what makes history loading feel native: you keep reading,
+ *    messages appear *above* the fold, nothing twitches.
+ *
+ *  - **History loader** — a scroll zone near the top + an in-flight guard +
+ *    a cooldown fire `loadMoreMessages`.
+ *
+ *  - **Session restore** — returning to a chat restores the saved anchor
+ *    (message id + viewport offset), auto-loading history until the anchor is
+ *    present; the anchor releases as soon as the user scrolls away from it.
+ *
+ *  - **Live arrivals** — animate only while the user is at the bottom; scrolled
+ *    up they count toward the "N new messages" pill instead.
  *
  * It is mounted per conversation (`key={conversation.id}` in ChatView), so all
  * refs/state below reset naturally when switching chats — the scroll anchor is
  * the only thing that survives (the session-scoped scrollPosition module).
  */
-
-/**
- * Save the current scroll anchor for a conversation. Queries the DOM directly
- * (not the virtualizer's item list): the virtualizer re-renders asynchronously
- * after a scroll event, so its getVirtualItems() can still describe the
- * previous scroll position when the handler runs — which produced garbage
- * anchors (a message far below the viewport with a negative offset). The DOM
- * reflects the committed layout, so rects are always truthful.
- */
-function recordScrollPosition(scroller: HTMLElement, conversationId: string): void {
-  const scrollerRect = scroller.getBoundingClientRect();
-  let anchorEl: HTMLElement | null = null;
-  for (const itemEl of scroller.querySelectorAll<HTMLElement>(".message-virtual-item")) {
-    if (itemEl.getBoundingClientRect().top <= scrollerRect.top + 1) anchorEl = itemEl;
-    else break; // items are in DOM order, top → bottom
-  }
-  if (!anchorEl) {
-    // Nothing rendered at/above the viewport top yet (still settling) — anchor
-    // to the first rendered item; a negative offset restores it correctly.
-    anchorEl = scroller.querySelector<HTMLElement>(".message-virtual-item");
-    if (!anchorEl) return;
-  }
-  const messageEl = anchorEl.querySelector<HTMLElement>("[data-message-id]");
-  const messageId = messageEl?.getAttribute("data-message-id");
-  if (!messageId) return;
-  saveScrollPosition(conversationId, {
-    messageId,
-    offset: scrollerRect.top - anchorEl.getBoundingClientRect().top,
-  });
-}
-
 export const MessageList = memo(
   forwardRef<MessageListHandle, MessageListProps>(function MessageList({ renderMessage, messagesOverride }, ref) {
     const conversationId = useMessengerStore((s) => s.selectedConversationId);
+    const meId = useMessengerStore((s) => s.me?.id);
     const storeMessages = useMessengerStore((s) => s.messages);
     // Notes self-chat passes a folder-filtered view; regular chats use the full list.
     const messages = messagesOverride ?? storeMessages;
     const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
     const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
     const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
+    // The mobile keyboard resizes the scroller via --app-vh; subscribing here
+    // (and using the inset as a layout-effect dep) re-applies the correct
+    // position when the viewport shrinks/grows — no scroll "jump" while the
+    // keyboard slides in or out.
+    const { keyboardInset } = useMobileKeyboard();
 
     const scrollerRef = useRef<HTMLDivElement | null>(null);
 
@@ -149,20 +182,14 @@ export const MessageList = memo(
     const [newMessageIds, setNewMessageIds] = useState<Set<string>>(() => new Set());
 
     const isAtBottomRef = useRef(true);
+    // The live anchor: the message at the top edge of the viewport + offset.
+    // null while the user is at the bottom (the pin owns the position then).
+    const anchorRef = useRef<ScrollAnchor | null>(null);
+    // The session-saved anchor, captured once at mount and hunted until found.
+    const restoreAnchorRef = useRef<ScrollAnchor | null>(null);
     const loadingMoreRef = useRef(false);
     const lastLoadAtRef = useRef(0);
-    const prevFirstKeyRef = useRef<{ key: string | null; scrollHeight: number }>({ key: null, scrollHeight: 0 });
     const prevLastIdRef = useRef<string | null>(null);
-
-    // ── Position restore (return to a chat where the user left off) ──────
-    // The anchor is captured once at mount from the session map; while it is
-    // active it overrides the bottom pin, and history is auto-loaded until the
-    // anchor message is in the list. Released as soon as the user scrolls.
-    const restoreAnchorRef = useRef<{ messageId: string; offset: number } | null>(null);
-    const anchorLoadPagesRef = useRef(0);
-    const anchorLoadingRef = useRef(false);
-    const anchorCorrectionsRef = useRef(0);
-    const positionRafRef = useRef(0);
 
     // Identity key matches the store's dedup key (id || client_id), so a temp
     // message later replaced by its server twin keeps its virtual slot.
@@ -176,7 +203,29 @@ export const MessageList = memo(
       getItemKey: (index) => messageKey(messages[index]),
     });
 
-    // ── Scroll: at-bottom tracking + history loader near the top ────────
+    // ── Read receipts: mark every on-screen other-user message as read ──
+    // Read state is visibility-based and per-message: only messages actually
+    // intersecting the viewport get a receipt, each with its own real read_at.
+    // The store dedupes by message id, so calling this on every scroll/layout
+    // pass is cheap — only newly-visible messages fire a request.
+    const reportVisibleReads = useCallback(() => {
+      const el = scrollerRef.current;
+      if (!el || !conversationId || !meId) return;
+      const viewportTop = el.scrollTop;
+      const viewportBottom = viewportTop + el.clientHeight;
+      for (const item of virtualizer.getVirtualItems()) {
+        const message = messages[item.index];
+        if (!message) continue;
+        if (message.sender_user_id === meId || message.is_deleted) continue;
+        const itemTop = HISTORY_HEADER_HEIGHT + item.start;
+        const itemBottom = HISTORY_HEADER_HEIGHT + item.end;
+        if (itemBottom > viewportTop && itemTop < viewportBottom) {
+          queueMarkRead(conversationId, message.id, message.sent_at);
+        }
+      }
+    }, [conversationId, meId, messages, virtualizer]);
+
+    // ── Scroll: at-bottom tracking + anchor capture + history loader ─────
     const handleScroll = useCallback(() => {
       const el = scrollerRef.current;
       if (!el) return;
@@ -187,36 +236,26 @@ export const MessageList = memo(
         if (atBottom) setNewMessageCount(0);
       }
 
-      // Position memory: at the bottom the default open state is enough (and
-      // any stale anchor is dropped); anywhere else remember the message at
-      // the top of the viewport and how far it has been scrolled past.
-      // Deferred to the next frame: the virtualizer rebuilds its item list
-      // asynchronously after a scroll event, so DOM rects are read when the
-      // layout for this scroll position is already committed.
       if (atBottom) {
+        anchorRef.current = null;
         if (conversationId) clearScrollPosition(conversationId);
-      } else if (conversationId && !positionRafRef.current) {
-        positionRafRef.current = requestAnimationFrame(() => {
-          positionRafRef.current = 0;
-          recordScrollPosition(el, conversationId);
-        });
+      } else {
+        const anchor = captureAnchor(virtualizer, messages, el.scrollTop, el.clientHeight);
+        anchorRef.current = anchor;
+        if (conversationId && anchor) saveScrollPosition(conversationId, anchor);
       }
 
       // A real user scroll releases the restore anchor — programmatic
       // corrections land exactly on the target, so they never release it.
-      const anchor = restoreAnchorRef.current;
-      if (anchor && conversationId) {
-        const index = messages.findIndex((m) => m.id === anchor.messageId);
-        if (index >= 0) {
-          const offset = virtualizer.getOffsetForIndex(index);
-          if (offset) {
-            const target = HISTORY_HEADER_HEIGHT + offset[0] + anchor.offset;
-            if (Math.abs(el.scrollTop - target) > ANCHOR_USER_SCROLL_THRESHOLD) {
-              restoreAnchorRef.current = null;
-            }
-          }
+      const restore = restoreAnchorRef.current;
+      if (restore) {
+        const target = anchorTarget(virtualizer, messages, restore);
+        if (target !== null && Math.abs(el.scrollTop - target) > 8) {
+          restoreAnchorRef.current = null;
         }
       }
+
+      reportVisibleReads();
 
       const now = Date.now();
       if (
@@ -233,38 +272,10 @@ export const MessageList = memo(
           loadingMoreRef.current = false;
         });
       }
-    }, [hasMoreMessages, isLoadingMore, conversationId, loadMoreMessages, messages, virtualizer]);
+    }, [hasMoreMessages, isLoadingMore, conversationId, loadMoreMessages, messages, virtualizer, reportVisibleReads]);
 
-    // ── Compensate prepends (older history / cache → network replace) ───
-    // When messages are added at the TOP, every visible message shifts down by
-    // the prepended height. The scrollHeight delta compensation restores the
-    // view in the same frame — no jump, no flicker. Declared before the pin
-    // effect so an active restore anchor (which computes its own exact target)
-    // always wins: compensation runs first, then the pin re-applies the anchor.
-    useLayoutEffect(() => {
-      const el = scrollerRef.current;
-      const scrollHeight = el?.scrollHeight ?? 0;
-      if (messages.length === 0) {
-        prevFirstKeyRef.current = { key: null, scrollHeight };
-        return;
-      }
-      const firstKey = messageKey(messages[0]);
-      const prev = prevFirstKeyRef.current;
-      if (prev.key !== null && prev.key !== firstKey) {
-        const delta = scrollHeight - prev.scrollHeight;
-        if (el && delta !== 0) el.scrollTop += delta;
-      }
-      prevFirstKeyRef.current = { key: firstKey, scrollHeight };
-    });
-
-    // ── Pin to the bottom (or to the saved anchor) ───────────────────────
-    // Re-anchors on every total-size change (appends, image loads, measured
-    // corrections) in the same frame, so the pinned position never slides.
-    // While a restore anchor is active it takes precedence: each measurement
-    // change re-applies the exact viewport offset of the anchor message.
-    const totalSize = virtualizer.getTotalSize();
-    // Capture the saved position on (re)mount BEFORE the pin effect below — a
-    // passive effect would run after this layout effect and the anchor would
+    // ── Capture the saved position on (re)mount BEFORE the pin effect below —
+    // a passive effect would run after this layout effect and the anchor would
     // never be applied on the very first messages render.
     useLayoutEffect(() => {
       if (restoreAnchorRef.current === null && conversationId) {
@@ -272,57 +283,76 @@ export const MessageList = memo(
         if (saved) restoreAnchorRef.current = { ...saved };
       }
     }, [conversationId]);
+
+    // ── Bottom pin / anchor stabilization ────────────────────────────────
+    // Re-runs whenever the list content or the viewport actually changes:
+    // prepends/appends (messages), measurement corrections (totalSize), and
+    // keyboard/URL-bar resizes (keyboardInset). Three mutually exclusive modes:
+    //   1. session restore (jump to the saved anchor, then hand off),
+    //   2. bottom pin (at the bottom → clamp to the real bottom),
+    //   3. anchor re-align (scrolled up → keep the anchor message frozen).
+    const totalSize = virtualizer.getTotalSize();
     useLayoutEffect(() => {
       const el = scrollerRef.current;
       if (!el) return;
-      const anchor = restoreAnchorRef.current;
-      if (anchor) {
-        const index = messages.findIndex((m) => m.id === anchor.messageId);
-        if (index >= 0) {
-          const offset = virtualizer.getOffsetForIndex(index);
-          if (offset) {
-            const target = HISTORY_HEADER_HEIGHT + offset[0] + anchor.offset;
-            if (Math.abs(el.scrollTop - target) > 2) el.scrollTop = target;
-            if (isAtBottomRef.current) {
-              isAtBottomRef.current = false;
-              setIsAtBottom(false);
-            }
-            // Safety: if measurements keep oscillating, stop correcting.
-            anchorCorrectionsRef.current += 1;
-            if (anchorCorrectionsRef.current > ANCHOR_RESTORE_MAX_CORRECTIONS) {
-              restoreAnchorRef.current = null;
-            }
+
+      const restore = restoreAnchorRef.current;
+      if (restore) {
+        const target = anchorTarget(virtualizer, messages, restore);
+        if (target !== null) {
+          if (Math.abs(el.scrollTop - target) > 2) el.scrollTop = target;
+          // Hand off to the live anchor so subsequent measurement changes keep
+          // this exact message frozen instead of drifting.
+          anchorRef.current = { messageId: restore.messageId, offset: restore.offset };
+          restoreAnchorRef.current = null;
+          if (isAtBottomRef.current) {
+            isAtBottomRef.current = false;
+            setIsAtBottom(false);
           }
           return;
         }
         // The anchor is not loaded yet — history is being hunted in the
         // background, so behave like a normal open (stay at the bottom) until
-        // the anchor arrives and the effect above jumps to it.
+        // the anchor arrives and this effect jumps to it.
       }
-      if (isAtBottomRef.current) el.scrollTop = el.scrollHeight;
-      // totalSize changes whenever messages prepend/append/measure — exactly
-      // when re-anchoring is needed; messages/virtualizer come from this
-      // render's fresh closure.
-    }, [totalSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
+      if (isAtBottomRef.current) {
+        const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        if (Math.abs(el.scrollTop - maxScrollTop) > 1) el.scrollTop = maxScrollTop;
+        return;
+      }
+
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const target = anchorTarget(virtualizer, messages, anchor);
+      if (target === null) return;
+      if (Math.abs(el.scrollTop - target) > ANCHOR_REALIGN_EPSILON) el.scrollTop = target;
+    }, [totalSize, messages, keyboardInset, virtualizer]);
+
+    // ── Report read receipts after the scroll position has settled ───────
+    // Runs after the pin/anchor effect above so the viewport is final when the
+    // visible items are computed. handleScroll also reports on scroll events.
+    useLayoutEffect(() => {
+      reportVisibleReads();
+    }, [totalSize, messages, keyboardInset, reportVisibleReads]);
 
     // ── Auto-load history until the saved anchor message is present ──────
-    // Returning to a chat deep in history: keep prepending older pages (the
-    // same loadMoreMessages the scroll loader uses) until the anchor arrives,
-    // then the layout effect above jumps to it. Capped to avoid hammering.
+    // Returning to a chat deep in history: keep prepending older pages until
+    // the anchor arrives, then the layout effect above jumps to it. Capped to
+    // avoid hammering.
     useEffect(() => {
       const anchor = restoreAnchorRef.current;
       if (!anchor || !conversationId) return;
       if (messages.some((m) => m.id === anchor.messageId)) return;
-      if (!hasMoreMessages || anchorLoadingRef.current || anchorLoadPagesRef.current >= ANCHOR_RESTORE_MAX_PAGES) {
+      if (!hasMoreMessages || loadingMoreRef.current) {
         // The anchor is unreachable (deleted / too deep) — fall back to the
         // default bottom-open behavior.
         restoreAnchorRef.current = null;
         return;
       }
-      anchorLoadPagesRef.current += 1;
-      anchorLoadingRef.current = true;
+      loadingMoreRef.current = true;
       loadMoreMessages(conversationId).finally(() => {
-        anchorLoadingRef.current = false;
+        loadingMoreRef.current = false;
       });
     }, [messages, hasMoreMessages, conversationId, loadMoreMessages]);
 
@@ -373,13 +403,15 @@ export const MessageList = memo(
     const scrollToBottom = useCallback(() => {
       // Explicitly returning to the bottom cancels any saved position.
       restoreAnchorRef.current = null;
+      anchorRef.current = null;
       if (conversationId) clearScrollPosition(conversationId);
       const el = scrollerRef.current;
       if (el) {
+        const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
         if (typeof el.scrollTo === "function") {
-          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+          el.scrollTo({ top: maxScrollTop, behavior: "smooth" });
         } else {
-          el.scrollTop = el.scrollHeight;
+          el.scrollTop = maxScrollTop;
         }
       }
       isAtBottomRef.current = true;
@@ -438,6 +470,7 @@ export const MessageList = memo(
                   <div
                     key={row.key}
                     data-index={row.index}
+                    data-message-id={message.id}
                     ref={virtualizer.measureElement}
                     className="message-virtual-item"
                     style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + row.start, left: 0, right: 0 }}

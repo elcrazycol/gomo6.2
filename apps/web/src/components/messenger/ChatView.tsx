@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl, giftImageUrl } from "@/utils/storage";
-import { useMessengerStore, selectSelectedConversation, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
+import { useMessengerStore, selectSelectedConversation, queueMarkDelivered } from "@/stores/messengerStore";
 import { formatPresence, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
@@ -104,7 +104,9 @@ export const ChatView = memo(function ChatView({
     setOrganizeMessage(null);
   }, [conversation?.id]);
 
-  // Mark last message delivered + read when new messages arrive (batched)
+  // Mark the last received message delivered when new messages arrive. Read
+  // marking is handled by MessageList's visibility tracking (a message is read
+  // only while it is actually on screen).
   useEffect(() => {
     if (!me?.id || !conversation || messages.length === 0) return;
     const lastOther = [...messages].reverse().find(
@@ -112,7 +114,6 @@ export const ChatView = memo(function ChatView({
     );
     if (lastOther) {
       queueMarkDelivered(conversation.id, lastOther.id, lastOther.sent_at);
-      queueMarkRead(conversation.id, lastOther.id, lastOther.sent_at);
     }
   }, [messages.length, latestMessageId, latestMessageSentAt, conversation?.id]);
 

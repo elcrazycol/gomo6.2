@@ -23,26 +23,35 @@ const h = vi.hoisted(() => ({
 // ── Mocks ─────────────────────────────────────────────────────────────────
 // A minimal useVirtualizer stand-in: captures its options (so the tests can
 // assert count/getItemKey/overscan/estimateSize) and synthesizes virtual rows
-// for every message. measureElement is a no-op ref callback.
+// for every message. measureElement is a no-op ref callback. The instance is
+// cached per `count` (like the real hook's stable instance) so components can
+// list `virtualizer` as an effect dependency without re-running on every
+// render.
 vi.mock("@tanstack/react-virtual", () => {
+  const instances = new Map<number, Record<string, unknown>>();
   return {
     useVirtualizer: (opts: Record<string, unknown>) => {
       h.virtualizerOpts = opts;
       const count = (opts.count as number) ?? 0;
-      return {
-        getVirtualItems: () =>
-          Array.from({ length: count }, (_, index) => ({
-            index,
-            key: index,
-            start: index * 72,
-            size: 72,
-            end: (index + 1) * 72,
-          })),
-        getTotalSize: () => count * 72,
-        getOffsetForIndex: (index: number) => [index * 72, "start"] as const,
-        measureElement: () => undefined,
-        scrollToIndex: h.scrollToIndexSpy,
-      };
+      let instance = instances.get(count);
+      if (!instance) {
+        instance = {
+          getVirtualItems: () =>
+            Array.from({ length: count }, (_, index) => ({
+              index,
+              key: index,
+              start: index * 72,
+              size: 72,
+              end: (index + 1) * 72,
+            })),
+          getTotalSize: () => count * 72,
+          getOffsetForIndex: (index: number) => [index * 72, "start"] as const,
+          measureElement: () => undefined,
+          scrollToIndex: h.scrollToIndexSpy,
+        };
+        instances.set(count, instance);
+      }
+      return instance;
     },
   };
 });
@@ -219,27 +228,32 @@ describe("MessageList virtualization", () => {
   });
 
   it("pins the view to the bottom while at the bottom when content grows", () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
+    h.storeState.messages = base;
     const { scroller, rerender } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 216, scrollTop: 216, clientHeight: 400 });
+    // 34 (header) + 10*72 + 12 (gap) = 766 content; viewport 400 → bottom = 366.
+    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
     // A message arrives while the user is at the bottom (isAtBottomRef starts true).
-    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c"), makeMessage("d")];
-    metrics.scrollHeight = 288; // the browser content grew
+    h.storeState.messages = [...base, makeMessage("new")];
+    metrics.scrollHeight = 766 + 72; // the browser content grew
     rerender(<MessageList renderMessage={renderMessage} />);
-    expect(metrics.scrollTop).toBe(288);
+    expect(metrics.scrollTop).toBe(766 + 72 - 400);
   });
 
-  it("compensates scrollTop when older messages are prepended while scrolled up", () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+  it("keeps the view anchored when older messages are prepended while scrolled up", () => {
+    const base = Array.from({ length: 20 }, (_, i) => makeMessage(`m${i}`));
+    h.storeState.messages = base;
     const { scroller, rerender } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 2000, scrollTop: 500, clientHeight: 400 });
-    // The user scrolled away from the bottom.
+    // 34 (header) + 20*72 + 12 (gap) = 1486 content; scrollTop 500 is scrolled up.
+    const metrics = stubScroller(scroller, { scrollHeight: 1486, scrollTop: 500, clientHeight: 400 });
+    // The user scrolled away from the bottom — this captures the anchor.
     scrollScroller(scroller);
     expect(h.storeState.loadMoreMessages).not.toHaveBeenCalled();
 
-    // History is prepended; the browser content grows by the prepended height.
-    h.storeState.messages = [makeMessage("x"), makeMessage("y"), makeMessage("a"), makeMessage("b"), makeMessage("c")];
-    metrics.scrollHeight = 2000 + 144;
+    // History is prepended; the anchor (top-most visible message) stays frozen,
+    // so scrollTop grows by exactly the prepended height (2 * 72).
+    h.storeState.messages = [makeMessage("x"), makeMessage("y"), ...base];
+    metrics.scrollHeight = 1486 + 144;
     rerender(<MessageList renderMessage={renderMessage} />);
     expect(metrics.scrollTop).toBe(500 + 144);
   });

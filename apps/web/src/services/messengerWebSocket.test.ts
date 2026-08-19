@@ -163,7 +163,7 @@ describe("messengerWebSocket", () => {
       expect(storeMocks.setTyping).toHaveBeenCalled();
     });
 
-    it("queues markDelivered and markRead for incoming messages", () => {
+    it("queues markDelivered (not markRead) for incoming messages", () => {
       emitToHandlers("new_chat_message", {
         id: "msg-1",
         conversation_id: "conv-1",
@@ -173,10 +173,11 @@ describe("messengerWebSocket", () => {
       });
 
       expect(queueMarkDeliveredMock).toHaveBeenCalledWith("conv-1", "msg-1", "2025-01-01T00:00:00Z");
-      expect(queueMarkReadMock).toHaveBeenCalledWith("conv-1", "msg-1", "2025-01-01T00:00:00Z");
+      // Read marking is visibility-based (owned by MessageList), not arrival-based.
+      expect(queueMarkReadMock).not.toHaveBeenCalled();
     });
 
-    it("skips markDelivered/markRead for own messages", () => {
+    it("skips markDelivered for own messages", () => {
       emitToHandlers("new_chat_message", {
         id: "msg-1",
         conversation_id: "conv-1",

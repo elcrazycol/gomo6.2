@@ -16,12 +16,12 @@ import (
 //
 // Uses a single transaction for consistency.
 
-// MarkRead marks messages as read up to a given message.
+// MarkRead records a read receipt for a single message.
 // POST /api/v1/messenger/conversations/:id/read
 //
 // MarkRead godoc
-// @Summary      Mark messages as read
-// @Description  Mark all messages up to a given message as read
+// @Summary      Mark a message as read
+// @Description  Record a per-message read receipt (individual read_at). The last_read_message_id / unread_count marker advances forward when this message is newer than the current marker.
 // @Tags         Messenger
 // @Accept       json
 // @Produce      json
@@ -61,12 +61,17 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		return
 	}
 
-	// Get message sent_at
-	var sentAt time.Time
-	err = h.dbFor(c).QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2",
+	// Verify the message exists in this conversation (404 otherwise).
+	var exists bool
+	err = h.dbFor(c).QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2)",
 		req.MessageID, conversationID,
-	).Scan(&sentAt)
+	).Scan(&exists)
 	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found in this conversation"))
+		return
+	}
+	if !exists {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found in this conversation"))
 		return
 	}
@@ -88,16 +93,21 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		}
 	}()
 
+	// A read receipt is per-message: only this exact message gets its read_at
+	// timestamp, so a recipient scrolling through history marks just the
+	// messages actually on screen (each with its own real time). The prefix
+	// marker (last_read_message_id / unread_count) is advanced separately below
+	// and only ever moves forward.
 	_, err = tx.Exec(`
 		INSERT INTO chat_receipts (message_id, user_id, delivered_at, read_at)
 		SELECT m.id, $2, NOW(), NOW()
 		FROM chat_messages m
-		WHERE m.conversation_id = $1
+		WHERE m.id = $3
+		  AND m.conversation_id = $1
 		  AND m.sender_user_id != $2
-		  AND m.sent_at <= $3
 		ON CONFLICT (message_id, user_id)
-		DO UPDATE SET read_at = NOW(), delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
-	`, conversationID, claims.UserID, sentAt)
+		DO UPDATE SET read_at = COALESCE(chat_receipts.read_at, NOW()), delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
+	`, conversationID, claims.UserID, req.MessageID)
 	if err != nil {
 		serverError(c, "mark read receipts", err)
 		return

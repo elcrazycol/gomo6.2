@@ -1,4 +1,4 @@
-import { useMessengerStore, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
+import { useMessengerStore, queueMarkDelivered } from "@/stores/messengerStore";
 import { wsService, type WebSocketMessage } from "@/services/websocket";
 
 // ─── Messenger WebSocket — event handlers for chat-specific WS events ───────
@@ -143,11 +143,10 @@ class MessengerWebSocket {
     }
 
     if (!isMine) {
-      const convId = store.selectedConversationId;
+      // Delivered as soon as it lands on the device. Read marking is owned by
+      // MessageList's visibility tracking (a message is read only while it is
+      // actually on screen).
       queueMarkDelivered(data.conversation_id as string, data.id as string, data.sent_at as string | undefined);
-      if (convId === data.conversation_id) {
-        queueMarkRead(data.conversation_id as string, data.id as string, data.sent_at as string | undefined);
-      }
     }
   }
 
