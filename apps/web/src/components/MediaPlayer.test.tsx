@@ -65,6 +65,31 @@ describe("MediaPlayer", () => {
     expect(video?.className).toContain("max-w-full");
   });
 
+  it("renders a blurred poster backdrop with a dim layer behind the video", () => {
+    const { container } = render(
+      <MediaPlayer
+        kind="video"
+        sources={[{ src: "test.mp4" }]}
+        poster="poster.jpg"
+      />,
+    );
+    const backdrop = container.querySelector('img[src="poster.jpg"]');
+    expect(backdrop).toBeInTheDocument();
+    expect(backdrop?.className).toContain("blur-2xl");
+    expect(backdrop?.className).toContain("object-cover");
+    expect(container.querySelector(".bg-black\\/30")).not.toBeNull();
+  });
+
+  it("renders no blurred backdrop when the video has no poster", () => {
+    const { container } = render(
+      <MediaPlayer
+        kind="video"
+        sources={[{ src: "test.mp4" }]}
+      />,
+    );
+    expect(container.querySelector('img[src="poster.jpg"]')).not.toBeInTheDocument();
+  });
+
   it("renders multiple sources", () => {
     render(
       <MediaPlayer

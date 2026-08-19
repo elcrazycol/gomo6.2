@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const PLYR_SCRIPT = "https://cdn.plyr.io/3.8.4/plyr.polyfilled.js";
 const PLYR_CSS = "https://cdn.plyr.io/3.8.4/plyr.css";
@@ -97,6 +97,7 @@ interface MediaPlayerProps {
 export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause }: MediaPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const [backdropLoaded, setBackdropLoaded] = useState(false);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
   const instanceRef = useRef<PlyrInstance | null>(null);
   const isUnmountingRef = useRef(false);
@@ -309,8 +310,26 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
   const mediaClassName = kind === "video" ? "mx-auto block h-auto max-h-[70vh] w-auto max-w-full" : "w-full";
 
   return (
-    <div className={`w-full rounded-xl border border-border bg-card/80 shadow-sm overflow-hidden ${className}`}>
-      <div ref={mountRef}>
+    <div className={`relative w-full rounded-xl border border-border bg-card/80 shadow-sm overflow-hidden ${className}`}>
+      {/* Instagram-style backdrop: the letterboxed sides of portrait videos
+          show a blurred version of the video's own frame instead of a flat
+          background. Landscape clips cover it entirely, so only portrait and
+          square cards change; clips without a poster keep the plain card. */}
+      {kind === "video" && poster && (
+        <>
+          <img
+            src={poster}
+            alt=""
+            aria-hidden="true"
+            className={`absolute inset-0 h-full w-full scale-110 object-cover blur-2xl transition-opacity duration-300 ${backdropLoaded ? "opacity-100" : "opacity-0"}`}
+            onLoad={() => setBackdropLoaded(true)}
+          />
+          {/* Slight dim so the video pops and the backdrop fits both themes. */}
+          <div className="absolute inset-0 bg-black/30" />
+        </>
+      )}
+      {/* relative: paints above the absolutely positioned backdrop. */}
+      <div ref={mountRef} className="relative">
         <Element
           ref={mediaRef as unknown as React.LegacyRef<HTMLVideoElement> | undefined}
           className={mediaClassName}
