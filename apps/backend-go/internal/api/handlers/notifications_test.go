@@ -20,9 +20,9 @@ func TestGetNotifications_Success(t *testing.T) {
 	c, w := newGETContext("/api/v1/notifications", nil)
 	c.Set("claims", claims)
 
-	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "is_read", "created_at"}).
-		AddRow("n1", "u1", "like", "New like", "Someone liked your post", nil, nil, nil, false, time.Now()).
-		AddRow("n2", "u1", "reply", "New reply", "Someone replied to your thread", "t1", nil, nil, true, time.Now())
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "related_wall_post_id", "related_wall_comment_id", "related_wall_user_id", "is_read", "created_at"}).
+		AddRow("n1", "u1", "like", "New like", "Someone liked your post", nil, nil, nil, nil, nil, nil, false, time.Now()).
+		AddRow("n2", "u1", "reply", "New reply", "Someone replied to your thread", "t1", nil, nil, nil, nil, nil, true, time.Now())
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs("u1", 51, 0).
@@ -53,8 +53,8 @@ func TestGetNotifications_WithPagination(t *testing.T) {
 	c, w := newGETContext("/api/v1/notifications", map[string]string{"limit": "10", "offset": "5"})
 	c.Set("claims", claims)
 
-	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "is_read", "created_at"}).
-		AddRow("n1", "u1", "like", "New like", "Someone liked your post", nil, nil, nil, false, time.Now())
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "related_wall_post_id", "related_wall_comment_id", "related_wall_user_id", "is_read", "created_at"}).
+		AddRow("n1", "u1", "like", "New like", "Someone liked your post", nil, nil, nil, nil, nil, nil, false, time.Now())
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs("u1", 11, 5).
@@ -103,8 +103,8 @@ func TestGetNotifications_ScanError(t *testing.T) {
 	c, w := newGETContext("/api/v1/notifications", nil)
 	c.Set("claims", claims)
 
-	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "is_read", "created_at"}).
-		AddRow("n1", "u1", "like", "New like", "Message", nil, nil, nil, "not-a-bool", time.Now())
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "related_wall_post_id", "related_wall_comment_id", "related_wall_user_id", "is_read", "created_at"}).
+		AddRow("n1", "u1", "like", "New like", "Message", nil, nil, nil, nil, nil, nil, "not-a-bool", time.Now())
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*`).
 		WithArgs("u1", 51, 0).
@@ -290,11 +290,11 @@ func TestCreateNotification_Success(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "is_read", "created_at"}).
-		AddRow("n1", "t1", "like", "Test like", "You got a like!", "thread1", "post1", nil, false, now)
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "related_wall_post_id", "related_wall_comment_id", "related_wall_user_id", "is_read", "created_at"}).
+		AddRow("n1", "t1", "like", "Test like", "You got a like!", "thread1", "post1", nil, nil, nil, nil, false, now)
 
-	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id, is_read, created_at`).
-		WithArgs("u1", "like", "Test like", "You got a like!", "thread1", "post1", nil, false, sqlmock.AnyArg()).
+	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*created_at`).
+		WithArgs("u1", "like", "Test like", "You got a like!", "thread1", "post1", nil, nil, nil, nil, false, sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
 	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Test like", "You got a like!", strPtr("thread1"), strPtr("post1"), nil)
@@ -316,11 +316,11 @@ func TestCreateNotification_SuccessNoRelated(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "is_read", "created_at"}).
-		AddRow("n2", "u1", "reply", "New reply", "Someone replied", nil, nil, nil, false, now)
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "related_wall_post_id", "related_wall_comment_id", "related_wall_user_id", "is_read", "created_at"}).
+		AddRow("n2", "u1", "reply", "New reply", "Someone replied", nil, nil, nil, nil, nil, nil, false, now)
 
 	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
-		WithArgs("u1", "reply", "New reply", "Someone replied", nil, nil, nil, false, sqlmock.AnyArg()).
+		WithArgs("u1", "reply", "New reply", "Someone replied", nil, nil, nil, nil, nil, nil, false, sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
 	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "reply", "New reply", "Someone replied", nil, nil, nil)
@@ -335,11 +335,43 @@ func TestCreateNotification_SuccessNoRelated(t *testing.T) {
 	}
 }
 
+func TestCreateWallNotification_Success(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "related_wall_post_id", "related_wall_comment_id", "related_wall_user_id", "is_read", "created_at"}).
+		AddRow("nw1", "u1", "wall_post_like", "Like", "", nil, nil, "actor1", "wp1", "wc1", "wu1", false, now)
+
+	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
+		WithArgs("u1", "wall_post_like", "Like", "", nil, nil, "actor1", "wp1", "wc1", "wu1", false, sqlmock.AnyArg()).
+		WillReturnRows(rows)
+
+	notif, err := CreateWallNotification(handler.db, handler.redis, handler.hub, "u1", "wall_post_like", "Like", "", strPtr("wp1"), strPtr("wc1"), strPtr("wu1"), strPtr("actor1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if notif == nil {
+		t.Fatal("expected notification, got nil")
+	}
+	if notif.RelatedWallPostID == nil || *notif.RelatedWallPostID != "wp1" {
+		t.Fatalf("expected related_wall_post_id wp1, got %v", notif.RelatedWallPostID)
+	}
+	if notif.RelatedWallCommentID == nil || *notif.RelatedWallCommentID != "wc1" {
+		t.Fatalf("expected related_wall_comment_id wc1, got %v", notif.RelatedWallCommentID)
+	}
+	if notif.RelatedWallUserID == nil || *notif.RelatedWallUserID != "wu1" {
+		t.Fatalf("expected related_wall_user_id wu1, got %v", notif.RelatedWallUserID)
+	}
+	if notif.RelatedUserID == nil || *notif.RelatedUserID != "actor1" {
+		t.Fatalf("expected related_user_id actor1, got %v", notif.RelatedUserID)
+	}
+}
+
 func TestCreateNotification_DBError(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
-		WithArgs("u1", "like", "Test", "Msg", nil, nil, nil, false, sqlmock.AnyArg()).
+		WithArgs("u1", "like", "Test", "Msg", nil, nil, nil, nil, nil, nil, false, sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Test", "Msg", nil, nil, nil)
@@ -367,11 +399,11 @@ func TestCreateNotification_NilRedisHub(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "is_read", "created_at"}).
-		AddRow("n1", "u1", "like", "Test like", "You got a like!", nil, nil, nil, false, now)
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "related_user_id", "related_wall_post_id", "related_wall_comment_id", "related_wall_user_id", "is_read", "created_at"}).
+		AddRow("n1", "u1", "like", "Test like", "You got a like!", nil, nil, nil, nil, nil, nil, false, now)
 
 	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
-		WithArgs("u1", "like", "Test like", "You got a like!", nil, nil, nil, false, sqlmock.AnyArg()).
+		WithArgs("u1", "like", "Test like", "You got a like!", nil, nil, nil, nil, nil, nil, false, sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
 	// redis=nil, hub=nil should work — just skips cache invalidation and WS publish
@@ -388,7 +420,7 @@ func TestCreateNotification_DBErrorPackage(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
-		WithArgs("u1", "like", "Test", "Msg", nil, nil, nil, false, sqlmock.AnyArg()).
+		WithArgs("u1", "like", "Test", "Msg", nil, nil, nil, nil, nil, nil, false, sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Test", "Msg", nil, nil, nil)

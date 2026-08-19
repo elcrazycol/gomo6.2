@@ -328,7 +328,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 				notifHub = castHub
 			}
 		}
-		_, _ = CreateNotification(h.db, h.redis, notifHub, threadAuthor, "reply", title, shortContent, &req.ThreadID, &post.ID, nil)
+		_, _ = CreateNotification(h.db, h.redis, notifHub, threadAuthor, "reply", title, shortContent, &req.ThreadID, &post.ID, &claims.UserID)
 	}
 
 	if h.redis != nil {

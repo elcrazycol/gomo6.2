@@ -112,7 +112,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	// Create notification for thread author (if not self-like)
 	if threadOwner != "" && threadOwner != userClaims.UserID {
 		title := fmt.Sprintf("@%s оценил(а) ваш тред", userClaims.Username)
-		_, _ = CreateNotification(h.db, h.redis, h.hub, threadOwner, "like", title, "", &threadID, nil, nil)
+		_, _ = CreateNotification(h.db, h.redis, h.hub, threadOwner, "like", title, "", &threadID, nil, &userClaims.UserID)
 	}
 
 	// Check achievements for both the liker and the thread author
@@ -262,7 +262,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	if postAuthor != "" && postAuthor != userClaims.UserID {
 		title := fmt.Sprintf("@%s оценил(а) ваш пост", userClaims.Username)
 		// Try to create notification (best-effort)
-		_, _ = CreateNotification(h.db, h.redis, h.hub, postAuthor, "like", title, "", &threadID, &postID, nil)
+		_, _ = CreateNotification(h.db, h.redis, h.hub, postAuthor, "like", title, "", &threadID, &postID, &userClaims.UserID)
 	}
 
 	// Check achievements for both the liker and the post author

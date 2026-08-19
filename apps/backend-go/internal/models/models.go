@@ -218,16 +218,19 @@ type ThreadLike struct {
 
 // Notification
 type Notification struct {
-	ID              string     `json:"id" db:"id"`
-	UserID          string     `json:"user_id" db:"user_id"`
-	Type            string     `json:"type" db:"type"`
-	Title           string     `json:"title" db:"title"`
-	Message         string     `json:"message" db:"message"`
-	RelatedThreadID *string    `json:"related_thread_id" db:"related_thread_id"`
-	RelatedPostID   *string    `json:"related_post_id" db:"related_post_id"`
-	RelatedUserID   *string    `json:"related_user_id" db:"related_user_id"`
-	IsRead          bool       `json:"is_read" db:"is_read"`
-	CreatedAt       *time.Time `json:"created_at" db:"created_at"`
+	ID                   string     `json:"id" db:"id"`
+	UserID               string     `json:"user_id" db:"user_id"`
+	Type                 string     `json:"type" db:"type"`
+	Title                string     `json:"title" db:"title"`
+	Message              string     `json:"message" db:"message"`
+	RelatedThreadID      *string    `json:"related_thread_id" db:"related_thread_id"`
+	RelatedPostID        *string    `json:"related_post_id" db:"related_post_id"`
+	RelatedUserID        *string    `json:"related_user_id" db:"related_user_id"`
+	RelatedWallPostID    *string    `json:"related_wall_post_id" db:"related_wall_post_id"`
+	RelatedWallCommentID *string    `json:"related_wall_comment_id" db:"related_wall_comment_id"`
+	RelatedWallUserID    *string    `json:"related_wall_user_id" db:"related_wall_user_id"`
+	IsRead               bool       `json:"is_read" db:"is_read"`
+	CreatedAt            *time.Time `json:"created_at" db:"created_at"`
 }
 
 // Achievement — multi-level grouped achievement definition.

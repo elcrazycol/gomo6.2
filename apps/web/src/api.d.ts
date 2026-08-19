@@ -4312,6 +4312,9 @@ export interface components {
             related_thread_id?: string | null;
             related_post_id?: string | null;
             related_user_id?: string | null;
+            related_wall_post_id?: string | null;
+            related_wall_comment_id?: string | null;
+            related_wall_user_id?: string | null;
             is_read: boolean;
             created_at: string;
         };

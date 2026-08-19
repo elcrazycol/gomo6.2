@@ -280,6 +280,118 @@ func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, comm
 	}
 }
 
+// wallResultString returns the string value of a generic result-map cell, or "".
+func wallResultString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// wallIDPtr returns nil for an empty string, else a pointer to it.
+func wallIDPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// wallPostOwnerAuthor resolves the wall owner and author of a wall post.
+func (h *UniversalHandler) wallPostOwnerAuthor(c *gin.Context, postID string) (ownerID, authorID string) {
+	if postID == "" {
+		return "", ""
+	}
+	_ = h.db.QueryRowContext(c.Request.Context(),
+		"SELECT user_id, author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&ownerID, &authorID)
+	return ownerID, authorID
+}
+
+// wallCommentPostAndAuthor resolves a wall comment's post_id and author.
+func (h *UniversalHandler) wallCommentPostAndAuthor(c *gin.Context, commentID string) (postID, authorID string) {
+	if commentID == "" {
+		return "", ""
+	}
+	_ = h.db.QueryRowContext(c.Request.Context(),
+		"SELECT post_id, user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&postID, &authorID)
+	return postID, authorID
+}
+
+// createWallNotification creates a wall notification for recipientID, skipping
+// self-notifications. Best-effort — a failed notification must never fail the
+// underlying wall write.
+func (h *UniversalHandler) createWallNotification(c *gin.Context, recipientID, actorID, notifType, title, message string, wallPostID, wallCommentID, wallUserID *string) {
+	if recipientID == "" || actorID == "" || recipientID == actorID {
+		return
+	}
+	if _, err := CreateWallNotification(h.db, h.redis, h.hub, recipientID, notifType, title, message, wallPostID, wallCommentID, wallUserID, &actorID); err != nil {
+		fmt.Printf("[WallNotifications] error creating %s notification: %v\n", notifType, err)
+	}
+}
+
+// notifyWallPostLike creates the "wall_post_like" notification for the wall
+// post author.
+func (h *UniversalHandler) notifyWallPostLike(c *gin.Context, postID, actorID string) {
+	if postID == "" || actorID == "" {
+		return
+	}
+	ownerID, authorID := h.wallPostOwnerAuthor(c, postID)
+	if authorID == "" || authorID == actorID {
+		return
+	}
+	title := fmt.Sprintf("@%s оценил(а) вашу запись", getUsernameFromDB(h.db, actorID))
+	h.createWallNotification(c, authorID, actorID, "wall_post_like", title, "", wallIDPtr(postID), nil, wallIDPtr(ownerID))
+}
+
+// notifyWallComment creates the wall comment / reply notifications for a newly
+// inserted wall comment.
+func (h *UniversalHandler) notifyWallComment(c *gin.Context, result map[string]interface{}) {
+	commentID := wallResultString(result["id"])
+	postID := wallResultString(result["post_id"])
+	actorID := wallResultString(result["user_id"])
+	parentID := wallResultString(result["parent_id"])
+	if postID == "" || actorID == "" {
+		return
+	}
+
+	snippet := truncateRunes(wallResultString(result["content"]), 100)
+	ownerID, postAuthorID := h.wallPostOwnerAuthor(c, postID)
+
+	// Reply to another comment → notify the parent comment's author.
+	if parentID != "" {
+		_, parentAuthorID := h.wallCommentPostAndAuthor(c, parentID)
+		if parentAuthorID != "" && parentAuthorID != actorID {
+			title := fmt.Sprintf("@%s ответил(а) на ваш комментарий", getUsernameFromDB(h.db, actorID))
+			h.createWallNotification(c, parentAuthorID, actorID, "wall_comment_reply", title, snippet, wallIDPtr(postID), wallIDPtr(commentID), wallIDPtr(ownerID))
+		}
+		return
+	}
+
+	// Top-level comment → notify the post author.
+	if postAuthorID != "" && postAuthorID != actorID {
+		title := fmt.Sprintf("@%s прокомментировал(а) вашу запись", getUsernameFromDB(h.db, actorID))
+		h.createWallNotification(c, postAuthorID, actorID, "wall_comment", title, snippet, wallIDPtr(postID), wallIDPtr(commentID), wallIDPtr(ownerID))
+	}
+}
+
+// notifyWallRepost creates the "wall_repost" notification for the author of the
+// original wall post.
+func (h *UniversalHandler) notifyWallRepost(c *gin.Context, result map[string]interface{}) {
+	originalPostID := wallResultString(result["post_id"])
+	actorID := wallResultString(result["user_id"])
+	if originalPostID == "" || actorID == "" {
+		return
+	}
+	ownerID, originalAuthorID := h.wallPostOwnerAuthor(c, originalPostID)
+	if originalAuthorID == "" || originalAuthorID == actorID {
+		return
+	}
+	title := fmt.Sprintf("@%s репостнул(а) вашу запись", getUsernameFromDB(h.db, actorID))
+	h.createWallNotification(c, originalAuthorID, actorID, "wall_repost", title, "", wallIDPtr(originalPostID), nil, wallIDPtr(ownerID))
+}
+
 // ─── GET ────────────────────────────────────────────────────────────────────
 
 func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
@@ -564,7 +676,7 @@ RETURNING *`
 		}
 		q := `INSERT INTO profile_wall_post_likes (post_id, user_id) VALUES ($1, $2)
 ON CONFLICT (post_id, user_id) DO UPDATE SET user_id = EXCLUDED.user_id
-RETURNING *`
+RETURNING *, (xmax = 0) AS inserted`
 		return q, []interface{}{pid, uid}, true
 	case "profile_customization":
 		uid, hasUID := data["user_id"]
@@ -1104,6 +1216,11 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		if tableName == "profile_wall_post_likes" {
 			if postID, ok := result["post_id"].(string); ok {
 				h.recomputeStatsForWallPostLike(c, postID, rowUserID(result["user_id"]))
+				// Notify the post author only on a genuinely new like (xmax = 0
+				// distinguishes a fresh INSERT from the ON CONFLICT re-like).
+				if inserted, _ := result["inserted"].(bool); inserted {
+					h.notifyWallPostLike(c, postID, wallResultString(result["user_id"]))
+				}
 			}
 		}
 
@@ -1171,6 +1288,16 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		// Also invalidate via the new cache system
 		h.invalidateCacheForTableResult(c, tableName, result)
 
+		// Wall notification: someone else posted on this wall.
+		wallOwnerID := wallResultString(result["user_id"])
+		authorID := wallResultString(result["author_id"])
+		if wallOwnerID != "" && authorID != "" && wallOwnerID != authorID {
+			postID := wallResultString(result["id"])
+			title := fmt.Sprintf("@%s написал(а) на вашей стене", getUsernameFromDB(h.db, authorID))
+			msg := truncateRunes(wallResultString(result["content"]), 100)
+			h.createWallNotification(c, wallOwnerID, authorID, "wall_post", title, msg, wallIDPtr(postID), nil, wallIDPtr(wallOwnerID))
+		}
+
 		// Build enriched payload with author data for WebSocket
 		if h.hub != nil {
 			var wsPayload map[string]interface{}
@@ -1201,6 +1328,8 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
 			h.invalidateWallListCache(c, postID)
 		}
+		// Wall notifications: comment → post author; reply → parent comment author.
+		h.notifyWallComment(c, result)
 	}
 
 	if tableName == "profile_wall_post_reposts" {
@@ -1212,6 +1341,8 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
 		}
+		// Wall notification: the original post's author gets a repost notice.
+		h.notifyWallRepost(c, result)
 	}
 
 	if tableName == "profile_wall_comment_likes" {

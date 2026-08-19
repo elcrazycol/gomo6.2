@@ -19,17 +19,20 @@ import (
 
 // notificationPayload is the data sent over WebSocket for a new notification
 type notificationPayload struct {
-	ID              string      `json:"id"`
-	NotificationID  string      `json:"notification_id"`
-	UserID          string      `json:"user_id"`
-	Type            string      `json:"type"`
-	Title           string      `json:"title"`
-	Message         string      `json:"message"`
-	RelatedThreadID interface{} `json:"related_thread_id"`
-	RelatedPostID   interface{} `json:"related_post_id"`
-	RelatedUserID   interface{} `json:"related_user_id"`
-	IsRead          bool        `json:"is_read"`
-	CreatedAt       string      `json:"created_at"`
+	ID                   string      `json:"id"`
+	NotificationID       string      `json:"notification_id"`
+	UserID               string      `json:"user_id"`
+	Type                 string      `json:"type"`
+	Title                string      `json:"title"`
+	Message              string      `json:"message"`
+	RelatedThreadID      interface{} `json:"related_thread_id"`
+	RelatedPostID        interface{} `json:"related_post_id"`
+	RelatedUserID        interface{} `json:"related_user_id"`
+	RelatedWallPostID    interface{} `json:"related_wall_post_id"`
+	RelatedWallCommentID interface{} `json:"related_wall_comment_id"`
+	RelatedWallUserID    interface{} `json:"related_wall_user_id"`
+	IsRead               bool        `json:"is_read"`
+	CreatedAt            string      `json:"created_at"`
 }
 
 type NotificationsHandler struct {
@@ -50,15 +53,10 @@ func (h *NotificationsHandler) SetWebSocketHub(hub *websocket.Hub) {
 	h.hub = hub
 }
 
-// CreateNotification creates a notification, invalidates cache, and broadcasts via WebSocket.
-// This is the single function for ALL notification creation across the codebase.
+// CreateNotification creates a forum notification (thread/post/user references),
+// invalidates cache, and broadcasts via WebSocket.
 func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, userID, notifType, title, message string, relatedThreadID, relatedPostID, relatedUserID *string) (*models.Notification, error) {
-	if db == nil {
-		return nil, fmt.Errorf("database not available")
-	}
-
-	now := time.Now()
-	notification := &models.Notification{
+	return insertNotification(db, redisClient, hub, &models.Notification{
 		UserID:          userID,
 		Type:            notifType,
 		Title:           title,
@@ -66,23 +64,50 @@ func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 		RelatedThreadID: relatedThreadID,
 		RelatedPostID:   relatedPostID,
 		RelatedUserID:   relatedUserID,
-		IsRead:          false,
-		CreatedAt:       &now,
+	})
+}
+
+// CreateWallNotification creates a wall notification (profile wall post/comment
+// references plus the actor). Shared cache invalidation + WebSocket delivery
+// with CreateNotification via insertNotification.
+func CreateWallNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, userID, notifType, title, message string, relatedWallPostID, relatedWallCommentID, relatedWallUserID, relatedUserID *string) (*models.Notification, error) {
+	return insertNotification(db, redisClient, hub, &models.Notification{
+		UserID:               userID,
+		Type:                 notifType,
+		Title:                title,
+		Message:              message,
+		RelatedUserID:        relatedUserID,
+		RelatedWallPostID:    relatedWallPostID,
+		RelatedWallCommentID: relatedWallCommentID,
+		RelatedWallUserID:    relatedWallUserID,
+	})
+}
+
+// insertNotification is the single INSERT + cache invalidation + WebSocket
+// broadcast path shared by every notification type across the codebase.
+func insertNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, n *models.Notification) (*models.Notification, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database not available")
 	}
 
+	now := time.Now()
+	n.IsRead = false
+	n.CreatedAt = &now
+
 	query := `
-		INSERT INTO notifications (user_id, type, title, message, related_thread_id, related_post_id, related_user_id, is_read, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id, is_read, created_at
+		INSERT INTO notifications (user_id, type, title, message, related_thread_id, related_post_id, related_user_id, related_wall_post_id, related_wall_comment_id, related_wall_user_id, is_read, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id, related_wall_post_id, related_wall_comment_id, related_wall_user_id, is_read, created_at
 	`
 
 	var retCreatedAt time.Time
 	err := db.QueryRow(query,
-		userID, notifType, title, message, relatedThreadID, relatedPostID, relatedUserID, false, now,
+		n.UserID, n.Type, n.Title, n.Message, n.RelatedThreadID, n.RelatedPostID, n.RelatedUserID,
+		n.RelatedWallPostID, n.RelatedWallCommentID, n.RelatedWallUserID, false, now,
 	).Scan(
-		&notification.ID, &notification.UserID, &notification.Type,
-		&notification.Title, &notification.Message, &notification.RelatedThreadID,
-		&notification.RelatedPostID, &notification.RelatedUserID, &notification.IsRead, &retCreatedAt,
+		&n.ID, &n.UserID, &n.Type, &n.Title, &n.Message, &n.RelatedThreadID,
+		&n.RelatedPostID, &n.RelatedUserID, &n.RelatedWallPostID, &n.RelatedWallCommentID,
+		&n.RelatedWallUserID, &n.IsRead, &retCreatedAt,
 	)
 
 	if err != nil {
@@ -90,27 +115,30 @@ func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 		return nil, err
 	}
 
-	notification.CreatedAt = &retCreatedAt
+	n.CreatedAt = &retCreatedAt
 
 	// Invalidate cache for this user's notifications
 	if redisClient != nil {
-		middleware.InvalidateCacheForNotification(redisClient, userID)
+		middleware.InvalidateCacheForNotification(redisClient, n.UserID)
 	}
 
 	// Publish WebSocket event for real-time delivery
 	if hub != nil {
 		payload := notificationPayload{
-			ID:              notification.ID,
-			NotificationID:  notification.ID,
-			UserID:          notification.UserID,
-			Type:            notification.Type,
-			Title:           notification.Title,
-			Message:         notification.Message,
-			RelatedThreadID: nullableString(notification.RelatedThreadID),
-			RelatedPostID:   nullableString(notification.RelatedPostID),
-			RelatedUserID:   nullableString(notification.RelatedUserID),
-			IsRead:          notification.IsRead,
-			CreatedAt:       retCreatedAt.Format(time.RFC3339Nano),
+			ID:                   n.ID,
+			NotificationID:       n.ID,
+			UserID:               n.UserID,
+			Type:                 n.Type,
+			Title:                n.Title,
+			Message:              n.Message,
+			RelatedThreadID:      nullableString(n.RelatedThreadID),
+			RelatedPostID:        nullableString(n.RelatedPostID),
+			RelatedUserID:        nullableString(n.RelatedUserID),
+			RelatedWallPostID:    nullableString(n.RelatedWallPostID),
+			RelatedWallCommentID: nullableString(n.RelatedWallCommentID),
+			RelatedWallUserID:    nullableString(n.RelatedWallUserID),
+			IsRead:               n.IsRead,
+			CreatedAt:            retCreatedAt.Format(time.RFC3339Nano),
 		}
 
 		if err := hub.PublishNewNotification(payload); err != nil {
@@ -118,7 +146,7 @@ func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 		}
 	}
 
-	return notification, nil
+	return n, nil
 }
 
 // nullableString returns nil if s is nil, otherwise returns *s as string
@@ -154,6 +182,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 
 	query := `
 		SELECT id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id,
+		       related_wall_post_id, related_wall_comment_id, related_wall_user_id,
 		       is_read, created_at
 		FROM notifications 
 		WHERE user_id = $1
@@ -207,7 +236,9 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 		err := rows.Scan(
 			&notification.ID, &notification.UserID, &notification.Type,
 			&notification.Title, &notification.Message, &notification.RelatedThreadID,
-			&notification.RelatedPostID, &notification.RelatedUserID, &notification.IsRead, &notification.CreatedAt,
+			&notification.RelatedPostID, &notification.RelatedUserID,
+			&notification.RelatedWallPostID, &notification.RelatedWallCommentID, &notification.RelatedWallUserID,
+			&notification.IsRead, &notification.CreatedAt,
 		)
 		if err != nil {
 			serverError(c, "handler error", err)

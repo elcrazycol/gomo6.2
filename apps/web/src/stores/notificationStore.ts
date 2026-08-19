@@ -25,6 +25,7 @@ type NotificationStore = {
   isLoading: boolean;
   isLoadingMore: boolean;
   initialized: boolean;
+  activeFilter: string | undefined;
   lastUnlockedAchievement: AchievementData | null;
 
   init: (userId: string) => void;
@@ -48,6 +49,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   isLoading: true,
   isLoadingMore: false,
   initialized: false,
+  activeFilter: undefined,
   lastUnlockedAchievement: null,
 
   init: (userId: string) => {
@@ -107,6 +109,10 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       },
     });
 
+    // Fetch the unread badge independently of the messenger store's sync, so
+    // the bell is correct even before the messenger initializes.
+    get().fetchUnreadCount();
+
     get().fetchInitial().then(() => set({ isLoading: false, initialized: true }));
   },
 
@@ -131,6 +137,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
           notifications: merged,
           offset: data.length,
           hasMore: resp.has_more ?? data.length >= PAGE_SIZE,
+          activeFilter: isRead,
         };
       });
     } catch {
@@ -139,13 +146,15 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   },
 
   fetchMore: async () => {
-    const { offset, hasMore, isLoadingMore } = get();
+    const { offset, hasMore, isLoadingMore, activeFilter } = get();
     if (isLoadingMore || !hasMore) return;
 
     set({ isLoadingMore: true });
 
     try {
-      const resp = await apiClient.getNotifications({ limit: PAGE_SIZE, offset });
+      const params: { limit: number; offset: number; is_read?: string } = { limit: PAGE_SIZE, offset };
+      if (activeFilter) params.is_read = activeFilter;
+      const resp = await apiClient.getNotifications(params);
       const data = (resp.data as Notification[] | null) ?? [];
 
       set((state) => {
@@ -164,7 +173,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   },
 
   resetAndFetch: async (isRead?: string) => {
-    set({ notifications: [], offset: 0, hasMore: true });
+    set({ notifications: [], offset: 0, hasMore: true, activeFilter: isRead });
     await get().fetchInitial(isRead);
   },
 
@@ -225,6 +234,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       offset: 0,
       hasMore: true,
       initialized: false,
+      activeFilter: undefined,
       lastUnlockedAchievement: null,
     });
   },

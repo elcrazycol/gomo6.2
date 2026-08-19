@@ -38,8 +38,10 @@ func setupFriendsHandler(t *testing.T) (*FriendsHandler, sqlmock.Sqlmock) {
 func notificationInsertRow(id string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "user_id", "type", "title", "message",
-		"related_thread_id", "related_post_id", "related_user_id", "is_read", "created_at",
-	}).AddRow(id, "u-receiver", "friend_request", "Новая заявка в друзья", "msg", nil, nil, "u-sender", false, "2024-01-01T00:00:00Z")
+		"related_thread_id", "related_post_id", "related_user_id",
+		"related_wall_post_id", "related_wall_comment_id", "related_wall_user_id",
+		"is_read", "created_at",
+	}).AddRow(id, "u-receiver", "friend_request", "Новая заявка в друзья", "msg", nil, nil, "u-sender", nil, nil, nil, false, "2024-01-01T00:00:00Z")
 }
 
 const (
@@ -243,7 +245,7 @@ func TestSendRequest_AutoAcceptsReverseRequest(t *testing.T) {
 	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("alice"))
 	mock.ExpectQuery("INSERT INTO notifications \\(user_id, type, title, message").
-		WithArgs(friendReceiver, "friend_accepted", sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, friendSender, false, sqlmock.AnyArg()).
+		WithArgs(friendReceiver, "friend_accepted", sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, friendSender, nil, nil, nil, false, sqlmock.AnyArg()).
 		WillReturnRows(notificationInsertRow("notif-3"))
 
 	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
@@ -338,7 +340,7 @@ func TestAcceptRequest_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("bob"))
 	mock.ExpectQuery("INSERT INTO notifications \\(user_id, type, title, message").
-		WithArgs(friendSender, "friend_accepted", sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, friendReceiver, false, sqlmock.AnyArg()).
+		WithArgs(friendSender, "friend_accepted", sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, friendReceiver, nil, nil, nil, false, sqlmock.AnyArg()).
 		WillReturnRows(notificationInsertRow("notif-4"))
 
 	c, w := newPUTContext("/api/v1/friends/request/"+reqID+"/accept", nil, claims, map[string]string{"id": reqID})

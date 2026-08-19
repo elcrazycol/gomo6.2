@@ -25,9 +25,15 @@ vi.mock("@/services/websocket", () => ({
 
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigateFn,
-  Link: ({ children, to, className, onMouseEnter }: any) => (
-    <a href={to} className={className} onMouseEnter={onMouseEnter}>{children}</a>
+  Link: ({ children, to, className, onMouseEnter, onClick }: any) => (
+    <a href={to} className={className} onMouseEnter={onMouseEnter} onClick={onClick}>{children}</a>
   ),
+}));
+
+vi.mock("@/contexts/ProfileCacheContext", () => ({
+  useProfileCache: () => ({
+    loadProfile: vi.fn().mockResolvedValue({ username: "", avatarUrl: undefined }),
+  }),
 }));
 
 vi.mock("@/utils/safeDate", () => ({
@@ -120,7 +126,7 @@ describe("NotificationBell", () => {
     });
   });
 
-  it("marks notification as read on hover", async () => {
+  it("marks notification as read on open", async () => {
     notifications = [
       { id: "n1", title: "New like", message: "User liked", is_read: false, created_at: "2025-01-01T00:00:00Z", related_thread_id: "t1" },
     ];
@@ -133,7 +139,7 @@ describe("NotificationBell", () => {
     });
 
     const notifLink = screen.getByText("New like").closest("a")!;
-    fireEvent.mouseEnter(notifLink);
+    fireEvent.click(notifLink);
 
     await waitFor(() => {
       expect(mockMarkAsRead).toHaveBeenCalledWith("n1");
@@ -152,8 +158,8 @@ describe("NotificationBell", () => {
       expect(screen.getByText("Old notif")).toBeInTheDocument();
     });
 
-    const notifLink = screen.getByText("Old notif").closest("a")!;
-    fireEvent.mouseEnter(notifLink);
+    const notifLink = screen.getByText("Old notif").closest("button")!;
+    fireEvent.click(notifLink);
 
     expect(mockMarkAsRead).not.toHaveBeenCalled();
   });
