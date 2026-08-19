@@ -356,7 +356,15 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		}
 	}
 	if videoVariants != nil {
-		if _, err = h.client.UploadFile(bucket, videoVariants.PosterKey, poster, "image/jpeg"); err != nil {
+		// Messenger video posters are private attachment data like the clip
+		// itself: encrypt them at rest in the uploads bucket so a leaked object
+		// key never exposes the frame. Public buckets stay plaintext.
+		if bucket == "uploads" {
+			_, err = h.client.UploadFileEncrypted(bucket, videoVariants.PosterKey, poster, "image/jpeg")
+		} else {
+			_, err = h.client.UploadFile(bucket, videoVariants.PosterKey, poster, "image/jpeg")
+		}
+		if err != nil {
 			_ = h.client.DeleteFile(bucket, key)
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse("failed to store video preview"))
 			return
