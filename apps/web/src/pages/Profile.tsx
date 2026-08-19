@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
+import { apiErrorMessage } from "@/utils/apiErrors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -18,8 +20,6 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileSkeleton } from "@/components/skeletons/ContentSkeletons";
 import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X, ImagePlus, Palette } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
@@ -131,6 +131,7 @@ const formatGarmaLabel = (value: number) => {
 // Friends tab button with count
 const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; onClick: () => void; userId: string }) => {
   const { profileFriends, fetchProfileFriends } = useFriendsStore();
+  const { t } = useTranslation();
   const [friendCount, setFriendCount] = useState(0);
 
   useEffect(() => {
@@ -152,13 +153,14 @@ const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; o
     >
       <span className="flex items-center gap-1">
         <Users className="w-3.5 h-3.5" />
-        Друзья ({friendCount})
+        {t("profile.friends")} ({friendCount})
       </span>
     </button>
   );
 };
 
 const Profile = () => {
+  const { t } = useTranslation();
   const { userId } = useParams();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -524,11 +526,11 @@ const Profile = () => {
       }
     } catch (error) {
       console.error('Error loading user threads:', error);
-      toast.error('Ошибка загрузки тредов');
+      toast.error(t("profile.threadsLoadError"));
     } finally {
       setThreadsLoading(false);
     }
-  }, [userId]);
+  }, [userId, t]);
 
   useEffect(() => {
     if (activeTab === 'threads' && userThreads.length === 0) {
@@ -624,13 +626,13 @@ const Profile = () => {
     });
 
     if (!profileRes.ok) {
-      toast.error("Ошибка сохранения профиля");
+      toast.error(t("profile.saveError"));
       return;
     }
 
     // Смена пароля выполняется в разделе «Настройки → Аккаунт» (Settings.tsx),
     // где пользователь подтверждает текущий пароль (current_password).
-    toast.success("Профиль обновлен");
+    toast.success(t("profile.updated"));
     setIsEditing(false);
     // Username/bio/avatar caches must not serve the old values for 5 minutes.
     dispatchProfileCacheInvalidate();
@@ -639,7 +641,7 @@ const Profile = () => {
 
   const handleLogout = async () => {
     await api.auth.signOut();
-    toast.success("Вышли");
+    toast.success(t("auth.logoutSuccess"));
   };
 
   const readAvatarFile = useCallback((file: File) => {
@@ -703,13 +705,13 @@ const Profile = () => {
       if (!updateRes.ok) {
         setAvatarUploading(false);
         console.error('Update error:', await updateRes.text());
-        toast.error('Ошибка обновления профиля');
+        toast.error(t("profile.updateError"));
         return;
       }
 
       setAvatarUrl(uploaded.path);
       setAvatarUploading(false);
-      toast.success("Аватар обновлен");
+      toast.success(t("profile.avatarUpdated"));
       // Header/profile caches hold the old avatar_url — reset them now.
       dispatchProfileCacheInvalidate();
 
@@ -717,7 +719,7 @@ const Profile = () => {
       await loadAvatarHistory();
     } catch (error) {
       setAvatarUploading(false);
-      toast.error("Ошибка обработки изображения");
+      toast.error(t("profile.imageProcessError"));
       console.error(error);
     }
   };
@@ -733,7 +735,7 @@ const Profile = () => {
       if (error) throw new Error(error.message || 'Failed to delete avatar');
 
       if (data) {
-        toast.success("Аватар удален");
+        toast.success(t("profile.avatarDeleted"));
         // Deleting the current avatar may change profile.avatar_url.
         dispatchProfileCacheInvalidate();
 
@@ -760,11 +762,11 @@ const Profile = () => {
           setShowAvatarGallery(false);
         }
       } else {
-        toast.error("Не удалось удалить аватар");
+        toast.error(t("profile.avatarDeleteError"));
       }
     } catch (error) {
       console.error('Error deleting avatar:', error);
-      toast.error("Ошибка удаления аватара");
+      toast.error(t("profile.avatarDeleteError"));
     }
   };
 
@@ -808,9 +810,9 @@ const Profile = () => {
       setProfile((prev) => (prev ? { ...prev, background_url: uploaded.path, theme_tokens: themeTokens ?? prev.theme_tokens } : prev));
       // Profile caches (hover cards, header, own page) hold the old value.
       dispatchProfileCacheInvalidate();
-      toast.success("Фон профиля обновлён");
+      toast.success(t("profile.bgUpdated"));
     } catch (error) {
-      toast.error("Ошибка загрузки фона");
+      toast.error(t("profile.bgLoadError"));
       console.error(error);
     } finally {
       setBackgroundUploading(false);
@@ -829,9 +831,9 @@ const Profile = () => {
       if (error) throw error;
       setProfile((prev) => (prev ? { ...prev, theme_enabled: enabled } : prev));
       dispatchProfileCacheInvalidate();
-      toast.success(enabled ? "Тема профиля включена" : "Тема профиля выключена");
+      toast.success(enabled ? t("profile.themeEnabled") : t("profile.themeDisabled"));
     } catch (error) {
-      toast.error("Ошибка сохранения темы");
+      toast.error(t("profile.themeSaveError"));
       console.error(error);
     }
   };
@@ -847,9 +849,9 @@ const Profile = () => {
 
       setProfile((prev) => (prev ? { ...prev, background_url: null } : prev));
       dispatchProfileCacheInvalidate();
-      toast.success("Фон убран");
+      toast.success(t("profile.bgRemoved"));
     } catch (error) {
-      toast.error("Ошибка удаления фона");
+      toast.error(t("profile.bgRemoveError"));
       console.error(error);
     }
   };
@@ -876,9 +878,9 @@ const Profile = () => {
       dispatchProfileCacheInvalidate();
       // The wall embeds the author's emoji in each post, so refetch it.
       setWallRefreshKey(k => k + 1);
-      toast.success("Эмодзи никнейма сохранён");
+      toast.success(t("profile.emojiSaved"));
     } catch (error) {
-      toast.error("Не удалось сохранить эмодзи");
+      toast.error(t("profile.emojiSaveError"));
       console.error(error);
     }
   };
@@ -899,9 +901,9 @@ const Profile = () => {
       dispatchProfileCacheInvalidate();
       // The wall embeds the author's emoji in each post, so refetch it.
       setWallRefreshKey(k => k + 1);
-      toast.success("Эмодзи никнейма убран");
+      toast.success(t("profile.emojiRemoved"));
     } catch (error) {
-      toast.error("Не удалось убрать эмодзи");
+      toast.error(t("profile.emojiRemoveError"));
       console.error(error);
     }
   };
@@ -955,9 +957,9 @@ const Profile = () => {
       // Reload profile to show updated bio with processed tags
       await loadProfile();
       
-      toast.success("Изменения сохранены");
+      toast.success(t("profile.changesSaved"));
     } catch (error) {
-      toast.error("Ошибка сохранения изменений");
+      toast.error(t("profile.changesSaveError"));
       console.error(error);
     }
   };
@@ -975,23 +977,23 @@ const Profile = () => {
 
   const handleUsernameChange = async () => {
     if (!newUsername.trim()) {
-      toast.error("Введите юзернейм");
+      toast.error(t("profile.enterUsername"));
       return;
     }
     if (!/^[a-zA-Z0-9]+$/.test(newUsername)) {
-      toast.error("Юзернейм может содержать только буквы латиницы и цифры (a-z, A-Z, 0-9)");
+      toast.error(t("error.username_chars"));
       return;
     }
     if (newUsername.length < 3 || newUsername.length > 20) {
-      toast.error("Юзернейм должен быть от 3 до 20 символов");
+      toast.error(t("error.username_length"));
       return;
     }
     if (newUsername !== confirmUsername) {
-      toast.error("Юзернеймы не совпадают");
+      toast.error(t("profile.usernamesMismatch"));
       return;
     }
     if (newUsername === profile?.username) {
-      toast.error("Юзернейм не изменился");
+      toast.error(t("profile.usernameUnchanged"));
       return;
     }
 
@@ -1007,11 +1009,17 @@ const Profile = () => {
 
       const result = await res.json();
       if (!res.ok) {
-        toast.error(result.error || "Ошибка изменения юзернейма");
+        toast.error(
+          apiErrorMessage(
+            { code: result.code, params: result.params, message: result.error },
+            t,
+            "error.generic"
+          )
+        );
         return;
       }
 
-      toast.success("Юзернейм изменён");
+      toast.success(t("profile.usernameChanged"));
       setProfile(prev => prev ? { ...prev, username: newUsername } : null);
       setUsername(newUsername);
       // Header/currentUserMeta caches keyed by the OLD username must reset.
@@ -1020,7 +1028,7 @@ const Profile = () => {
       setNewUsername("");
       setConfirmUsername("");
     } catch (error) {
-      toast.error("Ошибка изменения юзернейма");
+      toast.error(t("profile.usernameChangeError"));
       console.error(error);
     }
   };
@@ -1088,7 +1096,7 @@ const Profile = () => {
                   value={newDisplayName || profile.display_name || profile.username}
                   onChange={(e) => setNewDisplayName(e.target.value)}
                   className="text-2xl font-bold h-auto p-0 border-none bg-transparent flex-1 min-w-0"
-                  placeholder="Имя отображения"
+                  placeholder={t("auth.displayName")}
                 />
                 <EmojiPicker
                   closeOnSelect
@@ -1097,7 +1105,7 @@ const Profile = () => {
                 >
                   <button
                     type="button"
-                    title={nicknameEmojiId ? "Изменить эмодзи никнейма" : "Выбрать эмодзи для никнейма"}
+                    title={nicknameEmojiId ? t("profile.changeEmoji") : t("profile.chooseEmoji")}
                     className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-muted hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center overflow-hidden"
                   >
                     {nicknameEmojiId ? (
@@ -1110,7 +1118,7 @@ const Profile = () => {
                 {nicknameEmojiId && (
                   <button
                     type="button"
-                    title="Убрать эмодзи никнейма"
+                    title={t("profile.removeEmoji")}
                     onClick={handleNicknameEmojiRemove}
                     className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40 transition-colors flex items-center justify-center"
                   >
@@ -1193,7 +1201,7 @@ const Profile = () => {
             className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
           >
             <MessageSquare className="w-4 h-4" />
-            <span className="hidden sm:inline">Написать</span>
+            <span className="hidden sm:inline">{t("profile.write")}</span>
           </Button>
         </div>
       )}
@@ -1212,7 +1220,7 @@ const Profile = () => {
           onClick={() => navigate(`/stats?metric=posts&user=${userId}`)}
           className="text-left"
         >
-          <p className="text-xs sm:text-sm text-muted-foreground">Записи</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t("profile.posts")}</p>
           <p className="text-xl sm:text-2xl font-bold">{(profile.thread_count ?? 0) + (profile.wall_post_count ?? 0)}</p>
         </button>
         <button
@@ -1220,7 +1228,7 @@ const Profile = () => {
           onClick={() => navigate(`/stats?metric=comments&user=${userId}`)}
           className="text-left"
         >
-          <p className="text-xs sm:text-sm text-muted-foreground">Комментарии</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t("profile.comments")}</p>
           <p className="text-xl sm:text-2xl font-bold">{profile.comment_count ?? 0}</p>
         </button>
         <button
@@ -1228,7 +1236,7 @@ const Profile = () => {
           onClick={() => navigate(`/stats?metric=likes&user=${userId}`)}
           className="text-left"
         >
-          <p className="text-xs sm:text-sm text-muted-foreground">Лайков</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t("profile.likes")}</p>
           <p className="text-xl sm:text-2xl font-bold">{profile.likes_received_count ?? 0}</p>
         </button>
         {/* Total unique views across the author's wall posts —
@@ -1239,7 +1247,7 @@ const Profile = () => {
           onClick={() => setActiveTab('wall')}
           className="text-left"
         >
-          <p className="text-xs sm:text-sm text-muted-foreground">Просмотры</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t("profile.views")}</p>
           <p className="text-xl sm:text-2xl font-bold">{formatCompactNumber(profile.views_received_count ?? 0)}</p>
         </button>
         <button
@@ -1247,7 +1255,7 @@ const Profile = () => {
           onClick={() => navigate(`/stats?metric=garma&user=${userId}`)}
           className="text-left"
         >
-          <p className="text-xs sm:text-sm text-muted-foreground">Гарма</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t("profile.karma")}</p>
           <p className="text-xl sm:text-2xl font-bold">{profile.garma}</p>
         </button>
       </div>
@@ -1300,7 +1308,7 @@ const Profile = () => {
                   <div className="absolute top-2 right-2 flex gap-2">
                     <label className="flex items-center gap-1.5 h-8 px-3 rounded-full bg-background/85 backdrop-blur cursor-pointer hover:bg-background transition-colors text-xs font-medium">
                       <ImagePlus className="w-4 h-4" />
-                      {bgUrl ? "Заменить фон" : "Добавить фон"}
+                      {bgUrl ? t("profile.replaceBg") : t("profile.addBg")}
                       <input type="file" accept="image/*" onChange={handleBackgroundUpload} className="hidden" />
                     </label>
                     {bgUrl && (
@@ -1308,7 +1316,7 @@ const Profile = () => {
                         type="button"
                         onClick={handleBackgroundRemove}
                         className="h-8 w-8 rounded-full bg-background/85 backdrop-blur flex items-center justify-center hover:bg-destructive hover:text-destructive-foreground transition-colors"
-                        title="Убрать фон"
+                        title={t("profile.removeBg")}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1358,14 +1366,14 @@ const Profile = () => {
                       onClick={() => navigate("/settings/prof-studio")}
                     >
                       <Palette className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Студия</span>
-                      <span className="sm:hidden">Студия</span>
+                      <span className="hidden sm:inline">{t("profile.studio")}</span>
+                      <span className="sm:hidden">{t("profile.studio")}</span>
                     </Button>
                   </div>
                 </div>
               )}
               <div>
-                <Label>О себе</Label>
+                <Label>{t("profile.about")}</Label>
                 <GomoRichEditor
                   resetKey={bioEditorResetKey}
                   contentJson={bioJson}
@@ -1374,7 +1382,7 @@ const Profile = () => {
                     setBioJson(json);
                     setBio(text);
                   }}
-                  placeholder="Расскажите о себе..."
+                  placeholder={t("profile.aboutPlaceholder")}
                   minHeightClassName="min-h-[120px]"
                 />
               </div>
@@ -1384,7 +1392,7 @@ const Profile = () => {
               <Dialog open={!!cropImage} onOpenChange={() => setCropImage(null)}>
                 <DialogContent className="max-w-lg">
                   <DialogHeader>
-                    <DialogTitle>Кадрирование аватара</DialogTitle>
+                    <DialogTitle>{t("profile.avatarCrop")}</DialogTitle>
                   </DialogHeader>
                   {cropImage && (
                     <AvatarCropper
@@ -1434,7 +1442,7 @@ const Profile = () => {
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Стена
+                      {t("profile.wall")}
                     </button>
                   )}
                   {canViewSection(privateHideAchievements) && (
@@ -1446,7 +1454,7 @@ const Profile = () => {
                         : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Достижения ({achievements.length})
+                      {t("profile.achievements")} ({achievements.length})
                     </button>
                   )}
                     {showThreadsTab && canViewSection(privateHideThreads) && (
@@ -1458,7 +1466,7 @@ const Profile = () => {
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Треды
+                      {t("profile.threads")}
                     </button>
                   )}
                   {canViewSection(privateHideGifts) && (
@@ -1472,7 +1480,7 @@ const Profile = () => {
                   >
                     <span className="flex items-center gap-1">
                       <Gift className="w-3.5 h-3.5" />
-                      Подарки ({giftCount})
+                      {t("profile.gifts")} ({giftCount})
                     </span>
                   </button>
                   )}
@@ -1511,7 +1519,7 @@ const Profile = () => {
           {activeTab === 'achievements' && canViewSection(privateHideAchievements) && (
             <div>
             {achievements.length === 0 ? (
-              <p className="text-muted-foreground">Достижений пока нет</p>
+              <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
             ) : (
               <div className="space-y-6">
                 {/* Pinned achievements */}
@@ -1520,7 +1528,7 @@ const Profile = () => {
                     {isEditing && (
                       <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                         <Pin className="w-4 h-4" />
-                        Закрепленные ({pinnedAchievements.length}/4)
+                        {t("profile.pinned")} ({pinnedAchievements.length}/4)
                       </h3>
                     )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1540,7 +1548,7 @@ const Profile = () => {
                 {regularAchievements.length > 0 && (
                   <div>
                     {isEditing && pinnedAchievements.length > 0 && (
-                      <h3 className="text-lg font-semibold mb-3">Все достижения</h3>
+                      <h3 className="text-lg font-semibold mb-3">{t("profile.allAchievements")}</h3>
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {regularAchievements.slice(0, 4).map((achievement) => (
@@ -1576,13 +1584,13 @@ const Profile = () => {
 
           {activeTab === 'threads' && showThreadsTab && canViewSection(privateHideThreads) && (
             <div>
-              <h2 className="text-xl font-bold mb-4">Треды ({userThreads.length})</h2>
+              <h2 className="text-xl font-bold mb-4">{t("profile.threads")} ({userThreads.length})</h2>
               {threadsLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <PentagramLoader size="lg" />
                 </div>
               ) : userThreads.length === 0 ? (
-                <p className="text-muted-foreground">У пользователя пока нет тредов</p>
+                <p className="text-muted-foreground">{t("profile.noThreads")}</p>
               ) : (
                 <div className="space-y-4">
                   {userThreads.map((thread) => {
@@ -1650,14 +1658,14 @@ const Profile = () => {
         <Dialog open={showUsernameDialog} onOpenChange={setShowUsernameDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Изменить юзернейм</DialogTitle>
+              <DialogTitle>{t("profile.changeUsername")}</DialogTitle>
             </DialogHeader>
             <p className="text-sm text-muted-foreground">
-              Ваш юзернейм — это то, по чему вас ищут. Только латинские буквы и цифры (a-z, A-Z, 0-9). Чувствителен к регистру.
+              {t("profile.usernameDescription")}
             </p>
             <div className="space-y-3 mt-2">
               <div>
-                <Label htmlFor="new-username">Новый юзернейм</Label>
+                <Label htmlFor="new-username">{t("profile.newUsername")}</Label>
                 <Input
                   id="new-username"
                   value={newUsername}
@@ -1667,7 +1675,7 @@ const Profile = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="confirm-username">Повторите юзернейм</Label>
+                <Label htmlFor="confirm-username">{t("profile.repeatUsername")}</Label>
                 <Input
                   id="confirm-username"
                   value={confirmUsername}
@@ -1677,21 +1685,21 @@ const Profile = () => {
                 />
               </div>
               {newUsername && !/^[a-zA-Z0-9]+$/.test(newUsername) && (
-                <p className="text-xs text-destructive">Только латинские буквы и цифры</p>
+                <p className="text-xs text-destructive">{t("profile.latinOnly")}</p>
               )}
               {newUsername && newUsername === confirmUsername && newUsername !== profile?.username && (
-                <p className="text-xs text-green-500">Юзернеймы совпадают</p>
+                <p className="text-xs text-green-500">{t("profile.usernamesMatch")}</p>
               )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => { setShowUsernameDialog(false); setNewUsername(""); setConfirmUsername(""); }}>
-                Отмена
+                {t("common.cancel")}
               </Button>
               <Button
                 onClick={handleUsernameChange}
                 disabled={!newUsername.trim() || newUsername !== confirmUsername || newUsername === profile?.username || !/^[a-zA-Z0-9]+$/.test(newUsername)}
               >
-                Сохранить
+                {t("common.save")}
               </Button>
             </DialogFooter>
           </DialogContent>

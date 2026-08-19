@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
+import { useTranslation } from "react-i18next";
 import { safeDate } from "@/utils/safeDate";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { UserBadge } from "@/components/UserBadge";
@@ -78,6 +79,8 @@ const recordedVisits = new Set<string>();
 
 const Thread = () => {
   const { slug, threadId, channelSlug } = useParams();
+  const dateLocale = useDateLocale();
+  const { t } = useTranslation();
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
@@ -215,7 +218,7 @@ const Thread = () => {
 
   useEffect(() => {
     const handleUploadSuccess = (event: CustomEvent) => {
-      setUploadSuccessMessage(`Загружено ${event.detail.count} фото`);
+      setUploadSuccessMessage(t("thread.uploadedPhotos", { count: event.detail.count }));
       setTimeout(() => setUploadSuccessMessage(null), 3000);
     };
 
@@ -224,7 +227,7 @@ const Thread = () => {
     return () => {
       document.removeEventListener('showUploadSuccess', handleUploadSuccess as EventListener);
     };
-  }, []);
+  }, [t]);
 
   // Listen for sender display type changes
   useEffect(() => {
@@ -386,7 +389,7 @@ const Thread = () => {
 
   const toggleSubscription = async () => {
     if (!user) {
-      toast.error("Нужно войти");
+      toast.error(t("auth.needLogin"));
       return;
     }
 
@@ -400,7 +403,7 @@ const Thread = () => {
       });
 
       if (res.ok) {
-        toast.success("Отписались от уведомлений");
+        toast.success(t("thread.unsubscribed"));
       }
     } else {
       const res = await fetch('/api/v1/thread_subscriptions', {
@@ -410,7 +413,7 @@ const Thread = () => {
       });
 
       if (res.ok) {
-        toast.success("Подписались на уведомления");
+        toast.success(t("thread.subscribed"));
       }
     }
   };
@@ -502,18 +505,18 @@ const Thread = () => {
     e?.preventDefault();
 
     if (!user) {
-      toast.error("Нужно войти для ответа");
+      toast.error(t("thread.needLoginToReply"));
       navigate("/auth");
       return;
     }
 
     if (!content.trim()) {
-      toast.error("Напишите что-нибудь");
+      toast.error(t("thread.writeSomething"));
       return;
     }
 
     if (thread?.boards?.is_rules_board && !isAdmin) {
-      toast.error("Только администраторы могут писать на этой доске");
+      toast.error(t("thread.adminOnly"));
       return;
     }
 
@@ -545,7 +548,7 @@ const Thread = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Ошибка отправки');
+        throw new Error(errorData.error || t("thread.sendError"));
       }
 
       const result = await response.json();
@@ -555,7 +558,7 @@ const Thread = () => {
       if (newPost && newPost.id) {
         const optimisticPost: PostWithExtras = {
           ...newPost,
-          username: currentUserUsername || 'Аноним',
+          username: currentUserUsername || t("common.anonymous"),
           avatar_url: currentUserAvatar || undefined,
         };
         setAllPosts(prev => [...prev, optimisticPost]);
@@ -590,7 +593,7 @@ const Thread = () => {
       }, 100);
     } catch (err) {
       console.error("handleSubmitPost failed:", err);
-      toast.error("Ошибка отправки");
+      toast.error(t("thread.sendError"));
     } finally {
       setLoading(false);
     }
@@ -598,12 +601,12 @@ const Thread = () => {
 
   const handleReport = async (postId: string | null, isThread: boolean) => {
     if (!user) {
-      toast.error("Нужно войти для отправки жалоб");
+      toast.error(t("thread.needLoginToReport"));
       return;
     }
 
     if (!reportReason.trim()) {
-      toast.error("Укажите причину жалобы");
+      toast.error(t("thread.reportReasonRequired"));
       return;
     }
 
@@ -622,9 +625,9 @@ const Thread = () => {
     });
 
     if (!res.ok) {
-      toast.error("Ошибка отправки жалобы");
+      toast.error(t("thread.reportSendError"));
     } else {
-      toast.success("Жалоба отправлена");
+      toast.success(t("thread.reportSent"));
       setReportReason("");
       setReportingPost(null);
     }
@@ -640,9 +643,9 @@ const Thread = () => {
     });
 
     if (!res.ok) {
-      toast.error("Ошибка удаления поста");
+      toast.error(t("thread.postDeleteError"));
     } else {
-      toast.success("Пост удален");
+      toast.success(t("thread.postDeleted"));
       // Remove from local state immediately for instant feedback
       setAllPosts(prev => prev.filter(p => p.id !== postId));
       queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
@@ -661,9 +664,9 @@ const Thread = () => {
     });
     
     if (!res.ok) {
-      toast.error("Ошибка удаления треда");
+      toast.error(t("thread.threadDeleteError"));
     } else {
-      toast.success("Тред удален");
+      toast.success(t("thread.threadDeleted"));
       // Raw DELETE bypasses query-builder — drop the threads/boards GET cache.
       invalidateByPrefix('/api/v1/threads');
       invalidateByPrefix('/api/v1/boards');
@@ -686,9 +689,9 @@ const Thread = () => {
     });
 
     if (!res.ok) {
-      toast.error("Ошибка изменения поста");
+      toast.error(t("thread.postEditError"));
     } else {
-      toast.success("Пост изменен");
+      toast.success(t("thread.postEdited"));
       setEditingPostId(null);
       setEditContent("");
       setEditContentJson(null);
@@ -723,9 +726,9 @@ const Thread = () => {
     });
 
     if (!res.ok) {
-      toast.error("Ошибка выдачи бана");
+      toast.error(t("thread.banError"));
     } else {
-      toast.success(isPermanent ? "Пользователь забанен навсегда" : `Пользователь забанен на ${banDays} дней`);
+      toast.success(isPermanent ? t("thread.bannedForever") : t("thread.bannedDays", { count: banDays }));
       setBanUserId(null);
       setBanReason("");
     }
@@ -737,7 +740,7 @@ const Thread = () => {
 
   const handleLogout = async () => {
     await api.auth.signOut();
-    toast.success("Вышли");
+    toast.success(t("auth.logoutSuccess"));
   };
 
   // Show fullscreen loader only during the very first load (no thread data yet)
@@ -752,8 +755,8 @@ const Thread = () => {
   if (threadError || !thread) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen flex-col gap-4">
-        <p className="text-muted-foreground text-lg">Тред не найден</p>
-        <Link to="/" className="text-primary hover:underline text-sm">На главную</Link>
+        <p className="text-muted-foreground text-lg">{t("thread.threadNotFound")}</p>
+        <Link to="/" className="text-primary hover:underline text-sm">{t("thread.goHome")}</Link>
       </div>
     );
   }
@@ -775,7 +778,7 @@ const Thread = () => {
               <div>
                 <UserBadge
                   userId={post.user_id}
-                  username={post.username || "Аноним"}
+                  username={post.username || t("common.anonymous")}
                   displayName={post.display_name}
                   emojiId={post.nickname_emoji_id}
                   isAnonymous={false}
@@ -784,9 +787,9 @@ const Thread = () => {
                 />
                 <div className="text-muted-foreground">
                   {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
-                  }) : 'только что'}
+                  }) : t("thread.justNow")}
                 </div>
                 <div className="font-mono text-primary text-[10px]">#{post.id.slice(0, 8)}</div>
               </div>
@@ -797,7 +800,7 @@ const Thread = () => {
               {" · "}
               <UserBadge
                 userId={post.user_id}
-                username={post.username || "Аноним"}
+                username={post.username || t("common.anonymous")}
                 displayName={post.display_name}
                 emojiId={post.nickname_emoji_id}
                 isAnonymous={false}
@@ -805,9 +808,9 @@ const Thread = () => {
               />
               {" · "}
               {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
-                locale: ru,
+                locale: dateLocale,
                 addSuffix: true,
-              }) : 'только что'}
+              }) : t("thread.justNow")}
             </>
           )}
         </div>
@@ -850,10 +853,10 @@ const Thread = () => {
               </DialogTrigger>
               <DialogContent className="bg-background border-border">
                 <DialogHeader>
-                  <DialogTitle>Пожаловаться на пост</DialogTitle>
+                  <DialogTitle>{t("thread.reportPost")}</DialogTitle>
                 </DialogHeader>
                 <Textarea
-                  placeholder="Причина жалобы..."
+                  placeholder={t("thread.reportReasonPlaceholder")}
                   value={reportReason}
                   onChange={(e) => setReportReason(e.target.value)}
                   rows={3}
@@ -900,11 +903,11 @@ const Thread = () => {
               setEditContent(text);
             }}
             onSubmit={() => handleEditPost()}
-            placeholder="Напишите сообщение…"
+            placeholder={t("thread.messagePlaceholder")}
             minHeightClassName="min-h-[120px]"
           />
           <div className="flex gap-2">
-            <Button onClick={handleEditPost} size="sm">Сохранить</Button>
+            <Button onClick={handleEditPost} size="sm">{t("common.save")}</Button>
             <Button
               onClick={() => {
                 setEditingPostId(null);
@@ -921,7 +924,7 @@ const Thread = () => {
       ) : (
         <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
           {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
-            <span className="text-muted-foreground italic">Скрытый контент</span>
+            <span className="text-muted-foreground italic">{t("thread.hiddenContent")}</span>
           ) : (
             <>
               <ProcessedContent
@@ -977,8 +980,8 @@ const Thread = () => {
             <div className="mb-4 flex justify-between items-center">
           <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
             {thread.boards?.is_gomosub
-              ? `← Назад к /g/${thread.boards?.slug}${channelSlug ? `/c/${channelSlug}` : ""}`
-              : "← Назад к доске"}
+              ? t("thread.backToBoard", { slug: thread.boards?.slug, channel: channelSlug ? `/c/${channelSlug}` : "" })
+              : t("thread.backToBoardPlain")}
           </Link>
           {user && (
             <Button
@@ -1040,10 +1043,10 @@ const Thread = () => {
                   </DialogTrigger>
                   <DialogContent className="bg-background border-border">
                     <DialogHeader>
-                      <DialogTitle>Пожаловаться на тред</DialogTitle>
+                      <DialogTitle>{t("thread.reportThread")}</DialogTitle>
                     </DialogHeader>
                     <Textarea
-                      placeholder="Причина жалобы..."
+                      placeholder={t("thread.reportReasonPlaceholder")}
                       value={reportReason}
                       onChange={(e) => setReportReason(e.target.value)}
                       rows={3}
@@ -1069,7 +1072,7 @@ const Thread = () => {
                   <div>
                     <UserBadge
                       userId={thread.user_id}
-                    username={(thread as ThreadWithExtras).username || "Аноним"}
+                    username={(thread as ThreadWithExtras).username || t("common.anonymous")}
                     displayName={(thread as ThreadWithExtras).display_name}
                     emojiId={(thread as ThreadWithExtras).nickname_emoji_id}
                     isAnonymous={false}
@@ -1078,7 +1081,7 @@ const Thread = () => {
                     />
                     <div className="text-muted-foreground">
                       {formatDistanceToNow(safeDate(thread.created_at), {
-                        locale: ru,
+                        locale: dateLocale,
                         addSuffix: true,
                       })}
                     </div>
@@ -1091,7 +1094,7 @@ const Thread = () => {
                   {" · "}
                   <UserBadge
                     userId={thread.user_id}
-                    username={(thread as ThreadWithExtras).username || "Аноним"}
+                    username={(thread as ThreadWithExtras).username || t("common.anonymous")}
                     displayName={(thread as ThreadWithExtras).display_name}
                     emojiId={(thread as ThreadWithExtras).nickname_emoji_id}
                     isAnonymous={false}
@@ -1099,7 +1102,7 @@ const Thread = () => {
                   />
                   {" · "}
                   {formatDistanceToNow(safeDate(thread.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
                   })}
                 </>
@@ -1123,11 +1126,11 @@ const Thread = () => {
                     setEditContent(text);
                   }}
                   onSubmit={() => handleEditPost()}
-                  placeholder="Напишите сообщение…"
+                  placeholder={t("thread.messagePlaceholder")}
                   minHeightClassName="min-h-[120px]"
                 />
                 <div className="flex gap-2">
-                  <Button onClick={handleEditPost} size="sm">Сохранить</Button>
+                  <Button onClick={handleEditPost} size="sm">{t("common.save")}</Button>
                   <Button 
                     onClick={() => {
                       setEditingPostId(null);
@@ -1161,8 +1164,8 @@ const Thread = () => {
                 {(thread as ThreadWithExtras).ephemeral_type && (
                   <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 rounded-full border border-orange-200">
                     {(thread as ThreadWithExtras).ephemeral_type === 'time'
-                      ? `${(thread as ThreadWithExtras).ephemeral_value}ч`
-                      : `${(thread as ThreadWithExtras).ephemeral_value}сообщ.`
+                      ? t("thread.ephemeralHours", { count: (thread as ThreadWithExtras).ephemeral_value })
+                      : t("thread.ephemeralPosts", { count: (thread as ThreadWithExtras).ephemeral_value })
                     }
                   </span>
                 )}
@@ -1222,8 +1225,8 @@ const Thread = () => {
           {/* Posts error state */}
           {postsError && allPosts.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
-              <p className="text-lg">Не удалось загрузить посты</p>
-              <p className="text-sm mt-1">{(postsQueryError as Error)?.message || 'Попробуйте позже'}</p>
+              <p className="text-lg">{t("thread.loadPostsError")}</p>
+              <p className="text-sm mt-1">{(postsQueryError as Error)?.message || t("thread.tryLater")}</p>
               <Button
                 variant="outline"
                 size="sm"
@@ -1287,18 +1290,18 @@ const Thread = () => {
         <Dialog open={!!banUserId} onOpenChange={(open) => !open && setBanUserId(null)}>
           <DialogContent className="bg-background border-border">
             <DialogHeader>
-              <DialogTitle>Забанить пользователя</DialogTitle>
+              <DialogTitle>{t("thread.banUser")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
               <Textarea
-                placeholder="Причина бана..."
+                placeholder={t("thread.banReasonPlaceholder")}
                 value={banReason}
                 onChange={(e) => setBanReason(e.target.value)}
                 rows={3}
               />
               <Input
                 type="number"
-                placeholder="Дней"
+                placeholder={t("thread.daysPlaceholder")}
                 value={banDays}
                 onChange={(e) => setBanDays(e.target.value)}
                 min="1"
@@ -1460,7 +1463,7 @@ const Thread = () => {
                         size="icon"
                         className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                         onClick={() => setIsExpandedView(false)}
-                        title="Свернуть редактор"
+                        title={t("thread.collapseEditor")}
                       >
                         <Minimize2 className="h-4 w-4 sm:h-5 sm:w-5" />
                       </Button>
@@ -1476,7 +1479,7 @@ const Thread = () => {
                     size="icon"
                           className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                           onClick={() => setIsExpandedView(true)}
-                          title="Развернуть редактор"
+                          title={t("thread.expandEditor")}
                         >
                           <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
                         </Button>
@@ -1498,7 +1501,7 @@ const Thread = () => {
         setContent(text);
       }}
                       onSubmit={() => handleSubmitPost()}
-                      placeholder="Напишите сообщение…"
+                      placeholder={t("thread.messagePlaceholder")}
                       minHeightClassName={isExpandedView ? 'min-h-[200px] sm:min-h-[300px]' : 'min-h-[60px] sm:min-h-[80px]'}
                     />
                   </div>
@@ -1512,7 +1515,7 @@ const Thread = () => {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0 hover:bg-primary/10"
-                      title="Эмодзи"
+                      title={t("thread.emoji")}
                     >
                       <svg
                         width="20"
@@ -1539,7 +1542,7 @@ const Thread = () => {
                       size="icon"
                       className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                       onClick={() => setIsPrivateMessage(!isPrivateMessage)}
-                      title={isPrivateMessage ? "Отправить как обычное сообщение" : "Отправить как скрытое сообщение"}
+                      title={isPrivateMessage ? t("thread.sendAsNormal") : t("thread.sendAsHidden")}
                     >
                       {isPrivateMessage ? <EyeOff className="h-4 w-4 sm:h-5 sm:w-5" /> : <Eye className="h-4 w-4 sm:h-5 sm:w-5" />}
                     </Button>
@@ -1579,7 +1582,7 @@ const Thread = () => {
                           <div key={att.url} className="relative rounded-lg border border-border bg-muted/40 aspect-square flex items-center justify-center overflow-hidden">
                             <img
                               src={storageUrl("content", att.url) || att.url}
-                              alt={`Фото ${index + 1}`}
+                              alt={t("thread.photoAlt", { index: index + 1 })}
                               className="max-h-full max-w-full object-contain"
                               onClick={() => {
                                 const imageUrls = attachments
@@ -1643,7 +1646,7 @@ const Thread = () => {
                               </Button>
                             </div>
                           ))}
-                        {attachments.filter((att) => att.type !== "image").length === 0 && <div className="text-sm text-muted-foreground">Нет файлов</div>}
+                        {attachments.filter((att) => att.type !== "image").length === 0 && <div className="text-sm text-muted-foreground">{t("thread.noFiles")}</div>}
                       </div>
                     </div>
                   </div>
@@ -1664,8 +1667,8 @@ const Thread = () => {
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center">
-              <p className="text-sm text-muted-foreground mb-2">Войдите, чтобы ответить</p>
-              <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
+              <p className="text-sm text-muted-foreground mb-2">{t("thread.loginToReply")}</p>
+              <Button onClick={() => navigate("/auth")} size="sm">{t("auth.login")}</Button>
             </div>
           </div>
         )}
@@ -1677,7 +1680,7 @@ const Thread = () => {
 
       {showGallery && (
         <Lightbox
-          items={galleryImages.map((url) => ({ url, type: "image", name: "Фото", mime: "image/*" } as LightboxItem))}
+          items={galleryImages.map((url) => ({ url, type: "image", name: t("thread.photo"), mime: "image/*" } as LightboxItem))}
           initialIndex={galleryIndex}
           onClose={() => setShowGallery(false)}
           onEditImage={

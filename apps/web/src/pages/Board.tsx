@@ -10,7 +10,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
+import { useTranslation } from "react-i18next";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
@@ -91,6 +92,8 @@ const hasVisibilityTags = (content: string): boolean => {
 
 const Board = () => {
   const { slug, channelSlug } = useParams();
+  const dateLocale = useDateLocale();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
@@ -667,7 +670,7 @@ const Board = () => {
   };
 
   const rulesUpdatedLabel = board?.rules_updated_at
-    ? formatDistanceToNow(safeDate(board.rules_updated_at), { addSuffix: true, locale: ru })
+    ? formatDistanceToNow(safeDate(board.rules_updated_at), { addSuffix: true, locale: dateLocale })
     : null;
 
   const handleAcceptRules = async () => {
@@ -677,7 +680,7 @@ const Board = () => {
     }
 
     if (!rulesConfirmed) {
-      toast.error("Подтверди, что прочитал правила");
+      toast.error(t("board.rulesConfirmRequired"));
       return;
     }
 
@@ -704,13 +707,13 @@ const Board = () => {
       if (!response.ok) {
         // Non-JSON error bodies (e.g. 404/500 from a missing route) must not
         // crash the dialog on JSON.parse.
-        toast.error("Не удалось сохранить согласие с правилами");
+        toast.error(t("board.rulesSaveError"));
         return;
       }
       const result = await response.json();
 
       if (!result.success) {
-        toast.error("Не удалось сохранить согласие с правилами");
+        toast.error(t("board.rulesSaveError"));
         return;
       }
     } else {
@@ -719,13 +722,13 @@ const Board = () => {
 
     setHasAcceptedRules(true);
     setShowRulesDialog(false);
-    toast.success("Правила приняты");
+    toast.success(t("board.rulesAccepted"));
   };
 
   const handleToggleJoin = async () => {
     if (!board?.is_gomosub) return;
     if (!user?.id) {
-      toast.error("Войди в аккаунт, чтобы вступить");
+      toast.error(t("board.joinRequiresLogin"));
       navigate("/auth");
       return;
     }
@@ -733,7 +736,7 @@ const Board = () => {
 
     if (board.rules_markdown?.trim() && !hasAcceptedRules) {
       setShowRulesDialog(true);
-      toast.error("Сначала прими правила саба");
+      toast.error(t("board.joinRequiresRules"));
       return;
     }
 
@@ -754,11 +757,11 @@ const Board = () => {
 
       setMembershipLoading(false);
       if (!result.success) {
-        toast.error("Не удалось выйти из саба");
+        toast.error(t("board.leaveError"));
         return;
       }
       setIsJoined(false);
-      toast.success("Вы вышли из саба");
+      toast.success(t("board.left"));
       // Raw write bypasses query-builder — drop memberships/boards GET cache.
       invalidateByPrefix('/api/v1/gomosub_memberships');
       invalidateByPrefix('/api/v1/boards');
@@ -775,11 +778,11 @@ const Board = () => {
 
     setMembershipLoading(false);
     if (!result.success) {
-      toast.error("Не удалось вступить в саб");
+      toast.error(t("board.joinError"));
       return;
     }
     setIsJoined(true);
-    toast.success("Вы вступили в саб");
+    toast.success(t("board.joined"));
     // Raw write bypasses query-builder — drop memberships/boards GET cache.
     invalidateByPrefix('/api/v1/gomosub_memberships');
     invalidateByPrefix('/api/v1/boards');
@@ -797,7 +800,7 @@ const Board = () => {
     return (
       <main className="max-w-md mx-auto p-6 pt-20 text-center space-y-4">
         <Lock className="w-14 h-14 text-muted-foreground mx-auto" />
-        <h1 className="text-xl font-bold">Приватный g-саб</h1>
+        <h1 className="text-xl font-bold">{t("board.privateSub")}</h1>
         <p className="text-sm text-muted-foreground">
           Этот g-саб доступен только по пригласительной ссылке.
           Попроси владельца поделиться ссылкой-приглашением.
@@ -832,7 +835,7 @@ const Board = () => {
                   {board.cover_image_url ? (
                     <img
                       src={storageUrl("post-images", board.cover_image_url) || board.cover_image_url}
-                      alt={`Обложка /${board.slug}/`}
+                      alt={t("board.coverAlt", { slug: board.slug })}
                       className="h-full w-full object-cover"
                     />
                   ) : (
@@ -865,12 +868,12 @@ const Board = () => {
                       onClick={() => {
                         const url = `${window.location.origin}/g/${board.slug}`;
                         navigator.clipboard.writeText(url).then(() => {
-                          toast.success("Ссылка на g-саб скопирована");
+                          toast.success(t("board.linkCopied"));
                         }).catch(() => {
-                          toast.error("Не удалось скопировать ссылку");
+                          toast.error(t("board.linkCopyError"));
                         });
                       }}
-                      title="Поделиться"
+                      title={t("board.share")}
                     >
                       <Share2 className="w-4 h-4" />
                     </Button>
@@ -883,12 +886,12 @@ const Board = () => {
                       {isJoined ? (
                         <>
                           <UserCheck className="w-4 h-4 sm:mr-2" />
-                          <span className="hidden sm:inline">Вы участник</span>
+                          <span className="hidden sm:inline">{t("board.member")}</span>
                         </>
                       ) : (
                         <>
                           <UserPlus className="w-4 h-4 sm:mr-2" />
-                          <span className="hidden sm:inline">Вступить</span>
+                          <span className="hidden sm:inline">{t("board.join")}</span>
                         </>
                       )}
                     </Button>
@@ -926,7 +929,7 @@ const Board = () => {
               <Card className="mt-3 p-4 mx-auto max-w-md">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium">Фильтры</h3>
+                    <h3 className="text-sm font-medium">{t("board.filters")}</h3>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -939,7 +942,7 @@ const Board = () => {
 
                   {/* Content filters */}
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Тема:</label>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">{t("board.topic")}</label>
                     <div className="flex flex-wrap gap-1">
                       {CONTENT_TAGS.map(tag => (
                         <button
@@ -967,7 +970,7 @@ const Board = () => {
 
                   {/* Format filters */}
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Формат:</label>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">{t("board.format")}</label>
                     <div className="flex flex-wrap gap-1">
                       {FORMAT_TAGS.map(tag => (
                         <button
@@ -995,7 +998,7 @@ const Board = () => {
 
                   {/* Atmosphere filters */}
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Атмосфера:</label>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">{t("board.atmosphere")}</label>
                     <div className="flex flex-wrap gap-1">
                       {ATMOSPHERE_TAGS.map(tag => (
                         <button
@@ -1023,7 +1026,7 @@ const Board = () => {
 
                   {/* Flag filters */}
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Тип:</label>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">{t("board.type")}</label>
                     <div className="flex flex-wrap gap-1">
                       {FLAG_TAGS.map(tag => (
                         <button
@@ -1058,7 +1061,7 @@ const Board = () => {
             <div className="flex flex-wrap justify-center gap-1 max-w-4xl mx-auto">
               {/* Content filters */}
               <div className="flex flex-wrap gap-1">
-                <span className="text-xs text-muted-foreground self-center mr-1">Тема:</span>
+                <span className="text-xs text-muted-foreground self-center mr-1">{t("board.topic")}</span>
                 {CONTENT_TAGS.map(tag => (
                   <button
                     key={tag.value}
@@ -1084,7 +1087,7 @@ const Board = () => {
 
               {/* Format filters */}
               <div className="flex flex-wrap gap-1">
-                <span className="text-xs text-muted-foreground self-center mr-1">Формат:</span>
+                <span className="text-xs text-muted-foreground self-center mr-1">{t("board.format")}</span>
                 {FORMAT_TAGS.map(tag => (
                   <button
                     key={tag.value}
@@ -1110,7 +1113,7 @@ const Board = () => {
 
               {/* Atmosphere filters */}
               <div className="flex flex-wrap gap-1">
-                <span className="text-xs text-muted-foreground self-center mr-1">Атмосфера:</span>
+                <span className="text-xs text-muted-foreground self-center mr-1">{t("board.atmosphere")}</span>
                 {ATMOSPHERE_TAGS.map(tag => (
                   <button
                     key={tag.value}
@@ -1136,7 +1139,7 @@ const Board = () => {
 
               {/* Flag filters */}
               <div className="flex flex-wrap gap-1">
-                <span className="text-xs text-muted-foreground self-center mr-1">Тип:</span>
+                <span className="text-xs text-muted-foreground self-center mr-1">{t("board.type")}</span>
                 {FLAG_TAGS.map(tag => (
                   <button
                     key={tag.value}
@@ -1163,45 +1166,45 @@ const Board = () => {
         </div>{/* end flex container */}
           {(searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag') || searchParams.get('tag')) && (
             <div className="mt-2 flex items-center justify-center gap-2 flex-wrap">
-              <span className="text-xs text-muted-foreground">Фильтр:</span>
+              <span className="text-xs text-muted-foreground">{t("board.filter")}</span>
 
               {searchParams.get('content') && (
                 <span className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full border border-blue-500/20">
-                  {searchParams.get('content') === 'anime' && 'Аниме'}
-                  {searchParams.get('content') === 'games' && 'Игры'}
-                  {searchParams.get('content') === 'music' && 'Музыка'}
-                  {searchParams.get('content') === 'movies' && 'Фильмы'}
-                  {searchParams.get('content') === 'comics' && 'Комиксы'}
-                  {searchParams.get('content') === 'humor' && 'Юмор'}
-                  {searchParams.get('content') === 'literature' && 'Литература'}
-                  {searchParams.get('content') === 'stories' && 'Истории'}
+                  {searchParams.get('content') === 'anime' && t("tags.content_anime")}
+                  {searchParams.get('content') === 'games' && t("tags.content_games")}
+                  {searchParams.get('content') === 'music' && t("tags.content_music")}
+                  {searchParams.get('content') === 'movies' && t("tags.content_movies")}
+                  {searchParams.get('content') === 'comics' && t("tags.content_comics")}
+                  {searchParams.get('content') === 'humor' && t("tags.content_humor")}
+                  {searchParams.get('content') === 'literature' && t("tags.content_literature")}
+                  {searchParams.get('content') === 'stories' && t("tags.content_stories")}
                 </span>
               )}
 
               {searchParams.get('format') && (
                 <span className="inline-block px-2 py-0.5 text-xs bg-green-500/10 text-green-600 rounded-full border border-green-500/20">
-                  {searchParams.get('format') === 'shitpost' && 'Щитпост'}
-                  {searchParams.get('format') === 'discussion' && 'Обсуждение'}
-                  {searchParams.get('format') === 'question' && 'Вопрос'}
-                  {searchParams.get('format') === 'confession' && 'Признание'}
-                  {searchParams.get('format') === 'story' && 'Рассказ'}
-                  {searchParams.get('format') === 'guide' && 'Гайд'}
+                  {searchParams.get('format') === 'shitpost' && t("tags.format_shitpost")}
+                  {searchParams.get('format') === 'discussion' && t("tags.format_discussion")}
+                  {searchParams.get('format') === 'question' && t("tags.format_question")}
+                  {searchParams.get('format') === 'confession' && t("tags.format_confession")}
+                  {searchParams.get('format') === 'story' && t("tags.format_story")}
+                  {searchParams.get('format') === 'guide' && t("tags.format_guide")}
                 </span>
               )}
 
               {searchParams.get('atmosphere') && (
                 <span className="inline-block px-2 py-0.5 text-xs bg-purple-500/10 text-purple-600 rounded-full border border-purple-500/20">
-                  {searchParams.get('atmosphere') === 'serious' && 'Серьёзно'}
-                  {searchParams.get('atmosphere') === 'irony' && 'Ирония'}
-                  {searchParams.get('atmosphere') === 'vent' && 'Выплеск'}
-                  {searchParams.get('atmosphere') === 'doom' && 'Тьма'}
+                  {searchParams.get('atmosphere') === 'serious' && t("tags.atmosphere_serious")}
+                  {searchParams.get('atmosphere') === 'irony' && t("tags.atmosphere_irony")}
+                  {searchParams.get('atmosphere') === 'vent' && t("tags.atmosphere_vent")}
+                  {searchParams.get('atmosphere') === 'doom' && t("tags.atmosphere_doom")}
                 </span>
               )}
 
               {searchParams.get('flag') && searchParams.get('flag') !== 'normal' && (
                 <span className="inline-block px-2 py-0.5 text-xs bg-orange-500/10 text-orange-600 rounded-full border border-orange-500/20">
-                  {searchParams.get('flag') === 'ephemeral' && 'Временный'}
-                  {searchParams.get('flag') === 'night' && 'Ночной'}
+                  {searchParams.get('flag') === 'ephemeral' && t("tags.flag_ephemeral")}
+                  {searchParams.get('flag') === 'night' && t("tags.flag_night")}
                 </span>
               )}
 
@@ -1240,11 +1243,11 @@ const Board = () => {
               <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${sidebarCollapsed ? 'hidden' : ''}`}>
                 {/* Sidebar header with collapse button */}
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
-                  <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest select-none">Каналы</h3>
+                  <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest select-none">{t("board.channels")}</h3>
                   <button
                     onClick={() => setSidebarCollapsed(true)}
                     className="w-5 h-5 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
-                    title="Скрыть каналы"
+                    title={t("board.hideChannels")}
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </button>
@@ -1263,7 +1266,7 @@ const Board = () => {
                   onClick={() => setActiveChannelId(null)}
                 >
                   <Hash className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">общий</span>
+                  <span className="truncate">{t("board.general")}</span>
                 </Link>
                 
                 {/* Categorized channels */}
@@ -1304,7 +1307,7 @@ const Board = () => {
                       className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                     >
                       <BookOpenText className="w-3.5 h-3.5 shrink-0" />
-                      <span>Правила</span>
+                      <span>{t("board.rules")}</span>
                     </button>
                   )}
                   {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
@@ -1313,7 +1316,7 @@ const Board = () => {
                       className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                     >
                       <Settings className="w-3.5 h-3.5 shrink-0" />
-                      <span>Настройки</span>
+                      <span>{t("board.settings")}</span>
                     </Link>
                   )}
                 </div>
@@ -1326,7 +1329,7 @@ const Board = () => {
               <button
                 onClick={() => setSidebarCollapsed(false)}
                 className="shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
-                title="Показать каналы"
+                title={t("board.showChannels")}
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -1350,7 +1353,7 @@ const Board = () => {
                       className="h-8 w-8 p-0 rounded-lg sm:h-10 sm:w-auto sm:px-4 sm:text-sm"
                     >
                       <Plus className="h-4 w-4 sm:mr-2" />
-                      <span className="hidden sm:inline">Создать тред</span>
+                      <span className="hidden sm:inline">{t("board.createThread")}</span>
                     </Button>
                   )}
                 </div>
@@ -1401,7 +1404,7 @@ const Board = () => {
                             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                               <UserBadge
                                 userId={thread.user_id}
-                                username={thread.profiles?.username || "Аноним"}
+                                username={thread.profiles?.username || t("common.anonymous")}
                                 displayName={thread.profiles?.display_name}
                                 emojiId={thread.profiles?.nickname_emoji_id}
                                 isAnonymous={thread.profiles?.is_anonymous}
@@ -1411,7 +1414,7 @@ const Board = () => {
                               />
                               <span>
                                 {formatDistanceToNow(safeDate(thread.created_at), {
-                                  locale: ru,
+                                  locale: dateLocale,
                                   addSuffix: true,
                                 })}
                               </span>
@@ -1445,7 +1448,7 @@ const Board = () => {
                                 className={`text-sm sm:text-base text-foreground/90 whitespace-pre-wrap break-words leading-relaxed ${thread.content.length > 900 ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]" : ""}`}
                               >
                                 {hasVisibilityTags(thread.content)
-                                  ? 'зайдите в тему чтобы посмотреть'
+                                  ? t("board.openThreadToView")
                                   : renderContent(thread.content)}
                               </div>
                               {thread.content.length > 900 && (
@@ -1490,7 +1493,7 @@ const Board = () => {
 
                             {thread.latest_post?.content && (
                               <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-                                <span className="font-medium">Последний комментарий:</span>{" "}
+                                <span className="font-medium">{t("board.lastComment")}</span>{" "}
                                 {thread.latest_post.content.slice(0, 120)}
                                 {thread.latest_post.content.length > 120 && "..."}
                               </div>
@@ -1541,7 +1544,7 @@ const Board = () => {
                     className="h-8 w-8 p-0 rounded-lg sm:h-10 sm:w-auto sm:px-4 sm:text-sm"
                   >
                     <Plus className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Создать тред</span>
+                    <span className="hidden sm:inline">{t("board.createThread")}</span>
                   </Button>
                 )}
                 {hasSecondaryActions && (
@@ -1617,7 +1620,7 @@ const Board = () => {
                       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <UserBadge
                           userId={thread.user_id}
-                          username={thread.profiles?.username || "Аноним"}
+                          username={thread.profiles?.username || t("common.anonymous")}
                           isAnonymous={thread.profiles?.is_anonymous}
                           showOutline={false}
                           disableLink={true}
@@ -1625,7 +1628,7 @@ const Board = () => {
                         />
                         <span>
                           {formatDistanceToNow(safeDate(thread.created_at), {
-                            locale: ru,
+                            locale: dateLocale,
                             addSuffix: true,
                           })}
                         </span>
@@ -1659,7 +1662,7 @@ const Board = () => {
                           className={`text-sm sm:text-base text-foreground/90 whitespace-pre-wrap break-words leading-relaxed ${thread.content.length > 900 ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]" : ""}`}
                         >
                           {hasVisibilityTags(thread.content)
-                            ? 'зайдите в тему чтобы посмотреть'
+                            ? t("board.openThreadToView")
                             : renderContent(thread.content)}
                         </div>
                         {thread.content.length > 900 && (
@@ -1704,7 +1707,7 @@ const Board = () => {
 
                       {thread.latest_post?.content && (
                         <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-                          <span className="font-medium">Последний комментарий:</span>{" "}
+                          <span className="font-medium">{t("board.lastComment")}</span>{" "}
                           {thread.latest_post.content.slice(0, 120)}
                           {thread.latest_post.content.length > 120 && "..."}
                         </div>
@@ -1725,7 +1728,7 @@ const Board = () => {
                       <div className="flex items-center justify-between">
                         <UserBadge
                           userId={thread.user_id}
-                          username={thread.profiles?.username || "Аноним"}
+                          username={thread.profiles?.username || t("common.anonymous")}
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}
                           isAnonymous={thread.profiles?.is_anonymous}
@@ -1735,7 +1738,7 @@ const Board = () => {
                         />
                         <span className="text-xs text-muted-foreground">
                           {formatDistanceToNow(safeDate(thread.created_at), {
-                            locale: ru,
+                            locale: dateLocale,
                             addSuffix: true,
                           })}
                         </span>
@@ -1753,7 +1756,7 @@ const Board = () => {
 
                       {/* Thread Content Preview */}
                       <div className="text-sm text-muted-foreground line-clamp-3 break-words">
-                        {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                        {hasVisibilityTags(thread.content) ? t("board.openThreadToView") : (
                           <>
                             {renderContent(thread.content.substring(0, 200))}
                             {thread.content.length > 200 && '...'}
@@ -1776,8 +1779,8 @@ const Board = () => {
                       <div className="flex justify-end">
                         <span className="text-xs text-muted-foreground">
                           {thread.post_count > 0
-                            ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
-                            : 'нет ответов'}
+                            ? t("board.replies", { count: thread.post_count })
+                            : t("board.noReplies")}
                         </span>
                       </div>
                     </div>
@@ -1796,7 +1799,7 @@ const Board = () => {
                           />
                         ) : (
                           <div className="w-24 h-24 bg-muted border border-border rounded-lg flex items-center justify-center">
-                            <span className="text-xs text-muted-foreground">Нет фото</span>
+                            <span className="text-xs text-muted-foreground">{t("board.noPhoto")}</span>
                           </div>
                         )}
                       </div>
@@ -1810,12 +1813,12 @@ const Board = () => {
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <span className="text-sm text-muted-foreground">
                               {thread.post_count > 0
-                                ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
-                                : 'нет ответов'}
+                                ? t("board.replies", { count: thread.post_count })
+                                : t("board.noReplies")}
                             </span>
                         <UserBadge
                           userId={thread.user_id}
-                          username={thread.profiles?.username || "Аноним"}
+                          username={thread.profiles?.username || t("common.anonymous")}
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}
                           isAnonymous={thread.profiles?.is_anonymous}
@@ -1829,7 +1832,7 @@ const Board = () => {
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-sm text-muted-foreground">
                             {formatDistanceToNow(safeDate(thread.created_at), {
-                              locale: ru,
+                              locale: dateLocale,
                               addSuffix: true,
                             })}
                           </span>
@@ -1839,7 +1842,7 @@ const Board = () => {
                         </div>
 
                         <p className="text-sm text-muted-foreground line-clamp-2 break-words">
-                          {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                          {hasVisibilityTags(thread.content) ? t("board.openThreadToView") : (
                             <>
                               {renderContent(thread.content.substring(0, 300))}
                               {thread.content.length > 300 && '...'}
@@ -1920,11 +1923,11 @@ const Board = () => {
                 <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                   {!hasAcceptedRules && (
                     <Button variant="outline" onClick={() => navigate("/g")}>
-                      Вернуться к g-сабам
+                      {t("board.backToSubs")}
                     </Button>
                   )}
                   <Button onClick={hasAcceptedRules ? () => setShowRulesDialog(false) : handleAcceptRules}>
-                    {hasAcceptedRules ? "Закрыть" : "Принять правила"}
+                    {hasAcceptedRules ? t("common.close") : t("board.acceptRules")}
                   </Button>
                 </div>
               </div>

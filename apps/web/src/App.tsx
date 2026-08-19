@@ -15,6 +15,7 @@ import { LikesCacheProvider } from "@/contexts/LikesCacheContext";
 import { EmojiDataProvider } from "@/contexts/EmojiDataContext";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { logClientError } from "@/lib/logging";
+import { useLanguageStore } from "@/stores/languageStore";
 
 // Helper: load a page with retry. If a dynamic chunk fails (stale
 // deployment, network blip, ad blocker), reload the page once to fetch
@@ -101,6 +102,7 @@ const NotificationLikes = lazyWithRetry(() => import("./pages/NotificationLikes"
 const OAuthConsent = lazyWithRetry(() => import("./pages/OAuthConsent"));
 const Achievements = lazyWithRetry(() => import("./pages/Achievements"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
+const Translate = lazyWithRetry(() => import("./pages/Translate"));
 
 // Prefetch critical routes on app start
 const prefetchRoutes = () => {
@@ -125,6 +127,12 @@ const queryClient = new QueryClient({
 });
 
 const App = () => {
+  useEffect(() => {
+    // Resolve the active UI language (server profile → local → default) and
+    // overlay community translations before the first meaningful paint.
+    useLanguageStore.getState().initialize();
+  }, []);
+
   useEffect(() => {
     // Prefetch critical routes for instant navigation
     prefetchRoutes();
@@ -251,6 +259,7 @@ const App = () => {
                       <Route path="wallet" element={<AuthGuard><LazyPage component={Wallet} /></AuthGuard>} />
                       <Route path="notify" element={<AuthGuard><LazyPage component={Notify} /></AuthGuard>} />
                       <Route path="notify/wall-likes/:notificationId" element={<AuthGuard><LazyPage component={NotificationLikes} /></AuthGuard>} />
+                      <Route path="translate" element={<AuthGuard><LazyPage component={Translate} /></AuthGuard>} />
                       <Route path="search" element={<LazyPage component={SearchResults} />} />
                       <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
                       <Route path="g" element={<LazyPage component={GomoSubs} />} />

@@ -16,7 +16,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { processProfileBio } from "@/utils/profileBio";
 import { pluralRu } from "@/utils/pluralRu";
@@ -39,6 +39,7 @@ const PRESET_PLACEHOLDERS = [
 
 const Placeholders = () => {
   const navigate = useNavigate();
+  const dateLocale = useDateLocale();
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -144,7 +145,7 @@ const Placeholders = () => {
       case 'bio':
         return profile.bio ? processProfileBio(profile.bio) : null;
       case 'created_at':
-        return format(safeDate(profile.created_at), "dd.MM.yyyy", { locale: ru });
+        return format(safeDate(profile.created_at), "dd.MM.yyyy", { locale: dateLocale });
       case 'post_count':
         return pluralRu((profile.thread_count || 0) + (profile.wall_post_count || 0), 'запись', 'записи', 'записей');
       case 'comment_count':

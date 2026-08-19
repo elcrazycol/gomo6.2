@@ -63,11 +63,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// Validate username: a-z, A-Z, 0-9 only, 3-20 chars
 	if len(req.Username) < 3 || len(req.Username) > 20 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм должен быть от 3 до 20 символов"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrUsernameLength, "Username must be 3-20 characters", nil))
 		return
 	}
 	if !validUsername.MatchString(req.Username) {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм может содержать только буквы латиницы и цифры (a-z, A-Z, 0-9)"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrUsernameChars, "Username may contain only Latin letters and digits (a-z, A-Z, 0-9)", nil))
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		clientIP := c.ClientIP()
 		log.Printf("[Honeypot] Bot detected on login from IP %s (website=%q)", clientIP, req.Website)
 		// Silently succeed to mislead the bot — generic invalid credentials
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
+		c.JSON(http.StatusUnauthorized, models.ErrorResponseWithCode(models.ErrInvalidCredentials, "Invalid credentials", nil))
 		return
 	}
 
@@ -191,7 +191,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
+			c.JSON(http.StatusUnauthorized, models.ErrorResponseWithCode(models.ErrInvalidCredentials, "Invalid credentials", nil))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
@@ -209,7 +209,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		attempts, err := h.redis.Get(ctx, lockKey).Int()
 		cancel()
 		if err == nil && attempts >= 5 {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
+			c.JSON(http.StatusUnauthorized, models.ErrorResponseWithCode(models.ErrInvalidCredentials, "Invalid credentials", nil))
 			return
 		}
 	}
@@ -221,7 +221,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		if h.redis != nil {
 			h.recordFailedAttempt(loginIdentifier)
 		}
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
+		c.JSON(http.StatusUnauthorized, models.ErrorResponseWithCode(models.ErrInvalidCredentials, "Invalid credentials", nil))
 		return
 	}
 

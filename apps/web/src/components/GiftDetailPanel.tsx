@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { User } from "lucide-react";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
@@ -59,6 +59,7 @@ export function GiftDetailPanel({
   upgrading,
   isOwnProfile,
 }: GiftDetailPanelProps) {
+  const dateLocale = useDateLocale();
   const bgUrl = resolveUrl(backgroundLayerImageUrl);
   const symUrl = resolveUrl(symbolLayerImageUrl);
   const giftUrl = isUpgraded ? resolveUrl(giftLayerImageUrl) : giftImageUrl;
@@ -200,7 +201,7 @@ export function GiftDetailPanel({
 
         {/* Date */}
         <p className="text-xs text-muted-foreground pt-1">
-          {formatDistanceToNow(new Date(createdAt), { addSuffix: true, locale: ru })}
+          {formatDistanceToNow(new Date(createdAt), { addSuffix: true, locale: dateLocale })}
         </p>
 
         {/* Upgrade button */}

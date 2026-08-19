@@ -3,11 +3,11 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"time"
 
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -356,16 +356,17 @@ func (ac *AchievementChecker) applyReward(userID string, rewardType string, rewa
 // sendUnlockNotification inserts a notification row and pushes a WebSocket event.
 // Returns the notification ID so the frontend can mark it as read after display.
 func (ac *AchievementChecker) sendUnlockNotification(userID string, ach UnlockedAchievement) string {
-	title := fmt.Sprintf("🏆 %s", ach.Name)
+	params := models.NotificationParams{AchievementName: ach.Name}
+	paramsJSON := string(marshalNotificationParams(&params))
 	message := ach.Description
 
 	var notificationID string
 	var createdAt time.Time
 	err := ac.db.QueryRow(`
-		INSERT INTO notifications (user_id, type, title, message, is_read, created_at)
-		VALUES ($1, 'achievement_unlock', $2, $3, false, $4)
+		INSERT INTO notifications (user_id, type, title, message, is_read, created_at, params)
+		VALUES ($1, 'achievement_unlock', '', $2, false, $3, $4::jsonb)
 		RETURNING id, created_at
-	`, userID, title, message, time.Now()).Scan(&notificationID, &createdAt)
+	`, userID, message, time.Now(), paramsJSON).Scan(&notificationID, &createdAt)
 	if err != nil {
 		log.Printf("[Achievements] notification insert error: %v", err)
 		return ""
@@ -377,11 +378,14 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 
 	if ac.wsHub != nil {
 		if err := ac.wsHub.PublishNewNotification(map[string]interface{}{
-			"id":              notificationID,
-			"user_id":         userID,
-			"type":            "achievement_unlock",
-			"title":           title,
-			"message":         message,
+			"id":      notificationID,
+			"user_id": userID,
+			"type":    "achievement_unlock",
+			"title":   "",
+			"message": message,
+			"params": map[string]interface{}{
+				"achievement_name": ach.Name,
+			},
 			"notification_id": notificationID,
 			"is_read":         false,
 			"created_at":      createdAt.Format(time.RFC3339Nano),

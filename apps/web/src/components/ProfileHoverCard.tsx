@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { User, Droplets } from "lucide-react";
 import { format } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
@@ -83,6 +83,7 @@ const fetchProfileData = async (userId: string) => {
 };
 
 export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops = false }: ProfileHoverCardProps) => {
+  const dateLocale = useDateLocale();
   const [showCard, setShowCard] = useState(false);
   const [flipLeft, setFlipLeft] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -305,7 +306,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
                     case 'bio':
                       return p.bio ? processProfileBio(p.bio as string) : null;
                     case 'created_at':
-                      return p.created_at ? format(safeDate(p.created_at as string), "dd.MM.yyyy", { locale: ru }) : null;
+                      return p.created_at ? format(safeDate(p.created_at as string), "dd.MM.yyyy", { locale: dateLocale }) : null;
                     case 'post_count': {
                       // Unified «записи» = треды + записи стены (ключ сохранён
                       // для обратной совместимости с user_placeholders).

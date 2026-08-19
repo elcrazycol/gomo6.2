@@ -72,12 +72,12 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 		// holder — bound the guesses per account like the login path so a stolen
 		// session cannot brute-force the current password.
 		if h.isAuthActionLocked(userClaims.UserID) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
 			return
 		}
 		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(body.CurrentPassword)) != nil {
 			h.recordAuthActionFailure(userClaims.UserID)
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
 			return
 		}
 		h.clearAuthActionLock(userClaims.UserID)

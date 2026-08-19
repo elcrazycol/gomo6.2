@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent, useMotionValue, useTransform, animate } from "framer-motion";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
@@ -41,6 +42,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const { user } = useAuth(); // Use cached auth hook instead of local state
   const { loadProfile } = useProfileCache();
   const [isModerator, setIsModerator] = useState(false);
@@ -978,7 +980,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded-md focus:outline-none"
       >
-        Перейти к основному содержимому
+        {t('nav.skipToContent')}
       </a>
       <AchievementToastListener />
       {!hideChrome ? (
@@ -1000,7 +1002,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <Button
                 variant="ghost"
                 size="sm"
-                aria-label="Открыть поиск"
+                aria-label={t('nav.openSearch')}
                 className="h-8 w-8 p-0 rounded-full"
                 onClick={() => setDesktopSearchExpanded((prev) => !prev)}
               >
@@ -1023,14 +1025,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                       ref={desktopSearchInputRef}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Поиск: юзер, g-саб, тред..."
+                      placeholder={t('nav.searchPlaceholder')}
                       className="h-8 pl-3 pr-2 border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                       onFocus={() => {
                         if (searchQuery.trim().length >= 2) setSearchOpen(true);
                       }}
                     />
                     <Button type="submit" size="sm" variant="ghost" className="h-8 px-3 rounded-full">
-                      Найти
+                      {t('nav.find')}
                     </Button>
                   </div>
                 </form>
@@ -1039,14 +1041,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               {searchOpen && desktopSearchExpanded && (
                 <div className="absolute top-12 right-0 w-[520px] rounded-2xl border border-border bg-card/95 backdrop-blur shadow-lg p-3 z-50 space-y-3">
                   {searchLoading ? (
-                    <div className="text-sm text-muted-foreground">Ищу...</div>
+                    <div className="text-sm text-muted-foreground">{t('nav.searching')}</div>
                   ) : totalSearchHits === 0 ? (
-                    <div className="text-sm text-muted-foreground">Ничего не найдено</div>
+                    <div className="text-sm text-muted-foreground">{t('nav.nothingFound')}</div>
                   ) : (
                     <>
                       {searchResults.users.length > 0 && (
                         <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Пользователи</div>
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.users')}</div>
                           {searchResults.users.map((item) => (
                             <Link
                               key={item.id}
@@ -1060,7 +1062,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                       )}
                       {searchResults.boards.length > 0 && (
                         <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Доски и G-сабы</div>
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.boardsAndSubs')}</div>
                           {searchResults.boards.map((item) => {
                             const isGomo = item.is_gomosub;
                             const link = isGomo ? `/g/${item.slug}` : `/${item.slug}`;
@@ -1079,7 +1081,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                       )}
                       {searchResults.threads.length > 0 && (
                         <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Треды</div>
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.threads')}</div>
                           {searchResults.threads.map((item) => {
                             const isGomo = item.board_is_gomosub;
                             const link = isGomo
@@ -1098,7 +1100,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                         </div>
                       )}
                       <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
-                        Показать все результаты
+                        {t('nav.showAllResults')}
                       </Button>
                     </>
                   )}
@@ -1133,7 +1135,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               </>
             ) : (
               <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
-                Войти
+                {t('auth.login')}
               </Button>
             )}
           </div>
@@ -1144,21 +1146,21 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Поиск..."
+                placeholder={t('nav.searchShort')}
                 className="h-10 pl-10 pr-20 rounded-xl border-border/70 bg-background/85 backdrop-blur"
                 onFocus={() => {
                   if (searchQuery.trim().length >= 2) setSearchOpen(true);
                 }}
               />
               <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-              <Button type="submit" size="sm" className="absolute right-1 top-1.5 h-7 rounded-lg">Найти</Button>
+              <Button type="submit" size="sm" className="absolute right-1 top-1.5 h-7 rounded-lg">{t('nav.find')}</Button>
             </form>
             {searchOpen && (
               <div className="absolute top-12 left-0 right-0 rounded-2xl border border-border bg-card/95 backdrop-blur shadow-lg p-3 z-50 space-y-3 max-h-[65vh] overflow-auto">
                 {searchLoading ? (
-                  <div className="text-sm text-muted-foreground">Ищу...</div>
+                  <div className="text-sm text-muted-foreground">{t('nav.searching')}</div>
                 ) : totalSearchHits === 0 ? (
-                  <div className="text-sm text-muted-foreground">Ничего не найдено</div>
+                  <div className="text-sm text-muted-foreground">{t('nav.nothingFound')}</div>
                 ) : (
                   <>
                     {searchResults.users.map((item) => (
@@ -1188,7 +1190,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                       );
                     })}
                     <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
-                      Показать все результаты
+                      {t('nav.showAllResults')}
                     </Button>
                   </>
                 )}

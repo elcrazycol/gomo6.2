@@ -81,13 +81,13 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 
 	// Validate slug format: /^[a-z0-9][a-z0-9_-]{1,24}$/
 	if !gomosubSlugRegex.MatchString(req.Slug) {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Слаг: латиница, цифры, - или _, от 2 до 25 символов"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrSlugFormat, "Slug: Latin letters, digits, - or _, 2-25 characters", nil))
 		return
 	}
 
 	// Check reserved slugs
 	if isReservedSlug(req.Slug) {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Слаг зарезервирован системой"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrSlugReserved, "Slug is reserved by the system", nil))
 		return
 	}
 
@@ -95,7 +95,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	var existingID string
 	err := h.db.QueryRow(`SELECT id FROM boards WHERE slug = $1`, req.Slug).Scan(&existingID)
 	if err == nil {
-		c.JSON(http.StatusConflict, models.ErrorResponse("Такой слаг уже занят"))
+		c.JSON(http.StatusConflict, models.ErrorResponseWithCode(models.ErrSlugTaken, "This slug is already taken", nil))
 		return
 	}
 	if err != sql.ErrNoRows {
@@ -145,7 +145,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
-			c.JSON(http.StatusConflict, models.ErrorResponse("Такой слаг уже занят"))
+			c.JSON(http.StatusConflict, models.ErrorResponseWithCode(models.ErrSlugTaken, "This slug is already taken", nil))
 			return
 		}
 		serverError(c, "handler error", err)

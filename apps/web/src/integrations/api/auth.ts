@@ -3,6 +3,19 @@
 import { apiClient, getDeviceToken } from './client';
 import { useNotificationStore } from '@/stores/notificationStore';
 
+// Shape returned by the compat layer's error object. `code`/`params` are the
+// structured error data the backend emits for client-rendered messages.
+export interface AuthError {
+  message: string;
+  code?: string;
+  params?: unknown;
+}
+
+function toAuthError(error: unknown): AuthError {
+  const e = error as Error & { code?: string; params?: unknown };
+  return { message: e.message, code: e.code, params: e.params };
+}
+
 export const apiAuth = {
   signUp: async ({ username, password, options, turnstileToken }: { username: string; password: string; options?: { data?: { display_name?: string } }; turnstileToken?: string }) => {
     try {
@@ -14,7 +27,7 @@ export const apiAuth = {
       );
       return { data: { user: result.user, session: { access_token: result.token } }, error: null };
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: toAuthError(error) };
     }
   },
   signInWithPassword: async ({ username, password, turnstileToken }: { username: string; password: string; turnstileToken?: string }) => {
@@ -31,7 +44,7 @@ export const apiAuth = {
       
       return { data: { user: result.user, session: { access_token: result.token } }, error: null };
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: toAuthError(error) };
     }
   },
   signOut: async () => {
@@ -88,7 +101,7 @@ export const apiAuth = {
       }
       return { data: { session: { access_token: result.token } }, error: null };
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: toAuthError(error) };
     }
   },
   setupTOTP: async (password: string) => {
@@ -96,7 +109,7 @@ export const apiAuth = {
       const result = await apiClient.setupTOTP(password);
       return { data: result, error: null };
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: toAuthError(error) };
     }
   },
   verifyAndEnableTOTP: async (code: string) => {
@@ -104,7 +117,7 @@ export const apiAuth = {
       const result = await apiClient.verifyAndEnableTOTP(code);
       return { data: result, error: null };
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: toAuthError(error) };
     }
   },
   disableTOTP: async (code: string) => {
@@ -112,7 +125,7 @@ export const apiAuth = {
       await apiClient.disableTOTP(code);
       return { data: { ok: true }, error: null };
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: toAuthError(error) };
     }
   },
   get2FAStatus: async () => {
@@ -120,7 +133,7 @@ export const apiAuth = {
       const result = await apiClient.get2FAStatus();
       return { data: result, error: null };
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: toAuthError(error) };
     }
   },
   updateUser: async (attrs: { password?: string; current_password?: string }) => {
@@ -132,7 +145,7 @@ export const apiAuth = {
       }
       return { data: { user: null }, error: { message: 'Поддерживается только смена пароля (password)' } };
     } catch (error) {
-      return { data: { user: null }, error: { message: (error as Error).message } };
+      return { data: { user: null }, error: toAuthError(error) };
     }
   },
 };

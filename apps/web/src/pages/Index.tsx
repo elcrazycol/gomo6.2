@@ -23,7 +23,7 @@ import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 
 interface Board {
@@ -56,6 +56,7 @@ interface SubscribedPostUpdate {
 
 const Index = () => {
   const { loadProfile } = useProfileCache();
+  const dateLocale = useDateLocale();
   const [boards, setBoards] = useState<Board[]>([]);
   const [gomoSubs, setGomoSubs] = useState<GomoSub[]>([]);
   const [gomoSubsMembers, setGomoSubsMembers] = useState<Record<string, number>>({});
@@ -459,7 +460,7 @@ const Index = () => {
                               @{item.author_display_name?.trim() || item.author_username}
                             </span>
                             {item.author_nickname_emoji_id && <NicknameEmoji emojiId={item.author_nickname_emoji_id} />}
-                            <span>- {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: ru })}</span>
+                            <span>- {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: dateLocale })}</span>
                           </div>
                           <div className="font-medium text-sm">{item.thread_title}</div>
                           <div className="text-sm text-muted-foreground line-clamp-2 mt-1">{item.content}</div>

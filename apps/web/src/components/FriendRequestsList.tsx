@@ -7,7 +7,7 @@ import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { User, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 
 export const FriendRequestsList = () => {
@@ -44,6 +44,7 @@ export const FriendRequestsList = () => {
 
 const RequestItem = ({ request }: { request: FriendRequest }) => {
   const { acceptRequest, rejectRequest } = useFriendsStore();
+  const dateLocale = useDateLocale();
   const [loading, setLoading] = useState(false);
 
   const handleAccept = async () => {
@@ -71,7 +72,7 @@ const RequestItem = ({ request }: { request: FriendRequest }) => {
   };
 
   const timeAgo = formatDistanceToNow(safeDate(request.created_at), {
-    locale: ru,
+    locale: dateLocale,
     addSuffix: true,
   });
 

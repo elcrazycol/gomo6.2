@@ -8,7 +8,6 @@ import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vite
 vi.mock("date-fns", () => ({
   formatDistanceToNow: () => "2 дня назад",
 }));
-vi.mock("date-fns/locale", () => ({ ru: {} }));
 
 const mockFrom = vi.fn();
 const mockRpc = vi.fn();

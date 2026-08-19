@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ interface GomoSubItem {
 }
 
 export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -114,7 +116,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
 
   const handleLogout = async () => {
     await api.auth.signOut();
-    toast.success("Вышли");
+    toast.success(t('auth.logoutSuccess'));
     setOpen(false);
   };
 
@@ -134,7 +136,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-[280px] sm:w-[320px] p-0 flex flex-col">
           <SheetHeader className="px-4 pt-4 pb-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-10">
-            <SheetTitle className="text-left">Меню</SheetTitle>
+            <SheetTitle className="text-left">{t('nav.menu')}</SheetTitle>
           </SheetHeader>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4">
@@ -149,7 +151,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   {/* Avatar */}
                   <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
                     {avatarUrl ? (
-                      <img src={avatarUrl} alt={username || "Пользователь"} className="w-full h-full object-cover" />
+                      <img src={avatarUrl} alt={username || t('common.user')} className="w-full h-full object-cover" />
                     ) : (
                     <User className="w-6 h-6 text-muted-foreground" />
                     )}
@@ -180,7 +182,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   className="h-10 rounded-xl border border-border bg-card px-3 text-xs shrink-0"
                 >
                   <Users className="w-3.5 h-3.5 mr-1.5" />
-                  G-сабы
+                  {t('nav.gomosubs')}
                 </Button>
               </div>
             </div>
@@ -194,7 +196,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               >
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
                   <Droplets className="w-4 h-4 mr-2" />
-                  Дропсы
+                  {t('nav.drops')}
                   <span className="ml-auto text-sm text-muted-foreground">{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
                   <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                 </Button>
@@ -209,7 +211,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             >
               <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
                 <Settings className="w-4 h-4 mr-2" />
-                Настройки
+                {t('nav.settings')}
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>
             </Link>
@@ -223,16 +225,16 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               >
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
                   <Hammer className="w-4 h-4 mr-2" />
-                  Модерация
+                  {t('nav.moderation')}
                   <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                 </Button>
               </Link>
             )}
 
             <div className="space-y-2 pt-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Подписки</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('nav.subscriptions')}</div>
               {joinedSubs.length === 0 ? (
-                <div className="text-xs text-muted-foreground">Пока нет подписок</div>
+                <div className="text-xs text-muted-foreground">{t('nav.noSubscriptions')}</div>
               ) : (
                 joinedSubs.map((sub) => (
                   <Link
@@ -249,7 +251,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             </div>
 
             <div className="space-y-2 pt-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Капля рандома</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('nav.randomDrop')}</div>
               {randomSubs.map((sub) => (
                 <Link
                   key={sub.id}
@@ -264,7 +266,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             </div>
 
             <div className="space-y-2 pt-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Важное</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('nav.important')}</div>
               <Link to="/rules" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">Информация</Link>
               <Link to="/bugs" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">Баги/Идеи</Link>
               <Link to="/faq" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">FAQ</Link>
@@ -280,7 +282,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 onClick={handleLogout}
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                Выйти из аккаунта
+                {t('nav.logoutFull')}
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>
             </div>

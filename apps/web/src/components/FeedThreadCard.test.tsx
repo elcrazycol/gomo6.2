@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach, vi, beforeAll } from "vitest";
 vi.mock("date-fns", () => ({
   formatDistanceToNow: () => "2 дня назад",
 }));
-vi.mock("date-fns/locale", () => ({ ru: {} }));
 
 const mockFrom = vi.fn();
 const mockNavigateFn = vi.fn();

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
@@ -73,6 +73,7 @@ const hasVisibilityTags = (content: string): boolean => {
 
 const Board = () => {
   const { slug } = useParams();
+  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const [board, setBoard] = useState<Board | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -505,7 +506,7 @@ const Board = () => {
                     />
                     {" · "}
                     {formatDistanceToNow(safeDate(thread.created_at), {
-                      locale: ru,
+                      locale: dateLocale,
                       addSuffix: true,
                     })}
                   </div>

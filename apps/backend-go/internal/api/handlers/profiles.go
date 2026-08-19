@@ -578,7 +578,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 			// public, authored by the user, or subscribed to (mirrors the
 			// picker, which only offers subscribed/owned packs).
 			if _, err := uuid.Parse(emojiID); err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Неверный формат эмодзи"))
+				c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrEmojiFormat, "Invalid emoji format", nil))
 				return
 			}
 			var allowed bool
@@ -597,7 +597,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 				return
 			}
 			if !allowed {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Этот эмодзи недоступен"))
+				c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrEmojiUnavailable, "This emoji is unavailable", nil))
 				return
 			}
 			query += ", nickname_emoji_id = $" + strconv.Itoa(argIndex)
@@ -614,11 +614,11 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	if updates.Username != nil {
 		newUsername := *updates.Username
 		if len(newUsername) < 3 || len(newUsername) > 20 {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм должен быть от 3 до 20 символов"))
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrUsernameLength, "Username must be 3-20 characters", nil))
 			return
 		}
 		if !validUsername.MatchString(newUsername) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм может содержать только буквы латиницы и цифры (a-z, A-Z, 0-9)"))
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrUsernameChars, "Username may contain only Latin letters and digits (a-z, A-Z, 0-9)", nil))
 			return
 		}
 		// Check uniqueness
@@ -629,7 +629,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 			return
 		}
 		if exists {
-			c.JSON(http.StatusConflict, models.ErrorResponse("Этот юзернейм уже занят"))
+			c.JSON(http.StatusConflict, models.ErrorResponseWithCode(models.ErrUsernameTaken, "This username is already taken", nil))
 			return
 		}
 		query += ", username = $" + strconv.Itoa(argIndex)

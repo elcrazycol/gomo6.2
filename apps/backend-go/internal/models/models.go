@@ -218,21 +218,41 @@ type ThreadLike struct {
 
 // Notification
 type Notification struct {
-	ID                   string     `json:"id" db:"id"`
-	UserID               string     `json:"user_id" db:"user_id"`
-	Type                 string     `json:"type" db:"type"`
-	Title                string     `json:"title" db:"title"`
-	Message              string     `json:"message" db:"message"`
-	RelatedThreadID      *string    `json:"related_thread_id" db:"related_thread_id"`
-	RelatedPostID        *string    `json:"related_post_id" db:"related_post_id"`
-	RelatedUserID        *string    `json:"related_user_id" db:"related_user_id"`
-	RelatedWallPostID    *string    `json:"related_wall_post_id" db:"related_wall_post_id"`
-	RelatedWallCommentID *string    `json:"related_wall_comment_id" db:"related_wall_comment_id"`
-	RelatedWallUserID    *string    `json:"related_wall_user_id" db:"related_wall_user_id"`
-	RelatedWallPostIDs   JSONB      `json:"related_wall_post_ids" db:"related_wall_post_ids"`
-	IsRead               bool       `json:"is_read" db:"is_read"`
-	GroupCount           int        `json:"group_count" db:"group_count"`
-	CreatedAt            *time.Time `json:"created_at" db:"created_at"`
+	ID                   string          `json:"id" db:"id"`
+	UserID               string          `json:"user_id" db:"user_id"`
+	Type                 string          `json:"type" db:"type"`
+	Title                string          `json:"title" db:"title"`
+	Message              string          `json:"message" db:"message"`
+	RelatedThreadID      *string         `json:"related_thread_id" db:"related_thread_id"`
+	RelatedPostID        *string         `json:"related_post_id" db:"related_post_id"`
+	RelatedUserID        *string         `json:"related_user_id" db:"related_user_id"`
+	RelatedWallPostID    *string         `json:"related_wall_post_id" db:"related_wall_post_id"`
+	RelatedWallCommentID *string         `json:"related_wall_comment_id" db:"related_wall_comment_id"`
+	RelatedWallUserID    *string         `json:"related_wall_user_id" db:"related_wall_user_id"`
+	RelatedWallPostIDs   JSONB           `json:"related_wall_post_ids" db:"related_wall_post_ids"`
+	IsRead               bool            `json:"is_read" db:"is_read"`
+	GroupCount           int             `json:"group_count" db:"group_count"`
+	Params               json.RawMessage `json:"params,omitempty" db:"params"`
+	CreatedAt            *time.Time      `json:"created_at" db:"created_at"`
+}
+
+// NotificationParams carries the structured, language-neutral data the frontend
+// needs to render a notification in the viewer's language. The title/message
+// columns are kept for legacy rows; new rows store display data here instead of
+// baking Russian text into the DB.
+type NotificationParams struct {
+	// Actor is the username of the acting user (the leading @handle). Empty for
+	// system-generated notifications (achievements) and set to the anonymous
+	// marker for anonymous gifts (see Anonymous).
+	Actor string `json:"actor,omitempty"`
+	// Anonymous marks the actor as anonymous (used for gift_received).
+	Anonymous bool `json:"anonymous,omitempty"`
+	// GiftName is the localized-in-DB gift catalog name for gift_received.
+	GiftName string `json:"gift_name,omitempty"`
+	// AchievementName is the achievement name for achievement_unlock.
+	AchievementName string `json:"achievement_name,omitempty"`
+	// Count is the number of liked wall posts in a wall_post_like burst group.
+	Count int `json:"count,omitempty"`
 }
 
 // Achievement — multi-level grouped achievement definition.
@@ -289,6 +309,8 @@ type APIResponse struct {
 	Success    bool        `json:"success"`
 	Data       interface{} `json:"data,omitempty"`
 	Error      *string     `json:"error,omitempty"`
+	Code       *string     `json:"code,omitempty"`
+	Params     interface{} `json:"params,omitempty"`
 	Count      *int        `json:"count,omitempty"`
 	NextCursor *string     `json:"next_cursor,omitempty"`
 	HasMore    *bool       `json:"has_more,omitempty"`

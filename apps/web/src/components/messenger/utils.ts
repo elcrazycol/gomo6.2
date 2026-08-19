@@ -37,7 +37,7 @@ export const formatConversationDate = (dateStr: string | null): string => {
 };
 
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { getDateLocale } from "@/i18n/dateLocale";
 
 // A user who went offline within the last minute reads as «был(а) только что»
 // instead of «был(а) в сети 1 минуту назад» — same rule as the profile's
@@ -51,7 +51,7 @@ export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | nu
   const d = new Date(lastSeenAt);
   if (Number.isNaN(d.getTime())) return "не в сети";
   if (Date.now() - d.getTime() <= JUST_NOW_MS) return "был(а) только что";
-  return `был(а) в сети ${formatDistanceToNow(d, { addSuffix: true, locale: ru })}`;
+  return `был(а) в сети ${formatDistanceToNow(d, { addSuffix: true, locale: getDateLocale() })}`;
 };
 
 export const getInitials = (username: string): string => username.slice(0, 2).toUpperCase();

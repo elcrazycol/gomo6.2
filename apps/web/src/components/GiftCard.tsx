@@ -1,7 +1,7 @@
 import { giftImageUrl } from "@/utils/storage";
 import { Gift } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 export interface GiftCatalogItem {
@@ -41,6 +41,7 @@ interface GiftCardProps {
 }
 
 export function GiftCard({ gift, variant = "catalog", onSend }: GiftCardProps) {
+  const dateLocale = useDateLocale();
   const isCatalog = variant === "catalog" && "price" in gift && !("gift_price" in gift);
   const catalogGift = isCatalog ? (gift as GiftCatalogItem) : null;
   const userGift = !isCatalog ? (gift as UserGiftItem) : null;
@@ -75,7 +76,7 @@ export function GiftCard({ gift, variant = "catalog", onSend }: GiftCardProps) {
         )}
         {variant === "received" && userGift && (
           <p className="text-xs text-muted-foreground mt-0.5">
-            {formatDistanceToNow(new Date(userGift.created_at), { addSuffix: true, locale: ru })}
+            {formatDistanceToNow(new Date(userGift.created_at), { addSuffix: true, locale: dateLocale })}
           </p>
         )}
         {isCatalog && catalogGift && (

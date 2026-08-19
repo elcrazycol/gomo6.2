@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { ExternalLink, Heart, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -112,6 +112,7 @@ export const FeedThreadCard = ({
   initialUserLiked = false,
   onImageClick,
 }: FeedThreadCardProps) => {
+  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const attachments = useMemo(() => buildAttachments(thread), [thread]);
 
@@ -194,7 +195,7 @@ export const FeedThreadCard = ({
                 />
                 <span className="text-xs text-muted-foreground">
                   {formatDistanceToNow(safeDate(thread.created_at), {
-                    locale: ru,
+                    locale: dateLocale,
                     addSuffix: true,
                   })}
                 </span>

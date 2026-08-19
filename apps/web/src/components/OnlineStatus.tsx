@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 
@@ -28,6 +28,8 @@ export function OnlineStatus({
   className = "",
   realtime = true
 }: OnlineStatusProps) {
+  const dateLocale = useDateLocale();
+
   // Subscribe to real-time status updates if userId is provided
   const realtimeStatus = useUserRealtimeStatus(userId, realtime);
 
@@ -57,7 +59,7 @@ export function OnlineStatus({
       } else {
         const timeAgo = formatDistanceToNow(lastSeenDate, {
           addSuffix: true,
-          locale: ru,
+          locale: dateLocale,
         });
         label = showText ? `был(а) в сети ${timeAgo}` : timeAgo;
       }

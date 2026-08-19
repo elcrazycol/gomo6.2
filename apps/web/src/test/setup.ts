@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import "@/i18n";
 
 // Polyfill ResizeObserver for jsdom (used by Radix UI components)
 if (typeof window !== "undefined" && !window.ResizeObserver) {

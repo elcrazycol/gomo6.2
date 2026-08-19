@@ -239,6 +239,50 @@ func TestErrorResponse_EmptyString(t *testing.T) {
 	}
 }
 
+func TestErrorResponseWithCode(t *testing.T) {
+	resp := ErrorResponseWithCode(ErrSlugTaken, "This slug is already taken", nil)
+	if resp.Success {
+		t.Error("Expected Success=false")
+	}
+	if resp.Code == nil || *resp.Code != "slug_taken" {
+		t.Errorf("Expected Code='slug_taken', got %v", resp.Code)
+	}
+	if resp.Error == nil || *resp.Error != "This slug is already taken" {
+		t.Errorf("Unexpected fallback error: %v", resp.Error)
+	}
+	if resp.Params != nil {
+		t.Errorf("Expected Params=nil, got %v", resp.Params)
+	}
+}
+
+func TestErrorResponseWithCode_Params(t *testing.T) {
+	params := map[string]string{"reason": "boom"}
+	resp := ErrorResponseWithCode(ErrVideoProcessing, "Failed to process video", params)
+	if resp.Params == nil {
+		t.Fatal("Expected non-nil Params")
+	}
+	m, ok := resp.Params.(map[string]string)
+	if !ok || m["reason"] != "boom" {
+		t.Errorf("Unexpected params: %v", resp.Params)
+	}
+}
+
+func TestErrorResponseWithCode_JSONRoundTrip(t *testing.T) {
+	resp := ErrorResponseWithCode(ErrUsernameTaken, "This username is already taken", nil)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if decoded["code"] != "username_taken" {
+		t.Errorf("Expected code in JSON, got %v", decoded["code"])
+	}
+}
+
 func TestAPIResponse_JSONMarshal(t *testing.T) {
 	resp := SuccessResponse(map[string]int{"count": 10})
 	data, err := json.Marshal(resp)

@@ -12,9 +12,6 @@ vi.mock('date-fns', () => ({
   formatDistanceToNow: () => '2 дня назад',
 }));
 
-vi.mock('date-fns/locale', () => ({
-  ru: {},
-}));
 
 const catalogGift: GiftCatalogItem = {
   id: 'gift-1',

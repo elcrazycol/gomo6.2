@@ -98,11 +98,19 @@ export type UploadFileResult = {
 type UploadBody = {
   data?: { key?: string; variants?: UploadedImageVariants; video?: { poster_key: string; content_type: string } };
   error?: string;
+  code?: string;
+  params?: unknown;
 };
 
 const toResult = (body: UploadBody, fallbackKey: string, ok: boolean, status?: number): UploadFileResult => {
   if (!ok) {
-    throw new Error(body.error || `Upload failed${status ? `: ${status}` : ""}`);
+    const err = new Error(body.error || `Upload failed${status ? `: ${status}` : ""}`) as Error & {
+      code?: string;
+      params?: unknown;
+    };
+    err.code = body.code;
+    err.params = body.params;
+    throw err;
   }
   return {
     path: body.data?.key || fallbackKey,

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
@@ -11,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storageUrl, uploadFile } from "@/utils/storage";
+import { apiErrorMessage } from "@/utils/apiErrors";
 import { Loader2, CheckCircle2, XCircle, Plus, Upload } from "lucide-react";
 
 const RESERVED_SLUGS = [
@@ -24,6 +26,7 @@ type Step = "requirements" | "form";
 type Visibility = "public" | "private";
 
 const GomoSubCreate = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("requirements");
   const [creating, setCreating] = useState(false);
@@ -269,7 +272,13 @@ const GomoSubCreate = () => {
       const data = await res.json();
 
       if (!res.ok || data.success === false) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+        const err = new Error(data.error || `HTTP ${res.status}`) as Error & {
+          code?: string;
+          params?: unknown;
+        };
+        err.code = data.code;
+        err.params = data.params;
+        throw err;
       }
 
       toast.success("G-саб создан");
@@ -277,8 +286,7 @@ const GomoSubCreate = () => {
       invalidateByPrefix('/api/v1/boards');
       navigate(`/g/${slug}`);
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      toast.error(errMsg || "Не удалось создать g-саб");
+      toast.error(apiErrorMessage(error, t, "error.generic"));
     } finally {
       setCreating(false);
     }

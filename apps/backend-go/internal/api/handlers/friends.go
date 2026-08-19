@@ -157,9 +157,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 			return
 		}
 		// Notify the reverse request sender that their request was accepted
-		h.createFriendNotification(receiverID, "friend_accepted",
-			"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", getUsernameFromDB(h.db, senderID)),
-			&senderID)
+		h.createFriendNotification(receiverID, "friend_accepted", getUsernameFromDB(h.db, senderID), &senderID)
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 			"status":  "friends",
 			"message": "Friend request accepted automatically",
@@ -210,9 +208,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 
 	// Notify the receiver
 	senderUsername := getUsernameFromDB(h.db, senderID)
-	h.createFriendNotification(receiverID, "friend_request",
-		"Новая заявка в друзья", fmt.Sprintf("@%s хочет добавить вас в друзья", senderUsername),
-		&senderID)
+	h.createFriendNotification(receiverID, "friend_request", senderUsername, &senderID)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"status":  "pending",
@@ -278,9 +274,7 @@ func (h *FriendsHandler) AcceptRequest(c *gin.Context) {
 
 	// Notify the sender
 	receiverUsername := getUsernameFromDB(h.db, claims.UserID)
-	h.createFriendNotification(request.SenderID, "friend_accepted",
-		"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", receiverUsername),
-		&request.ReceiverID)
+	h.createFriendNotification(request.SenderID, "friend_accepted", receiverUsername, &request.ReceiverID)
 
 	// Invalidate caches for both users
 	invalidateFriendCaches(h.redis, request.SenderID, request.ReceiverID)
@@ -746,11 +740,12 @@ func (h *FriendsHandler) GetFriendStatus(c *gin.Context) {
 }
 
 // createFriendNotification sends a WebSocket notification for friend events.
-func (h *FriendsHandler) createFriendNotification(userID, notifType, title, message string, relatedUserID *string) {
+func (h *FriendsHandler) createFriendNotification(userID, notifType, actorUsername string, relatedUserID *string) {
 	if h.db == nil {
 		return
 	}
-	_, err := CreateNotification(h.db, h.redis, h.hub, userID, notifType, title, message, nil, nil, relatedUserID)
+	params := &models.NotificationParams{Actor: actorUsername}
+	_, err := CreateNotification(h.db, h.redis, h.hub, userID, notifType, "", params, nil, nil, relatedUserID)
 	if err != nil {
 		log.Printf("[Friends] Failed to create notification: %v", err)
 	}
