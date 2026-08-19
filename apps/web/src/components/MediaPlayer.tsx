@@ -304,6 +304,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           controls
           preload="metadata"
           crossOrigin="anonymous"
+          poster={kind === "video" ? poster : undefined}
           data-poster={poster}
         >
           {sources.map((s, i) => (

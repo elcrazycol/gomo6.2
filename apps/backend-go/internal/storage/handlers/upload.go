@@ -27,7 +27,9 @@ import (
 )
 
 const (
-	maxUploadBytes      = 10 * 1024 * 1024
+	// Videos are transcoded on the server, so keep the input bounded: multipart
+	// data is read by the API before ffmpeg processes it.
+	maxUploadBytes      = 50 * 1024 * 1024
 	maxEmojiUploadBytes = 512 * 1024
 	maxEmojiDimension   = 128
 )
@@ -38,6 +40,11 @@ type imageVariantResponse struct {
 	ThumbHash   string `json:"thumb_hash"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
+	ContentType string `json:"content_type"`
+}
+
+type videoVariantResponse struct {
+	PosterKey   string `json:"poster_key"`
 	ContentType string `json:"content_type"`
 }
 
@@ -90,6 +97,8 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 		// Images
 		".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
 		".webp": true,
+		// Video inputs are normalized to H.264/AAC MP4 before storing.
+		".mp4": true, ".webm": true, ".mov": true, ".m4v": true,
 		// Audio
 		".mp3": true, ".ogg": true, ".wav": true, ".flac": true,
 		".m4a": true, ".aac": true,
@@ -196,7 +205,6 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 			ContentType: generated.PreviewType,
 		}
 	}
-
 	c.JSON(http.StatusOK, models.SuccessResponse(response))
 }
 
@@ -210,7 +218,7 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 // @Tags         Storage
 // @Accept       multipart/form-data
 // @Produce      json
-// @Param        file formData file true "File to upload (max 10MB)"
+// @Param        file formData file true "File to upload (max 50MB)"
 // @Param        bucket formData string true "Bucket: uploads, content, post-images, avatars, wall, emojis"
 // @Param        key formData string true "Object key — must start with <userID>/ (or <userID>/messenger/ for uploads). gift-layers is admin-managed and accepts keys like gifts/<id>/base.png"
 // @Success      200 {object} models.APIResponse
@@ -304,6 +312,22 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 			ContentType: generated.PreviewType,
 		}
 	}
+	var videoVariants *videoVariantResponse
+	var poster []byte
+	if isVideoKey(key) {
+		generatedVideo, videoErr := media.GenerateVideoVariants(c.Request.Context(), data, filepath.Ext(key))
+		if videoErr != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("не удалось обработать видео: "+videoErr.Error()))
+			return
+		}
+		// FFmpeg always writes MP4, so the key and MIME stay truthful even for
+		// MOV/WebM input.
+		key = strings.TrimSuffix(key, filepath.Ext(key)) + ".mp4"
+		data = generatedVideo.Video
+		poster = generatedVideo.Poster
+		contentType = "video/mp4"
+		videoVariants = &videoVariantResponse{PosterKey: key + ".poster.jpg", ContentType: "video/mp4"}
+	}
 
 	// Encrypt messenger attachments at rest.
 	var fileInfo *storage.FileInfo
@@ -331,6 +355,13 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 			return
 		}
 	}
+	if videoVariants != nil {
+		if _, err = h.client.UploadFile(bucket, videoVariants.PosterKey, poster, "image/jpeg"); err != nil {
+			_ = h.client.DeleteFile(bucket, key)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("failed to store video preview"))
+			return
+		}
+	}
 
 	response := gin.H{
 		"file": fileInfo,
@@ -338,6 +369,9 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	}
 	if variants != nil {
 		response["variants"] = variants
+	}
+	if videoVariants != nil {
+		response["video"] = videoVariants
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(response))
 }
@@ -377,6 +411,15 @@ func isImageKey(key string) bool {
 	ext := strings.ToLower(filepath.Ext(key))
 	switch ext {
 	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func isVideoKey(key string) bool {
+	switch strings.ToLower(filepath.Ext(key)) {
+	case ".mp4", ".webm", ".mov", ".m4v":
 		return true
 	default:
 		return false
@@ -467,6 +510,9 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	// orphaned when the user removes the attachment reference.
 	if isImageBucket(bucket) && isImageKey(key) {
 		_ = h.client.DeleteFile(bucket, key+".preview.jpg")
+	}
+	if isVideoKey(key) {
+		_ = h.client.DeleteFile(bucket, key+".poster.jpg")
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))

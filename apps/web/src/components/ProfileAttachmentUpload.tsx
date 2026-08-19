@@ -297,6 +297,16 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
                         <X className="w-3 h-3" />
                       </button>
                     </div>
+                  ) : attachment.type === "video" ? (
+                    <div className="group relative h-20 w-32 overflow-hidden rounded-lg border border-border/60 bg-muted/30 sm:h-24 sm:w-40">
+                      {attachment.poster ? (
+                        <img src={attachmentSrc(bucket, { ...attachment, url: attachment.poster })} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-muted-foreground"><FileVideo2 className="h-5 w-5" /></div>
+                      )}
+                      <span className="absolute bottom-1 left-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white">Видео</span>
+                      <button onClick={() => handleRemove(index)} className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" aria-label="Удалить"><X className="h-3 w-3" /></button>
+                    </div>
                   ) : attachment.type === "audio" ? (
                     <div className="w-full">
                       <AudioAttachment

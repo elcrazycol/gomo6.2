@@ -1,7 +1,6 @@
 import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { prepareMessengerImage } from "@/lib/imageProcessing";
-import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toast } from "sonner";
 import * as mm from 'music-metadata';
 
@@ -31,126 +30,9 @@ export interface AttachmentMeta {
 }
 
 // Оптимизированные настройки
-const MAX_VIDEO_WIDTH = 1080; // Уменьшили для веба
-const MAX_VIDEO_HEIGHT = 1080;
-const MAX_VIDEO_BITRATE = "1200k"; // Уменьшили битрейт
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
-
-// Кэш для обработанных файлов
-const processedCache = new Map<string, { file: File; poster?: string; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 минут
-
-let ffmpegInstance: FFmpeg | null = null;
-const CORE_VERSION = "0.12.9";
-const FF_CORE_BASE = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/esm`;
-const FF_CORE_URL = `${FF_CORE_BASE}/ffmpeg-core.js`;
-const FF_WASM_URL = `${FF_CORE_BASE}/ffmpeg-core.wasm`;
-const FF_WORKER_URL = `${FF_CORE_BASE}/ffmpeg-core.worker.js`;
-
-const generateFileHash = async (file: File): Promise<string> => {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
-
-const getCachedFile = (file: File) => {
-  const key = `${file.name}_${file.size}_${file.lastModified}`;
-  const cached = processedCache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    console.log('Using cached file:', key);
-    return cached;
-  }
-  return null;
-};
-
-const setCachedFile = (file: File, result: { file: File; poster?: string }) => {
-  const key = `${file.name}_${file.size}_${file.lastModified}`;
-  processedCache.set(key, { ...result, timestamp: Date.now() });
-  
-  // Очистка старого кэша
-  if (processedCache.size > 50) {
-    const oldest = Array.from(processedCache.entries())
-      .sort(([, a], [, b]) => a.timestamp - b.timestamp)[0];
-    if (oldest) processedCache.delete(oldest[0]);
-  }
-};
-
-const loadFFmpeg = async () => {
-  if (ffmpegInstance) return ffmpegInstance;
-  ffmpegInstance = new FFmpeg();
-  await ffmpegInstance.load({
-    coreURL: FF_CORE_URL,
-    wasmURL: FF_WASM_URL,
-    workerURL: FF_WORKER_URL,
-  });
-  return ffmpegInstance;
-};
-
-const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: string }> => {
-  // Проверяем кэш
-  const cached = getCachedFile(file);
-  if (cached) return cached;
-
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error("Видео больше 25MB — сожмите перед загрузкой");
-  }
-
-  console.log('Transcoding video:', file.name);
-
-  const ffmpeg = await loadFFmpeg();
-  const inputName = `input.${file.name.split(".").pop() || "mp4"}`;
-  const outputName = "output.webm";
-  const posterName = "thumb.jpg";
-
-  try {
-    ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
-
-    // Улучшенные параметры для веба
-    await ffmpeg.exec([
-      "-i", inputName,
-      "-vf", `scale='min(${MAX_VIDEO_WIDTH}\\,iw):-2'`,
-      "-maxsize", `${MAX_VIDEO_WIDTH}x${MAX_VIDEO_HEIGHT}`,
-      "-b:v", MAX_VIDEO_BITRATE,
-      "-c:v", "libvpx-vp9",
-      "-c:a", "libvorbis",
-      "-threads", "2",
-      "-deadline", "good",
-      "-cpu-used", "2",
-      outputName
-    ]);
-
-    const data = await ffmpeg.readFile(outputName);
-    const buf1 = data instanceof Uint8Array ? data : new Uint8Array(data as unknown as ArrayBuffer);
-    const ab1 = buf1.buffer as ArrayBuffer;
-    const outFile = new File([ab1], file.name.replace(/\.[^.]+$/, "") + ".webm", { type: "video/webm" });
-
-    let poster: string | undefined;
-    try {
-      await ffmpeg.exec([
-        "-i", inputName, "-ss", "00:00:01", "-vframes", "1", 
-        "-vf", "scale=640:-2", "-q:v", "2", posterName
-      ]);
-      const posterData = await ffmpeg.readFile(posterName);
-      const posterBuf = posterData instanceof Uint8Array ? posterData : new Uint8Array(posterData as unknown as ArrayBuffer);
-      const posterArrayBuffer = posterBuf.buffer as ArrayBuffer;
-      const posterFile = new File([posterArrayBuffer], "poster.jpg", { type: "image/jpeg" });
-      poster = URL.createObjectURL(posterFile);
-    } catch (_e) {
-      console.warn("Failed to generate poster:", _e);
-    }
-
-    const result = { file: outFile, poster };
-    setCachedFile(file, result);
-    return result;
-  } finally {
-    // cleanup to free wasm memory
-    try { ffmpeg.deleteFile(inputName); } catch (e) { console.debug("ffmpeg cleanup input failed", e); }
-    try { ffmpeg.deleteFile(outputName); } catch (e) { console.debug("ffmpeg cleanup output failed", e); }
-    try { ffmpeg.deleteFile(posterName); } catch (e) { console.debug("ffmpeg cleanup poster failed", e); }
-  }
-};
-
+// Video compression runs on the backend. Browser-side FFmpeg relied on a
+// third-party CDN and regularly failed before the original was uploaded.
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const extractAudioMetadata = async (file: File): Promise<{
   title?: string;
   artist?: string;
@@ -315,9 +197,9 @@ export const uploadAttachments = async (
         const prepared = await prepareMessengerImage(original);
         file = prepared.file;
       } else if (type === "video") {
-        const transcoded = await transcodeVideoToWebm(original);
-        file = transcoded.file;
-        poster = transcoded.poster;
+        if (original.size > MAX_FILE_SIZE) {
+          throw new Error("Видео больше 50MB — выберите файл поменьше");
+        }
       } else if (type === "audio") {
         // Audio files: upload original without browser-side transcoding.
         // Browser-side FFmpeg WASM is unreliable (loads 25MB+ from CDN)
@@ -372,7 +254,8 @@ export const uploadAttachments = async (
     // Store the FULL storage path in the attachment so every render site that
     // resolves via storageUrl() passes it through unchanged, regardless of the
     // bucket argument it uses for legacy bare keys.
-    const storedUrl = bucket === "content" ? key : storageUrl(bucket, key) || key;
+    const storedKey = uploaded.path;
+    const storedUrl = bucket === "content" ? storedKey : storageUrl(bucket, storedKey) || storedKey;
     const storedPreview =
       bucket === "content" || !uploaded.variants
         ? uploaded.variants?.preview_key
@@ -381,10 +264,12 @@ export const uploadAttachments = async (
     results.push({
       url: storedUrl,
       type,
-      mime: file.type,
+      mime: uploaded.video?.content_type || file.type,
       name: file.name,
       size: file.size,
-      poster,
+      poster: uploaded.video?.poster_key
+        ? (bucket === "content" ? uploaded.video.poster_key : storageUrl(bucket, uploaded.video.poster_key) || uploaded.video.poster_key)
+        : poster,
       ...(type === "image" && uploaded.variants ? {
         meta: {
           preview_key: storedPreview,
