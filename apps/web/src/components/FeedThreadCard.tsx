@@ -167,6 +167,7 @@ export const FeedThreadCard = ({
   };
 
   return (
+    <>
     <Card
       className="overflow-clip border-border/70 shadow-none bg-background"
       onClick={(e) => {
@@ -280,13 +281,16 @@ export const FeedThreadCard = ({
           />
         </div>
       </CardContent>
-      <ShareSheet
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        target={{ type: "thread", id: thread.id }}
-        url={`${window.location.origin}${threadPath}`}
-        title={thread.title || thread.content || "Тред"}
-      />
     </Card>
+    {/* Rendered outside the Card so clicks inside the sheet can never bubble
+        into the card's navigate-on-click handler. */}
+    <ShareSheet
+      open={shareOpen}
+      onOpenChange={setShareOpen}
+      target={{ type: "thread", id: thread.id }}
+      url={`${window.location.origin}${threadPath}`}
+      title={thread.title || thread.content || "Тред"}
+    />
+    </>
   );
 };

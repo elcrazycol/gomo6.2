@@ -557,7 +557,6 @@ const ru: LocaleResources = {
     noChats: "Нет чатов",
     messagePlaceholder: "Сообщение (необязательно)",
     replyHint: "Сообщение отправится ответом на карточку",
-    pickHint: "Выбери чат — отправится карточка записи",
     systemShare: "Системно",
     copyLink: "Ссылка",
     linkCopied: "Ссылка скопирована",

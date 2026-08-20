@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ArrowUpRight, Check, Copy, Loader2, MessageSquare, Search, Send, Share2, X } from "lucide-react";
+import { ArrowUpRight, Check, Copy, Loader2, Mail, Search, Send, Share2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { storageUrl } from "@/utils/storage";
 import { searchProfiles, type ProfileSearchResult } from "@/utils/searchProfiles";
 import { useMessengerStore } from "@/stores/messengerStore";
 import type { ConversationView } from "@/components/messenger/types";
+import { TelegramIcon, VkIcon, WhatsAppIcon, XIcon } from "./shareIcons";
 import { buildShareToken, type ShareTarget } from "./share";
 
 // ─── Selection model ────────────────────────────────────────────────────────
@@ -70,6 +71,10 @@ interface ShareSheetProps {
  * at the bottom. Picking a contact swaps the bottom panel for a message field
  * + send — the share card is sent first, then the optional text as a reply to
  * it. Mobile renders as a bottom drawer, desktop as a centered dialog.
+ *
+ * The sheet is fully modal: outside clicks are swallowed (never reach the
+ * page behind) and nothing is auto-focused, so focus cannot jump between
+ * contacts on open. Close via the X button / Escape / drag-down.
  */
 export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareSheetProps) => {
   const isMobile = useIsMobile();
@@ -83,7 +88,6 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
   const [searchResults, setSearchResults] = useState<ProfileSearchResult[]>([]);
-  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Load the messenger list when the sheet opens (init is idempotent and
   // normally already done by ChatIcon in the app header).
@@ -125,15 +129,6 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
       cancelled = true;
     };
   }, [open, query]);
-
-  // Focus the search box on open (desktop) / phase-2 message field (mobile).
-  useEffect(() => {
-    if (!open) return;
-    const t = window.setTimeout(() => {
-      if (!selected) inputRef.current?.focus();
-    }, 80);
-    return () => window.clearTimeout(t);
-  }, [open, selected]);
 
   const recent = useMemo(() => {
     // The selected chat stays in the list (highlighted) so tapping it again
@@ -252,26 +247,52 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
 
   const socialLinks = useMemo(
     () => [
-      { label: "Telegram", href: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}` },
-      { label: "X", href: `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}` },
-      { label: "VK", href: `https://vk.com/share.php?url=${encodedUrl}` },
-      { label: "WhatsApp", href: `https://wa.me/?text=${encodedText}%0A${encodedUrl}` },
+      {
+        label: "Telegram",
+        href: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`,
+        icon: <TelegramIcon className="h-5 w-5" />,
+        color: "text-[#229ED9]",
+      },
+      {
+        label: "X",
+        href: `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`,
+        icon: <XIcon className="h-4 w-4" />,
+        color: "text-foreground",
+      },
+      {
+        label: "VK",
+        href: `https://vk.com/share.php?url=${encodedUrl}`,
+        icon: <VkIcon className="h-5 w-5" />,
+        color: "text-[#0077FF]",
+      },
+      {
+        label: "WhatsApp",
+        href: `https://wa.me/?text=${encodedText}%0A${encodedUrl}`,
+        icon: <WhatsAppIcon className="h-5 w-5" />,
+        color: "text-[#25D366]",
+      },
       {
         label: "Email",
         href: `mailto:?subject=${encodedText}&body=${encodedText}%0A%0A${encodedUrl}`,
+        icon: <Mail className="h-5 w-5" />,
+        color: "text-[#EA4335]",
       },
     ],
     [encodedUrl, encodedText],
   );
 
+  // Swallow outside clicks: the sheet must never let a tap leak through to
+  // the content behind it (feed cards navigate on click). Close is explicit
+  // via the X button / Escape (desktop) or drag-down (mobile).
+  const swallowOutside = (e: Event) => e.preventDefault();
+
   // ── Body ───────────────────────────────────────────────────────────────
   const body = (
-    <div className="flex max-h-[70vh] flex-col gap-3 p-4 sm:p-5">
+    <div className="flex max-h-[70vh] flex-col gap-3 p-4">
       {/* Search */}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("share.searchPlaceholder")}
@@ -295,8 +316,8 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
               key={conv.id}
               type="button"
               onClick={() => selectContact({ kind: "conversation", conv })}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent${
-                active ? " bg-accent ring-1 ring-primary/40" : ""
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60${
+                active ? " bg-primary/10" : ""
               }`}
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-muted-foreground">
@@ -326,8 +347,8 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
               key={user.id}
               type="button"
               onClick={() => selectContact({ kind: "user", user })}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent${
-                active ? " bg-accent ring-1 ring-primary/40" : ""
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60${
+                active ? " bg-primary/10" : ""
               }`}
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-muted-foreground">
@@ -372,7 +393,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
             <button
               type="button"
               onClick={() => setSelected(null)}
-              className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
               aria-label={t("share.deselect")}
             >
               <X className="h-4 w-4" />
@@ -411,46 +432,51 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
             <Button type="button" variant="outline" size="sm" onClick={() => void copyLink()}>
               <Copy className="mr-1.5 h-3.5 w-3.5" /> {t("share.copyLink")}
             </Button>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
             {socialLinks.map((link) => (
               <a
                 key={link.label}
                 href={link.href}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-8 items-center rounded-md border border-input bg-background px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                aria-label={link.label}
+                title={link.label}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-muted/60 ${link.color}`}
               >
-                {link.label}
+                {link.icon}
               </a>
             ))}
           </div>
-          <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-            <MessageSquare className="h-3 w-3" />
-            {t("share.pickHint")}
-          </p>
         </div>
       )}
     </div>
   );
 
-  const header = (
-    <DialogHeader className="text-left">
-      <DialogTitle className="flex items-center gap-2 text-base">
-        <Share2 className="h-4 w-4" />
-        {t("share.title")}
-        <ArrowUpRight className="ml-auto h-4 w-4 text-muted-foreground" />
-      </DialogTitle>
-    </DialogHeader>
-  );
-
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="mx-auto w-full max-w-md rounded-t-[14px] pb-4">
-          <DrawerHeader className="pb-0 text-left">
-            <DrawerTitle className="flex items-center gap-2 text-base">
-              <Share2 className="h-4 w-4" />
-              {t("share.title")}
-            </DrawerTitle>
+      <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
+        <DrawerContent
+          className="mx-auto w-full max-w-md rounded-t-[14px] pb-5"
+          onPointerDownOutside={swallowOutside}
+          onInteractOutside={swallowOutside}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DrawerHeader className="px-4 pb-0 pt-3 text-left">
+            <div className="flex items-center gap-2">
+              <DrawerTitle className="flex items-center gap-2 text-base">
+                <Share2 className="h-4 w-4" />
+                {t("share.title")}
+              </DrawerTitle>
+              <DrawerClose asChild>
+                <button
+                  type="button"
+                  className="ml-auto rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  aria-label={t("common.close")}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </DrawerClose>
+            </div>
           </DrawerHeader>
           {body}
         </DrawerContent>
@@ -460,8 +486,19 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md border-border/70 bg-background">
-        {header}
+      <DialogContent
+        className="max-w-md gap-0 border-border/70 bg-background p-0"
+        onPointerDownOutside={swallowOutside}
+        onInteractOutside={swallowOutside}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <DialogHeader className="px-4 pb-0 pt-4 text-left">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Share2 className="h-4 w-4" />
+            {t("share.title")}
+            <ArrowUpRight className="ml-auto h-4 w-4 text-muted-foreground" />
+          </DialogTitle>
+        </DialogHeader>
         {body}
       </DialogContent>
     </Dialog>

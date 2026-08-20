@@ -299,6 +299,7 @@ export const WallPostCard = ({
   };
 
   return (
+    <>
     <Card
       // overflow-clip keeps the rounded-corner clipping but does NOT create a
       // scroll container, so position:sticky works for the floating composer.
@@ -492,13 +493,16 @@ export const WallPostCard = ({
         </DialogContent>
       </Dialog>
 
-      <ShareSheet
-        open={shareDialogOpen}
-        onOpenChange={setShareDialogOpen}
-        target={{ type: "wall", id: post.id }}
-        url={shareUrl}
-        title={post.content || post.title || "Запись на стене"}
-      />
     </Card>
+    {/* Rendered outside the Card so clicks inside the sheet can never bubble
+        into the card's click handlers. */}
+    <ShareSheet
+      open={shareDialogOpen}
+      onOpenChange={setShareDialogOpen}
+      target={{ type: "wall", id: post.id }}
+      url={shareUrl}
+      title={post.content || post.title || "Запись на стене"}
+    />
+    </>
   );
 };
