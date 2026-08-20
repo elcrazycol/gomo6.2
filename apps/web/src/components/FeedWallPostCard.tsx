@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { Heart, MessageCircle, Repeat2, Share2 } from "lucide-react";
@@ -46,6 +47,7 @@ export const FeedWallPostCard = ({
 }: FeedWallPostCardProps) => {
   const dateLocale = useDateLocale();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   // Reports the post as viewed once the card becomes visible in the viewport.
   const viewTrackingRef = usePostViewTracking(post.id);
@@ -183,7 +185,7 @@ export const FeedWallPostCard = ({
           />
           <ActionButton
             icon={<Share2 className="h-4 w-4" />}
-            label="Поделиться"
+            label={t("share.title")}
             showLabel={false}
             disabled={!currentUserId}
             onClick={() => setShareOpen(true)}
