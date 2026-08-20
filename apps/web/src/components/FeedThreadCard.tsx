@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
-import { ExternalLink, Heart, MessageCircle } from "lucide-react";
+import { ExternalLink, Heart, MessageCircle, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/integrations/api/compat";
@@ -11,6 +12,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
+import { ShareSheet } from "@/components/share/ShareSheet";
 import { renderTags } from "@/components/ThreadCard";
 import { parseAttachments } from "@/components/ThreadAttachments";
 import { safeDate } from "@/utils/safeDate";
@@ -114,6 +116,7 @@ export const FeedThreadCard = ({
 }: FeedThreadCardProps) => {
   const dateLocale = useDateLocale();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const attachments = useMemo(() => buildAttachments(thread), [thread]);
 
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
@@ -123,6 +126,7 @@ export const FeedThreadCard = ({
   const [likesCount, setLikesCount] = useState(initialLikesCount);
   const [isLiked, setIsLiked] = useState(initialUserLiked);
   const [isLiking, setIsLiking] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     setLikesCount(initialLikesCount);
@@ -163,6 +167,7 @@ export const FeedThreadCard = ({
   };
 
   return (
+    <>
     <Card
       className="overflow-clip border-border/70 shadow-none bg-background"
       onClick={(e) => {
@@ -267,8 +272,25 @@ export const FeedThreadCard = ({
             showLabel={false}
             onClick={handleOpenThread}
           />
+          <ActionButton
+            icon={<Share2 className="h-4 w-4" />}
+            label={t("share.title")}
+            showLabel={false}
+            disabled={!currentUserId}
+            onClick={() => setShareOpen(true)}
+          />
         </div>
       </CardContent>
     </Card>
+    {/* Rendered outside the Card so clicks inside the sheet can never bubble
+        into the card's navigate-on-click handler. */}
+    <ShareSheet
+      open={shareOpen}
+      onOpenChange={setShareOpen}
+      target={{ type: "thread", id: thread.id }}
+      url={`${window.location.origin}${threadPath}`}
+      title={thread.title || thread.content || "Тред"}
+    />
+    </>
   );
 };

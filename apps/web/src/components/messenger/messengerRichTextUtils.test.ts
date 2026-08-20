@@ -207,6 +207,12 @@ describe("messengerPlainPreview", () => {
     expect(messengerPlainPreview("[b]привет мир[/b")).toBe("привет мир");
   });
 
+  it("replaces share and gift tokens with friendly labels (no emoji)", () => {
+    expect(messengerPlainPreview("__SHARE__:thread:t-1")).toBe("Поделился записью");
+    expect(messengerPlainPreview("__SHARE__:wall:w-2")).toBe("Поделился записью");
+    expect(messengerPlainPreview("__GIFT__:g-1:Роза:gifts/rose.png")).toBe("Подарок");
+  });
+
   it("keeps short text intact", () => {
     expect(messengerPlainPreview("short")).toBe("short");
   });

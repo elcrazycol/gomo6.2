@@ -362,7 +362,10 @@ func (h *MessengerHandler) FindOrCreateConversation(c *gin.Context, user1, user2
 // truncatePreview truncates message content to 80 chars for conversation preview.
 func truncatePreview(s string) string {
 	if strings.HasPrefix(s, "__GIFT__") {
-		return "🎁 Подарок"
+		return "Подарок"
+	}
+	if strings.HasPrefix(s, "__SHARE__") {
+		return "Поделился записью"
 	}
 	runes := []rune(s)
 	if len(runes) <= 80 {

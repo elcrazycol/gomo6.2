@@ -15,6 +15,7 @@ export interface LocaleResources {
   board: Record<string, string>;
   thread: Record<string, string>;
   profile: Record<string, string>;
+  share: Record<string, string>;
 }
 
 export type LocaleNamespace = keyof LocaleResources;
