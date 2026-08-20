@@ -28,6 +28,13 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+// The share sheet has its own dedicated tests; here it is stubbed so the
+// wall-post card test asserts the button wires it up without pulling in the
+// messenger store / network.
+vi.mock("@/components/share/ShareSheet", () => ({
+  ShareSheet: ({ open }: any) => (open ? <div data-testid="share-sheet" /> : null),
+}));
+
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
@@ -1233,11 +1240,9 @@ describe("ProfileWall", () => {
     });
   });
 
-  // ─── WallPostCard: share dialog ─────────────────────────────────────────────
+  // ─── WallPostCard: share sheet ──────────────────────────────────────────────
 
-  it("opens share dialog when clicking share button and copies URL", async () => {
-    (navigator as any).clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
-
+  it("opens the share sheet when clicking the share button", async () => {
     setupApiMocks({ posts: [createMockPost()] });
 
     render(
@@ -1253,6 +1258,7 @@ describe("ProfileWall", () => {
     await waitFor(() => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("share-sheet")).not.toBeInTheDocument();
 
     // Share ActionButton has showLabel=false — no visible label text, only the Share2 icon.
     // Exclude the "Написать на стене" button which also has only an icon.
@@ -1266,14 +1272,8 @@ describe("ProfileWall", () => {
     await userEvent.click(shareButton!);
 
     await waitFor(() => {
-      expect(screen.getByText("Поделиться записью")).toBeInTheDocument();
+      expect(screen.getByTestId("share-sheet")).toBeInTheDocument();
     });
-
-    const copyButton = screen.getByText("Копировать");
-    await userEvent.click(copyButton);
-
-    expect(navigator.clipboard.writeText).toHaveBeenCalled();
-    expect(toast.success).toHaveBeenCalledWith("Ссылка на запись скопирована");
   });
 
   // ─── WallPostCard: repost of original post ──────────────────────────────────

@@ -364,6 +364,9 @@ func truncatePreview(s string) string {
 	if strings.HasPrefix(s, "__GIFT__") {
 		return "🎁 Подарок"
 	}
+	if strings.HasPrefix(s, "__SHARE__") {
+		return "🔗 Поделился записью"
+	}
 	runes := []rune(s)
 	if len(runes) <= 80 {
 		return s

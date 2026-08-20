@@ -7,6 +7,7 @@ export interface ProfileSearchResult {
   post_count?: number;
   thread_count?: number;
   wall_post_count?: number;
+  avatar_url?: string | null;
   color?: string;
 }
 
@@ -27,7 +28,7 @@ export const searchProfiles = async (query: string): Promise<ProfileSearchResult
   try {
     let queryBuilder = api
       .from("profiles")
-      .select("id, username, account_number, post_count, thread_count, wall_post_count")
+      .select("id, username, account_number, post_count, thread_count, wall_post_count, avatar_url")
       .not("username", "is", null)
       .limit(10);
 
@@ -55,13 +56,14 @@ export const searchProfiles = async (query: string): Promise<ProfileSearchResult
     }
 
     const users: ProfileSearchResult[] = (data || []).map(
-      (user: { id: string; username: string; account_number?: number; post_count?: number; thread_count?: number; wall_post_count?: number }) => ({
+      (user: { id: string; username: string; account_number?: number; post_count?: number; thread_count?: number; wall_post_count?: number; avatar_url?: string | null }) => ({
         id: user.id,
         username: user.username,
         account_number: user.account_number,
         post_count: user.post_count || 0,
         thread_count: user.thread_count || 0,
         wall_post_count: user.wall_post_count || 0,
+        avatar_url: user.avatar_url ?? null,
         color: "",
       })
     );

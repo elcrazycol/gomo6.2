@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
-import { Heart, MessageCircle, Repeat2 } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/integrations/api/compat";
@@ -11,6 +11,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
+import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
 import { safeDate } from "@/utils/safeDate";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
@@ -53,6 +54,7 @@ export const FeedWallPostCard = ({
   const [likesCount, setLikesCount] = useState(post.likes_count ?? 0);
   const [isLiked, setIsLiked] = useState(Boolean(post.liked_by_viewer));
   const [isLiking, setIsLiking] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const handleOpenPost = useCallback(() => {
     navigate(postPath);
@@ -179,9 +181,23 @@ export const FeedWallPostCard = ({
             count={post.reposts_count ?? 0}
             onClick={handleOpenPost}
           />
+          <ActionButton
+            icon={<Share2 className="h-4 w-4" />}
+            label="Поделиться"
+            showLabel={false}
+            disabled={!currentUserId}
+            onClick={() => setShareOpen(true)}
+          />
           <PostViewCount count={post.views_count ?? 0} />
         </div>
       </CardContent>
+      <ShareSheet
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        target={{ type: "wall", id: post.id }}
+        url={`${window.location.origin}${postPath}`}
+        title={post.content || post.title || "Запись со стены"}
+      />
     </Card>
   );
 };

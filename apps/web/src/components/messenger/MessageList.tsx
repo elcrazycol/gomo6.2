@@ -67,6 +67,12 @@ interface ScrollAnchor {
  */
 function estimateMessageHeight(message: MessageView | undefined): number {
   if (!message) return 72;
+  // Shared-post cards (__SHARE__ token) have a deterministic layout: clamped
+  // text lines + a fixed 16:9 thumbnail block. Estimate the full-card height
+  // upfront so the virtualizer never reflows when the entity resolves; the
+  // measured height matches within a few px (or the anchor correction absorbs
+  // the difference when the post has no image).
+  if (message.content?.startsWith("__SHARE__")) return 430;
   const visual = message.attachments?.filter((a) => a.type === "image" || a.type === "video") ?? [];
   const onlyMedia = visual.length > 0 && (message.attachments?.length ?? 0) === visual.length;
   if (onlyMedia) {

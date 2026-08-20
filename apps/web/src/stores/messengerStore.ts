@@ -314,7 +314,10 @@ type MessengerStore = {
   loadMessages: (conversationId: string) => Promise<void>;
   syncMessages: (conversationId: string) => Promise<void>;
   loadMoreMessages: (conversationId: string) => Promise<void>;
-  sendMessage: (content: string, clientId: string, parentMessageId?: string, attachments?: Attachment[]) => Promise<string>;
+  /** Sends a message. When `conversationId` is omitted the currently open
+   *  conversation is used; the explicit override lets the share sheet send
+   *  into a chat without opening the messenger. */
+  sendMessage: (content: string, clientId: string, parentMessageId?: string, attachments?: Attachment[], conversationId?: string) => Promise<string>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   markRead: (messageId: string) => Promise<void>;
@@ -591,17 +594,18 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   },
 
   // ── Send message ──────────────────────────────────────────────────────
-  sendMessage: async (content: string, clientId: string, parentMessageId?: string, attachments?: Attachment[]) => {
+  sendMessage: async (content: string, clientId: string, parentMessageId?: string, attachments?: Attachment[], conversationId?: string) => {
     const { selectedConversationId } = get();
-    if (!selectedConversationId) return "";
+    const convId = conversationId ?? selectedConversationId;
+    if (!convId) return "";
 
     // Notes: encrypt plaintext locally before it ever leaves the device. The
     // server stores the ciphertext verbatim and never holds the key.
-    const isNotes = notesConversationExists(selectedConversationId);
+    const isNotes = notesConversationExists(convId);
     let wireContent = content;
     if (isNotes && content.trim()) {
       try {
-        wireContent = await encryptNote(content, selectedConversationId);
+        wireContent = await encryptNote(content, convId);
       } catch {
         set({ error: "Не удалось зашифровать заметку" });
         return "";
@@ -612,7 +616,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const tempId = `temp_${clientId}`;
     const optimistic: MessageView = {
       id: tempId,
-      conversation_id: selectedConversationId,
+      conversation_id: convId,
       sender_user_id: get().me!.id,
       parent_message_id: parentMessageId ?? null,
       content,
@@ -628,7 +632,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
     try {
       const msg: MessageView = await messengerApi.sendMessage(
-        selectedConversationId,
+        convId,
         wireContent,
         clientId,
         parentMessageId,
@@ -639,7 +643,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // plaintext so the store only ever holds readable notes.
       let displayContent = msg.content;
       if (isNotes) {
-        const decrypted = await decryptNote(msg.content, selectedConversationId);
+        const decrypted = await decryptNote(msg.content, convId);
         displayContent = decrypted ?? content;
       }
       set((s) => {
@@ -650,7 +654,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           return { ...msg, content: displayContent, attachments: serverAttachments, localStatus: "sent" as const };
         });
         // Optimistically update conversation: move to top with new preview
-        const target = s.conversations.find((c) => c.id === selectedConversationId);
+        const target = s.conversations.find((c) => c.id === convId);
         let conversations = s.conversations;
         if (target) {
           const previewText = content.trim()
@@ -665,10 +669,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
             last_message_sender_id: s.me!.id,
             unread_count: 0,
           };
-          conversations = [updated, ...s.conversations.filter((c) => c.id !== selectedConversationId)];
+          conversations = [updated, ...s.conversations.filter((c) => c.id !== convId)];
         }
-        rememberLatestEventId(selectedConversationId, messages);
-        cacheCurrentMessages(s.me?.id ?? null, selectedConversationId, messages);
+        rememberLatestEventId(convId, messages);
+        cacheCurrentMessages(s.me?.id ?? null, convId, messages);
         return { messages, conversations, isSending: false };
       });
       return msg.id;

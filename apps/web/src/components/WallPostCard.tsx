@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import {
-  Copy, Edit3, Heart, Loader2, MessageCircle, Pin, PinOff,
+  Edit3, Heart, Loader2, MessageCircle, Pin, PinOff,
   Repeat2, Share2, Trash2,
 } from "lucide-react";
 
@@ -22,6 +22,7 @@ import { ProcessedContent } from "@/components/ProcessedContent";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { CreateWallPost } from "@/components/CreateWallPost";
 import { ActionButton } from "@/components/WallActionButton";
+import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
 import { WallAttachments } from "@/components/WallAttachments";
 import { EmbeddedWallPost } from "@/components/WallEmbeddedPost";
@@ -136,7 +137,6 @@ export const WallPostCard = ({
   }, [commentsOpen, commentsReady]);
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [repostComposerOpen, setRepostComposerOpen] = useState(false);
   const [repostText, setRepostText] = useState("");
@@ -234,40 +234,6 @@ export const WallPostCard = ({
 
   const sharePath = getWallPostPath(post.user_id, post.id);
   const shareUrl = `${window.location.origin}${sharePath}`;
-
-  const handleCopyShareUrl = async () => {
-    if (isSharing) return;
-    setIsSharing(true);
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      toast.success("Ссылка на запись скопирована");
-    } catch {
-      toast.error("Не удалось скопировать ссылку");
-    } finally {
-      setIsSharing(false);
-    }
-  };
-
-  const handleNativeShare = async () => {
-    if (!navigator.share || isSharing) return;
-    setIsSharing(true);
-    try {
-      await navigator.share({
-        title: post.title || "Пост на стене",
-        text: post.content || "Посмотри эту запись",
-        url: shareUrl,
-      });
-    } catch (error) {
-      if ((error as Error)?.name !== "AbortError") {
-        toast.error("Не удалось поделиться записью");
-      }
-    } finally {
-      setIsSharing(false);
-    }
-  };
-
-  const encodedShareUrl = encodeURIComponent(shareUrl);
-  const encodedShareText = encodeURIComponent(post.content || post.title || "Посмотри эту запись");
 
   const handleSubmitRepost = async () => {
     if (!currentUserId || isReposting) return;
@@ -444,7 +410,7 @@ export const WallPostCard = ({
           <ActionButton icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
           <ActionButton icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} loading={commentsOpen && !commentsReady} onClick={handleToggleComments} />
           <ActionButton icon={<Repeat2 className="h-4 w-4" />} label={isReposted ? "Убрать" : "Репост"} count={repostsCount} active={isReposted} disabled={!currentUserId} loading={isReposting} onClick={handleRepostToggle} />
-          <ActionButton icon={<Share2 className="h-4 w-4" />} label="Поделиться" showLabel={false} active={false} disabled={false} loading={isSharing} onClick={handleSharePost} />
+          <ActionButton icon={<Share2 className="h-4 w-4" />} label="Поделиться" showLabel={false} active={false} disabled={false} loading={false} onClick={handleSharePost} />
           <PostViewCount count={post.views_count ?? 0} />
         </div>
 
@@ -524,25 +490,13 @@ export const WallPostCard = ({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background">
-          <DialogHeader><DialogTitle>Поделиться записью</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">{shareUrl}</div>
-            <div className="grid grid-cols-2 gap-2">
-              {typeof navigator.share !== 'undefined' && (
-                <Button type="button" variant="outline" onClick={handleNativeShare} disabled={isSharing}><Share2 className="mr-2 h-4 w-4" />Системно</Button>
-              )}
-              <Button type="button" variant="outline" onClick={handleCopyShareUrl} disabled={isSharing}><Copy className="mr-2 h-4 w-4" />Копировать</Button>
-              <a href={`https://t.me/share/url?url=${encodedShareUrl}&text=${encodedShareText}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Telegram</a>
-              <a href={`https://twitter.com/intent/tweet?url=${encodedShareUrl}&text=${encodedShareText}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">X</a>
-              <a href={`https://vk.com/share.php?url=${encodedShareUrl}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">VK</a>
-              <a href={`https://wa.me/?text=${encodedShareText}%0A${encodedShareUrl}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">WhatsApp</a>
-              <a href={`mailto:?subject=${encodeURIComponent(post.title || "Пост на стене")}&body=${encodedShareText}%0A%0A${encodedShareUrl}`} className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">Email</a>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ShareSheet
+        open={shareDialogOpen}
+        onOpenChange={setShareDialogOpen}
+        target={{ type: "wall", id: post.id }}
+        url={shareUrl}
+        title={post.content || post.title || "Запись на стене"}
+      />
     </Card>
   );
 };
