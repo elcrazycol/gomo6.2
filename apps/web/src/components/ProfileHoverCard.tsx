@@ -1,4 +1,5 @@
-import { useState, cloneElement, useRef, useEffect, useCallback } from "react";
+import { useState, cloneElement, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { User, Droplets } from "lucide-react";
@@ -85,11 +86,18 @@ const fetchProfileData = async (userId: string) => {
 export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops = false }: ProfileHoverCardProps) => {
   const dateLocale = useDateLocale();
   const [showCard, setShowCard] = useState(false);
-  const [flipLeft, setFlipLeft] = useState(false);
+  // The card only makes sense with a mouse — on touch devices a tap must open
+  // the profile directly instead of popping up the preview.
+  const [canHover, setCanHover] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const openTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  // Portal position (fixed to viewport) — the card renders into document.body so
+  // it floats above all content instead of being clipped by an ancestor
+  // with overflow:hidden.
+  const [cardPos, setCardPos] = useState<{ top: number; left: number; visible: boolean } | null>(null);
+  const cardSizeRef = useRef<{ width: number; height: number } | null>(null);
 
   // Use React Query for caching - only fetch when card is shown
   // Profiles change rarely (avatar/name/bio); is_online comes via realtime
@@ -137,21 +145,57 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
   // Use shared hook for real-time status updates
   useUserRealtimeStatus(userId);
 
-  // Detect viewport overflow and flip card to left side if needed
-  const checkOverflow = useCallback(() => {
-    if (!cardRef.current || !wrapperRef.current) return;
-    const cardRect = cardRef.current.getBoundingClientRect();
-    const wrapperRect = wrapperRef.current.getBoundingClientRect();
-    const rightEdge = wrapperRect.left + cardRect.width;
-    const overflow = rightEdge > window.innerWidth - 8;
-    setFlipLeft(overflow);
+  // Position the card below the trigger, flipping above/left when it would
+  // overflow the viewport. The first pass renders the card hidden to measure it.
+  const positionCard = useCallback(() => {
+    if (!wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const belowTop = rect.bottom + 4;
+    const aboveTop = rect.top - 8;
+    let top = belowTop;
+    let left = rect.left;
+    const size = cardSizeRef.current;
+    if (size) {
+      if (belowTop + size.height > window.innerHeight - 8 && aboveTop - size.height > 8) {
+        top = aboveTop - size.height;
+      }
+      if (left + size.width > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - size.width - 8);
+      }
+    }
+    setCardPos((prev) =>
+      prev && prev.top === top && prev.left === left && !prev.visible
+        ? prev
+        : { top, left, visible: prev ? prev.visible : false },
+    );
   }, []);
 
   useEffect(() => {
-    if (showCard && data) {
-      requestAnimationFrame(() => checkOverflow());
-    }
-  }, [showCard, data, checkOverflow]);
+    if (!showCard || !data) return;
+    cardSizeRef.current = null;
+    positionCard();
+    const reposition = () => positionCard();
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [showCard, data, positionCard]);
+
+  // Measure the hidden card, then make it visible at the corrected position.
+  useLayoutEffect(() => {
+    if (!cardPos || cardPos.visible || !cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    cardSizeRef.current = { width: rect.width, height: rect.height };
+    positionCard();
+    setCardPos((prev) => (prev ? { ...prev, visible: true } : prev));
+  }, [cardPos, positionCard]);
+
+  // Reset position when the card closes so the next open re-measures.
+  useEffect(() => {
+    if (!showCard) setCardPos(null);
+  }, [showCard]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -161,10 +205,21 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
     };
   }, []);
 
+  // Only show the hover card on devices with a fine pointer (mouse).
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const update = (e?: MediaQueryListEvent) => setCanHover(e ? e.matches : mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   const handleTriggerMouseEnter = useCallback(() => {
+    if (!canHover) return;
     clearTimeout(closeTimeoutRef.current);
     openTimeoutRef.current = setTimeout(() => setShowCard(true), 200);
-  }, []);
+  }, [canHover]);
 
   const handleTriggerMouseLeave = useCallback(() => {
     clearTimeout(openTimeoutRef.current);
@@ -216,14 +271,17 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
     <div ref={wrapperRef} className="relative">
       {childrenWithHover}
 
-      {/* Hover Card — flips to left side when near right viewport edge */}
-      <div
-        ref={cardRef}
-        className={`absolute top-full mt-1 z-50 ${flipLeft ? 'right-0' : 'left-0'}`}
-        onMouseEnter={handleCardMouseEnter}
-        onMouseLeave={handleCardMouseLeave}
-      >
-        <div className="bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg min-w-[280px] max-w-[320px] overflow-hidden">
+      {/* Hover Card — portaled to document.body, fixed to viewport, above all content */}
+      {cardPos &&
+        createPortal(
+          <div
+            ref={cardRef}
+            className={`fixed z-50 ${cardPos.visible ? "" : "invisible"}`}
+            style={{ top: cardPos.top, left: cardPos.left }}
+            onMouseEnter={handleCardMouseEnter}
+            onMouseLeave={handleCardMouseLeave}
+          >
+            <div className="bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg min-w-[280px] max-w-[320px] overflow-hidden">
           {bgUrl && (
             <div className="h-20 w-full relative">
               <img src={bgUrl} alt="" className="w-full h-full object-cover" />
@@ -349,7 +407,9 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
           </div>
           </div>
         </div>
-      </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };

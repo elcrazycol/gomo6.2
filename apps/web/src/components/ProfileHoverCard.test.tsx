@@ -45,11 +45,25 @@ vi.mock("@/hooks/useRealtimeStatus", () => ({
   useUserRealtimeStatus: (...args: any[]) => mockUseUserRealtimeStatus(...args),
 }));
 
+const createMatchMedia = (matches: boolean) =>
+  ((query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+
 describe("ProfileHoverCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseQuery.mockReturnValue({ data: null });
     mockGetProfileCustomization.mockResolvedValue(null);
+    // Default to a desktop (hover-capable) environment
+    window.matchMedia = createMatchMedia(true);
   });
 
   it("renders children", () => {
@@ -260,6 +274,30 @@ describe("ProfileHoverCard", () => {
     await waitFor(() => {
       expect(screen.getByText(/42 запис/)).toBeInTheDocument();
     });
+  });
+
+  it("does not show card on touch devices", async () => {
+    window.matchMedia = createMatchMedia(false);
+    mockUseQuery.mockReturnValue({
+      data: {
+        profile: { username: "testuser", id: "user-1", bio: "Hello", post_count: 10, created_at: "2025-01-01T00:00:00Z" },
+        avatarUrl: null,
+        usernameColor: "",
+        customization: null,
+        placeholders: null,
+      },
+    });
+
+    const user = userEvent.setup();
+    render(
+      <ProfileHoverCard userId="user-1">
+        <span>Hover me</span>
+      </ProfileHoverCard>,
+    );
+
+    await user.hover(screen.getByText("Hover me"));
+
+    expect(screen.queryByText("testuser")).not.toBeInTheDocument();
   });
 
   it("calls useUserRealtimeStatus", () => {
