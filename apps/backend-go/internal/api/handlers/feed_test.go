@@ -52,7 +52,7 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 
 	now := time.Now()
 	claims := &auth.Claims{UserID: "viewer-1", Username: "viewer"}
-	c, w := newGETContextWithClaims("/api/v1/feed", map[string]string{"limit": "20", "offset": "0"}, claims)
+	c, w := newGETContextWithClaims("/api/v1/feed", map[string]string{"limit": "20"}, claims)
 
 	rows := sqlmock.NewRows(feedColumnNames()).
 		AddRow(
@@ -74,8 +74,8 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 			2, 1, 0, false, 7,
 		)
 
-	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3\)`).
-		WithArgs("viewer-1", 20, 0).
+	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3, \$4, \$5\)`).
+		WithArgs("viewer-1", 20, nil, nil, nil).
 		WillReturnRows(rows)
 
 	handler.GetUserFeed(c)
@@ -137,7 +137,7 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 func TestGetUserFeed_AnonymousPassesNull(t *testing.T) {
 	handler, mock := setupFeedHandler(t)
 
-	c, w := newGETContext("/api/v1/feed", map[string]string{"limit": "10", "offset": "0"})
+	c, w := newGETContext("/api/v1/feed", map[string]string{"limit": "10"})
 
 	rows := sqlmock.NewRows(feedColumnNames()).
 		AddRow(
@@ -150,8 +150,40 @@ func TestGetUserFeed_AnonymousPassesNull(t *testing.T) {
 			9, 1, 0, false, 13,
 		)
 
-	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3\)`).
-		WithArgs(nil, 10, 0).
+	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3, \$4, \$5\)`).
+		WithArgs(nil, 10, nil, nil, nil).
+		WillReturnRows(rows)
+
+	handler.GetUserFeed(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetUserFeed_SinceAndBeforeCursors verifies the `since` (RFC3339) and
+// `before` ("score:item_id") query params are parsed and forwarded to the SQL
+// function as the keyset/new-posts cursors.
+func TestGetUserFeed_SinceAndBeforeCursors(t *testing.T) {
+	handler, mock := setupFeedHandler(t)
+
+	sinceStr := "2026-08-20T12:00:00Z"
+	sinceTime, err := time.Parse(time.RFC3339, sinceStr)
+	if err != nil {
+		t.Fatalf("failed to parse since: %v", err)
+	}
+
+	claims := &auth.Claims{UserID: "viewer-1", Username: "viewer"}
+	c, w := newGETContextWithClaims("/api/v1/feed", map[string]string{
+		"limit":  "30",
+		"since":  sinceStr,
+		"before": "1789000000.5:thread-42",
+	}, claims)
+
+	rows := sqlmock.NewRows(feedColumnNames())
+
+	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3, \$4, \$5\)`).
+		WithArgs("viewer-1", 30, sinceTime, 1789000000.5, "thread-42").
 		WillReturnRows(rows)
 
 	handler.GetUserFeed(c)
@@ -167,8 +199,8 @@ func TestGetUserFeed_DBError(t *testing.T) {
 
 	c, w := newGETContext("/api/v1/feed", nil)
 
-	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3\)`).
-		WithArgs(nil, 20, 0).
+	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3, \$4, \$5\)`).
+		WithArgs(nil, 20, nil, nil, nil).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.GetUserFeed(c)

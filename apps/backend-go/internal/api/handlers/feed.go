@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -72,7 +73,8 @@ type feedBoard struct {
 // @Tags         Feed
 // @Produce      json
 // @Param        limit  query int false "Max results (1-50)" default(20)
-// @Param        offset query int false "Offset for pagination" default(0)
+// @Param        since  query string false "RFC3339 timestamp; return only newer items"
+// @Param        before query string false "Keyset cursor \"score:item_id\" for load-more"
 // @Success      200 {object} models.APIResponse
 // @Router       /feed [get]
 func (h *FeedHandler) GetUserFeed(c *gin.Context) {
@@ -84,15 +86,32 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 	}
 
 	limit := 20
-	offset := 0
 	if limitStr := c.Query("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
 			limit = l
 		}
 	}
-	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 && o <= 1000000 {
-			offset = o
+
+	// `since` — RFC3339 timestamp; return only items created after it (the
+	// pull-to-refresh "new posts" cursor).
+	var sinceTS *time.Time
+	if sinceStr := c.Query("since"); sinceStr != "" {
+		if t, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			sinceTS = &t
+		}
+	}
+
+	// `before` — keyset cursor "<score>:<item_id>" from the last item of the
+	// previous page. Replaces OFFSET, which drifted as the score changed and
+	// caused duplicate/skipped items on fast refresh.
+	var beforeSort *float64
+	var beforeID *string
+	if beforeStr := c.Query("before"); beforeStr != "" {
+		if parts := strings.SplitN(beforeStr, ":", 2); len(parts) == 2 {
+			if f, err := strconv.ParseFloat(parts[0], 64); err == nil {
+				beforeSort = &f
+				beforeID = &parts[1]
+			}
 		}
 	}
 
@@ -102,10 +121,11 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 		        tags, post_count,
 		        author_id, author_username, author_display_name, author_nickname_emoji_id,
 		        author_is_anonymous, author_avatar_url,
-		        board_id, board_slug, board_name, board_is_gomosub,	        wall_user_id,
+		        board_id, board_slug, board_name, board_is_gomosub,
+		        wall_user_id,
 	        likes_count, comments_count, reposts_count, liked_by_viewer, views_count
-		 FROM get_user_feed($1, $2, $3)`,
-		userID, limit, offset,
+		 FROM get_user_feed($1, $2, $3, $4, $5)`,
+		userID, limit, sinceTS, beforeSort, beforeID,
 	)
 	if err != nil {
 		serverError(c, "feed query failed", err)
