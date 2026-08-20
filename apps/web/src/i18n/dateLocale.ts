@@ -72,7 +72,14 @@ export function useDateLocale(): Locale {
   // Zustand store here creates a one-render split: setLanguage changes
   // i18next first (which rerenders text) and the store second (which rerenders
   // dates). Keeping one source makes the UI and date-fns switch together.
+  //
+  // Derive from i18n.language (the *requested* language), NOT
+  // i18n.resolvedLanguage. resolvedLanguage is the fallback-resolved language:
+  // i18next sets it to the fallback ("ru") whenever the active locale's resource
+  // bundle is empty (e.g. a community locale whose translations have not been
+  // fetched yet). That made relative/absolute dates silently flip back to
+  // Russian while the rest of the UI stayed on the chosen language.
   const { i18n } = useTranslation();
-  const language = normalizeLanguage(i18n.resolvedLanguage || i18n.language);
+  const language = normalizeLanguage(i18n.language);
   return useMemo(() => getDateLocale(language), [language]);
 }
