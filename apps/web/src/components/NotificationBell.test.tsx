@@ -44,12 +44,25 @@ vi.mock("date-fns", () => ({
   formatDistanceToNow: () => "2 часа назад",
 }));
 
+const createMatchMedia = (matches: boolean) =>
+  ((query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
 
 describe("NotificationBell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     notifications = [];
     unreadCount = 0;
+    // Default to a desktop (hover-capable) environment
+    window.matchMedia = createMatchMedia(true);
   });
 
   it("renders bell icon", () => {
@@ -82,6 +95,15 @@ describe("NotificationBell", () => {
 
   it("navigates to /notify on click", async () => {
     render(<NotificationBell userId="user-1" />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(mockNavigateFn).toHaveBeenCalledWith("/notify");
+  });
+
+  it("does not show hover card on touch devices and opens /notify on tap", async () => {
+    window.matchMedia = createMatchMedia(false);
+    render(<NotificationBell userId="user-1" />);
+    fireEvent.mouseEnter(screen.getByRole("button"));
+    expect(screen.queryByText("Уведомления")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button"));
     expect(mockNavigateFn).toHaveBeenCalledWith("/notify");
   });
