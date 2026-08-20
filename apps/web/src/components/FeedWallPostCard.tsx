@@ -92,6 +92,7 @@ export const FeedWallPostCard = ({
   };
 
   return (
+    <>
     <Card
       ref={viewTrackingRef}
       className="overflow-clip border-border/70 shadow-none bg-background"
@@ -193,13 +194,16 @@ export const FeedWallPostCard = ({
           <PostViewCount count={post.views_count ?? 0} />
         </div>
       </CardContent>
-      <ShareSheet
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        target={{ type: "wall", id: post.id }}
-        url={`${window.location.origin}${postPath}`}
-        title={post.content || post.title || "Запись со стены"}
-      />
     </Card>
+    {/* Rendered outside the Card so clicks inside the sheet can never bubble
+        into the card's navigate-on-click handler. */}
+    <ShareSheet
+      open={shareOpen}
+      onOpenChange={setShareOpen}
+      target={{ type: "wall", id: post.id }}
+      url={`${window.location.origin}${postPath}`}
+      title={post.content || post.title || "Запись со стены"}
+    />
+    </>
   );
 };

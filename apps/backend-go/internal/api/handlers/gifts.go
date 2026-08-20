@@ -269,7 +269,7 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 
 	_, err = h.db.Exec(`
 		UPDATE chat_conversations
-		SET last_message_preview = '🎁 Подарок',
+		SET last_message_preview = 'Подарок',
 		    last_message_sender_id = $1,
 		    updated_at = NOW()
 		WHERE id = $2

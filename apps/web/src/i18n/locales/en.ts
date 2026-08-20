@@ -532,7 +532,6 @@ const en: LocaleResources = {
     noChats: "No chats",
     messagePlaceholder: "Message (optional)",
     replyHint: "The message will be sent as a reply to the card",
-    pickHint: "Pick a chat — the post card will be sent",
     systemShare: "System",
     copyLink: "Link",
     linkCopied: "Link copied",

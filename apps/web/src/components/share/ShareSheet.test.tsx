@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ShareSheet } from "./ShareSheet";
 import type { ConversationView } from "@/components/messenger/types";
@@ -113,8 +113,9 @@ describe("ShareSheet", () => {
     expect(await screen.findByText("Недавние чаты")).toBeInTheDocument();
     expect(screen.getByText("alice")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Ссылка/ })).toBeInTheDocument();
-    expect(screen.getByText("Telegram")).toBeInTheDocument();
-    expect(screen.getByText("VK")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Telegram" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "VK" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "WhatsApp" })).toBeInTheDocument();
   });
 
   it("swaps the bottom panel for the compose phase when a contact is picked", async () => {
@@ -126,7 +127,7 @@ describe("ShareSheet", () => {
 
     expect(screen.getByPlaceholderText("Сообщение (необязательно)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Отправить" })).toBeInTheDocument();
-    expect(screen.queryByText("Telegram")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Telegram" })).not.toBeInTheDocument();
   });
 
   it("sends the share card to the chosen conversation", async () => {
@@ -205,7 +206,20 @@ describe("ShareSheet", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /alice/ }));
     expect(screen.queryByPlaceholderText("Сообщение (необязательно)")).not.toBeInTheDocument();
-    expect(screen.getByText("Telegram")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Telegram" })).toBeInTheDocument();
+  });
+
+  it("stays open and never leaks outside clicks to the page behind", async () => {
+    h.store.conversations = [mockConversation()];
+    const onOpenChange = vi.fn();
+    renderSheet({ onOpenChange });
+
+    await screen.findByText("alice");
+    // Clicking outside the sheet (overlay / page area) must be swallowed: the
+    // sheet stays open and the page behind cannot receive the click.
+    fireEvent.pointerDown(document.body);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByText("alice")).toBeInTheDocument();
   });
 
   it("copies the link from the bottom row", async () => {
