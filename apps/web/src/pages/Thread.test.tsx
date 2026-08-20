@@ -143,7 +143,7 @@ describe("Thread", () => {
     });
   });
 
-  it("renders back link to board page when thread is loaded", async () => {
+  it("renders back button when thread is loaded", async () => {
     const queries = await import("@/hooks/queries");
     (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
     (queries.usePosts as any) = () => ({ data: [], isLoading: false });
@@ -151,8 +151,40 @@ describe("Thread", () => {
 
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
-      expect(screen.getByText("← Назад к доске")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
     });
+  });
+
+  it("goes back in history when the thread was opened from another page", async () => {
+    const queries = await import("@/hooks/queries");
+    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
+    (queries.usePosts as any) = () => ({ data: [], isLoading: false });
+    (queries.useThreadSubscription as any) = () => ({ data: false });
+
+    Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
+
+    renderWithProviders(<ThreadComponent />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    expect(mockNavigate).toHaveBeenCalledWith(-1);
+  });
+
+  it("falls back to the board when the thread was opened directly", async () => {
+    const queries = await import("@/hooks/queries");
+    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
+    (queries.usePosts as any) = () => ({ data: [], isLoading: false });
+    (queries.useThreadSubscription as any) = () => ({ data: false });
+
+    Object.defineProperty(window.history, "length", { configurable: true, get: () => 1 });
+
+    renderWithProviders(<ThreadComponent />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/test-board", { replace: true });
   });
 
   it("renders thread title", async () => {
@@ -273,8 +305,8 @@ describe("Thread", () => {
     // The thread title should still be visible (proves no full-page reset happened)
     expect(screen.getByText("Test Thread")).toBeInTheDocument();
 
-    // The back link should still be visible (further proof of no reset)
-    expect(screen.getByText("← Назад к доске")).toBeInTheDocument();
+    // The back button should still be visible (further proof of no reset)
+    expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
   });
 
   it("does not call create_post API when submitting empty content", async () => {

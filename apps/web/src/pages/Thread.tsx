@@ -978,11 +978,22 @@ const Thread = () => {
           </div>
         )}
             <div className="mb-4 flex justify-between items-center">
-          <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
-            {thread.boards?.is_gomosub
-              ? t("thread.backToBoard", { slug: thread.boards?.slug, channel: channelSlug ? `/c/${channelSlug}` : "" })
-              : t("thread.backToBoardPlain")}
-          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              // Return to wherever the thread was opened from (feed,
+              // notifications, messenger). Fall back to the board page when
+              // the thread was opened directly (shared link, fresh tab).
+              if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`, { replace: true });
+              }
+            }}
+            className="text-primary hover:text-primary/80 font-medium text-sm transition-colors"
+          >
+            {t("common.back")}
+          </button>
           {user && (
             <Button
               variant="outline"
