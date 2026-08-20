@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
@@ -8,6 +8,7 @@ import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 
 const WallPost = () => {
   const { userId, postId } = useParams();
+  const navigate = useNavigate();
   const { loadProfile } = useProfileCache();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState("");
@@ -41,6 +42,17 @@ const WallPost = () => {
     void loadPageContext();
   }, [userId, loadProfile]);
 
+  // Go back to wherever the post was opened from (feed, notifications,
+  // messenger, profile wall). Fall back to the profile page when the post was
+  // opened directly (shared link / fresh tab) and there is no in-app history.
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else if (userId) {
+      navigate(`/profile/${userId}`, { replace: true });
+    }
+  };
+
   if (!userId || !postId) {
     return (
       <main className="mx-auto flex w-full max-w-4xl flex-1 items-center justify-center p-4">
@@ -52,13 +64,14 @@ const WallPost = () => {
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5">
       <div className="flex flex-wrap items-center gap-3">
-        <Link
-          to={`/profile/${userId}`}
+        <button
+          type="button"
+          onClick={goBack}
           className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          <span>Назад к профилю</span>
-        </Link>
+          <span>Назад</span>
+        </button>
 
         <div className="text-sm text-muted-foreground">
           {profileUsername ? `Запись на стене @${profileUsername}` : "Запись на стене"}

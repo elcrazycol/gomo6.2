@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import WallPost from "./WallPost";
@@ -8,6 +8,7 @@ import WallPost from "./WallPost";
 const mockGetUser = vi.fn();
 const mockLoadProfile = vi.fn();
 const mockGetCurrentUserMeta = vi.fn();
+const mockNavigateFn = vi.fn();
 const mockParams: { userId?: string; postId?: string } = {};
 
 vi.mock("@/integrations/api/compat", () => ({
@@ -30,7 +31,11 @@ vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>(
     "react-router-dom",
   );
-  return { ...actual, useParams: () => mockParams };
+  return {
+    ...actual,
+    useParams: () => mockParams,
+    useNavigate: () => mockNavigateFn,
+  };
 });
 
 const mockProfileWall = vi.fn();
@@ -98,7 +103,7 @@ describe("WallPost page", () => {
       }),
     );
     expect(screen.getByText("Запись на стене @owner")).toBeInTheDocument();
-    expect(screen.getByText("Назад к профилю")).toBeInTheDocument();
+    expect(screen.getByText("Назад")).toBeInTheDocument();
   });
 
   it("passes null currentUserId for anonymous visitors", async () => {
@@ -122,7 +127,7 @@ describe("WallPost page", () => {
     renderPage();
 
     // Header still renders, but ProfileWall waits for loading to finish
-    expect(screen.getByText("Назад к профилю")).toBeInTheDocument();
+    expect(screen.getByText("Назад")).toBeInTheDocument();
     expect(screen.queryByTestId("profile-wall")).not.toBeInTheDocument();
   });
 
@@ -135,6 +140,20 @@ describe("WallPost page", () => {
       expect(screen.getByTestId("profile-wall")).toBeInTheDocument();
     });
     expect(screen.getByText("Запись на стене")).toBeInTheDocument();
+  });
+
+  it("goes back in history when the post was opened from another page", () => {
+    Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Назад" }));
+    expect(mockNavigateFn).toHaveBeenCalledWith(-1);
+  });
+
+  it("falls back to the profile when the post was opened directly", () => {
+    Object.defineProperty(window.history, "length", { configurable: true, get: () => 1 });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Назад" }));
+    expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner", { replace: true });
   });
 
   it("loads wall owner via ProfileCacheContext (cached) instead of a raw fetch", async () => {
