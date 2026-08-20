@@ -3,6 +3,7 @@ import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, us
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import {
@@ -76,6 +77,7 @@ export const WallPostCard = ({
 }: WallPostCardProps) => {
   const navigate = useNavigate();
   const dateLocale = useDateLocale();
+  const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   // Reports the post as viewed once the card becomes visible in the viewport
   // (server dedupes per unique visitor — see usePostViewTracking).
@@ -410,7 +412,7 @@ export const WallPostCard = ({
           <ActionButton icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
           <ActionButton icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} loading={commentsOpen && !commentsReady} onClick={handleToggleComments} />
           <ActionButton icon={<Repeat2 className="h-4 w-4" />} label={isReposted ? "Убрать" : "Репост"} count={repostsCount} active={isReposted} disabled={!currentUserId} loading={isReposting} onClick={handleRepostToggle} />
-          <ActionButton icon={<Share2 className="h-4 w-4" />} label="Поделиться" showLabel={false} active={false} disabled={false} loading={false} onClick={handleSharePost} />
+          <ActionButton icon={<Share2 className="h-4 w-4" />} label={t("share.title")} showLabel={false} active={false} disabled={false} loading={false} onClick={handleSharePost} />
           <PostViewCount count={post.views_count ?? 0} />
         </div>
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ArrowUpRight, Check, Copy, Loader2, MessageSquare, Search, Send, Share2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -73,6 +74,7 @@ interface ShareSheetProps {
 export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareSheetProps) => {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const conversations = useMessengerStore((s) => s.conversations);
 
@@ -172,11 +174,11 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
   const copyLink = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("Ссылка скопирована");
+      toast.success(t("share.linkCopied"));
     } catch {
-      toast.error("Не удалось скопировать ссылку");
+      toast.error(t("share.linkCopyError"));
     }
-  }, [url]);
+  }, [url, t]);
 
   const nativeShare = useCallback(async () => {
     if (!navigator.share) return;
@@ -184,10 +186,10 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
       await navigator.share({ title, text: title, url });
     } catch (error) {
       if ((error as Error)?.name !== "AbortError") {
-        toast.error("Не удалось поделиться записью");
+        toast.error(t("share.shareError"));
       }
     }
-  }, [title, url]);
+  }, [title, url, t]);
 
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(title);
@@ -198,7 +200,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
     try {
       const store = useMessengerStore.getState();
       if (!store.me) {
-        toast.error("Войди в аккаунт, чтобы поделиться в чате");
+        toast.error(t("share.loginRequired"));
         return;
       }
       let convId: string | null = null;
@@ -208,14 +210,14 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
         convId = await store.createConversation(selected.user.id);
       }
       if (!convId) {
-        toast.error("Не удалось открыть чат");
+        toast.error(t("share.openChatError"));
         return;
       }
 
       const token = buildShareToken(target);
       const shareMessageId = await store.sendMessage(token, clientId(), undefined, undefined, convId);
       if (!shareMessageId) {
-        toast.error("Не удалось отправить");
+        toast.error(t("share.sendError"));
         return;
       }
 
@@ -226,17 +228,17 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
 
       setSending(false);
       close();
-      toast.success("Отправлено", {
+      toast.success(t("share.sent"), {
         action: {
-          label: "Открыть",
+          label: t("share.open"),
           onClick: () => navigate(`/messages?conversation=${convId}`),
         },
       });
     } catch {
       setSending(false);
-      toast.error("Не удалось отправить");
+      toast.error(t("share.sendError"));
     }
-  }, [selected, sending, message, target, close, navigate]);
+  }, [selected, sending, message, target, close, navigate, t]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -272,7 +274,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Найти чат или пользователя…"
+          placeholder={t("share.searchPlaceholder")}
           className="pl-9"
         />
       </div>
@@ -281,7 +283,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
       <div className="flex-1 space-y-0.5 overflow-y-auto pr-1">
         {!queryNorm && (
           <p className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Недавние чаты
+            {t("share.recentChats")}
           </p>
         )}
         {filteredConversations.map((conv) => {
@@ -307,7 +309,8 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
               <span className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-sm font-medium">{name}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {conv.last_message_preview || (conv.is_group ? `${conv.member_count} участников` : "Чат")}
+                  {conv.last_message_preview
+                    || (conv.is_group ? t("share.members", { count: conv.member_count }) : t("share.chat"))}
                 </span>
               </span>
               {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
@@ -336,7 +339,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
               </span>
               <span className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-sm font-medium">@{user.username}</span>
-                <span className="block truncate text-xs text-muted-foreground">Начать чат</span>
+                <span className="block truncate text-xs text-muted-foreground">{t("share.startChat")}</span>
               </span>
               {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
             </button>
@@ -344,10 +347,10 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
         })}
 
         {queryNorm && filteredConversations.length === 0 && extraUsers.length === 0 && (
-          <p className="px-1 py-6 text-center text-sm text-muted-foreground">Никого не нашлось</p>
+          <p className="px-1 py-6 text-center text-sm text-muted-foreground">{t("share.noResults")}</p>
         )}
         {!queryNorm && filteredConversations.length === 0 && (
-          <p className="px-1 py-6 text-center text-sm text-muted-foreground">Нет чатов</p>
+          <p className="px-1 py-6 text-center text-sm text-muted-foreground">{t("share.noChats")}</p>
         )}
       </div>
 
@@ -370,7 +373,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
               type="button"
               onClick={() => setSelected(null)}
               className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label="Отменить выбор"
+              aria-label={t("share.deselect")}
             >
               <X className="h-4 w-4" />
             </button>
@@ -380,7 +383,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Сообщение (необязательно)"
+              placeholder={t("share.messagePlaceholder")}
               className="flex-1"
               maxLength={4000}
             />
@@ -390,23 +393,23 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
               onClick={() => void sendShare()}
               disabled={sending}
               className="shrink-0"
-              aria-label="Отправить"
+              aria-label={t("common.send")}
             >
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground">Сообщение отправится ответом на карточку</p>
+          <p className="text-[11px] text-muted-foreground">{t("share.replyHint")}</p>
         </div>
       ) : (
         <div className="border-t border-border/70 pt-3">
           <div className="flex flex-wrap items-center gap-1.5">
             {typeof navigator.share !== "undefined" && (
               <Button type="button" variant="outline" size="sm" onClick={() => void nativeShare()}>
-                <Share2 className="mr-1.5 h-3.5 w-3.5" /> Системно
+                <Share2 className="mr-1.5 h-3.5 w-3.5" /> {t("share.systemShare")}
               </Button>
             )}
             <Button type="button" variant="outline" size="sm" onClick={() => void copyLink()}>
-              <Copy className="mr-1.5 h-3.5 w-3.5" /> Ссылка
+              <Copy className="mr-1.5 h-3.5 w-3.5" /> {t("share.copyLink")}
             </Button>
             {socialLinks.map((link) => (
               <a
@@ -422,7 +425,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
           </div>
           <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
             <MessageSquare className="h-3 w-3" />
-            Выбери чат — отправится карточка записи
+            {t("share.pickHint")}
           </p>
         </div>
       )}
@@ -433,7 +436,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
     <DialogHeader className="text-left">
       <DialogTitle className="flex items-center gap-2 text-base">
         <Share2 className="h-4 w-4" />
-        Поделиться
+        {t("share.title")}
         <ArrowUpRight className="ml-auto h-4 w-4 text-muted-foreground" />
       </DialogTitle>
     </DialogHeader>
@@ -446,7 +449,7 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
           <DrawerHeader className="pb-0 text-left">
             <DrawerTitle className="flex items-center gap-2 text-base">
               <Share2 className="h-4 w-4" />
-              Поделиться
+              {t("share.title")}
             </DrawerTitle>
           </DrawerHeader>
           {body}

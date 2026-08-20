@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { ExternalLink, Heart, MessageCircle, Share2 } from "lucide-react";
@@ -115,6 +116,7 @@ export const FeedThreadCard = ({
 }: FeedThreadCardProps) => {
   const dateLocale = useDateLocale();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const attachments = useMemo(() => buildAttachments(thread), [thread]);
 
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
@@ -271,7 +273,7 @@ export const FeedThreadCard = ({
           />
           <ActionButton
             icon={<Share2 className="h-4 w-4" />}
-            label="Поделиться"
+            label={t("share.title")}
             showLabel={false}
             disabled={!currentUserId}
             onClick={() => setShareOpen(true)}

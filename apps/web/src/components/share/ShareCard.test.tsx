@@ -201,6 +201,6 @@ describe("ShareCard", () => {
     }));
 
     renderCard({ type: "thread", id: "t1" });
-    expect(screen.getByText("Загрузка…")).toBeInTheDocument();
+    expect(screen.getByText("Загрузка...")).toBeInTheDocument();
   });
 });

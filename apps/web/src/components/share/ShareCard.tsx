@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ArrowUpRight, Hash, ImageIcon, MessageSquare } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { storageUrl } from "@/utils/storage";
@@ -78,6 +79,7 @@ interface ShareCardProps {
  */
 export const ShareCard = ({ target }: ShareCardProps) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["share-card", target.type, target.id],
@@ -153,7 +155,7 @@ export const ShareCard = ({ target }: ShareCardProps) => {
           {target.type === "thread" ? <Hash size={14} /> : <MessageSquare size={14} />}
         </span>
         <span className="msg-share-card-label">
-          {isLoading ? "Загрузка…" : unavailable ? "Запись недоступна" : "Поделился записью"}
+          {isLoading ? t("common.loading") : unavailable ? t("share.unavailable") : t("share.sharedPost")}
         </span>
       </button>
     );
@@ -177,7 +179,7 @@ export const ShareCard = ({ target }: ShareCardProps) => {
           {card.isThread ? <Hash size={14} /> : <MessageSquare size={14} />}
         </span>
         <span className="msg-share-card-label">
-          {card.isThread ? "Тред" : "Запись со стены"}
+          {card.isThread ? t("share.thread") : t("share.wallPost")}
           {card.boardLabel ? ` · ${card.boardLabel}` : ""}
         </span>
         <ArrowUpRight size={14} className="msg-share-card-arrow" />
@@ -193,7 +195,7 @@ export const ShareCard = ({ target }: ShareCardProps) => {
             </span>
           )}
           <span className="msg-share-card-username">
-            {card.author.is_anonymous ? "Аноним" : `@${displayName}`}
+            {card.author.is_anonymous ? t("common.anonymous") : `@${displayName}`}
           </span>
         </div>
       )}
