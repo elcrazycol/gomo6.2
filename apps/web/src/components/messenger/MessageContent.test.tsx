@@ -1,7 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { parseGiftContent, MessageContent } from './MessageContent';
 import type { Attachment } from './types';
+
+vi.mock('@/components/share/ShareCard', () => ({
+  ShareCard: ({ target }: any) => (
+    <div data-testid="share-card" data-type={target.type} data-id={target.id} />
+  ),
+}));
 
 describe('parseGiftContent', () => {
   it('parses valid gift content', () => {
@@ -60,6 +66,29 @@ function makeImageAttachment(url: string, id: string): Attachment {
     meta: JSON.stringify({ width: 800, height: 600 }),
   };
 }
+
+describe('MessageContent share token', () => {
+  it('renders a ShareCard for a __SHARE__ token', () => {
+    const { container } = render(<MessageContent content="__SHARE__:thread:t-123" />);
+    const card = container.querySelector('[data-testid="share-card"]');
+    expect(card).toBeInTheDocument();
+    expect(card).toHaveAttribute('data-type', 'thread');
+    expect(card).toHaveAttribute('data-id', 't-123');
+    expect(screen.queryByText('__SHARE__:thread:t-123')).not.toBeInTheDocument();
+  });
+
+  it('renders a ShareCard for a wall share token', () => {
+    const { container } = render(<MessageContent content="__SHARE__:wall:w-9" />);
+    const card = container.querySelector('[data-testid="share-card"]');
+    expect(card).toBeInTheDocument();
+    expect(card).toHaveAttribute('data-type', 'wall');
+  });
+
+  it('does not render a ShareCard for plain text', () => {
+    const { container } = render(<MessageContent content="обычный текст" />);
+    expect(container.querySelector('[data-testid="share-card"]')).not.toBeInTheDocument();
+  });
+});
 
 describe('MessageContent media mosaic', () => {
   it('renders every photo in a six-item album mosaic', () => {

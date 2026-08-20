@@ -292,6 +292,10 @@ export function isMessengerTextEmpty(text: string): boolean {
  * tokens, truncated at a word boundary.
  */
 export function messengerPlainPreview(text: string, maxLength = 100): string {
+  // Special message tokens render as rich cards — never leak the raw token
+  // into previews (conversation list, quoted bubbles, pinned banner).
+  if (text.startsWith("__SHARE__")) return "🔗 Поделился записью";
+  if (text.startsWith("__GIFT__")) return "🎁 Подарок";
   const withoutEmojis = stripDanglingTagFragment(text).replace(EMOJI_RE, " ");
   const plain = messengerTextToPlain(withoutEmojis);
   if (plain.length <= maxLength) return plain;

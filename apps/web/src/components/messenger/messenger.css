@@ -3874,3 +3874,135 @@ main.is-messenger-page {
   from { opacity: 0; transform: scale(0.92) translateY(6px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
+
+/* ── Shared-post card (__SHARE__ token) ───────────────────────────────────
+   Rendered inside message bubbles. The layout is deterministic (clamped text
+   lines + fixed 16:9 thumbnail) so MessageList can estimate the height
+   upfront for the virtualizer. */
+.msg-share-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 12px;
+  background: hsl(var(--card) / 0.6);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  font: inherit;
+}
+.msg-share-card:hover {
+  border-color: hsl(var(--primary) / 0.45);
+  background: hsl(var(--card));
+}
+.msg-share-card:disabled {
+  cursor: default;
+}
+
+.msg-share-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.msg-share-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: hsl(var(--primary));
+}
+.msg-share-card-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.msg-share-card-arrow {
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+
+.msg-share-card-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.msg-share-card-avatar {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.msg-share-card-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.msg-share-card-username {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.msg-share-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: hsl(var(--foreground));
+}
+.msg-share-card-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: hsl(var(--muted-foreground));
+  overflow-wrap: break-word;
+}
+
+.msg-share-card-image {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.5);
+}
+.msg-share-card-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.msg-share-card-image-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+
+.msg-share-card-muted {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: default;
+}

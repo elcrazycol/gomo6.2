@@ -16,6 +16,8 @@ import { MessageMediaMosaic } from "./MessageMediaMosaic";
 import { chunkAttachments } from "./attachmentAlbum";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 import { MessengerRichText } from "./MessengerRichText";
+import { ShareCard } from "@/components/share/ShareCard";
+import { parseShareToken } from "@/components/share/share";
 import type { Attachment } from "./types";
 
 // ─── Gift message (exported for ChatView) ────────────────────────────────────
@@ -244,6 +246,9 @@ export const MessageContent = memo(function MessageContent({ content, attachment
   // formatting tags, or bare URLs.
   const hasLinks = /https?:\/\//.test(content);
   const hasRichText = /\[(?:b|i|u|s|spoiler|blur|col|size|url|e)[\]:=]/i.test(content) || hasLinks;
+  // Shared posts arrive as a content token; they render as a rich card
+  // instead of the raw token text.
+  const share = parseShareToken(content);
   const visualAttachments = useMemo(
     () => attachments?.filter((attachment) => attachment.type === "image" || attachment.type === "video") ?? [],
     [attachments],
@@ -255,6 +260,14 @@ export const MessageContent = memo(function MessageContent({ content, attachment
     && !hasLinks
     && visualAttachments.length > 0
     && visualAttachments.length === attachments?.length;
+
+  if (share) {
+    return (
+      <div className="message-content message-content-stack">
+        <ShareCard target={share} />
+      </div>
+    );
+  }
 
   if (!hasRichText && !hasAttachments) {
     return <p className="message-content message-content-text whitespace-pre-wrap break-words">{content}</p>;
