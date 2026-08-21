@@ -1732,7 +1732,7 @@ const Profile = () => {
             variant="default"
             size="icon"
             onClick={handleWallCreateClick}
-            className="fixed bottom-4 right-4 z-40 h-12 w-12 rounded-full shadow-lg"
+            className="fixed bottom-24 right-6 z-40 h-12 w-12 rounded-2xl shadow-lg"
             title={wallCreateOpen ? "Скрыть форму" : "Написать на стене"}
           >
             <Plus className={`h-5 w-5 transition-transform duration-300 ease-out ${wallCreateOpen ? "rotate-45" : "rotate-0"}`} />
