@@ -649,6 +649,14 @@ const Board = () => {
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
   // on document (not <main>) so gestures that start below the content area
   // still count, and only while the sheet is closed.
+  //
+  // The touchmove listener is non-passive and calls preventDefault from the
+  // VERY FIRST move of an edge gesture: iOS will not stop a scroll that has
+  // already started (preventDefault on later touchmoves is ignored once the
+  // pan recognizer claims the gesture), so the bottom-edge gesture must never
+  // start scrolling the feed — otherwise the sheet opens mid-scroll and the
+  // posts behind keep sliding. The bottom 80px therefore act as a pure sheet
+  // grab zone: scrolls from there open the picker instead of moving the feed.
   useEffect(() => {
     if (mobileChannelsOpen) return;
     const onTouchStart = (e: TouchEvent) => {
@@ -662,6 +670,8 @@ const Board = () => {
     };
     const onTouchMove = (e: TouchEvent) => {
       if (!edgeSwipeStart.current) return;
+      // Stop the browser from starting (or continuing) this scroll.
+      e.preventDefault();
       const touch = e.touches[0];
       if (touch && touch.clientY - edgeSwipeStart.current.y < -48) {
         setMobileChannelsOpen(true);
@@ -672,11 +682,11 @@ const Board = () => {
       edgeSwipeStart.current = null;
     };
     document.addEventListener("touchstart", onTouchStart, { passive: true });
-    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
     document.addEventListener("touchend", onTouchEnd, { passive: true });
     return () => {
       document.removeEventListener("touchstart", onTouchStart);
-      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
       document.removeEventListener("touchend", onTouchEnd);
     };
   }, [mobileChannelsOpen]);
