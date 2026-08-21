@@ -56,8 +56,8 @@ describe("ShareCard", () => {
       if (table === "threads") {
         return chain([{
           id: "t1",
-          title: "Заголовок треда",
-          content: "Текст треда для карточки",
+          title: "Заголовок записи",
+          content: "Текст записи для карточки",
           image_url: null,
           image_urls: null,
           attachments: null,
@@ -70,9 +70,9 @@ describe("ShareCard", () => {
 
     renderCard({ type: "thread", id: "t1" });
 
-    expect(await screen.findByText("Заголовок треда")).toBeInTheDocument();
-    expect(screen.getByText(/Текст треда для карточки/)).toBeInTheDocument();
-    expect(screen.getByText(/Тред · \/games/)).toBeInTheDocument();
+    expect(await screen.findByText("Заголовок записи")).toBeInTheDocument();
+    expect(screen.getByText(/Текст записи для карточки/)).toBeInTheDocument();
+    expect(screen.getByText(/Запись · \/games/)).toBeInTheDocument();
     expect(screen.getByText("@author")).toBeInTheDocument();
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
@@ -82,7 +82,7 @@ describe("ShareCard", () => {
       if (table === "threads") {
         return chain([{
           id: "t1",
-          title: "Тред",
+          title: "Запись",
           content: "",
           image_url: null,
           image_urls: null,
@@ -95,8 +95,8 @@ describe("ShareCard", () => {
     });
 
     renderCard({ type: "thread", id: "t1" });
-    await screen.findByText("Тред");
-    expect(screen.getByText(/Тред · g\/gomo/)).toBeInTheDocument();
+    await screen.findByText("Запись");
+    expect(screen.getByText(/Запись · g\/gomo/)).toBeInTheDocument();
   });
 
   it("renders a wall post card with author and content", async () => {

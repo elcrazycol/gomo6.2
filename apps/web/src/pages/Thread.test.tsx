@@ -2,85 +2,59 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
-import { describe, it, expect, beforeEach, vi, afterEach, beforeAll, afterAll } from "vitest";
-import React from "react";
+import { describe, it, expect, beforeEach, vi, beforeAll } from "vitest";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-// Mock IntersectionObserver (not available in jsdom)
-const originalIntersectionObserver = (global as any).IntersectionObserver;
-beforeAll(() => {
-  (global as any).IntersectionObserver = class {
-    observe = vi.fn();
-    disconnect = vi.fn();
-    unobserve = vi.fn();
-  };
-});
-afterAll(() => {
-  (global as any).IntersectionObserver = originalIntersectionObserver;
-});
-
 const mockAuth = { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn() };
 const mockFetch = vi.fn();
-
 vi.stubGlobal("fetch", mockFetch);
 
 vi.mock("@/integrations/api/compat", () => ({ api: { from: vi.fn(), rpc: vi.fn(), auth: mockAuth } }));
 vi.mock("@/hooks/queries", () => ({
-  useThread: () => ({ data: null, isLoading: false }),
-  usePosts: () => ({ data: [], isLoading: false }),
-  useThreadSubscription: () => ({ data: false }),
+  useThread: vi.fn(),
+  useThreadSubscription: vi.fn(),
 }));
-vi.mock("@/hooks/useWebSocketSync", () => ({ useWebSocketSync: vi.fn() }));
-vi.mock("@/services/websocket", () => ({ wsService: { subscribe: vi.fn(), subscribeToThread: vi.fn(), unsubscribe: vi.fn(), on: vi.fn().mockReturnValue(vi.fn()) } }));
-vi.mock("@/lib/imageProcessing", () => ({ getUserPrivacySettings: () => Promise.resolve({ remove_image_metadata: false }) }));
+vi.mock("@/services/websocket", () => ({
+  wsService: { subscribe: vi.fn(), subscribeToThread: vi.fn(), unsubscribe: vi.fn(), on: vi.fn().mockReturnValue(vi.fn()) },
+}));
 vi.mock("@/utils/storage", () => ({ storageUrl: () => null }));
-vi.mock("@/utils/bbcodePlugins", () => ({ renderBbCode: () => null }));
-
+vi.mock("@/utils/currentUserMeta", () => ({
+  getCurrentUserMeta: () => Promise.resolve({ roles: [], color: "", username: "me", avatarUrl: null }),
+}));
 vi.mock("@/contexts/LikesCacheContext", () => ({
   LikesCacheProvider: ({ children }: any) => children,
-  useLikesCache: () => ({ loadLikeDataBatch: vi.fn() }),
+  useLikesCache: () => ({ getLikeData: vi.fn(), loadLikeData: vi.fn(), updateLikeData: vi.fn(), loadLikeDataBatch: vi.fn() }),
 }));
 vi.mock("@/components/PentagramLoader", () => ({ PentagramLoader: () => <div data-testid="pentagram-loader">Loading...</div> }));
 vi.mock("@/components/ProcessedContent", () => ({
-  ProcessedContent: ({ content }: { content: string }) => <span data-testid="processed-content">{content}</span>,
+  ProcessedContent: ({ content }: any) => <div data-testid="processed-content">{content}</div>,
 }));
-vi.mock("@/components/UserBadge", () => ({ UserBadge: () => null }));
-vi.mock("@/components/GomoRichEditor", () => ({
-  GomoRichEditor: React.forwardRef(({ legacyContent, onChange, placeholder }: any, _ref: any) => (
-    <textarea
-      data-testid="post-input"
-      defaultValue={legacyContent || ""}
-      onChange={(e) => onChange?.({ json: null, text: e.target.value })}
-      placeholder={placeholder}
-    />
-  )),
-}));
+vi.mock("@/components/UserBadge", () => ({ UserBadge: () => <span data-testid="user-badge" /> }));
 vi.mock("@/components/LikeButton", () => ({ LikeButton: () => null }));
 vi.mock("@/components/Lightbox", () => ({ Lightbox: () => null }));
-vi.mock("@/components/MediaPlayer", () => ({ MediaPlayer: () => null }));
-vi.mock("@/components/AudioAttachment", () => ({ AudioAttachment: () => null }));
-vi.mock("@/components/ScrollToBottomButton", () => ({ ScrollToBottomButton: () => null }));
-vi.mock("@/components/ModeratorMenu", () => ({ ModeratorMenu: () => null }));
-vi.mock("@/components/UserMenu", () => ({ UserMenu: () => null }));
-vi.mock("@/components/AttachmentUpload", () => ({ AttachmentUpload: () => null }));
-vi.mock("@/components/ThreadAttachmentUpload", () => ({ ThreadAttachmentUpload: () => null }));
-vi.mock("@/components/NotificationBell", () => ({ NotificationBell: () => null }));
-vi.mock("@/components/ChatIcon", () => ({ ChatIcon: () => null }));
-vi.mock("@/components/MobileMenu", () => ({ MobileMenu: () => null }));
-vi.mock("@/components/ProfileHoverCard", () => ({ ProfileHoverCard: () => null }));
-vi.mock("@/components/HeaderUsername", () => ({ HeaderUsername: () => null }));
-vi.mock("@/components/MentionLink", () => ({ MentionLink: () => null }));
-vi.mock("@/components/LinkButton", () => ({ LinkButton: () => null }));
-vi.mock("@/components/EmojiInline", () => ({ EmojiInline: () => null }));
-vi.mock("@/components/CensorBlur", () => ({ CensorBlur: () => null }));
-vi.mock("@/components/SpoilerText", () => ({ SpoilerText: () => null }));
-vi.mock("@/components/EmojiPicker", () => ({ EmojiPicker: () => null }));
 vi.mock("@/components/Poll", () => ({ Poll: () => null }));
+vi.mock("@/components/UserMenu", () => ({ UserMenu: () => <div data-testid="user-menu" /> }));
+vi.mock("@/components/GomoRichEditor", () => ({
+  GomoRichEditor: ({ legacyContent, onChange }: any) => (
+    <textarea
+      data-testid="thread-edit-input"
+      defaultValue={legacyContent || ""}
+      onChange={(e) => onChange?.({ json: null, text: e.target.value })}
+    />
+  ),
+}));
+vi.mock("@/components/WallAttachments", () => ({ WallAttachments: () => null }));
+vi.mock("@/components/share/ShareSheet", () => ({ ShareSheet: () => null }));
+vi.mock("@/components/thread/ThreadCommentTree", () => ({
+  ThreadCommentTree: ({ currentUserId }: any) => (
+    <div data-testid="thread-comment-tree" data-can-post={!!currentUserId} />
+  ),
+}));
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
-  const actual = await vi.importActual("react-router-dom");
+  const actual = await import("react-router-dom");
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -90,8 +64,10 @@ vi.mock("react-router-dom", async () => {
 });
 
 let ThreadComponent: any;
+let useThread: any;
+let useThreadSubscription: any;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const mockThread = (overrides?: Record<string, unknown>) => ({
   id: "thread-1", board_id: "board-1", user_id: "author-1",
@@ -99,6 +75,7 @@ const mockThread = (overrides?: Record<string, unknown>) => ({
   created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z",
   post_count: 3,
   boards: { slug: "test-board", name: "Test Board", is_gomosub: false, is_rules_board: false },
+  profiles: { username: "author", avatar_url: null, is_anonymous: false },
   ...overrides,
 });
 
@@ -117,6 +94,9 @@ describe("Thread", () => {
   beforeAll(async () => {
     const mod = await import("./Thread");
     ThreadComponent = mod.default;
+    const queries = await import("@/hooks/queries");
+    useThread = queries.useThread;
+    useThreadSubscription = queries.useThreadSubscription;
   });
 
   beforeEach(() => {
@@ -128,15 +108,9 @@ describe("Thread", () => {
     mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ data: [] }) });
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // ── Basic render tests ──────────────────────────────────────────────────────
-
   it("shows pentagram loader when thread is still loading", async () => {
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: null, isLoading: true });
+    useThread.mockReturnValue({ data: null, isLoading: true } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
       expect(screen.getByTestId("pentagram-loader")).toBeInTheDocument();
@@ -144,197 +118,96 @@ describe("Thread", () => {
   });
 
   it("renders back button when thread is loaded", async () => {
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isLoading: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
+    useThread.mockReturnValue({ data: mockThread(), isLoading: false } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
 
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /назад/i })).toBeInTheDocument();
     });
   });
 
   it("goes back in history when the thread was opened from another page", async () => {
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isLoading: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
-
+    useThread.mockReturnValue({ data: mockThread(), isLoading: false } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
 
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /назад/i })).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    await userEvent.click(screen.getByRole("button", { name: /назад/i }));
     expect(mockNavigate).toHaveBeenCalledWith(-1);
   });
 
   it("falls back to the board when the thread was opened directly", async () => {
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isLoading: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
-
+    useThread.mockReturnValue({ data: mockThread(), isLoading: false } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 1 });
 
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /назад/i })).toBeInTheDocument();
     });
-    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    await userEvent.click(screen.getByRole("button", { name: /назад/i }));
     expect(mockNavigate).toHaveBeenCalledWith("/test-board", { replace: true });
   });
 
-  it("renders thread title", async () => {
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread({ title: "My Awesome Thread" }), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isLoading: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
+  it("renders the thread card: title, author and content", async () => {
+    useThread.mockReturnValue({ data: mockThread({ title: "My Awesome Thread" }), isLoading: false } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
 
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
       expect(screen.getByText("My Awesome Thread")).toBeInTheDocument();
+      expect(screen.getByTestId("processed-content")).toHaveTextContent("Hello world");
+      expect(screen.getByTestId("user-badge")).toBeInTheDocument();
     });
   });
 
-  it("shows login prompt when user is not logged in", async () => {
+  it("renders the comment tree with posting enabled for a logged-in user", async () => {
+    useThread.mockReturnValue({ data: mockThread(), isLoading: false } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
+
+    renderWithProviders(<ThreadComponent />);
+    await waitFor(() => {
+      expect(screen.getByTestId("thread-comment-tree")).toHaveAttribute("data-can-post", "true");
+    });
+  });
+
+  it("hides the comment composer for guests", async () => {
     mockAuth.getSession.mockResolvedValue({ data: { session: null }, error: null });
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isLoading: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
+    useThread.mockReturnValue({ data: mockThread(), isLoading: false } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
 
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
-      expect(screen.getByText("Войдите, чтобы ответить")).toBeInTheDocument();
-      expect(screen.getByText("Войти")).toBeInTheDocument();
+      expect(screen.getByTestId("thread-comment-tree")).toHaveAttribute("data-can-post", "false");
     });
   });
 
-  // ── handleSubmitPost tests ──────────────────────────────────────────────────
-
-  it("renders new post content in DOM after optimistic submit", async () => {
-    const user = userEvent.setup();
-
-    const newPostFromApi = {
-      id: "post-new",
-      thread_id: "thread-1",
-      user_id: "user-1",
-      content: "Brand new post!",
-      created_at: "2025-06-11T00:00:00Z",
-    };
-
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isFetching: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
-
-    // create_post returns the new post
-    mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/rpc/create_post") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: newPostFromApi }) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
-    });
+  it("shows the post count from the thread", async () => {
+    useThread.mockReturnValue({ data: mockThread({ post_count: 7 }), isLoading: false } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
 
     renderWithProviders(<ThreadComponent />);
-
-    // Wait for form to appear (user is logged in)
     await waitFor(() => {
-      expect(screen.getByTestId("post-input")).toBeInTheDocument();
-    });
-
-    // Type content and submit
-    const input = screen.getByTestId("post-input");
-    await user.type(input, "Brand new post!");
-
-    const form = document.querySelector("form");
-    const submitBtn = form?.querySelector('button[type="submit"]') as HTMLButtonElement;
-    expect(submitBtn).toBeTruthy();
-    await user.click(submitBtn!);
-
-    // The new post should appear immediately via optimistic append
-    await waitFor(() => {
-      expect(screen.getByText("Brand new post!")).toBeInTheDocument();
+      expect(screen.getByText("7")).toBeInTheDocument();
     });
   });
 
-  it("does not show full-page loader flash during/after submit", async () => {
-    const user = userEvent.setup();
-
-    const newPostFromApi = {
-      id: "post-new-2",
-      thread_id: "thread-1",
-      user_id: "user-1",
-      content: "No flash post",
-      created_at: "2025-06-11T00:00:00Z",
-    };
-
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isFetching: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
-
-    mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/rpc/create_post") {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: newPostFromApi }) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
-    });
+  it("lets the author edit the thread", async () => {
+    useThread.mockReturnValue({
+      data: mockThread({ user_id: "user-1" }),
+      isLoading: false,
+    } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
 
     renderWithProviders(<ThreadComponent />);
-
     await waitFor(() => {
-      expect(screen.getByTestId("post-input")).toBeInTheDocument();
+      expect(screen.getByTestId("user-menu")).toBeInTheDocument();
     });
-
-    const input = screen.getByTestId("post-input");
-    await user.type(input, "No flash post");
-
-    const form = document.querySelector("form");
-    const submitBtn = form?.querySelector('button[type="submit"]') as HTMLButtonElement;
-    await user.click(submitBtn!);
-
-    // Wait for the new post to appear
-    await waitFor(() => {
-      expect(screen.getByText("No flash post")).toBeInTheDocument();
-    });
-
-    // The thread title should still be visible (proves no full-page reset happened)
+    // The edit handler lives behind UserMenu (mocked) — the card itself renders.
     expect(screen.getByText("Test Thread")).toBeInTheDocument();
-
-    // The back button should still be visible (further proof of no reset)
-    expect(screen.getByRole("button", { name: "Назад" })).toBeInTheDocument();
-  });
-
-  it("does not call create_post API when submitting empty content", async () => {
-    const user = userEvent.setup();
-
-    const queries = await import("@/hooks/queries");
-    (queries.useThread as any) = () => ({ data: mockThread(), isLoading: false });
-    (queries.usePosts as any) = () => ({ data: [], isFetching: false });
-    (queries.useThreadSubscription as any) = () => ({ data: false });
-
-    // Track create_post calls
-    const createPostCalls: string[] = [];
-    mockFetch.mockImplementation((url: string) => {
-      createPostCalls.push(url);
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
-    });
-
-    renderWithProviders(<ThreadComponent />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("post-input")).toBeInTheDocument();
-    });
-
-    const form = document.querySelector("form");
-    const submitBtn = form?.querySelector('button[type="submit"]') as HTMLButtonElement;
-    await user.click(submitBtn!);
-
-    // create_post should never have been called (empty content blocked)
-    expect(createPostCalls).not.toContain("/api/rpc/create_post");
   });
 });

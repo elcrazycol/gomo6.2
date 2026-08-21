@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { apiClient } from "@/integrations/api/client";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,7 +43,7 @@ const buildRulesMarkdown = (s: string, a: string[], f: string[]) => {
   return blocks.join("\n\n").trim() || null;
 };
 
-const PERMISSION_LABELS: Record<string, string> = { can_manage_roles: "Управление ролями", can_manage_channels: "Управление каналами", can_manage_members: "Управление участниками", can_delete_threads: "Удаление тредов", can_pin_threads: "Закрепление тредов" };
+const PERMISSION_LABELS: Record<string, string> = { can_manage_roles: "Управление ролями", can_manage_channels: "Управление каналами", can_manage_members: "Управление участниками", can_delete_threads: "Удаление записей", can_pin_threads: "Закрепление записей" };
 
 const GomoSubSettings = () => {
   const { slug } = useParams();
@@ -101,6 +102,17 @@ const GomoSubSettings = () => {
     const original = originalRulesMarkdown?.trim() || null;
     return current !== original;
   }, [rulesPreview, originalRulesMarkdown]);
+
+  // Raw fetches to the universal CRUD surface authenticate via HttpOnly
+  // cookies — every write must echo the CSRF cookie in the X-CSRF-Token header
+  // (double-submit CSRF), otherwise the backend rejects it with 403.
+  const authHeaders = (withJson = false): Record<string, string> => {
+    const csrf = apiClient.getCSRFToken();
+    const h: Record<string, string> = {};
+    if (csrf) h["X-CSRF-Token"] = csrf;
+    if (withJson) h["Content-Type"] = "application/json";
+    return h;
+  };
 
   const loadChannels = async (boardId: string) => { setChannelsLoading(true); const r = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`); const d = await r.json(); setChannels((d.data || []) as typeof channels); setChannelsLoading(false); };
   const loadRoles = async (boardId: string) => { setRolesLoading(true); const r = await fetch(`/api/v1/gomosub_roles?board_id=eq.${boardId}&order=position.desc`); const d = await r.json(); const data = (d.data || []) as { id: string; board_id: string; name: string; color: string; position: number; permissions: unknown }[]; setRoles(data.map((x) => ({ ...x, permissions: typeof x.permissions === "string" ? JSON.parse(x.permissions as string) : (x.permissions as Record<string, boolean> || {}) }))); setRolesLoading(false); };
@@ -167,14 +179,14 @@ const GomoSubSettings = () => {
 
   const uploadSingleImage = async (file: File, kind: "avatar" | "cover") => { if (!["image/jpeg","image/jpg","image/png","image/webp","image/gif"].includes(file.type)) { toast.error("Неподдерживаемый формат"); return; } if (file.size > 10*1024*1024) { toast.error("Файл слишком большой. Максимум 10MB"); return; } if (kind === "avatar") setUploadingAvatar(true); else setUploadingCover(true); try { const { data: { user } } = await api.auth.getUser(); if (!user) { toast.error("Нужно войти"); return; } const ext = file.name.split(".").pop() || "jpg"; const fn = `${user.id}/${Date.now()}_${kind}.${ext}`; await uploadFile("post-images", fn, file); if (kind === "avatar") setForm((p) => ({ ...p, gomosub_avatar_url: fn })); else setForm((p) => ({ ...p, cover_image_url: fn })); toast.success(kind === "avatar" ? "Аватар обновлен" : "Фон обновлен"); } catch (e) { toast.error((e instanceof Error ? e.message : String(e)) || "Не удалось загрузить"); } finally { if (kind === "avatar") setUploadingAvatar(false); else setUploadingCover(false); } };
 
-  const handleAddChannel = async () => { const name = newChannelName.trim(); const cs = newChannelSlug.trim().toLowerCase().replace(/\s+/g, "-") || name.toLowerCase().replace(/\s+/g, "-"); if (!name) { toast.error("Название канала обязательно"); return; } setAddingChannel(true); const r = await fetch('/api/v1/channels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board_id: form.id, slug: cs, name, category: newChannelCategory.trim() || null, sort_order: channels.length, is_private: newChannelIsPrivate }) }); const d = await r.json(); setAddingChannel(false); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось создать канал"); return; } setNewChannelName(""); setNewChannelSlug(""); setNewChannelCategory(""); setNewChannelIsPrivate(false); await loadChannels(form.id); toast.success("Канал создан"); };
-  const handleDeleteChannel = async (chId: string) => { const r = await fetch(`/api/v1/channels?id=eq.${chId}&board_id=eq.${form.id}`, { method: 'DELETE' }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось удалить канал"); return; } await loadChannels(form.id); toast.success("Канал удалён"); };
-  const handleUpdateChannel = async (chId: string, updates: Record<string, unknown>) => { const r = await fetch(`/api/v1/channels?id=eq.${chId}&board_id=eq.${form.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось обновить канал"); return; } setEditingChannelId(null); await loadChannels(form.id); };
-  const handleAddRole = async () => { const name = newRoleName.trim(); if (!name) { toast.error("Название роли обязательно"); return; } setAddingRole(true); const r = await fetch('/api/v1/gomosub_roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board_id: form.id, name, color: newRoleColor, position: roles.length, permissions: newRolePermissions }) }); const d = await r.json(); setAddingRole(false); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось создать роль"); return; } setNewRoleName(""); setNewRoleColor("#99aab5"); setNewRolePermissions({}); await loadRoles(form.id); toast.success("Роль создана"); };
-  const handleDeleteRole = async (rId: string) => { const r = await fetch(`/api/v1/gomosub_roles?id=eq.${rId}&board_id=eq.${form.id}`, { method: 'DELETE' }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось удалить роль"); return; } await Promise.all([loadRoles(form.id), loadMembers(form.id)]); toast.success("Роль удалена"); };
-  const handleAssignRole = async (userId: string, roleId: string | null) => { const r = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${form.id}&user_id=eq.${userId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role_id: roleId }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось назначить роль"); return; } await loadMembers(form.id); toast.success(roleId ? "Роль назначена" : "Роль снята"); };
+  const handleAddChannel = async () => { const name = newChannelName.trim(); const cs = newChannelSlug.trim().toLowerCase().replace(/\s+/g, "-") || name.toLowerCase().replace(/\s+/g, "-"); if (!name) { toast.error("Название канала обязательно"); return; } setAddingChannel(true); const r = await fetch('/api/v1/channels', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ board_id: form.id, slug: cs, name, category: newChannelCategory.trim() || null, sort_order: channels.length, is_private: newChannelIsPrivate }) }); const d = await r.json(); setAddingChannel(false); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось создать канал"); return; } setNewChannelName(""); setNewChannelSlug(""); setNewChannelCategory(""); setNewChannelIsPrivate(false); await loadChannels(form.id); toast.success("Канал создан"); };
+  const handleDeleteChannel = async (chId: string) => { const r = await fetch(`/api/v1/channels?id=eq.${chId}&board_id=eq.${form.id}`, { method: 'DELETE', headers: authHeaders() }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось удалить канал"); return; } await loadChannels(form.id); toast.success("Канал удалён"); };
+  const handleUpdateChannel = async (chId: string, updates: Record<string, unknown>) => { const r = await fetch(`/api/v1/channels?id=eq.${chId}&board_id=eq.${form.id}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify(updates) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось обновить канал"); return; } setEditingChannelId(null); await loadChannels(form.id); };
+  const handleAddRole = async () => { const name = newRoleName.trim(); if (!name) { toast.error("Название роли обязательно"); return; } setAddingRole(true); const r = await fetch('/api/v1/gomosub_roles', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ board_id: form.id, name, color: newRoleColor, position: roles.length, permissions: newRolePermissions }) }); const d = await r.json(); setAddingRole(false); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось создать роль"); return; } setNewRoleName(""); setNewRoleColor("#99aab5"); setNewRolePermissions({}); await loadRoles(form.id); toast.success("Роль создана"); };
+  const handleDeleteRole = async (rId: string) => { const r = await fetch(`/api/v1/gomosub_roles?id=eq.${rId}&board_id=eq.${form.id}`, { method: 'DELETE', headers: authHeaders() }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось удалить роль"); return; } await Promise.all([loadRoles(form.id), loadMembers(form.id)]); toast.success("Роль удалена"); };
+  const handleAssignRole = async (userId: string, roleId: string | null) => { const r = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${form.id}&user_id=eq.${userId}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify({ role_id: roleId }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось назначить роль"); return; } await loadMembers(form.id); toast.success(roleId ? "Роль назначена" : "Роль снята"); };
   const handleOpenChannelPerms = async (chId: string) => { setManagingPermsChannelId(chId); await loadChannelPerms(chId); };
-  const handleTogglePermRole = async (chId: string, roleId: string, cr: boolean, cw: boolean) => { const ex = channelPerms.find((p) => p.role_id === roleId); if (ex?.id) { const r = await fetch(`/api/v1/channel_permissions?id=eq.${ex.id}&board_id=eq.${form.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ can_read: cr, can_write: cw }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error("Не удалось обновить права"); return; } } else if (cr || cw) { const r = await fetch('/api/v1/channel_permissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board_id: form.id, channel_id: chId, role_id: roleId, can_read: cr, can_write: cw }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error("Не удалось добавить права"); return; } } await loadChannelPerms(chId); };
+  const handleTogglePermRole = async (chId: string, roleId: string, cr: boolean, cw: boolean) => { const ex = channelPerms.find((p) => p.role_id === roleId); if (ex?.id) { const r = await fetch(`/api/v1/channel_permissions?id=eq.${ex.id}&board_id=eq.${form.id}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify({ can_read: cr, can_write: cw }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error("Не удалось обновить права"); return; } } else if (cr || cw) { const r = await fetch('/api/v1/channel_permissions', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ board_id: form.id, channel_id: chId, role_id: roleId, can_read: cr, can_write: cw }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error("Не удалось добавить права"); return; } } await loadChannelPerms(chId); };
   const handleToggleChannelPrivacy = async (chId: string, isPrivate: boolean) => { await handleUpdateChannel(chId, { is_private: isPrivate }); };
 
   const handleReorderChannels = async (fromIdx: number, toIdx: number) => {
@@ -184,7 +196,7 @@ const GomoSubSettings = () => {
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
     setChannels(reordered);
-    const results = await Promise.all(reordered.map((ch, i) => fetch(`/api/v1/channels?id=eq.${ch.id}&board_id=eq.${form.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: i }) }).catch(() => null)));
+    const results = await Promise.all(reordered.map((ch, i) => fetch(`/api/v1/channels?id=eq.${ch.id}&board_id=eq.${form.id}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify({ sort_order: i }) }).catch(() => null)));
     const anyFailed = results.some((r) => !r || !r.ok);
     if (anyFailed) {
       toast.error("Не удалось сохранить порядок каналов");

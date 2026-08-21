@@ -10,6 +10,8 @@ export interface ActionButtonProps {
   active?: boolean;
   disabled?: boolean;
   loading?: boolean;
+  /** Accessible name for icon-only buttons (aria fallback). */
+  title?: string;
   onClick: () => void;
 }
 
@@ -21,12 +23,15 @@ export const ActionButton = ({
   active = false,
   disabled = false,
   loading = false,
+  title,
   onClick,
 }: ActionButtonProps) => (
   <Button
     type="button"
     variant="ghost"
     size="sm"
+    title={title}
+    aria-label={title}
     onClick={onClick}
     disabled={disabled || loading}
     className={`h-8 gap-1.5 px-1.5 text-xs transition-colors sm:h-9 sm:px-2 sm:text-sm ${

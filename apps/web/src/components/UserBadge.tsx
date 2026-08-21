@@ -105,7 +105,7 @@ export const UserBadge = ({
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>тредооткрыватель:D</p>
+              <p>открыватель записи:D</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

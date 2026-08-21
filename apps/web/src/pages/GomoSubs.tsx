@@ -401,7 +401,7 @@ const GomoSubs = () => {
             <Card>
               <CardContent className="py-8 text-center space-y-2">
                 <p className="font-semibold">Лента пока пустая</p>
-                <p className="text-sm text-muted-foreground">Вступи в g-сабы, и тут появятся их свежие треды</p>
+                <p className="text-sm text-muted-foreground">Вступи в g-сабы, и тут появятся их свежие записи</p>
               </CardContent>
             </Card>
           ) : (

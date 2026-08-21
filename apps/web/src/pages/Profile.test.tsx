@@ -187,7 +187,7 @@ describe("Profile", () => {
     renderWithProviders(<ProfileComponent />);
 
     await waitFor(() => {
-      expect(screen.getByText("Треды")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Записи" })).toBeInTheDocument();
     });
   });
 
@@ -324,7 +324,7 @@ describe("Profile", () => {
     // Everything hidden by the owner's settings disappears entirely: no
     // achievements, threads, gifts or friends tabs for this viewer.
     expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Треды")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Записи" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Друзья/)).not.toBeInTheDocument();
   });

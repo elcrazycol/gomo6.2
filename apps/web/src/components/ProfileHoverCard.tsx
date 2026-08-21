@@ -366,7 +366,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
                     case 'created_at':
                       return p.created_at ? format(safeDate(p.created_at as string), "dd.MM.yyyy", { locale: dateLocale }) : null;
                     case 'post_count': {
-                      // Unified «записи» = треды + записи стены (ключ сохранён
+                      // Unified «записи» = записи сабов + записи стены (ключ сохранён
                       // для обратной совместимости с user_placeholders).
                       const records = Number(p.thread_count || 0) + Number(p.wall_post_count || 0);
                       return pluralRu(records, 'запись', 'записи', 'записей');
@@ -374,7 +374,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
                     case 'comment_count':
                       return p.comment_count != null ? pluralRu(Number(p.comment_count), 'комментарий', 'комментария', 'комментариев') : null;
                     case 'thread_count':
-                      return p.thread_count != null ? `${p.thread_count} ${p.thread_count === 1 ? 'тред' : (p.thread_count as number) < 5 ? 'треда' : 'тредов'}` : null;
+                      return p.thread_count != null ? `${p.thread_count} ${p.thread_count === 1 ? 'запись' : (p.thread_count as number) < 5 ? 'записи' : 'записей'}` : null;
                     case 'account_number':
                       return p.account_number ? `#${p.account_number}` : null;
                     case 'id':

@@ -53,7 +53,7 @@ const SearchResults = () => {
             <Input
               value={queryDraft}
               onChange={(e) => setQueryDraft(e.target.value)}
-              placeholder="Поиск: пользователь, доска, g-саб, тред или пост..."
+              placeholder="Поиск: пользователь, доска, g-саб, запись..."
               className="pl-9"
             />
             <Button type="submit">Найти</Button>
@@ -129,7 +129,7 @@ const SearchResults = () => {
           {/* Threads */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Треды ({results.threads.length})</CardTitle>
+              <CardTitle className="text-lg">Записи ({results.threads.length})</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {results.threads.length === 0 ? (

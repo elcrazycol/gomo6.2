@@ -28,7 +28,7 @@ describe("ModeratorMenu", () => {
 
   it("shows delete option for thread", () => {
     render(<ModeratorMenu onDelete={vi.fn()} onBan={vi.fn()} type="thread" />);
-    expect(screen.getByText(/Удалить тред/)).toBeInTheDocument();
+    expect(screen.getByText(/Удалить запись/)).toBeInTheDocument();
   });
 
   it("shows delete option for profile", () => {

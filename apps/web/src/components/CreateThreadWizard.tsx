@@ -64,9 +64,9 @@ const ATMOSPHERE_TAGS_WITH_DESC = [
 ];
 
 const FLAG_TAGS_WITH_DESC = [
-  { value: 'normal', label: 'Обычный', description: 'Обычный тред' },
+  { value: 'normal', label: 'Обычный', description: 'Обычная запись' },
   { value: 'ephemeral', label: 'Временный', description: 'Самоуничтожение' },
-  { value: 'night', label: 'Ночной', description: 'Ночные треды' }
+  { value: 'night', label: 'Ночной', description: 'Ночные записи' }
 ];
 
 export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps) => {
@@ -97,7 +97,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
     }
 
     if (!tags.flag) {
-      toast.error('Выберите тип треда');
+      toast.error('Выберите тип записи');
       return;
     }
 
@@ -125,12 +125,12 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
 
       if (error) throw error;
 
-      toast.success('Тред создан!');
+      toast.success('Запись создана!');
       navigate(`/${selectedBoard.slug}/thread/${data.id}`);
       onClose();
     } catch (error) {
       console.error('Error creating thread:', error);
-      toast.error('Ошибка при создании треда');
+      toast.error('Ошибка при создании записи');
     } finally {
       setLoading(false);
     }
@@ -140,7 +140,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
     <div className="space-y-4">
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold mb-2">Выберите доску</h2>
-        <p className="text-muted-foreground">Где будет опубликован ваш тред?</p>
+        <p className="text-muted-foreground">Где будет опубликована ваша запись?</p>
       </div>
 
       <div className="grid gap-3 max-h-96 overflow-y-auto">
@@ -169,7 +169,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
   const renderContentStep = () => (
     <div className="space-y-6">
       <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold mb-2">Создание треда</h2>
+        <h2 className="text-2xl font-bold mb-2">Создание записи</h2>
         <p className="text-muted-foreground">в /{selectedBoard?.slug}/</p>
       </div>
 
@@ -177,7 +177,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
         <div>
           <label className="text-sm font-medium mb-2 block">Заголовок</label>
           <Input
-            placeholder="Тема треда..."
+            placeholder="Тема записи..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="text-lg"
@@ -186,7 +186,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
 
         {!isExpandedView && (
           <div>
-            <label className="text-sm font-medium mb-2 block">Основное изображение треда</label>
+            <label className="text-sm font-medium mb-2 block">Основное изображение записи</label>
             <div className="flex gap-2">
               <input
                 type="file"
@@ -277,7 +277,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
               <div>
                 <label className="text-sm font-medium mb-2 block">Редактор</label>
                 <Textarea
-                  placeholder="Напишите содержание треда..."
+                  placeholder="Напишите содержание записи..."
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   className="min-h-[300px] resize-none"
@@ -308,7 +308,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
           </div>
         ) : (
           <Textarea
-            placeholder="Напишите содержание треда..."
+            placeholder="Напишите содержание записи..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
             className="min-h-[120px] resize-none"
@@ -331,12 +331,12 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
     <div className="space-y-6">
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold mb-2">Выберите теги</h2>
-        <p className="text-muted-foreground">Помогите другим найти ваш тред</p>
+        <p className="text-muted-foreground">Помогите другим найти вашу запись</p>
       </div>
 
       {/* Required flag tag */}
       <div>
-        <h3 className="font-semibold mb-3 text-red-600">* Обязательно: Тип треда</h3>
+        <h3 className="font-semibold mb-3 text-red-600">* Обязательно: Тип записи</h3>
         <div className="grid grid-cols-2 gap-2">
           {FLAG_TAGS_WITH_DESC.map((tag) => (
             <button
@@ -428,7 +428,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
     <div className="space-y-6">
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold mb-2">Предпросмотр</h2>
-        <p className="text-muted-foreground">Так будет выглядеть ваш тред</p>
+        <p className="text-muted-foreground">Так будет выглядеть ваша запись</p>
       </div>
 
       <Card>
@@ -438,14 +438,14 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
               <span className="text-sm font-medium">Вы</span>
             </div>
             <div className="flex-1">
-              <div className="font-semibold">Ваш тред</div>
+              <div className="font-semibold">Ваша запись</div>
               <div className="text-xs text-muted-foreground">
                 в /{selectedBoard?.slug}/ • только что
               </div>
             </div>
           </div>
 
-          <CardTitle className="text-left">{title || 'Заголовок треда'}</CardTitle>
+          <CardTitle className="text-left">{title || 'Заголовок записи'}</CardTitle>
 
           {/* Preview tags */}
           <div className="flex flex-wrap gap-1 mt-2">
@@ -483,7 +483,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
             {content ? (
               <div>{renderPreviewContent(content, 'thread')}</div>
             ) : (
-              <span className="text-muted-foreground">Содержание треда...</span>
+              <span className="text-muted-foreground">Содержание записи...</span>
             )}
           </div>
 
@@ -507,7 +507,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
           ← Назад
         </Button>
         <Button onClick={handleCreateThread} disabled={loading}>
-          {loading ? 'Создание...' : 'Создать тред'}
+          {loading ? 'Создание...' : 'Создать запись'}
         </Button>
       </div>
     </div>

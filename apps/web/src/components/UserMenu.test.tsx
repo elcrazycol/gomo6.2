@@ -28,7 +28,7 @@ describe("UserMenu", () => {
 
   it("shows edit option for thread type", () => {
     render(<UserMenu onEdit={vi.fn()} onDelete={vi.fn()} onReport={vi.fn()} type="thread" />);
-    expect(screen.getByText(/Изменить тред/)).toBeInTheDocument();
+    expect(screen.getByText(/Изменить запись/)).toBeInTheDocument();
   });
 
   it("calls onEdit when edit clicked", async () => {

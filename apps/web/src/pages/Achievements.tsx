@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 const CATEGORIES: Record<string, { label: string; icon: string }> = {
   posting: { label: "Посты", icon: "💬" },
-  threads: { label: "Треды", icon: "🧵" },
+  threads: { label: "Записи", icon: "🧵" },
   likes_received: { label: "Признание", icon: "❤️" },
   likes_given: { label: "Щедрость", icon: "👍" },
   images: { label: "Галерея", icon: "🖼️" },

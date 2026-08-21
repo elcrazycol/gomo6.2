@@ -40,7 +40,7 @@ const ACHIEVEMENTS = [
   {
     id: "a2",
     name: "Легенда форума",
-    description: "Создай 100 тредов",
+    description: "Создай 100 записей",
     icon: "layers",
     category: "threads",
     rarity: "legendary",
@@ -191,7 +191,7 @@ describe("Achievements page", () => {
       expect(screen.getByText("Первый пост")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Треды" }));
+    fireEvent.click(screen.getByRole("button", { name: "Записи" }));
 
     expect(screen.queryByText("Первый пост")).not.toBeInTheDocument();
     expect(screen.getByText("Легенда форума")).toBeInTheDocument();
@@ -205,8 +205,8 @@ describe("Achievements page", () => {
       expect(screen.getByText("Первый пост")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Треды" }));
-    fireEvent.click(screen.getByRole("button", { name: "Треды" }));
+    fireEvent.click(screen.getByRole("button", { name: "Записи" }));
+    fireEvent.click(screen.getByRole("button", { name: "Записи" }));
 
     expect(screen.getByText("Первый пост")).toBeInTheDocument();
   });

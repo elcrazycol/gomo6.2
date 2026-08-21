@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from "@/components/ui/drawer";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
@@ -17,7 +18,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, Hash, Lock, Settings } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -25,7 +26,14 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 import { renderTags } from "@/components/ThreadCard";
 import { LikeButton } from "@/components/LikeButton";
+import { GomoThreadCard } from "@/components/GomoThreadCard";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { wsService } from "@/services/websocket";
+
+// Mobile channel sheet grab zone: bottom-left corner of the screen.
+// Used both for the swipe-up-to-open and swipe-down-to-close.
+const EDGE_ZONE_HEIGHT = 100;
+const EDGE_ZONE_WIDTH = 0.3;
 
 interface Board {
   id: string;
@@ -58,7 +66,10 @@ interface Thread {
   id: string;
   title: string;
   content: string;
+  content_json?: unknown;
   image_url: string | null;
+  image_urls?: string[] | null;
+  attachments?: unknown;
   created_at: string;
   updated_at: string;
   post_count: number;
@@ -125,8 +136,23 @@ const Board = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
+  // Tracks the channel sheet snap point (0.4 = compact, 1 = full screen) so we
+  // can show a close button only when the sheet is fully expanded.
+  const [channelSheetSnapPoint, setChannelSheetSnapPoint] = useState<number>(0.4);
+  // Timers for the sheet close animation (vaul slides it out over 0.5s): the
+  // scroll lock and the snap point must outlive the animation, otherwise the
+  // background flashes and the sheet jumps back to 40% while closing.
+  const scrollLockReleaseTimer = useRef<number | null>(null);
+  const snapResetTimer = useRef<number | null>(null);
+  const edgeSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
   const [isBoardOwner, setIsBoardOwner] = useState(false);
+  // Gallery lightbox for attachment previews (mirrors Index/Wall pattern).
+  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [currentUsername, setCurrentUsername] = useState("");
+  const [currentUserColor, setCurrentUserColor] = useState("");
   
   useSessionTime(user?.id);
 
@@ -141,6 +167,8 @@ const Board = () => {
           // Roles via a TTL-cached batched call instead of a fetch on every mount.
           const meta = await getCurrentUserMeta(sessionUser.id);
           setIsModerator(meta.roles.some((r) => r === 'moderator' || r === 'admin'));
+          setCurrentUsername(meta.username);
+          setCurrentUserColor(meta.color);
         }
     } finally {
       setAuthResolved(true);
@@ -635,6 +663,164 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.slug || null;
   }, [activeChannelId, channels]);
 
+  const activeChannelName = useMemo(() => {
+    if (!activeChannelId) return null;
+    return channels.find((ch) => ch.id === activeChannelId)?.name || null;
+  }, [activeChannelId, channels]);
+
+  // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
+  // on document (not <main>) so gestures that start below the content area
+  // still count, and only while the sheet is closed.
+  //
+  // The touchmove listener is non-passive and calls preventDefault from the
+  // VERY FIRST move of an edge gesture: iOS will not stop a scroll that has
+  // already started (preventDefault on later touchmoves is ignored once the
+  // pan recognizer claims the gesture), so the bottom-edge gesture must never
+  // start scrolling the feed — otherwise the sheet opens mid-scroll and the
+  // posts behind keep sliding. The grab zone is the bottom 80px of the LEFT
+  // HALF of the screen: the right half keeps normal feed scrolling, so the
+  // sheet gesture doesn't eat the whole bottom bar.
+  useEffect(() => {
+    if (mobileChannelsOpen) return;
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      if (window.innerHeight - touch.clientY <= EDGE_ZONE_HEIGHT && touch.clientX < window.innerWidth * EDGE_ZONE_WIDTH) {
+        edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
+      } else {
+        edgeSwipeStart.current = null;
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!edgeSwipeStart.current) return;
+      // Stop the browser from starting (or continuing) this scroll.
+      e.preventDefault();
+      const touch = e.touches[0];
+      if (touch && touch.clientY - edgeSwipeStart.current.y < -48) {
+        setMobileChannelsOpen(true);
+        edgeSwipeStart.current = null;
+      }
+    };
+    const onTouchEnd = () => {
+      edgeSwipeStart.current = null;
+    };
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [mobileChannelsOpen]);
+
+  // Lock the page scroll the INSTANT the sheet starts opening — vaul's own
+  // scroll lock engages with a delay (it's disabled while dragging / just
+  // released), so during the slide-up animation the feed behind can still
+  // scroll. overflow:hidden on html+body stops it on Android; iOS ignores
+  // overflow:hidden on the body, so touchmoves that start OUTSIDE the drawer
+  // are prevented outright (touches inside the dialog — the channel list and
+  // the drag handle — keep working).
+  useEffect(() => {
+    if (!mobileChannelsOpen) return;
+    // A previous close may have scheduled a delayed scroll-lock release;
+    // cancel it so reopening mid-animation doesn't unlock the page under the
+    // still-open sheet.
+    if (scrollLockReleaseTimer.current !== null) {
+      window.clearTimeout(scrollLockReleaseTimer.current);
+      scrollLockReleaseTimer.current = null;
+    }
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevOverscroll = document.documentElement.style.overscrollBehavior;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+
+    const onTouchMove = (e: TouchEvent) => {
+      // Outside the drawer: never let a touch scroll the feed behind.
+      e.preventDefault();
+    };
+    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+
+    return () => {
+      // Keep the page scroll-locked until vaul's 0.5s close animation ends.
+      // Restoring overflow mid-animation re-paints the feed underneath and
+      // shows a one-frame flash.
+      scrollLockReleaseTimer.current = window.setTimeout(() => {
+        scrollLockReleaseTimer.current = null;
+        document.documentElement.style.overflow = prevHtmlOverflow;
+        document.body.style.overflow = prevBodyOverflow;
+        document.documentElement.style.overscrollBehavior = prevOverscroll;
+      }, 500);
+      document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
+    };
+  }, [mobileChannelsOpen]);
+
+  // Leaving the page (or unmounting in tests): cancel pending close-animation
+  // timers and release the scroll lock right away — no 0.5s hangover.
+  useEffect(() => {
+    return () => {
+      if (scrollLockReleaseTimer.current !== null) {
+        window.clearTimeout(scrollLockReleaseTimer.current);
+        scrollLockReleaseTimer.current = null;
+      }
+      if (snapResetTimer.current !== null) {
+        window.clearTimeout(snapResetTimer.current);
+        snapResetTimer.current = null;
+      }
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
+      document.documentElement.style.overscrollBehavior = "";
+    };
+  }, []);
+
+  // The channel drawer (mobile) and the desktop sidebar share this list markup.
+  const renderChannelList = (onSelect: () => void) => (
+    <>
+      <Link
+        to={`/g/${slug}`}
+        onClick={() => { setActiveChannelId(null); onSelect(); }}
+        className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
+          !activeChannelId
+            ? "bg-primary/10 text-primary font-medium"
+            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+        }`}
+      >
+        <Hash className="w-4 h-4 shrink-0" />
+        <span className="truncate">{t("board.general")}</span>
+      </Link>
+      {channelCategories.map((group) => (
+        <div key={group.category || "__uncategorized"} className="mt-1.5">
+          {group.category && (
+            <div className="px-2 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
+              {group.category}
+            </div>
+          )}
+          {group.channels.map((ch) => (
+            <Link
+              key={ch.id}
+              to={`/g/${slug}/c/${ch.slug}`}
+              onClick={onSelect}
+              className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
+                activeChannelSlug === ch.slug
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              {ch.is_private ? (
+                <Lock className="w-4 h-4 shrink-0 text-amber-500" />
+              ) : (
+                <Hash className="w-4 h-4 shrink-0" />
+              )}
+              <span className="truncate">{ch.name}</span>
+            </Link>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+
   const canCreateThread = user && (!board?.is_rules_board || isModerator);
   const hasSecondaryActions = isGomoRoute || (!isGomoRoute && (searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag')));
 
@@ -825,6 +1011,7 @@ const Board = () => {
   const hasChannels = isGomoRoute && channels.length > 0;
 
   return (
+    <>
     <main className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
         {/* Board header — always full width */}
         <div className="mb-3 sm:mb-4 space-y-3">
@@ -1237,9 +1424,10 @@ const Board = () => {
 
         {/* Content area — with sidebar for gomosub, plain otherwise */}
         {hasChannels ? (
+          <>
           <div className="flex gap-0 flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5">
             {/* Collapsible channel sidebar — floating card, sticky to viewport */}
-            <aside className={`shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
+            <aside className={`hidden md:block shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
               <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${sidebarCollapsed ? 'hidden' : ''}`}>
                 {/* Sidebar header with collapse button */}
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
@@ -1255,48 +1443,7 @@ const Board = () => {
                 {/* Channel list — scrollable */}
                 <div className="max-h-[calc(100vh-9rem)] overflow-y-auto px-3 pb-3">
                 
-                {/* General channel — always first */}
-                <Link
-                  to={`/g/${slug}`}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors mb-0.5 ${
-                    !activeChannelId
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                  }`}
-                  onClick={() => setActiveChannelId(null)}
-                >
-                  <Hash className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t("board.general")}</span>
-                </Link>
-                
-                {/* Categorized channels */}
-                {channelCategories.map((group) => (
-                  <div key={group.category || '__uncategorized'} className="mt-1.5">
-                    {group.category && (
-                      <div className="px-2 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
-                        {group.category}
-                      </div>
-                    )}
-                    {group.channels.map((ch) => (
-                      <Link
-                        key={ch.id}
-                        to={`/g/${slug}/c/${ch.slug}`}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
-                          activeChannelSlug === ch.slug
-                            ? "bg-primary/10 text-primary font-medium"
-                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                        }`}
-                      >
-                        {ch.is_private ? (
-                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                        ) : (
-                          <Hash className="w-3.5 h-3.5 shrink-0" />
-                        )}
-                        <span className="truncate">{ch.name}</span>
-                      </Link>
-                    ))}
-                  </div>
-                ))}
+                {renderChannelList(() => {})}
                 
                 {/* Quick actions at bottom of sidebar */}
                 <div className="mt-3 pt-3 border-t border-border/40 px-2 space-y-1">
@@ -1328,7 +1475,7 @@ const Board = () => {
             {sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
+                className="hidden md:flex shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
                 title={t("board.showChannels")}
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1339,6 +1486,29 @@ const Board = () => {
             <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-4 md:p-5">
               <div className="mb-3 sm:mb-4">
                 <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
+                  <button
+                    onClick={() => setMobileChannelsOpen(true)}
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    title={t("board.channels")}
+                  >
+                    {activeChannelId ? (
+                      <>
+                        {channels.find((ch) => ch.id === activeChannelId)?.is_private ? (
+                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                        ) : (
+                          <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate">{activeChannelName || activeChannelSlug}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{t("board.general")}</span>
+                      </>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
+                  </button>
                   {canCreateThread && (
                     <Button
                       onClick={() =>
@@ -1398,109 +1568,18 @@ const Board = () => {
                       </div>
                     )}
                     {threads.map((thread) => (
-                      <Card key={thread.id} className="border-border/70 bg-card/95 p-0 overflow-hidden hover:border-primary/35 transition-colors rounded-xl">
-                        <div className="p-3 sm:p-5">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                              <UserBadge
-                                userId={thread.user_id}
-                                username={thread.profiles?.username || t("common.anonymous")}
-                                displayName={thread.profiles?.display_name}
-                                emojiId={thread.profiles?.nickname_emoji_id}
-                                isAnonymous={thread.profiles?.is_anonymous}
-                                showOutline={false}
-                                disableLink={true}
-                                className="text-sm"
-                              />
-                              <span>
-                                {formatDistanceToNow(safeDate(thread.created_at), {
-                                  locale: dateLocale,
-                                  addSuffix: true,
-                                })}
-                              </span>
-                            </div>
-                            <div className="h-px bg-border/35" />
-
-                            <Link
-                              to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
-                              className="block group/title"
-                            >
-                              <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
-                                {thread.title}
-                              </h3>
-                            </Link>
-
-                            {Array.isArray(thread.tags?.gomosub_tags) && thread.tags.gomosub_tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {thread.tags.gomosub_tags.map((tag: string) => (
-                                  <span
-                                    key={`${thread.id}-g-${tag}`}
-                                    className="inline-block px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-full border border-primary/20"
-                                  >
-                                    #{tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="relative">
-                              <div
-                                className={`text-sm sm:text-base text-foreground/90 whitespace-pre-wrap break-words leading-relaxed ${thread.content.length > 900 ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]" : ""}`}
-                              >
-                                {hasVisibilityTags(thread.content)
-                                  ? t("board.openThreadToView")
-                                  : renderContent(thread.content)}
-                              </div>
-                              {thread.content.length > 900 && (
-                                <Link
-                                  to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
-                                  className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
-                                >
-                                  Читать полностью
-                                  <ArrowUpRight className="w-4 h-4" />
-                                </Link>
-                              )}
-                            </div>
-
-                            {thread.image_url && (
-                              <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`} className="block pt-1">
-                                <img
-                                  src={storageUrl("content", thread.image_url) || thread.image_url}
-                                  alt="Thread"
-                                  className="max-w-[220px] sm:max-w-[280px] max-h-40 sm:max-h-48 object-cover rounded-md"
-                                />
-                              </Link>
-                            )}
-
-                            <div className="h-px bg-border/35 mt-1" />
-                            <div className="pt-2 flex items-center justify-between text-sm text-muted-foreground">
-                              <LikeButton
-                                postId={thread.id}
-                                currentUserId={user?.id ?? null}
-                                postAuthorId={thread.user_id}
-                                isThread={true}
-                              />
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`)}
-                                className="h-9 rounded-full px-3 gap-2"
-                              >
-                                <MessageCircle className="w-4 h-4" />
-                                {thread.post_count > 0 ? thread.post_count : 0}
-                              </Button>
-                            </div>
-
-                            {thread.latest_post?.content && (
-                              <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-                                <span className="font-medium">{t("board.lastComment")}</span>{" "}
-                                {thread.latest_post.content.slice(0, 120)}
-                                {thread.latest_post.content.length > 120 && "..."}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </Card>
+                      <GomoThreadCard
+                        key={thread.id}
+                        thread={thread}
+                        currentUserId={user?.id ?? null}
+                        currentUsername={currentUsername}
+                        currentUserColor={currentUserColor}
+                        boardPath={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`}
+                        onImageClick={(items, idx) => {
+                          setGalleryItems(items);
+                          setGalleryIndex(idx);
+                        }}
+                      />
                     ))}
                   </>
                 )}
@@ -1508,7 +1587,7 @@ const Board = () => {
 
               {threads.length === 0 && !pageLoading && !threadsLoading && (
                 <div className="text-center text-muted-foreground p-8">
-                  Тредов пока нет. Будьте первым!
+                  Записей пока нет. Будьте первым!
                 </div>
               )}
 
@@ -1520,12 +1599,135 @@ const Board = () => {
                 )}
                 {!hasMoreThreads && threads.length > 0 && (
                   <div className="text-center text-muted-foreground py-2 text-sm">
-                    Все треды загружены
+                    Все записи загружены
                   </div>
                 )}
               </div>
             </div>
           </div>
+
+          {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
+              opens at 40% height (compact but usable), dragging the handle
+              up expands it further, a fast flick up snaps it open to the
+              full screen as a full menu (where a close X appears), dragging
+              down closes it. Background stays locked while it's open.
+              The drawer must be full-height (h-full) for vaul's snap-point
+              transform math to work — with h-auto the snap geometry breaks. */}
+          <Drawer
+            open={mobileChannelsOpen}
+            onOpenChange={(open) => {
+              setMobileChannelsOpen(open);
+              if (open) {
+                // Reopening — cancel any pending snap-point reset so the sheet
+                // doesn't jump to 40% mid-open.
+                if (snapResetTimer.current !== null) {
+                  window.clearTimeout(snapResetTimer.current);
+                  snapResetTimer.current = null;
+                }
+              } else if (snapResetTimer.current === null) {
+                // Reset after the close animation, so the sheet slides down
+                // from its current snap point instead of snapping back to 40%
+                // mid-animation (a visible blink).
+                snapResetTimer.current = window.setTimeout(() => {
+                  snapResetTimer.current = null;
+                  setChannelSheetSnapPoint(0.4);
+                }, 500);
+              }
+            }}
+            snapPoints={[0.4, 1]}
+            activeSnapPoint={channelSheetSnapPoint}
+            setActiveSnapPoint={(sp) => setChannelSheetSnapPoint(sp as number)}
+            shouldScaleBackground={false}
+            handleOnly
+          >
+            <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex h-full flex-col">
+              {/* Drag handle — thin pill. vaul's default handle is a fat
+                  full-width bar; inline styles neutralize it. */}
+              <DrawerHandle
+                style={{ background: "transparent", height: "auto" }}
+                className={`w-full shrink-0 flex justify-center cursor-grab active:cursor-grabbing touch-none ${
+                  channelSheetSnapPoint === 1
+                    ? // Full screen: the sheet's top edge touches the viewport
+                      // top, so push the handle below the status bar / notch.
+                      "pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-1.5"
+                    : "pt-2 pb-1.5"
+                }`}
+              >
+                <div className="h-1 w-10 rounded-full bg-muted-foreground/25" />
+              </DrawerHandle>
+              <DrawerTitle className="sr-only">{t("board.channels")}</DrawerTitle>
+              {/* Board header */}
+              <div className="px-4 py-3 border-b border-border/60 flex items-center gap-3 shrink-0">
+                <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex items-center justify-center text-lg font-bold text-muted-foreground shrink-0">
+                  {board.gomosub_avatar_url ? (
+                    <img
+                      src={storageUrl("post-images", board.gomosub_avatar_url) || board.gomosub_avatar_url}
+                      alt={board.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span>{(board.name?.[0] || "g").toUpperCase()}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-primary truncate">g/{board.slug}</div>
+                  <div className="text-xs text-muted-foreground truncate">{board.name}</div>
+                </div>
+                {/* Full sheet: close button. Compact sheet: a + to write a
+                    post in the active channel (or general) without leaving
+                    the picker. */}
+                {channelSheetSnapPoint === 1 ? (
+                  <button
+                    onClick={() => setMobileChannelsOpen(false)}
+                    aria-label={t("common.close")}
+                    className="ml-auto shrink-0 p-2 -mr-2 rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 transition"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                ) : canCreateThread ? (
+                  <button
+                    onClick={() => {
+                      setMobileChannelsOpen(false);
+                      navigate(activeChannelSlug ? `/g/${slug}/c/${activeChannelSlug}/create` : `/g/${slug}/create`);
+                    }}
+                    aria-label={t("board.createThread")}
+                    className="ml-auto shrink-0 p-2 -mr-2 rounded-full text-primary hover:bg-primary/10 active:scale-95 transition"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                ) : null}
+              </div>
+              {/* Channel list */}
+              <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
+                {/* Switching a channel keeps the sheet open (like a native picker) — close via the X, swipe, or quick actions. */}
+                {renderChannelList(() => {})}
+              </div>
+              {/* Quick actions */}
+              <div className="px-3 py-3 border-t border-border/60 space-y-1 shrink-0">
+                {board.rules_markdown?.trim() && (
+                  <button
+                    onClick={() => { setMobileChannelsOpen(false); setShowRulesDialog(true); }}
+                    disabled={checkingRules}
+                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                  >
+                    <BookOpenText className="w-4 h-4 shrink-0" />
+                    <span>{t("board.rules")}</span>
+                  </button>
+                )}
+                {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
+                  <Link
+                    to={`/g/${slug}/settings`}
+                    onClick={() => setMobileChannelsOpen(false)}
+                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                  >
+                    <Settings className="w-4 h-4 shrink-0" />
+                    <span>{t("board.settings")}</span>
+                  </Link>
+                )}
+              </div>
+            </DrawerContent>
+          </Drawer>
+          </>
         ) : (
           <>
             <div className="mb-3 sm:mb-4">
@@ -1861,7 +2063,7 @@ const Board = () => {
 
         {threads.length === 0 && !pageLoading && !threadsLoading && (
           <div className="text-center text-muted-foreground p-8">
-            Тредов пока нет. Будьте первым!
+            Записей пока нет. Будьте первым!
           </div>
         )}
 
@@ -1874,7 +2076,7 @@ const Board = () => {
           )}
           {!hasMoreThreads && threads.length > 0 && (
             <div className="text-center text-muted-foreground py-2 text-sm">
-              Все треды загружены
+              Все записи загружены
             </div>
           )}
         </div>
@@ -1935,6 +2137,16 @@ const Board = () => {
           </Dialog>
         )}
       </main>
+
+      {/* Attachment lightbox (from WallAttachments in GomoThreadCard) */}
+      {!!galleryItems && (
+        <Lightbox
+          items={galleryItems}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryItems(null)}
+        />
+      )}
+    </>
   );
 };
 

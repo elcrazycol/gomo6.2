@@ -523,7 +523,7 @@ const GomoSubCreate = () => {
             <DialogTitle>Что такое g-саб</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 text-sm text-muted-foreground">
-            <p>g-саб напоминает доску и тред одновременно, но создается для крупного фандома или обсуждения конкретной темы.</p>
+            <p>g-саб напоминает доску и запись одновременно, но создается для крупного фандома или обсуждения конкретной темы.</p>
             <p>Если тебе нужна отдельная тематическая зона с собственными правилами и тегами - g-саб это нужный формат.</p>
             <Badge variant={guideRead ? "default" : "outline"} className="cursor-pointer" onClick={() => setGuideRead((prev) => !prev)}>
               {guideRead ? "Прочитано" : "Отметить как прочитано"}
@@ -580,7 +580,7 @@ const GomoSubCreate = () => {
               <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
                 <div className="font-medium text-sm">{String(importInfo.board_name || importInfo.board_slug)}</div>
                 <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  <div>Тредов: <span className="text-foreground">{String(importInfo.thread_count)}</span></div>
+                  <div>Записей: <span className="text-foreground">{String(importInfo.thread_count)}</span></div>
                   <div>Постов: <span className="text-foreground">{String(importInfo.post_count)}</span></div>
                   <div>Участников: <span className="text-foreground">{String(importInfo.member_count)}</span></div>
                   <div>Каналов: <span className="text-foreground">{String(importInfo.channel_count)}</span></div>

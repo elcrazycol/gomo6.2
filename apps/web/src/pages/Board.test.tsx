@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, beforeAll, afterEach, afterAll } from "vitest";
 import React from "react";
@@ -51,6 +51,22 @@ vi.mock("@/components/AgeVerification", () => ({
     ) : null,
 }));
 vi.mock("sonner", () => ({ toast: mockToast }));
+// vaul needs matchMedia/ResizeObserver plumbing that jsdom lacks — stub the
+// whole drawer module (mirrors ShareSheet.test.tsx). The mock renders the
+// content only while open, with role=dialog so the sheet assertions below
+// keep working.
+vi.mock("@/components/ui/drawer", () => ({
+  Drawer: ({ open, onOpenChange, children }: any) =>
+    open ? (
+      <div role="dialog">
+        <button onClick={() => onOpenChange(false)}>Закрыть</button>
+        {children}
+      </div>
+    ) : null,
+  DrawerContent: ({ children }: any) => <div data-testid="drawer-content">{children}</div>,
+  DrawerHandle: ({ children }: any) => <div>{children}</div>,
+  DrawerTitle: ({ children }: any) => <div>{children}</div>,
+}));
 
 const mockNavigate = vi.fn();
 const mockParams: Record<string, string | undefined> = { slug: "test", channelSlug: undefined };
@@ -63,7 +79,9 @@ vi.mock("react-router-dom", async () => {
     useParams: () => mockParams,
     useLocation: () => ({ pathname: mockPathname.current }),
     useSearchParams: () => [new URLSearchParams(""), vi.fn()],
-    Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
+    Link: ({ children, to, onClick }: { children: React.ReactNode; to: string; onClick?: (e: unknown) => void }) => (
+      <a href={to} onClick={onClick}>{children}</a>
+    ),
     // The real Navigate requires a Router context; the test renders Board bare.
     Navigate: () => null,
   };
@@ -217,7 +235,7 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getByText("Тредов пока нет. Будьте первым!")).toBeInTheDocument();
+      expect(screen.getByText("Записей пока нет. Будьте первым!")).toBeInTheDocument();
     });
   });
 
@@ -225,7 +243,7 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("Создать тред").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Создать запись").length).toBeGreaterThan(0);
     });
   });
 
@@ -236,7 +254,7 @@ describe("Board (wall)", () => {
     await waitFor(() => {
       expect(screen.getByText("Board description text")).toBeInTheDocument();
     });
-    expect(screen.queryAllByText("Создать тред").length).toBe(0);
+    expect(screen.queryAllByText("Создать запись").length).toBe(0);
   });
 
   it("navigates with a content tag filter when a filter chip is clicked", async () => {
@@ -261,7 +279,7 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("зайдите в тему чтобы посмотреть").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("зайдите в запись чтобы посмотреть").length).toBeGreaterThan(0);
     });
     expect(screen.queryAllByText(/secret/).length).toBe(0);
   });
@@ -375,5 +393,135 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     expect(screen.getByTestId("pentagram-loader")).toBeInTheDocument();
+  });
+
+  it("opens the mobile channel drawer and keeps it open after picking a channel", async () => {
+    mockParams.slug = "gsub";
+    mockPathname.current = "/g/gsub";
+    const channels = [
+      { id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false },
+      { id: "ch-2", board_id: "g-3", slug: "news", name: "Новости", category: "Инфо", sort_order: 1, is_private: false },
+      { id: "ch-3", board_id: "g-3", slug: "staff", name: "Модерация", category: "Инфо", sort_order: 2, is_private: true },
+    ];
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/channels")) return jsonResponse(channels);
+      if (url.startsWith("/api/v1/boards/")) {
+        return jsonResponse({
+          id: "g-3",
+          slug: "gsub",
+          name: "G-Sub",
+          description: "sub",
+          is_rules_board: false,
+          is_gomosub: true,
+          owner_id: "user-1",
+        });
+      }
+      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
+      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
+      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    render(<BoardComponent />);
+
+    // The mobile channel switcher (current-channel pill) renders once channels load.
+    const pill = await screen.findByTitle("Каналы");
+    expect(pill).toBeInTheDocument();
+
+    // Sheet is closed — no dialog in the DOM.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(pill);
+
+    // Sheet opens (Radix renders it in a portal with role=dialog).
+    const dialog = await screen.findByRole("dialog");
+    // Both the desktop sidebar and the sheet render the channel names.
+    expect(dialog).toHaveTextContent("Новости");
+    expect(dialog).toHaveTextContent("Модерация");
+    expect(dialog).toHaveTextContent("Основной");
+
+    // Picking a channel keeps the sheet open (native-picker behaviour) —
+    // scoped to the dialog to avoid the desktop sidebar copy, which jsdom
+    // still renders.
+    await user.click(within(dialog).getByRole("link", { name: "Новости" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("opens the create-post composer from the sheet header (+ button)", async () => {
+    mockParams.slug = "gsub";
+    mockPathname.current = "/g/gsub";
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/channels")) {
+        return jsonResponse([
+          { id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false },
+        ]);
+      }
+      if (url.startsWith("/api/v1/boards/")) {
+        return jsonResponse({ id: "g-3", slug: "gsub", name: "G-Sub", description: "sub", is_rules_board: false, is_gomosub: true, owner_id: "user-1" });
+      }
+      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
+      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
+      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    render(<BoardComponent />);
+
+    const pill = await screen.findByTitle("Каналы");
+    await user.click(pill);
+    const dialog = await screen.findByRole("dialog");
+
+    // Compact sheet: a + button in the header, next to the board identity.
+    const createBtn = within(dialog).getByRole("button", { name: "Создать запись" });
+    expect(createBtn).toBeInTheDocument();
+    await user.click(createBtn);
+
+    // No channel picked → composer opens for the sub as a whole.
+    expect(mockNavigate).toHaveBeenCalledWith("/g/gsub/create");
+  });
+
+  it("locks the page scroll the moment the channel sheet opens and restores it on close", async () => {
+    mockParams.slug = "gsub";
+    mockPathname.current = "/g/gsub";
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/channels")) {
+        return jsonResponse([{ id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false }]);
+      }
+      if (url.startsWith("/api/v1/boards/")) {
+        return jsonResponse({ id: "g-3", slug: "gsub", name: "G-Sub", description: "sub", is_rules_board: false, is_gomosub: true, owner_id: "user-1" });
+      }
+      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
+      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
+      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    render(<BoardComponent />);
+    const pill = await screen.findByTitle("Каналы");
+
+    expect(document.body.style.overflow).not.toBe("hidden");
+    await user.click(pill);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    // Lock applies immediately (while the sheet is still open).
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.overflow).toBe("hidden");
+
+    // Picking a channel keeps the sheet open, so close via the drawer mock's
+    // close button (the real overlay click is mocked away in jsdom).
+    await user.click(within(dialog).getByRole("link", { name: "Основной" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Закрыть" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    // The scroll lock is released only after the close animation (0.5s) to
+    // avoid a background flash — so wait for the release.
+    await waitFor(() => {
+      expect(document.body.style.overflow).not.toBe("hidden");
+    }, { timeout: 1500 });
   });
 });

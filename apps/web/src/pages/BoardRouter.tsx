@@ -238,7 +238,7 @@ const Board = () => {
     e.preventDefault();
 
     if (!user) {
-      toast.error("Нужно войти для создания треда");
+      toast.error("Нужно войти для создания записи");
       navigate("/auth");
       return;
     }
@@ -250,7 +250,7 @@ const Board = () => {
 
     // Check if it's a rules board and user has permissions
     if (board?.is_rules_board && !isModerator) {
-      toast.error("Только модераторы могут создавать треды здесь");
+      toast.error("Только модераторы могут создавать записи здесь");
       return;
     }
 
@@ -281,11 +281,11 @@ const Board = () => {
 
     if (!response.ok) {
       const errorData = await response.json();
-      toast.error(errorData.error || 'Ошибка создания треда');
+      toast.error(errorData.error || 'Ошибка создания записи');
       return;
     }
 
-    toast.success('Тред создан');
+    toast.success('Запись создана');
     // Raw POST bypasses query-builder — drop the threads/boards GET cache so
     // the board list shows the new thread on next load.
     invalidateByPrefix('/api/v1/threads');
@@ -400,13 +400,13 @@ const Board = () => {
 
         {canCreateThread && !showNewThread && (
           <Button onClick={() => setShowNewThread(true)} className="mb-3 sm:mb-4 text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
-            Создать тред
+            Создать запись
           </Button>
         )}
 
         {showNewThread && canCreateThread && (
           <form onSubmit={handleCreateThread} className="bg-post-header p-4 sm:p-5 border border-border mb-3 sm:mb-4 space-y-3">
-            <h3 className="font-bold mb-2">Новый тред</h3>
+            <h3 className="font-bold mb-2">Новая запись</h3>
             <Input
               placeholder="Тема"
               value={title}
@@ -560,7 +560,7 @@ const Board = () => {
 
         {threads.length === 0 && (
           <div className="text-center text-muted-foreground p-8">
-            Тредов пока нет. Будьте первым!
+            Записей пока нет. Будьте первым!
           </div>
         )}
       </main>

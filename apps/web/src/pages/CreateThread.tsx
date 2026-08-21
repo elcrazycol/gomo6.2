@@ -70,9 +70,9 @@ const ATMOSPHERE_TAGS_WITH_DESC = [
 ];
 
 const FLAG_TAGS_WITH_DESC = [
-  { value: 'normal', label: 'Обычный', description: 'Обычный тред' },
+  { value: 'normal', label: 'Обычный', description: 'Обычная запись' },
   { value: 'ephemeral', label: 'Временный', description: 'Самоуничтожение' },
-  { value: 'night', label: 'Ночной', description: 'Ночные треды' }
+  { value: 'night', label: 'Ночной', description: 'Ночные записи' }
 ];
 
 const CreateThread = () => {
@@ -232,7 +232,7 @@ const CreateThread = () => {
     }
 
     if (!tags.flag) {
-      toast.error('Выберите тип треда');
+      toast.error('Выберите тип записи');
       return;
     }
 
@@ -295,7 +295,7 @@ const CreateThread = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Ошибка создания треда');
+        throw new Error(errorData.error || 'Ошибка создания записи');
       }
 
       const responseData = await response.json();
@@ -303,10 +303,10 @@ const CreateThread = () => {
       const threadData = responseData.data || responseData;
 
       if (!threadData || !threadData.id) {
-        throw new Error('Не удалось получить ID созданного треда');
+        throw new Error('Не удалось получить ID созданной записи');
       }
 
-      toast.success('Тред создан!');
+      toast.success('Запись создана!');
       // Raw RPC write bypasses query-builder — drop the threads/boards GET cache
       // so the board list and thread counts reflect the new thread immediately.
       invalidateByPrefix('/api/v1/threads');
@@ -317,7 +317,7 @@ const CreateThread = () => {
       setImageUrls([]);
     } catch (error) {
       console.error('Error creating thread:', error);
-      toast.error('Ошибка при создании треда');
+      toast.error('Ошибка при создании записи');
     } finally {
       setLoading(false);
     }
@@ -360,7 +360,7 @@ const CreateThread = () => {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         ) : (
           <div className="text-center text-muted-foreground">
-            Выберите доску для создания треда
+            Выберите доску для создания записи
           </div>
         )}
         {renderBoardDialog}
@@ -380,7 +380,7 @@ const CreateThread = () => {
                 Назад
               </Button>
               <div>
-                <h1 className="text-lg font-semibold">Создание треда</h1>
+                <h1 className="text-lg font-semibold">Создание записи</h1>
                 <p className="text-sm text-muted-foreground">в /{board.slug}/ - {board.name}</p>
               </div>
             </div>
@@ -404,7 +404,7 @@ const CreateThread = () => {
             <div>
               <label className="text-sm font-medium mb-2 block">Заголовок</label>
               <Input
-                placeholder="Тема треда..."
+                placeholder="Тема записи..."
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="text-lg"
@@ -413,7 +413,7 @@ const CreateThread = () => {
 
             {/* Thread Image */}
             <div>
-              <label className="text-sm font-medium mb-2 block">Основное изображение треда</label>
+              <label className="text-sm font-medium mb-2 block">Основное изображение записи</label>
               <div className="flex gap-2">
                 <input
                   type="file"
@@ -497,7 +497,7 @@ const CreateThread = () => {
                       setContent(text);
                     }}
                     onSubmit={handleCreateThread}
-                    placeholder="Напишите содержание треда..."
+                    placeholder="Напишите содержание записи..."
                     minHeightClassName="min-h-[400px]"
                   />
                 </div>
@@ -511,7 +511,7 @@ const CreateThread = () => {
                     setContent(text);
                   }}
                   onSubmit={handleCreateThread}
-                  placeholder="Напишите содержание треда..."
+                  placeholder="Напишите содержание записи..."
                   minHeightClassName="min-h-[120px]"
                 />
               )}
@@ -658,7 +658,7 @@ const CreateThread = () => {
 
               {/* Required flag tag */}
               <div>
-                <h4 className="font-medium mb-3 text-red-600">* Обязательно: Тип треда</h4>
+                <h4 className="font-medium mb-3 text-red-600">* Обязательно: Тип записи</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {FLAG_TAGS_WITH_DESC.map((tag) => (
                     <button
@@ -740,9 +740,9 @@ const CreateThread = () => {
                 {/* Night thread validation */}
                 {tags.flag === 'night' && (
                   <div className="mt-4 p-4 border border-blue-200 bg-blue-50/50 rounded-lg">
-                    <h5 className="font-medium mb-2 text-blue-800">🌙 Ночной тред</h5>
+                    <h5 className="font-medium mb-2 text-blue-800">🌙 Ночная запись</h5>
                     <p className="text-sm text-blue-700">
-                      Ночные треды можно создавать только с 23:00 до 6:00. Тред будет автоматически удален в 6:00 утра.
+                      Ночные записи можно создавать только с 23:00 до 6:00. Запись будет автоматически удалена в 6:00 утра.
                     </p>
                   </div>
                 )}
@@ -806,7 +806,7 @@ const CreateThread = () => {
             {/* Create Button */}
             <div className="flex justify-end pt-6">
               <Button onClick={handleCreateThread} disabled={loading} size="lg">
-                {loading ? 'Создание...' : 'Создать тред'}
+                {loading ? 'Создание...' : 'Создать запись'}
               </Button>
             </div>
           </div>

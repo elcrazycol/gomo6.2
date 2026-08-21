@@ -26,12 +26,12 @@ export const ModeratorMenu = ({ onDelete, onEdit, onBan, type }: ModeratorMenuPr
         {onEdit && (
           <DropdownMenuItem onClick={onEdit} className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2">
             <Edit className="h-4 w-4 mr-3" />
-            Изменить {type === "post" ? "пост" : "тред"}
+            Изменить {type === "post" ? "пост" : "запись"}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={onDelete} className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2">
           <Trash2 className="h-4 w-4 mr-3" />
-          Удалить {type === "post" ? "пост" : type === "thread" ? "тред" : "профиль"}
+          Удалить {type === "post" ? "пост" : type === "thread" ? "запись" : "профиль"}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onBan} className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2">
           <Ban className="h-4 w-4 mr-3" />

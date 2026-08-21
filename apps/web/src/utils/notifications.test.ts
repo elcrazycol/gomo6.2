@@ -107,7 +107,7 @@ describe("notificationTitle", () => {
       related_thread_id: "t1",
       params: { actor: "alice" },
     };
-    expect(notificationTitle(n, t)).toBe("@alice оценил(а) ваш тред");
+    expect(notificationTitle(n, t)).toBe("@alice оценил(а) вашу запись");
   });
 
   it("renders a wall-like burst with a count", () => {
