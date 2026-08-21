@@ -4,8 +4,8 @@ import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import {
-  AlertTriangle, ChevronDown, Ghost, Heart,
-  Loader2, PencilLine, Reply, Trash2,
+  ChevronDown, Edit3, Ellipsis, Ghost, Heart,
+  Loader2, Reply, Trash2,
 } from "lucide-react";
 
 import { api } from "@/integrations/api/compat";
@@ -23,10 +23,9 @@ import { smoothScrollToElement } from "@/utils/smoothScroll";
 import { parseAttachments } from "@/components/ThreadAttachments";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from "@/components/ui/sheet";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { ProcessedContent } from "@/components/ProcessedContent";
@@ -135,7 +134,6 @@ interface ThreadPostNodeProps {
   submitEdit: (postId: string) => Promise<void>;
   deletePost: (postId: string) => Promise<void>;
   toggleLike: (post: ThreadPost) => Promise<void>;
-  openReport: (postId: string) => void;
   toggleCollapse: (postId: string) => void;
   onImageClick: (items: LightboxItem[], index: number) => void;
 }
@@ -166,13 +164,14 @@ const ThreadPostNode = ({
   submitEdit,
   deletePost,
   toggleLike,
-  openReport,
   toggleCollapse,
   onImageClick,
 }: ThreadPostNodeProps) => {
   const dateLocale = useDateLocale();
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const isHighlighted = highlightedPostId === post.id;
   const isEditing = activeEditId === post.id;
+  const isReplying = activeReplyId === post.id;
   const isCollapsed = collapsedIds.has(post.id);
   const hasChildren = children.length > 0;
   const canReply = depth < MAX_POST_DEPTH;
@@ -287,7 +286,7 @@ const ThreadPostNode = ({
                 <span className="text-xs text-muted-foreground">
                   {formatDistanceToNow(safeDate(post.created_at), { locale: dateLocale, addSuffix: true })}
                 </span>
-                {post.updated_at !== post.created_at && (
+                {post.updated_at && post.updated_at !== post.created_at && (
                   <span className="text-[11px] text-muted-foreground">(ред.)</span>
                 )}
               </div>
@@ -363,55 +362,17 @@ const ThreadPostNode = ({
                   </Button>
                 )}
 
-                {!post.is_deleted && canReply && (
+                {!post.is_deleted && canReply && currentUserId && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => startReply(post.id)}
+                    className={`h-7 gap-1 px-1.5 text-xs ${isReplying ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                    onClick={() => (isReplying ? cancelReply() : startReply(post.id))}
+                    aria-pressed={isReplying}
                   >
-                    <Reply className="h-3.5 w-3.5" />
-                    Ответить
-                  </Button>
-                )}
-
-                {!post.is_deleted && currentUserId && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => openReport(post.id)}
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Пожаловаться
-                  </Button>
-                )}
-
-                {canEdit && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => startEdit(post)}
-                  >
-                    <PencilLine className="h-3.5 w-3.5" />
-                    Изменить
-                  </Button>
-                )}
-
-                {canDelete && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-1.5 text-xs text-muted-foreground hover:text-destructive"
-                    onClick={() => deletePost(post.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Удалить
+                    <Reply className={`h-3.5 w-3.5 ${isReplying ? "fill-current" : ""}`} />
+                    <span className="hidden sm:inline">{isReplying ? "Отменить" : "Ответить"}</span>
                   </Button>
                 )}
 
@@ -426,6 +387,90 @@ const ThreadPostNode = ({
                     <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isCollapsed ? "rotate-180" : ""}`} />
                     {children.length}
                   </Button>
+                )}
+
+                {!post.is_deleted && (canEdit || canDelete) && (
+                  <>
+                    <div className="hidden items-center gap-1 sm:flex">
+                      {canEdit && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={() => (isEditing ? cancelEdit() : startEdit(post))}
+                          title="Редактировать"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={() => deletePost(post.id)}
+                          disabled={isSubmitting[`delete:${post.id}`]}
+                          title="Удалить"
+                        >
+                          {isSubmitting[`delete:${post.id}`] ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 rounded-xl text-muted-foreground sm:hidden"
+                        aria-label="Действия с постом"
+                        onClick={() => setMobileActionsOpen(true)}
+                      >
+                        <Ellipsis className="h-4 w-4" />
+                      </Button>
+                      <Sheet open={mobileActionsOpen} onOpenChange={setMobileActionsOpen}>
+                        <SheetContent side="bottom" className="rounded-t-3xl px-4 pb-8 pt-6 sm:hidden">
+                          <SheetHeader className="mb-4 text-left">
+                            <SheetTitle>Действия с постом</SheetTitle>
+                          </SheetHeader>
+                          <div className="grid gap-2">
+                            {canEdit && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-11 justify-start rounded-xl"
+                                onClick={() => {
+                                  setMobileActionsOpen(false);
+                                  if (isEditing) cancelEdit();
+                                  else startEdit(post);
+                                }}
+                              >
+                                <Edit3 className="mr-2 h-4 w-4" />Редактировать
+                              </Button>
+                            )}
+                            {canDelete && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-11 justify-start rounded-xl text-destructive hover:text-destructive"
+                                onClick={() => {
+                                  setMobileActionsOpen(false);
+                                  void deletePost(post.id);
+                                }}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />Удалить
+                              </Button>
+                            )}
+                          </div>
+                        </SheetContent>
+                      </Sheet>
+                    </>
+                  </>
                 )}
               </div>
             )}
@@ -463,7 +508,6 @@ const ThreadPostNode = ({
               submitEdit={submitEdit}
               deletePost={deletePost}
               toggleLike={toggleLike}
-              openReport={openReport}
               toggleCollapse={toggleCollapse}
               onImageClick={onImageClick}
             />
@@ -501,9 +545,6 @@ export const ThreadCommentTree = ({
   const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
   const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
   const [likes, setLikes] = useState<Record<string, LikeData>>({});
-  const [reportingPostId, setReportingPostId] = useState<string | null>(null);
-  const [reportReason, setReportReason] = useState("");
-  const [reporting, setReporting] = useState(false);
   const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [currentUsername, setCurrentUsername] = useState("");
@@ -623,15 +664,37 @@ export const ThreadCommentTree = ({
   }, [composerFocused, isTouch]);
 
   // ── Data loading ──────────────────────────────────────────────────────────
+  // The posts REST endpoint does NOT resolve `profiles:user_id(*)` — it
+  // returns profiles:null. Fetch the authors in one batch (same pattern as
+  // the board feed) and merge them into the posts.
+  const loadProfiles = useCallback(async (userIds: string[]): Promise<Map<string, ThreadPost["profiles"]>> => {
+    const unique = [...new Set(userIds.filter(Boolean))];
+    const map = new Map<string, ThreadPost["profiles"]>();
+    if (unique.length === 0) return map;
+    try {
+      const res = await fetch(`/api/v1/profiles?id=in.(${unique.join(",")})`);
+      const result = await res.json();
+      for (const p of (result.data || []) as Array<{ id: string } & ThreadPost["profiles"]>) {
+        map.set(p.id, p);
+      }
+    } catch (err) {
+      console.warn("Failed to load post profiles:", (err as Error).message);
+    }
+    return map;
+  }, []);
+
   const loadPosts = useCallback(async (): Promise<ThreadPost[]> => {
     try {
       const { data, error } = await api
         .from("posts")
-        .select("*, profiles:user_id(*)")
+        .select("*")
         .eq("thread_id", threadId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      const list = (data || []) as ThreadPost[];
+      let list = (data || []) as ThreadPost[];
+      // Attach authors (profiles are not embedded in the posts response).
+      const profiles = await loadProfiles(list.map((p) => p.user_id));
+      list = list.map((p) => ({ ...p, profiles: profiles.get(p.user_id) ?? null }));
       setPosts(list);
       setLoading(false);
       return list;
@@ -641,7 +704,7 @@ export const ThreadCommentTree = ({
       setLoading(false);
       return [];
     }
-  }, [threadId, onPostCountChange]);
+  }, [threadId, loadProfiles]);
 
   // Batch like counts (single RPC, mirrors LikesCacheContext).
   const loadLikes = useCallback(async (postIds: string[]) => {
@@ -682,15 +745,17 @@ export const ThreadCommentTree = ({
       if (!data || data.thread_id !== threadId) return;
       if (currentUserId && data.user_id === currentUserId) return; // own = optimistic reload
       try {
-        const { data: postData } = await api
+        const { data: rawPost } = await api
           .from("posts")
-          .select("*, profiles:user_id(*)")
+          .select("*")
           .eq("id", data.id)
           .maybeSingle();
-        if (!postData) return;
+        if (!rawPost) return;
+        const profiles = await loadProfiles([(rawPost as ThreadPost).user_id]);
+        const postData = { ...(rawPost as ThreadPost), profiles: profiles.get((rawPost as ThreadPost).user_id) ?? null };
         setPosts((prev) => {
           if (prev.some((p) => p.id === postData.id)) return prev;
-          return [...prev, postData as ThreadPost];
+          return [...prev, postData];
         });
         setLikes((prev) => ({ ...prev, [postData.id]: { count: 0, isLiked: false } }));
         onPostCountChange?.(1);
@@ -886,37 +951,6 @@ export const ThreadCommentTree = ({
     }
   }, [currentUserId, likes, isSubmitting]);
 
-  const submitReport = async () => {
-    if (!reportingPostId || !currentUserId) return;
-    if (!reportReason.trim()) {
-      toast.error("Укажите причину жалобы");
-      return;
-    }
-    setReporting(true);
-    try {
-      const headers = await authHeaders();
-      const res = await fetch("/api/v1/reports", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          reporter_id: currentUserId,
-          reported_post_id: reportingPostId,
-          reported_thread_id: null,
-          reason: reportReason.trim(),
-        }),
-      });
-      if (!res.ok) throw new Error("Не удалось отправить жалобу");
-      toast.success("Жалоба отправлена");
-      setReportingPostId(null);
-      setReportReason("");
-    } catch (error) {
-      console.error("Error submitting report:", error);
-      toast.error("Не удалось отправить жалобу");
-    } finally {
-      setReporting(false);
-    }
-  };
-
   const toggleCollapse = useCallback((postId: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
@@ -1028,7 +1062,6 @@ export const ThreadCommentTree = ({
               submitEdit={submitEdit}
               deletePost={deletePost}
               toggleLike={toggleLike}
-              openReport={setReportingPostId}
               toggleCollapse={toggleCollapse}
               onImageClick={(items, idx) => {
                 setGalleryItems(items);
@@ -1064,25 +1097,6 @@ export const ThreadCommentTree = ({
           />
         </div>
       )}
-
-      {/* Report dialog */}
-      <Dialog open={!!reportingPostId} onOpenChange={(open) => !open && setReportingPostId(null)}>
-        <DialogContent className="bg-background border-border">
-          <DialogHeader>
-            <DialogTitle>Пожаловаться на пост</DialogTitle>
-          </DialogHeader>
-          <Textarea
-            placeholder="Опишите причину жалобы"
-            value={reportReason}
-            onChange={(e) => setReportReason(e.target.value)}
-            rows={3}
-          />
-          <Button onClick={submitReport} disabled={reporting}>
-            {reporting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Отправить жалобу
-          </Button>
-        </DialogContent>
-      </Dialog>
 
       {/* Attachment lightbox */}
       {!!galleryItems && (

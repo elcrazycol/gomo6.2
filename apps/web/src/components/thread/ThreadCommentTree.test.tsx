@@ -133,6 +133,34 @@ describe("ThreadCommentTree", () => {
     expect(mockRpc).toHaveBeenCalledWith("get_post_likes_batch", expect.anything());
   });
 
+  it("loads author names via the profiles batch fetch (posts carry no profiles)", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "posts") return postsChain([post()]);
+      return postsChain([]);
+    });
+    // The posts REST endpoint returns profiles:null — the tree must fetch
+    // authors separately and merge them (this was the "all names Аноним" bug).
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/profiles?id=in.")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            data: [{ id: "u1", username: "lesha", display_name: "Lesha", avatar_url: null, is_anonymous: false }],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+
+    renderTree();
+
+    await waitFor(() => {
+      expect(screen.getByText("Lesha")).toBeInTheDocument();
+      expect(screen.queryByText("Аноним")).not.toBeInTheDocument();
+    });
+    expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining("/api/v1/profiles?id=in."));
+  });
+
   it("submits a top-level reply via create_post", async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "posts") return postsChain([post()]);

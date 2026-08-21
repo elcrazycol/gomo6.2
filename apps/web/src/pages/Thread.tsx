@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useThread, useThreadSubscription } from "@/hooks/queries";
 import { formatDistanceToNow } from "date-fns";
@@ -13,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import { safeDate } from "@/utils/safeDate";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { UserBadge } from "@/components/UserBadge";
-import { AlertTriangle, Bell, BellOff, ChevronLeft } from "lucide-react";
+import { Bell, BellOff, ChevronLeft, MessageCircle, Share2 } from "lucide-react";
 import { UserMenu } from "@/components/UserMenu";
 import { Poll } from "@/components/Poll";
 import type { Poll as PollData } from "@/components/Poll";
@@ -25,12 +24,6 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import type { Thread as ThreadModel } from "@/types/forum";
 import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
@@ -107,12 +100,10 @@ const Thread = () => {
   const [pollData, setPollData] = useState<PollData | null>(null);
   const [postCount, setPostCount] = useState(0);
 
-  // Thread-level editing / reporting.
+  // Thread-level editing.
   const [editingThread, setEditingThread] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [editContentJson, setEditContentJson] = useState<unknown>(null);
-  const [reportingThread, setReportingThread] = useState(false);
-  const [reportReason, setReportReason] = useState("");
 
   // Attachment gallery for the thread card.
   const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
@@ -267,36 +258,6 @@ const Thread = () => {
     }
   };
 
-  const handleReportThread = async () => {
-    if (!user) {
-      toast.error(t("thread.needLoginToReport"));
-      return;
-    }
-    if (!reportReason.trim()) {
-      toast.error(t("thread.reportReasonRequired"));
-      return;
-    }
-    try {
-      const headers = await authHeaders();
-      const res = await fetch("/api/v1/reports", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          reporter_id: user.id,
-          reported_post_id: null,
-          reported_thread_id: threadId,
-          reason: reportReason.trim(),
-        }),
-      });
-      if (!res.ok) throw new Error("Не удалось отправить жалобу");
-      toast.success(t("thread.reportSent"));
-      setReportReason("");
-      setReportingThread(false);
-    } catch {
-      toast.error(t("thread.reportSendError"));
-    }
-  };
-
   const threadPath = `${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`;
 
   // Hooks must run before the early returns below.
@@ -430,7 +391,7 @@ const Thread = () => {
                       setEditContentJson(tx.content_json ?? null);
                     }}
                     onDelete={handleDeleteThread}
-                    onReport={() => setReportingThread(true)}
+                    onReport={() => {}}
                   />
                 </div>
               )}
@@ -547,7 +508,7 @@ const Thread = () => {
                 isThread
               />
               <ActionButton
-                icon={<span className="h-4 w-4 flex items-center justify-center text-sm font-semibold">💬</span>}
+                icon={<MessageCircle className="h-4 w-4" />}
                 label="Ответы"
                 count={postCount}
                 onClick={() => {
@@ -555,20 +516,13 @@ const Thread = () => {
                 }}
               />
               <ActionButton
-                icon={<span className="h-4 w-4 flex items-center justify-center">🔗</span>}
-                label="Поделиться"
+                icon={<Share2 className="h-4 w-4" />}
+                label={t("share.title")}
                 showLabel={false}
+                title={t("share.title")}
                 disabled={!user}
                 onClick={() => setShareOpen(true)}
               />
-              {!isOwner && user && (
-                <ActionButton
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  label="Пожаловаться"
-                  showLabel={false}
-                  onClick={() => setReportingThread(true)}
-                />
-              )}
             </div>
           </div>
         </div>
@@ -582,22 +536,6 @@ const Thread = () => {
           />
         </div>
       </main>
-
-      {/* Report thread dialog */}
-      <Dialog open={reportingThread} onOpenChange={(open) => !open && setReportingThread(false)}>
-        <DialogContent className="bg-background border-border">
-          <DialogHeader>
-            <DialogTitle>{t("thread.reportThread")}</DialogTitle>
-          </DialogHeader>
-          <Textarea
-            placeholder={t("thread.reportReasonPlaceholder")}
-            value={reportReason}
-            onChange={(e) => setReportReason(e.target.value)}
-            rows={3}
-          />
-          <Button onClick={handleReportThread}>Отправить жалобу</Button>
-        </DialogContent>
-      </Dialog>
 
       {/* Attachment lightbox */}
       {!!galleryItems && (
