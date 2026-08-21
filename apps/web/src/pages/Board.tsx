@@ -32,10 +32,10 @@ import { wsService } from "@/services/websocket";
 
 // Mobile channel sheet grab zone: bottom strip of the LEFT side of the screen.
 // Height is generous (200px) so the sheet gestures are easy to hit on phones;
-// width is 80% of the screen — the remaining right strip keeps normal feed
+// width is 60% of the screen — the remaining right part keeps normal feed
 // scrolling. Used both for the swipe-up-to-open and swipe-down-to-close.
 const EDGE_ZONE_HEIGHT = 200;
-const EDGE_ZONE_WIDTH = 0.8;
+const EDGE_ZONE_WIDTH = 0.6;
 
 interface Board {
   id: string;
