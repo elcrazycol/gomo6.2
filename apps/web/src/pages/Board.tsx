@@ -1649,8 +1649,10 @@ const Board = () => {
                   <div className="font-bold text-primary truncate">g/{board.slug}</div>
                   <div className="text-xs text-muted-foreground truncate">{board.name}</div>
                 </div>
-                {/* Close button — only when the sheet is fully expanded */}
-                {channelSheetSnapPoint === 1 && (
+                {/* Full sheet: close button. Compact sheet: a + to write a
+                    post in the active channel (or general) without leaving
+                    the picker. */}
+                {channelSheetSnapPoint === 1 ? (
                   <button
                     onClick={() => setMobileChannelsOpen(false)}
                     aria-label={t("common.close")}
@@ -1658,7 +1660,18 @@ const Board = () => {
                   >
                     <X className="w-5 h-5" />
                   </button>
-                )}
+                ) : canCreateThread ? (
+                  <button
+                    onClick={() => {
+                      setMobileChannelsOpen(false);
+                      navigate(activeChannelSlug ? `/g/${slug}/c/${activeChannelSlug}/create` : `/g/${slug}/create`);
+                    }}
+                    aria-label={t("board.createThread")}
+                    className="ml-auto shrink-0 p-2 -mr-2 rounded-full text-primary hover:bg-primary/10 active:scale-95 transition"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                ) : null}
               </div>
               {/* Channel list */}
               <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
