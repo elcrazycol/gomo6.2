@@ -288,12 +288,6 @@ export const GomoThreadCard = ({
               onClick={handleOpenThread}
             />
             <ActionButton
-              icon={<ArrowUpRight className="h-4 w-4" />}
-              label="Открыть запись"
-              showLabel={false}
-              onClick={handleOpenThread}
-            />
-            <ActionButton
               icon={<Share2 className="h-4 w-4" />}
               label={t("share.title")}
               showLabel={false}
