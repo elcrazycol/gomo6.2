@@ -452,7 +452,19 @@ const CreateGomoThread = () => {
         )}
 
         {/* Editor / live preview */}
-        <div className="flex-1 min-h-0 px-4 pb-2 overflow-y-auto">
+        <div
+          className="flex-1 min-h-0 px-4 pb-2 overflow-y-auto"
+          onClick={(e) => {
+            if (showPreview) return;
+            // The tiptap editable is smaller than this pane — clicking the
+            // dead space below/around it should focus the editor, not do
+            // nothing.
+            const target = e.target as HTMLElement;
+            if (target.closest("[contenteditable]")) return;
+            if (target.closest("button, a, input, [data-radix-popper-content-wrapper]")) return;
+            editorRef.current?.focus();
+          }}
+        >
           {showPreview ? (
             <div className="py-2 pb-4">
               {title.trim() && <h2 className="text-lg font-semibold mb-2">{title}</h2>}

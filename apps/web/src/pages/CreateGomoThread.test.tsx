@@ -28,18 +28,25 @@ vi.mock("@/utils/mediaUpload", () => ({ uploadAttachments: mockUploadAttachments
 
 // GomoRichEditor pulls in tiptap + emoji context — swap for a plain textarea
 // that reports the same onChange contract ({ json, text }).
-vi.mock("@/components/GomoRichEditor", () => ({
-  GomoRichEditor: ({ onChange, placeholder, legacyContent }: any) => (
-    <div>
-      <textarea
-        data-testid="composer-editor"
-        placeholder={placeholder}
-        defaultValue={legacyContent || ""}
-        onChange={(e) => onChange({ json: { type: "doc", content: [] }, text: e.target.value })}
-      />
-    </div>
-  ),
-}));
+vi.mock("@/components/GomoRichEditor", () => {
+  const MockEditor = React.forwardRef(function MockEditor(
+    { onChange, placeholder, legacyContent }: any,
+    ref: React.Ref<HTMLTextAreaElement>
+  ) {
+    return (
+      <div>
+        <textarea
+          ref={ref}
+          data-testid="composer-editor"
+          placeholder={placeholder}
+          defaultValue={legacyContent || ""}
+          onChange={(e) => onChange({ json: { type: "doc", content: [] }, text: e.target.value })}
+        />
+      </div>
+    );
+  });
+  return { GomoRichEditor: MockEditor };
+});
 vi.mock("@/components/EmojiPicker", () => ({ EmojiPicker: ({ children }: any) => <>{children}</> }));
 vi.mock("@/components/RichContentRenderer", () => ({
   RichContentRenderer: () => <div data-testid="rich-preview">rich content</div>,
@@ -178,6 +185,20 @@ describe("CreateGomoThread (composer)", () => {
 
     await user.click(screen.getByRole("button", { name: /Редактировать/ }));
     expect(screen.getByPlaceholderText("Текст записи…")).toBeTruthy();
+  });
+
+  it("focuses the editor when clicking dead space in the pane", async () => {
+    const user = userEvent.setup();
+    render(<Component />);
+    await waitFor(() => expect(screen.getByText(/g\/test/)).toBeTruthy());
+    const editor = screen.getByTestId("composer-editor");
+    expect(document.activeElement).not.toBe(editor);
+    // Click the pane below the editor (the editor's parent div) — not the
+    // textarea itself.
+    const pane = editor.closest(".flex-1") as HTMLElement;
+    expect(pane).toBeTruthy();
+    await user.click(pane);
+    expect(document.activeElement).toBe(editor);
   });
 
   it("closes back via the X button", async () => {
