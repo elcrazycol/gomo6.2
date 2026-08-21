@@ -361,6 +361,24 @@ describe("messengerStore", () => {
       }
     });
 
+    it("does not touch the store when the read line does not advance (steady-state scroll)", () => {
+      useMessengerStore.setState({
+        conversations: [mockConv({ id: "conv-1", unread_count: 0 })],
+      });
+      const conversationsBefore = useMessengerStore.getState().conversations;
+      const convBefore = conversationsBefore[0];
+
+      // Same line reported again (scroll events while already read) and an
+      // older line (scrolling up) must not create new conversation objects —
+      // that used to re-render the whole chat on every scroll event.
+      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
+      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000001", "2025-06-01T12:00:00Z");
+      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000000", "2025-06-01T11:00:00Z");
+
+      expect(useMessengerStore.getState().conversations).toBe(conversationsBefore);
+      expect(useMessengerStore.getState().conversations[0]).toBe(convBefore);
+    });
+
     it("sends a new request when the read line advances further down", async () => {
       vi.useFakeTimers();
       try {
