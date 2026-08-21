@@ -534,10 +534,53 @@ describe("ProfileWall", () => {
     });
   });
 
-  // ─── ProfileWall: create form toggle ────────────────────────────────────────
+  // ─── ProfileWall: create form (externally controlled) ───────────────────────
 
-  it("toggles create post form when + button is clicked", async () => {
+  it("shows the create post form when createOpen is true and hides it when closed", async () => {
     setupApiMocks({ posts: [] });
+
+    const { rerender } = render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+        createOpen={false}
+        onCreateOpenChange={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
+    });
+
+    // Closed: the composer stays mounted but is collapsed (max-h-0, invisible).
+    const wrapper = document.querySelector(".origin-top-right");
+    expect(wrapper?.className).toContain("max-h-0");
+    expect(wrapper?.className).toContain("opacity-0");
+    expect(wrapper?.className).toContain("pointer-events-none");
+
+    rerender(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+        createOpen={true}
+        onCreateOpenChange={() => {}}
+      />
+    );
+
+    expect(screen.getByTestId("create-wall-post")).toBeInTheDocument();
+    expect(wrapper?.className).toContain("max-h-[1200px]");
+    expect(wrapper?.className).toContain("opacity-100");
+  });
+
+  it("reports the close request through onCreateOpenChange", async () => {
+    setupApiMocks({ posts: [] });
+    const onCreateOpenChange = vi.fn();
 
     render(
       <ProfileWallComponent
@@ -546,28 +589,23 @@ describe("ProfileWall", () => {
         currentUsername="currentuser"
         canPost={true}
         showWall={true}
+        createOpen={true}
+        onCreateOpenChange={onCreateOpenChange}
       />
     );
 
     await waitFor(() => {
       expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
     });
-
-    const plusButton = screen.getByTitle("Написать на стене");
-    await userEvent.click(plusButton);
-
     expect(screen.getByTestId("create-wall-post")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByTitle("Скрыть форму"));
-    // CreateWallPost stays in DOM via CSS visibility, check the + button returned
-    await waitFor(() => {
-      expect(screen.getByTitle("Написать на стене")).toBeInTheDocument();
-    });
+    await userEvent.click(screen.getByTestId("mock-cancel"));
+    expect(onCreateOpenChange).toHaveBeenCalledWith(false);
   });
 
-  // ─── ProfileWall: canPost=false hides create button ─────────────────────────
+  // ─── ProfileWall: canPost=false hides create form ───────────────────────────
 
-  it("hides the create button when canPost is false", async () => {
+  it("does not render the create form when canPost is false", async () => {
     setupApiMocks({ posts: [] });
 
     render(
@@ -577,6 +615,8 @@ describe("ProfileWall", () => {
         currentUsername="currentuser"
         canPost={false}
         showWall={true}
+        createOpen={true}
+        onCreateOpenChange={() => {}}
       />
     );
 
@@ -584,7 +624,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
     });
 
-    expect(screen.queryByTitle("Написать на стене")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-wall-post")).not.toBeInTheDocument();
   });
 
   // ─── ProfileWall: WS subscription lifecycle ─────────────────────────────────
@@ -1412,9 +1452,9 @@ describe("ProfileWall", () => {
     expect(img).toHaveAttribute("src");
   });
 
-  // ─── ProfileWall: standalone mode hides create button ───────────────────────
+  // ─── ProfileWall: standalone mode hides create form ─────────────────────────
 
-  it("hides create button in standalone mode", async () => {
+  it("does not render the create form in standalone mode", async () => {
     setupApiMocks({ posts: [] });
 
     render(
@@ -1425,6 +1465,8 @@ describe("ProfileWall", () => {
         canPost={true}
         showWall={true}
         standalone={true}
+        createOpen={true}
+        onCreateOpenChange={() => {}}
       />
     );
 
@@ -1432,7 +1474,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
     });
 
-    expect(screen.queryByTitle("Написать на стене")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("create-wall-post")).not.toBeInTheDocument();
   });
 
   // ─── ProfileWall: pinned posts sorted first ─────────────────────────────────
