@@ -681,6 +681,37 @@ const Board = () => {
     };
   }, [mobileChannelsOpen]);
 
+  // Lock the page scroll the INSTANT the sheet starts opening — vaul's own
+  // scroll lock engages with a delay (it's disabled while dragging / just
+  // released), so during the slide-up animation the feed behind can still
+  // scroll. overflow:hidden on html+body stops it on Android; iOS ignores
+  // overflow:hidden on the body, so touchmoves that start OUTSIDE the drawer
+  // are prevented outright (touches inside the dialog — the channel list and
+  // the drag handle — keep working).
+  useEffect(() => {
+    if (!mobileChannelsOpen) return;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevOverscroll = document.documentElement.style.overscrollBehavior;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+
+    const onTouchMove = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[role="dialog"]')) return;
+      e.preventDefault();
+    };
+    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overscrollBehavior = prevOverscroll;
+      document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
+    };
+  }, [mobileChannelsOpen]);
+
   // The channel drawer (mobile) and the desktop sidebar share this list markup.
   const renderChannelList = (onSelect: () => void) => (
     <>

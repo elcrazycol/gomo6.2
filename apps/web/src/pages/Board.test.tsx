@@ -476,4 +476,42 @@ describe("Board (wall)", () => {
     // No channel picked → composer opens for the sub as a whole.
     expect(mockNavigate).toHaveBeenCalledWith("/g/gsub/create");
   });
+
+  it("locks the page scroll the moment the channel sheet opens and restores it on close", async () => {
+    mockParams.slug = "gsub";
+    mockPathname.current = "/g/gsub";
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/channels")) {
+        return jsonResponse([{ id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false }]);
+      }
+      if (url.startsWith("/api/v1/boards/")) {
+        return jsonResponse({ id: "g-3", slug: "gsub", name: "G-Sub", description: "sub", is_rules_board: false, is_gomosub: true, owner_id: "user-1" });
+      }
+      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
+      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
+      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    render(<BoardComponent />);
+    const pill = await screen.findByTitle("Каналы");
+
+    expect(document.body.style.overflow).not.toBe("hidden");
+    await user.click(pill);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    // Lock applies immediately (while the sheet is still open).
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.overflow).toBe("hidden");
+
+    // Close via the X in the fully-expanded state, or simply the overlay…
+    // here we close by unmounting the sheet through the dialog's close path:
+    // the X only exists at snap point 1, so pick a channel to close instead.
+    await user.click(within(dialog).getByRole("link", { name: "Основной" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(document.body.style.overflow).not.toBe("hidden");
+  });
 });
