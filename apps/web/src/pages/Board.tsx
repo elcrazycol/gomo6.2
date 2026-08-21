@@ -127,6 +127,9 @@ const Board = () => {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
+  // Tracks the channel sheet snap point (0.4 = compact, 1 = full screen) so we
+  // can show a close button only when the sheet is fully expanded.
+  const [channelSheetSnapPoint, setChannelSheetSnapPoint] = useState<number>(0.4);
   const edgeSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
   const [isBoardOwner, setIsBoardOwner] = useState(false);
@@ -1600,23 +1603,32 @@ const Board = () => {
           </div>
 
           {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
-              opens at 85% height (like the old sheet — fully usable right
-              away), dragging the handle up expands it further, a fast flick
-              up snaps it open to the full screen as a full menu, dragging
+              opens at 40% height (compact but usable), dragging the handle
+              up expands it further, a fast flick up snaps it open to the
+              full screen as a full menu (where a close X appears), dragging
               down closes it. Background stays locked while it's open.
               The drawer must be full-height (h-full) for vaul's snap-point
-              transform math to work — with h-auto it shows a broken ~35%
-              sliver that forces a drag to become usable. */}
+              transform math to work — with h-auto the snap geometry breaks. */}
           <Drawer
             open={mobileChannelsOpen}
-            onOpenChange={setMobileChannelsOpen}
-            snapPoints={[0.85, 1]}
+            onOpenChange={(open) => {
+              setMobileChannelsOpen(open);
+              // Reopen in the compact state next time.
+              if (!open) setChannelSheetSnapPoint(0.4);
+            }}
+            snapPoints={[0.4, 1]}
+            activeSnapPoint={channelSheetSnapPoint}
+            setActiveSnapPoint={(sp) => setChannelSheetSnapPoint(sp as number)}
             shouldScaleBackground={false}
             handleOnly
           >
             <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex h-full flex-col">
-              {/* Drag handle — the pill, with a wide touch strip above it */}
-              <DrawerHandle className="w-full shrink-0 pt-3 pb-1 flex justify-center cursor-grab active:cursor-grabbing touch-none">
+              {/* Drag handle — thin pill. vaul's default handle is a fat
+                  full-width bar; inline styles neutralize it. */}
+              <DrawerHandle
+                style={{ background: "transparent", height: "auto" }}
+                className="w-full shrink-0 pt-2 pb-1.5 flex justify-center cursor-grab active:cursor-grabbing touch-none"
+              >
                 <div className="h-1 w-10 rounded-full bg-muted-foreground/25" />
               </DrawerHandle>
               <DrawerTitle className="sr-only">{t("board.channels")}</DrawerTitle>
@@ -1637,6 +1649,16 @@ const Board = () => {
                   <div className="font-bold text-primary truncate">g/{board.slug}</div>
                   <div className="text-xs text-muted-foreground truncate">{board.name}</div>
                 </div>
+                {/* Close button — only when the sheet is fully expanded */}
+                {channelSheetSnapPoint === 1 && (
+                  <button
+                    onClick={() => setMobileChannelsOpen(false)}
+                    aria-label={t("common.close")}
+                    className="ml-auto shrink-0 p-2 -mr-2 rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 transition"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
               </div>
               {/* Channel list */}
               <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
