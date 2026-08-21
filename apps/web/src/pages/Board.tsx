@@ -1600,17 +1600,21 @@ const Board = () => {
           </div>
 
           {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
-              opens at 80% height, drag the handle up to expand it to the full
-              screen (fast flick up snaps it open as a full menu), drag down to
-              close. Background stays locked while it's open. */}
+              opens at 85% height (like the old sheet — fully usable right
+              away), dragging the handle up expands it further, a fast flick
+              up snaps it open to the full screen as a full menu, dragging
+              down closes it. Background stays locked while it's open.
+              The drawer must be full-height (h-full) for vaul's snap-point
+              transform math to work — with h-auto it shows a broken ~35%
+              sliver that forces a drag to become usable. */}
           <Drawer
             open={mobileChannelsOpen}
             onOpenChange={setMobileChannelsOpen}
-            snapPoints={[0.8, 1]}
+            snapPoints={[0.85, 1]}
             shouldScaleBackground={false}
             handleOnly
           >
-            <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex flex-col">
+            <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex h-full flex-col">
               {/* Drag handle — the pill, with a wide touch strip above it */}
               <DrawerHandle className="w-full shrink-0 pt-3 pb-1 flex justify-center cursor-grab active:cursor-grabbing touch-none">
                 <div className="h-1 w-10 rounded-full bg-muted-foreground/25" />
