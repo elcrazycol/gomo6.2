@@ -22,6 +22,8 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { RichContentRenderer } from "@/components/RichContentRenderer";
+import { PublishButton } from "@/components/PublishButton";
+import { getPublishButtonStyle } from "@/lib/publishButtonStyle";
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 
@@ -58,6 +60,8 @@ const CreateGomoThread = () => {
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  // Publish button style — read once on mount (user picks it in Settings → Appearance).
+  const [publishButtonStyle] = useState(getPublishButtonStyle);
   const [showPreview, setShowPreview] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
@@ -549,9 +553,7 @@ const CreateGomoThread = () => {
             onChange={handleFiles}
           />
           <div className="flex-1" />
-          <Button size="sm" className="h-9 px-3.5" onClick={handleCreate} disabled={!canSubmit}>
-            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Опубликовать"}
-          </Button>
+          <PublishButton style={publishButtonStyle} creating={creating} disabled={!canSubmit} onClick={handleCreate} />
         </div>
       </div>
 

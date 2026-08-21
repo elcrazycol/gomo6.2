@@ -13,13 +13,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2 } from "lucide-react";
+import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, Send } from "lucide-react";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { LanguageSelector } from "@/components/LanguageSelector";
+import { PublishButton } from "@/components/PublishButton";
+import { PUBLISH_BUTTON_STYLES, getPublishButtonStyle, setPublishButtonStyle, type PublishButtonStyle } from "@/lib/publishButtonStyle";
 
 
 const defaultPrivacySettings = {
@@ -103,6 +105,8 @@ const Settings = () => {
   const [privacyLoading, setPrivacyLoading] = useState(false);
   const [themesExpanded, setThemesExpanded] = useState(false);
   const [fontSettingsExpanded, setFontSettingsExpanded] = useState(false);
+  const [publishButtonExpanded, setPublishButtonExpanded] = useState(false);
+  const [publishButtonStyle, setPublishButtonStyleState] = useState<PublishButtonStyle>(getPublishButtonStyle);
 
   const [customFont, setCustomFont] = useState(() => {
     return localStorage.getItem('custom_font') || '';
@@ -395,6 +399,11 @@ const Settings = () => {
   const handleSenderDisplayTypeChange = (value: 'classic' | 'modern') => {
     setSenderDisplayType(value);
     localStorage.setItem('sender-display-type', value);
+  };
+
+  const handlePublishButtonStyleChange = (style: PublishButtonStyle) => {
+    setPublishButtonStyleState(style);
+    setPublishButtonStyle(style);
   };
 
   const handleTabChange = (value: string) => {
@@ -694,6 +703,57 @@ const Settings = () => {
                   </CollapsibleContent>
                 </Collapsible>
 
+                {/* Publish button style */}
+                <Collapsible open={publishButtonExpanded} onOpenChange={setPublishButtonExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <Send className="h-5 w-5" />
+                        <span className="text-lg font-semibold">Кнопка публикации</span>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 transition-transform ${publishButtonExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
+                    <div className="bg-card border border-border p-4 sm:p-6 space-y-4">
+                      <p className="text-sm text-muted-foreground">
+                        Стиль кнопки «Опубликовать» в редакторе записи g-саба.
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {PUBLISH_BUTTON_STYLES.map((s) => {
+                          const isSelected = publishButtonStyle === s.id;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => handlePublishButtonStyleChange(s.id)}
+                              className={`group relative rounded-2xl border p-3 text-left transition-all duration-200 ${
+                                isSelected
+                                  ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_hsl(var(--primary)/0.22),0_10px_28px_hsl(var(--primary)/0.1)]"
+                                  : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="font-semibold leading-tight">{s.label}</div>
+                                  <div className="text-xs text-muted-foreground">{s.description}</div>
+                                </div>
+                                <span
+                                  className={`h-3 w-3 shrink-0 rounded-full border transition-all duration-200 ${
+                                    isSelected ? "scale-110 bg-primary ring-4 ring-primary/15" : "border-foreground/20"
+                                  }`}
+                                />
+                              </div>
+                              <div className="mt-3 flex min-h-[52px] items-center justify-center rounded-xl border border-border/60 bg-background/50 p-2">
+                                <PublishButton style={s.id} onClick={() => {}} />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
 
               </TabsContent>
 
