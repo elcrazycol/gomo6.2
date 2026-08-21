@@ -650,18 +650,36 @@ const Board = () => {
   // POLLING window.scrollY every frame — iOS is unreliable about delivering
   // scroll events during the momentum phase (and about delivering touches at
   // all while a scroll gesture owns the screen), but scrollY always reflects
-  // reality. While momentum is active a transparent touch-none overlay sits on
-  // the grab zone: `touch-action: none` tells iOS the touch is not a scroll,
-  // so it is delivered immediately even mid-momentum, and the sheet opens
-  // right away — the 48px threshold can't be used because iOS suppresses
-  // touchmoves until the scroll settles.
+  // reality.
+  //
+  // On iOS, EVERY touch during the glide is swallowed — even on elements with
+  // touch-action:none — so a grab-zone swipe can never arrive mid-momentum.
+  // The only reliable fix is to cancel the momentum itself: once the finger
+  // lifts (touchend) any further scrollY movement is the glide, and a
+  // programmatic scrollTo interrupts the scroll gesture, so the feed stops
+  // within a frame. The next touch then always lands on an idle feed and the
+  // normal 48px-threshold swipe works. The user's own drag (finger down) is
+  // never touched, and only iOS is affected (Android delivers touches during
+  // fling and already works).
   const scrollActiveRef = useRef(false);
-  const [momentumActive, setMomentumActive] = useState(false);
+  const fingerDownRef = useRef(false);
 
   useEffect(() => {
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
     let raf = 0;
     let lastY = window.scrollY;
     let lastChangedAt = 0;
+
+    const onTouchStart = () => {
+      fingerDownRef.current = true;
+    };
+    const onTouchEnd = () => {
+      fingerDownRef.current = false;
+    };
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+
     const tick = () => {
       const y = window.scrollY;
       const now = performance.now();
@@ -669,15 +687,22 @@ const Board = () => {
         lastY = y;
         lastChangedAt = now;
         scrollActiveRef.current = true;
-        setMomentumActive(true); // bails out when already true
+        if (isIOS && isTouch && !fingerDownRef.current) {
+          // Finger is up and the position is still changing → the glide.
+          // Interrupt the scroll gesture so it stops right now.
+          window.scrollTo(window.scrollX, y);
+        }
       } else if (now - lastChangedAt > 400) {
         scrollActiveRef.current = false;
-        setMomentumActive(false); // bails out when already false
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
   }, []);
 
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
@@ -1684,21 +1709,6 @@ const Board = () => {
               </div>
             </div>
           </div>
-
-          {/* Grab-zone touch catcher — only while the feed is momentum-
-              scrolling. touch-action:none tells iOS this touch is not a
-              scroll, so it is delivered immediately even during deceleration
-              (a plain document touchstart is swallowed until the scroll
-              settles) and the sheet opens right away. */}
-          {momentumActive && !mobileChannelsOpen && (
-            <div
-              className="fixed bottom-0 left-0 h-20 w-1/2 z-40 touch-none"
-              onTouchStart={(e) => {
-                e.preventDefault();
-                setMobileChannelsOpen(true);
-              }}
-            />
-          )}
 
           {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
               opens at 40% height (compact but usable), dragging the handle
