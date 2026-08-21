@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ArrowUpRight, Check, Copy, Loader2, Mail, Search, Send, Share2, X } from "lucide-react";
+import { Check, Copy, Loader2, Mail, Search, Send, Share2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
@@ -496,7 +496,6 @@ export const ShareSheet = ({ open, onOpenChange, target, url, title }: ShareShee
           <DialogTitle className="flex items-center gap-2 text-base">
             <Share2 className="h-4 w-4" />
             {t("share.title")}
-            <ArrowUpRight className="ml-auto h-4 w-4 text-muted-foreground" />
           </DialogTitle>
         </DialogHeader>
         {body}

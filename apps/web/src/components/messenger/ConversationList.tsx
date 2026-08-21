@@ -87,7 +87,11 @@ const ConversationCard = memo(function ConversationCard({
           </div>
         </div>
         <div className="conversation-meta">
-          {conversation.last_message_preview ? (
+          {/* For 1:1 chats show the interlocutor's @username instead of the
+              last message text; groups keep the last message preview. */}
+          {!conversation.is_group && conversation.other_username ? (
+            <span className="conversation-preview muted">@{conversation.other_username}</span>
+          ) : conversation.last_message_preview ? (
             <span className="conversation-preview">{conversation.last_message_preview}</span>
           ) : !conversation.is_group && (conversation.other_is_online || conversation.other_last_seen_at) ? (
             <span className="conversation-preview muted">
