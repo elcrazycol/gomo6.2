@@ -646,27 +646,38 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.name || null;
   }, [activeChannelId, channels]);
 
-  // True while the page is still decelerating (momentum scroll). During
-  // momentum iOS suppresses touchmove delivery until the scroll settles, so a
-  // grab-zone touch mid-scroll would never reach the 48px threshold — instead
-  // the touch itself (which already stops the momentum) opens the sheet
-  // immediately.
+  // True while the page is still decelerating (momentum scroll). Detected by
+  // POLLING window.scrollY every frame — iOS is unreliable about delivering
+  // scroll events during the momentum phase (and about delivering touches at
+  // all while a scroll gesture owns the screen), but scrollY always reflects
+  // reality. While momentum is active a transparent touch-none overlay sits on
+  // the grab zone: `touch-action: none` tells iOS the touch is not a scroll,
+  // so it is delivered immediately even mid-momentum, and the sheet opens
+  // right away — the 48px threshold can't be used because iOS suppresses
+  // touchmoves until the scroll settles.
   const scrollActiveRef = useRef(false);
-  const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [momentumActive, setMomentumActive] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => {
-      scrollActiveRef.current = true;
-      if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current);
-      scrollIdleTimerRef.current = setTimeout(() => {
+    let raf = 0;
+    let lastY = window.scrollY;
+    let lastChangedAt = 0;
+    const tick = () => {
+      const y = window.scrollY;
+      const now = performance.now();
+      if (y !== lastY) {
+        lastY = y;
+        lastChangedAt = now;
+        scrollActiveRef.current = true;
+        setMomentumActive(true); // bails out when already true
+      } else if (now - lastChangedAt > 400) {
         scrollActiveRef.current = false;
-      }, 300);
+        setMomentumActive(false); // bails out when already false
+      }
+      raf = requestAnimationFrame(tick);
     };
-    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
-    return () => {
-      document.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
-      if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current);
-    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
@@ -694,9 +705,7 @@ const Board = () => {
       edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
       // Content is still moving: the touch already stopped the momentum, so
       // open the sheet right away instead of waiting for suppressed moves.
-      const wasScrolling = scrollActiveRef.current;
-      scrollActiveRef.current = false;
-      if (wasScrolling) {
+      if (scrollActiveRef.current) {
         setMobileChannelsOpen(true);
         edgeSwipeStart.current = null;
       }
@@ -1675,6 +1684,21 @@ const Board = () => {
               </div>
             </div>
           </div>
+
+          {/* Grab-zone touch catcher — only while the feed is momentum-
+              scrolling. touch-action:none tells iOS this touch is not a
+              scroll, so it is delivered immediately even during deceleration
+              (a plain document touchstart is swallowed until the scroll
+              settles) and the sheet opens right away. */}
+          {momentumActive && !mobileChannelsOpen && (
+            <div
+              className="fixed bottom-0 left-0 h-20 w-1/2 z-40 touch-none"
+              onTouchStart={(e) => {
+                e.preventDefault();
+                setMobileChannelsOpen(true);
+              }}
+            />
+          )}
 
           {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
               opens at 40% height (compact but usable), dragging the handle
