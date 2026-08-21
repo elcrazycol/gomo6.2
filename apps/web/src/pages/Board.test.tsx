@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, beforeAll, afterEach, afterAll } from "vitest";
 import React from "react";
@@ -63,7 +63,9 @@ vi.mock("react-router-dom", async () => {
     useParams: () => mockParams,
     useLocation: () => ({ pathname: mockPathname.current }),
     useSearchParams: () => [new URLSearchParams(""), vi.fn()],
-    Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
+    Link: ({ children, to, onClick }: { children: React.ReactNode; to: string; onClick?: (e: unknown) => void }) => (
+      <a href={to} onClick={onClick}>{children}</a>
+    ),
     // The real Navigate requires a Router context; the test renders Board bare.
     Navigate: () => null,
   };
@@ -375,5 +377,59 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     expect(screen.getByTestId("pentagram-loader")).toBeInTheDocument();
+  });
+
+  it("opens the mobile channel drawer and closes it after picking a channel", async () => {
+    mockParams.slug = "gsub";
+    mockPathname.current = "/g/gsub";
+    const channels = [
+      { id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false },
+      { id: "ch-2", board_id: "g-3", slug: "news", name: "Новости", category: "Инфо", sort_order: 1, is_private: false },
+      { id: "ch-3", board_id: "g-3", slug: "staff", name: "Модерация", category: "Инфо", sort_order: 2, is_private: true },
+    ];
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/channels")) return jsonResponse(channels);
+      if (url.startsWith("/api/v1/boards/")) {
+        return jsonResponse({
+          id: "g-3",
+          slug: "gsub",
+          name: "G-Sub",
+          description: "sub",
+          is_rules_board: false,
+          is_gomosub: true,
+          owner_id: "user-1",
+        });
+      }
+      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
+      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
+      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    render(<BoardComponent />);
+
+    // The mobile channel switcher (hamburger) renders once channels load.
+    const switchers = await screen.findAllByTitle("Каналы");
+    expect(switchers.length).toBeGreaterThan(0);
+
+    // Drawer is closed — no dialog in the DOM.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(switchers[0]);
+
+    // Drawer opens (Radix renders it in a portal with role=dialog).
+    const dialog = await screen.findByRole("dialog");
+    // Both the desktop sidebar and the drawer render the channel names.
+    expect(dialog).toHaveTextContent("Новости");
+    expect(dialog).toHaveTextContent("Модерация");
+    expect(dialog).toHaveTextContent("Основной");
+
+    // Picking a channel closes the drawer (scoped to the dialog to avoid the
+    // desktop sidebar copy, which jsdom still renders).
+    await user.click(within(dialog).getByRole("link", { name: "Новости" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 });

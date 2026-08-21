@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
@@ -17,7 +18,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, Hash, Lock, Settings } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings, Menu } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -125,6 +126,8 @@ const Board = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
+  const edgeSwipeStartX = useRef<number | null>(null);
   const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
   const [isBoardOwner, setIsBoardOwner] = useState(false);
   
@@ -635,6 +638,75 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.slug || null;
   }, [activeChannelId, channels]);
 
+  const activeChannelName = useMemo(() => {
+    if (!activeChannelId) return null;
+    return channels.find((ch) => ch.id === activeChannelId)?.name || null;
+  }, [activeChannelId, channels]);
+
+  // Mobile: swipe from the left edge to open the channel drawer.
+  const onMobileTouchStart = (e: React.TouchEvent) => {
+    if (mobileChannelsOpen) return;
+    const touch = e.touches[0];
+    if (touch && touch.clientX <= 24) edgeSwipeStartX.current = touch.clientX;
+  };
+  const onMobileTouchMove = (e: React.TouchEvent) => {
+    if (edgeSwipeStartX.current == null) return;
+    const touch = e.touches[0];
+    if (touch && touch.clientX - edgeSwipeStartX.current > 64) {
+      setMobileChannelsOpen(true);
+      edgeSwipeStartX.current = null;
+    }
+  };
+  const onMobileTouchEnd = () => {
+    edgeSwipeStartX.current = null;
+  };
+
+  // The channel drawer (mobile) and the desktop sidebar share this list markup.
+  const renderChannelList = (onSelect: () => void) => (
+    <>
+      <Link
+        to={`/g/${slug}`}
+        onClick={() => { setActiveChannelId(null); onSelect(); }}
+        className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
+          !activeChannelId
+            ? "bg-primary/10 text-primary font-medium"
+            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+        }`}
+      >
+        <Hash className="w-4 h-4 shrink-0" />
+        <span className="truncate">{t("board.general")}</span>
+      </Link>
+      {channelCategories.map((group) => (
+        <div key={group.category || "__uncategorized"} className="mt-1.5">
+          {group.category && (
+            <div className="px-2 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
+              {group.category}
+            </div>
+          )}
+          {group.channels.map((ch) => (
+            <Link
+              key={ch.id}
+              to={`/g/${slug}/c/${ch.slug}`}
+              onClick={onSelect}
+              className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
+                activeChannelSlug === ch.slug
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              {ch.is_private ? (
+                <Lock className="w-4 h-4 shrink-0 text-amber-500" />
+              ) : (
+                <Hash className="w-4 h-4 shrink-0" />
+              )}
+              <span className="truncate">{ch.name}</span>
+            </Link>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+
   const canCreateThread = user && (!board?.is_rules_board || isModerator);
   const hasSecondaryActions = isGomoRoute || (!isGomoRoute && (searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag')));
 
@@ -825,7 +897,12 @@ const Board = () => {
   const hasChannels = isGomoRoute && channels.length > 0;
 
   return (
-    <main className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
+    <main
+      className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}
+      onTouchStart={onMobileTouchStart}
+      onTouchMove={onMobileTouchMove}
+      onTouchEnd={onMobileTouchEnd}
+    >
         {/* Board header — always full width */}
         <div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
@@ -1237,9 +1314,10 @@ const Board = () => {
 
         {/* Content area — with sidebar for gomosub, plain otherwise */}
         {hasChannels ? (
+          <>
           <div className="flex gap-0 flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5">
             {/* Collapsible channel sidebar — floating card, sticky to viewport */}
-            <aside className={`shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
+            <aside className={`hidden md:block shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
               <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${sidebarCollapsed ? 'hidden' : ''}`}>
                 {/* Sidebar header with collapse button */}
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
@@ -1255,48 +1333,7 @@ const Board = () => {
                 {/* Channel list — scrollable */}
                 <div className="max-h-[calc(100vh-9rem)] overflow-y-auto px-3 pb-3">
                 
-                {/* General channel — always first */}
-                <Link
-                  to={`/g/${slug}`}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors mb-0.5 ${
-                    !activeChannelId
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                  }`}
-                  onClick={() => setActiveChannelId(null)}
-                >
-                  <Hash className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t("board.general")}</span>
-                </Link>
-                
-                {/* Categorized channels */}
-                {channelCategories.map((group) => (
-                  <div key={group.category || '__uncategorized'} className="mt-1.5">
-                    {group.category && (
-                      <div className="px-2 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
-                        {group.category}
-                      </div>
-                    )}
-                    {group.channels.map((ch) => (
-                      <Link
-                        key={ch.id}
-                        to={`/g/${slug}/c/${ch.slug}`}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
-                          activeChannelSlug === ch.slug
-                            ? "bg-primary/10 text-primary font-medium"
-                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                        }`}
-                      >
-                        {ch.is_private ? (
-                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                        ) : (
-                          <Hash className="w-3.5 h-3.5 shrink-0" />
-                        )}
-                        <span className="truncate">{ch.name}</span>
-                      </Link>
-                    ))}
-                  </div>
-                ))}
+                {renderChannelList(() => {})}
                 
                 {/* Quick actions at bottom of sidebar */}
                 <div className="mt-3 pt-3 border-t border-border/40 px-2 space-y-1">
@@ -1328,7 +1365,7 @@ const Board = () => {
             {sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
+                className="hidden md:flex shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
                 title={t("board.showChannels")}
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1339,6 +1376,37 @@ const Board = () => {
             <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-4 md:p-5">
               <div className="mb-3 sm:mb-4">
                 <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {/* Mobile channel switcher — opens the channel drawer (Discord-style) */}
+                  <button
+                    onClick={() => setMobileChannelsOpen(true)}
+                    className="md:hidden h-8 w-8 rounded-lg border border-border/50 bg-card flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    title={t("board.channels")}
+                    aria-label={t("board.channels")}
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setMobileChannelsOpen(true)}
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    title={t("board.channels")}
+                  >
+                    {activeChannelId ? (
+                      <>
+                        {channels.find((ch) => ch.id === activeChannelId)?.is_private ? (
+                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                        ) : (
+                          <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate">{activeChannelName || activeChannelSlug}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{t("board.general")}</span>
+                      </>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
+                  </button>
                   {canCreateThread && (
                     <Button
                       onClick={() =>
@@ -1526,6 +1594,61 @@ const Board = () => {
               </div>
             </div>
           </div>
+
+          {/* Mobile channel drawer — Discord-style: full-height left panel with
+              the channel list; picking a channel drops you into it. Only used
+              below md (the desktop sidebar handles md+). */}
+          <Sheet open={mobileChannelsOpen} onOpenChange={setMobileChannelsOpen}>
+            <SheetContent side="left" className="w-[85vw] max-w-[340px] p-0 flex flex-col gap-0">
+              <SheetTitle className="sr-only">{t("board.channels")}</SheetTitle>
+              {/* Board header */}
+              <div className="p-4 border-b border-border/60 flex items-center gap-3 shrink-0">
+                <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex items-center justify-center text-lg font-bold text-muted-foreground shrink-0">
+                  {board.gomosub_avatar_url ? (
+                    <img
+                      src={storageUrl("post-images", board.gomosub_avatar_url) || board.gomosub_avatar_url}
+                      alt={board.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span>{(board.name?.[0] || "g").toUpperCase()}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-primary truncate">g/{board.slug}</div>
+                  <div className="text-xs text-muted-foreground truncate">{board.name}</div>
+                </div>
+              </div>
+              {/* Channel list */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-0.5">
+                {renderChannelList(() => setMobileChannelsOpen(false))}
+              </div>
+              {/* Quick actions */}
+              <div className="p-3 border-t border-border/60 space-y-1 shrink-0">
+                {board.rules_markdown?.trim() && (
+                  <button
+                    onClick={() => { setMobileChannelsOpen(false); setShowRulesDialog(true); }}
+                    disabled={checkingRules}
+                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                  >
+                    <BookOpenText className="w-4 h-4 shrink-0" />
+                    <span>{t("board.rules")}</span>
+                  </button>
+                )}
+                {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
+                  <Link
+                    to={`/g/${slug}/settings`}
+                    onClick={() => setMobileChannelsOpen(false)}
+                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                  >
+                    <Settings className="w-4 h-4 shrink-0" />
+                    <span>{t("board.settings")}</span>
+                  </Link>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+          </>
         ) : (
           <>
             <div className="mb-3 sm:mb-4">
