@@ -1,18 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { AttachmentUpload } from "@/components/AttachmentUpload";
-import { AttachmentMeta } from "@/utils/mediaUpload";
-import { Loader2, Smile, X } from "lucide-react";
+import { uploadAttachments, type AttachmentMeta } from "@/utils/mediaUpload";
+import {
+  Loader2,
+  Smile,
+  X,
+  Eye,
+  PenLine,
+  Paperclip,
+  FileText,
+  FileVideo2,
+  Music,
+} from "lucide-react";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { RichContentRenderer } from "@/components/RichContentRenderer";
 
 type GomoBoard = {
   id: string;
@@ -21,6 +30,18 @@ type GomoBoard = {
   description: string | null;
   gomosub_tags: string[] | null;
 };
+
+interface Draft {
+  title: string;
+  content: string;
+  contentJson: unknown;
+  attachments: AttachmentMeta[];
+}
+
+const DRAFT_PREFIX = "gomo6:composer-draft:";
+const MAX_ATTACHMENTS = 10;
+
+const draftKey = (boardId: string) => `${DRAFT_PREFIX}${boardId}`;
 
 const CreateGomoThread = () => {
   const { slug, channelSlug } = useParams();
@@ -33,17 +54,19 @@ const CreateGomoThread = () => {
   const [content, setContent] = useState("");
   const [contentJson, setContentJson] = useState<unknown>(null);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
-
-  // Adapter to match AttachmentUpload's expected onChange type
-  const onAttachmentsChange = (attachments: AttachmentMeta[]) => {
-    setAttachments(attachments);
-  };
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const editorRef = useRef<GomoRichEditorHandle | null>(null);
-  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [restoredDraft, setRestoredDraft] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
+  const editorRef = useRef<GomoRichEditorHandle | null>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load board + resolve channel slug → id, then restore the draft (if any).
   useEffect(() => {
     const loadBoard = async () => {
       setLoadingBoard(true);
@@ -76,16 +99,61 @@ const CreateGomoThread = () => {
         }
       }
 
+      // Restore an autosaved draft for this board.
+      try {
+        const raw = localStorage.getItem(draftKey(data.id));
+        if (raw) {
+          const draft = JSON.parse(raw) as Draft;
+          if (draft?.title || draft?.content || draft?.attachments?.length) {
+            setTitle(draft.title || "");
+            setContent(draft.content || "");
+            setContentJson(draft.contentJson ?? null);
+            setAttachments(draft.attachments || []);
+            setRestoredDraft(true);
+          }
+        }
+      } catch {
+        // Corrupt draft — ignore.
+      }
+
       setLoadingBoard(false);
     };
 
     loadBoard();
   }, [navigate, slug, channelSlug]);
 
-  const imageUrl = useMemo(
-    () => attachments.find((att) => att.type === "image")?.url || null,
-    [attachments]
-  );
+  // Autosave the draft (debounced) once the board is known.
+  useEffect(() => {
+    if (!board) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      const draft: Draft = { title, content, contentJson, attachments };
+      try {
+        localStorage.setItem(draftKey(board.id), JSON.stringify(draft));
+      } catch {
+        // Storage full — ignore, publishing still works.
+      }
+    }, 350);
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, [board, title, content, contentJson, attachments]);
+
+  // Escape closes the composer (browser back also works).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        navigate(-1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate]);
+
+  const close = useCallback(() => navigate(-1), [navigate]);
+
+  const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !creating;
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
@@ -112,6 +180,26 @@ const CreateGomoThread = () => {
     [attachments]
   );
 
+  const handleFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    if (attachments.length + files.length > MAX_ATTACHMENTS) {
+      toast.error(`Максимум ${MAX_ATTACHMENTS} файлов`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploaded = await uploadAttachments(files, "content");
+      setAttachments((prev) => [...prev, ...uploaded]);
+    } catch (err) {
+      console.error("Attachment upload error", err);
+      toast.error("Не удалось загрузить файлы");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleEmojiSelect = (data: { emojiId: string; packId: string; url: string; name: string }) => {
     editorRef.current?.focus();
     editorRef.current?.insertEmoji(data);
@@ -126,13 +214,12 @@ const CreateGomoThread = () => {
 
     setCreating(true);
     try {
-      // Use RPC backend API (not old PostgREST-style POST /api/v1/threads)
-      const threadPayload: Record<string, unknown> = {
+      const payload: Record<string, unknown> = {
         board_id: board.id,
         title: title.trim(),
         content: content.trim(),
         content_json: contentJson,
-        image_urls: imageUrl ? [imageUrl] : [],
+        image_urls: imageAttachments.length ? imageAttachments.map((a) => a.url) : [],
         attachments: attachments.length ? attachments : null,
         ...(channelId ? { channel_id: channelId } : {}),
       };
@@ -145,175 +232,273 @@ const CreateGomoThread = () => {
         return;
       }
 
-      const response = await fetch('/api/rpc/create_thread', {
-        method: 'POST',
+      const response = await fetch("/api/rpc/create_thread", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(threadPayload),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        toast.error(errData.error || 'Ошибка при создании треда');
+        toast.error(errData.error || "Ошибка при публикации записи");
         return;
       }
 
       const responseData = await response.json();
       const threadData = responseData.data || responseData;
       if (!threadData?.id) {
-        toast.error('Не удалось получить ID треда');
+        toast.error("Не удалось получить ID записи");
         return;
       }
 
-      toast.success("Тред создан");
+      toast.success("Запись опубликована");
+      try {
+        localStorage.removeItem(draftKey(board.id));
+      } catch {
+        // ignore
+      }
       // Raw RPC write bypasses query-builder — drop threads/boards GET cache.
-      invalidateByPrefix('/api/v1/threads');
-      invalidateByPrefix('/api/v1/boards');
+      invalidateByPrefix("/api/v1/threads");
+      invalidateByPrefix("/api/v1/boards");
       navigate(`/g/${board.slug}/thread/${threadData.id}`);
     } catch (err) {
-      console.error('CreateGomoThread error:', err);
-      toast.error('Ошибка при создании треда');
+      console.error("CreateGomoThread error:", err);
+      toast.error("Ошибка при публикации записи");
     } finally {
       setCreating(false);
     }
   };
 
+  const renderAttachmentsGrid = (readonly: boolean) => {
+    if (attachments.length === 0) return null;
+    return (
+      <div className="grid grid-cols-3 gap-2 max-h-[30dvh] overflow-y-auto pr-0.5">
+        {attachments.map((att, index) => {
+          const removeBtn = (
+            <button
+              type="button"
+              onClick={() => removeAttachment(index)}
+              aria-label="Удалить вложение"
+              className="absolute top-1 right-1 z-10 bg-black/60 text-white rounded-full w-6 h-6 flex items-center justify-center active:scale-90 transition"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          );
+          if (att.type === "image") {
+            const imgIdx = imageAttachments.findIndex((img) => img.url === att.url);
+            return (
+              <div key={`${att.url}-${index}`} className="relative aspect-square rounded-lg overflow-hidden border border-border/60 bg-muted/40">
+                {readonly ? (
+                  <img src={att.url} alt={att.name || ""} className="w-full h-full object-cover" />
+                ) : (
+                  <button type="button" className="w-full h-full" onClick={() => openAttachmentEditor(imgIdx)}>
+                    <img src={att.url} alt={att.name || ""} className="w-full h-full object-cover" />
+                  </button>
+                )}
+                {!readonly && removeBtn}
+              </div>
+            );
+          }
+          if (att.type === "video") {
+            return (
+              <div key={`${att.url}-${index}`} className="relative aspect-square rounded-lg overflow-hidden border border-border/60 bg-muted/40">
+                {att.poster ? (
+                  <img src={att.poster} alt={att.name || ""} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <FileVideo2 className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                )}
+                {!readonly && removeBtn}
+              </div>
+            );
+          }
+          return (
+            <div
+              key={`${att.url}-${index}`}
+              className={`relative col-span-3 flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-2 ${readonly ? "" : ""}`}
+            >
+              <div className="w-9 h-9 rounded-md bg-background/80 flex items-center justify-center shrink-0">
+                {att.type === "audio" ? (
+                  <Music className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <FileText className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">{att.name || "Файл"}</p>
+                <p className="text-[11px] text-muted-foreground">{formatSize(att.size)}</p>
+              </div>
+              {!readonly && removeBtn}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (loadingBoard) {
     return (
-      <div className="max-w-3xl mx-auto p-6 flex justify-center">
+      <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
       </div>
     );
   }
 
+  if (!board) return null;
+
   return (
-    <div className="max-w-3xl mx-auto p-3 sm:p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Новый тред в g/{board?.slug}
-            {channelSlug && <span className="text-muted-foreground"> / # {channelSlug}</span>}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">{board?.description}</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Заголовок</label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} placeholder="Тема треда" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Текст</label>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
-                  <Button
-                    ref={emojiButtonRef}
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8 shrink-0"
-                    title="Эмодзи"
-                  >
-                    <Smile className="h-4 w-4" />
-                  </Button>
-                </EmojiPicker>
-              </div>
-              <GomoRichEditor
-                ref={editorRef}
-                contentJson={contentJson}
-                legacyContent={content}
-                onChange={({ json, text }) => {
-                  setContentJson(json);
-                  setContent(text);
-                }}
-                onSubmit={handleCreate}
-                placeholder="Текст треда"
-                minHeightClassName="min-h-[180px]"
-              />
-            </div>
-          </div>
-
-          {board?.gomosub_tags && board.gomosub_tags.length > 0 && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Теги этого g-саба</label>
-              <div className="flex flex-wrap gap-2">
-                {board.gomosub_tags.map((tag) => {
-                  const active = selectedTags.includes(tag);
-                  return (
-                    <Badge
-                      key={tag}
-                      variant={active ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => toggleTag(tag)}
-                    >
-                      #{tag}
-                    </Badge>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Вложения</label>
-            <AttachmentUpload value={attachments} onChange={onAttachmentsChange} maxFiles={10} />
-            {attachments.length > 0 && (
-              <div className="space-y-2 rounded-md border border-border/60 p-3">
-                {attachments.map((att, index) => (
-                  <div key={`${att.url}-${index}`} className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      {att.type === "image" && (
-                        <button type="button" onClick={() => openAttachmentEditor(imageAttachments.findIndex((img) => img.url === att.url))}>
-                          <img src={att.url} alt={att.name} className="max-h-36 w-auto rounded-md object-cover" />
-                        </button>
-                      )}
-                      {att.type === "video" && (
-                        <video src={att.url} poster={att.poster} controls className="max-h-40 w-full rounded-md" />
-                      )}
-                      {att.type === "audio" && (
-                        <audio src={att.url} controls className="w-full" />
-                      )}
-                      {att.type === "file" && (
-                        <a href={att.url} target="_blank" rel="noreferrer" className="text-sm text-primary underline break-all">
-                          {att.name}
-                        </a>
-                      )}
-                      <p className="mt-1 text-xs text-muted-foreground truncate">
-                        {att.name} · {formatSize(att.size)}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0"
-                      onClick={() => removeAttachment(index)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
+    <div className="fixed inset-0 z-50 md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="flex flex-col w-full h-[var(--app-vh)] md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:border md:border-border/60 md:shadow-2xl bg-background md:bg-card overflow-hidden animate-in slide-in-from-bottom-full md:slide-in-from-bottom-8 duration-300 ease-out"
+      >
+        {/* Header — close, destination, publish */}
+        <div className="flex items-center gap-1 px-2 py-2 border-b border-border/60 shrink-0">
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Закрыть"
+            className="p-2 rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="flex-1 min-w-0 text-center px-1">
+            <span className="text-sm font-semibold text-primary truncate">g/{board.slug}</span>
+            {channelSlug && <span className="text-sm text-muted-foreground truncate"> · #{channelSlug}</span>}
+            {restoredDraft && (
+              <span className="ml-2 text-[11px] text-muted-foreground/70 whitespace-nowrap">черновик</span>
             )}
           </div>
+          <Button size="sm" className="h-8 px-3.5 shrink-0" onClick={handleCreate} disabled={!canSubmit}>
+            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Опубликовать"}
+          </Button>
+        </div>
 
-          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between">
-            <Button
-              variant="outline"
-              onClick={() => navigate(channelSlug ? `/g/${board?.slug}/c/${channelSlug}` : `/g/${board?.slug}`)}
-              className="w-full sm:w-auto"
-            >
-              Назад
-            </Button>
-            <Button onClick={handleCreate} disabled={creating} className="w-full sm:w-auto">
-              {creating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Создать тред
-            </Button>
+        {/* Title */}
+        <div className="px-4 pt-2.5 shrink-0">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={140}
+            placeholder="Заголовок"
+            autoFocus
+            className="border-0 bg-transparent px-0 text-lg sm:text-xl font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-0 shadow-none"
+          />
+          {title.length > 0 && (
+            <div className={`text-right text-[11px] pr-1 -mt-0.5 ${title.length > 130 ? "text-destructive" : "text-muted-foreground"}`}>
+              {title.length}/140
+            </div>
+          )}
+        </div>
+
+        {/* Sub tags — compact chips */}
+        {board.gomosub_tags && board.gomosub_tags.length > 0 && (
+          <div className="px-4 pb-1.5 flex items-center gap-1.5 overflow-x-auto shrink-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            {board.gomosub_tags.map((tag) => {
+              const active = selectedTags.includes(tag);
+              return (
+                <Badge
+                  key={tag}
+                  variant={active ? "default" : "outline"}
+                  className={`shrink-0 cursor-pointer select-none ${active ? "" : "text-muted-foreground"}`}
+                  onClick={() => toggleTag(tag)}
+                >
+                  #{tag}
+                </Badge>
+              );
+            })}
           </div>
-        </CardContent>
-      </Card>
+        )}
+
+        {/* Editor / live preview */}
+        <div className="flex-1 min-h-0 px-4 pb-2 overflow-y-auto">
+          {showPreview ? (
+            <div className="py-2 pb-4">
+              {title.trim() && <h2 className="text-lg font-semibold mb-2">{title}</h2>}
+              {contentJson ? (
+                <RichContentRenderer contentJson={contentJson} />
+              ) : (
+                <p className="text-sm sm:text-base text-foreground/90 whitespace-pre-wrap break-words">{content}</p>
+              )}
+              {renderAttachmentsGrid(true)}
+              {!title.trim() && !content && (
+                <p className="text-sm text-muted-foreground">Пока пусто — начните писать.</p>
+              )}
+            </div>
+          ) : (
+            <GomoRichEditor
+              ref={editorRef}
+              contentJson={contentJson}
+              legacyContent={content}
+              onChange={({ json, text }) => {
+                setContentJson(json);
+                setContent(text);
+              }}
+              onSubmit={handleCreate}
+              placeholder="Текст записи…"
+              minHeightClassName="min-h-[160px]"
+              maxHeightClassName="max-h-full"
+            />
+          )}
+        </div>
+
+        {/* Attachments grid */}
+        {attachments.length > 0 && !showPreview && (
+          <div className="px-4 pb-2 shrink-0">{renderAttachmentsGrid(false)}</div>
+        )}
+
+        {/* Toolbar */}
+        <div className="px-2 py-1.5 border-t border-border/60 flex items-center gap-0.5 shrink-0">
+          <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
+            <Button
+              ref={emojiButtonRef}
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground"
+              title="Эмодзи"
+            >
+              <Smile className="h-5 w-5" />
+            </Button>
+          </EmojiPicker>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground"
+            title="Вложения"
+            disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Paperclip className="h-5 w-5" />}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            data-testid="composer-file-input"
+            onChange={handleFiles}
+          />
+          <div className="flex-1" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 text-muted-foreground"
+            onClick={() => setShowPreview((v) => !v)}
+          >
+            {showPreview ? <PenLine className="h-4 w-4 mr-1.5" /> : <Eye className="h-4 w-4 mr-1.5" />}
+            {showPreview ? "Редактировать" : "Предпросмотр"}
+          </Button>
+        </div>
+      </div>
+
       {showGallery && imageAttachments.length > 0 && (
         <Lightbox
           items={imageAttachments.map((att) => ({ url: att.url, type: "image", name: att.name || "Фото", mime: "image/*" } as LightboxItem))}
