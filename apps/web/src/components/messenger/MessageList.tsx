@@ -25,11 +25,26 @@ import {
 // ── Layout constants (kept in sync with messenger.css) ────────────────────
 const HISTORY_HEADER_HEIGHT = 34; // .msg-history-header — fixed in every state
 const BOTTOM_GAP_HEIGHT = 12;     // .message-list-footer — gap under the last message
-const AT_BOTTOM_SLACK = 80;       // px of trailing space still treated as "at the bottom"
+// Distance from the real bottom that still counts as "at the bottom". Used to
+// be 80px, which made the pin snap the scroller to the very bottom whenever
+// the user got anywhere near it (any layout change re-clamped) — felt like the
+// list was pulling the view down. 12px keeps the sticky-bottom UX without the
+// aggressive nudge.
+const AT_BOTTOM_SLACK = 12;       // px of trailing space still treated as "at the bottom"
 const TOP_LOAD_ZONE = 300;        // px from the top that arms the history loader
 const OVERSCAN = 12;              // items rendered beyond the viewport (ТЗ: 8–15)
 const NEW_MESSAGE_ANIMATION_MS = 1200; // how long an incoming message may play its entrance
 const ANCHOR_REALIGN_EPSILON = 2; // px of drift considered "already aligned"
+
+// Extra heights (kept in sync with messenger.css) that sit INSIDE a virtual
+// item but are invisible to a content-only estimate. Without them every
+// message with a date separator / sender name / quote / link preview is
+// underestimated and gets corrected by measureElement while the user scrolls,
+// which shifts the layout mid-gesture.
+const DATE_SEPARATOR_HEIGHT = 34;  // .date-separator — margin 12/6 + line
+const SENDER_NAME_HEIGHT = 18;     // .msg-sender-name — group chats, first of author
+const QUOTED_MESSAGE_HEIGHT = 34;  // .quoted-message — padding 6/6 + line + mb
+const LINK_PREVIEW_HEIGHT = 60;    // .msg-link-panel — loading (40) to loaded (~90)
 
 export interface MessageRenderExtras {
   dateLabel: string | null;
@@ -65,7 +80,11 @@ interface ScrollAnchor {
  *  - Text bubbles: one line ≈ 21px + bubble chrome; a rough char-per-line
  *    count keeps the estimate within a line or two of the measured height.
  */
-function estimateMessageHeight(message: MessageView | undefined): number {
+function estimateMessageHeight(
+  message: MessageView | undefined,
+  prev: MessageView | null = null,
+  isGroup = false,
+): number {
   if (!message) return 72;
   // Shared-post cards (__SHARE__ token) have a deterministic layout: clamped
   // text lines + a fixed 16:9 thumbnail block. Estimate the full-card height
@@ -73,6 +92,23 @@ function estimateMessageHeight(message: MessageView | undefined): number {
   // measured height matches within a few px (or the anchor correction absorbs
   // the difference when the post has no image).
   if (message.content?.startsWith("__SHARE__")) return 430;
+  // Gift cards render a fixed standalone card.
+  if (message.content?.startsWith("__GIFT__")) return 190;
+
+  // Elements above the bubble that the content estimate cannot see. Kept in
+  // sync with renderMessage: the date separator shows on the first message of
+  // a day (and the very first of the list), the group sender name on the first
+  // message of each author, the quote strip whenever parent_message_id is set.
+  let extra = 0;
+  if (prev == null || new Date(prev.sent_at).toDateString() !== new Date(message.sent_at).toDateString()) {
+    extra += DATE_SEPARATOR_HEIGHT;
+  }
+  if (isGroup && (prev == null || prev.sender_user_id !== message.sender_user_id)) {
+    extra += SENDER_NAME_HEIGHT;
+  }
+  if (message.parent_message_id) extra += QUOTED_MESSAGE_HEIGHT;
+  if (/https?:\/\//.test(message.content ?? "")) extra += LINK_PREVIEW_HEIGHT;
+
   const visual = message.attachments?.filter((a) => a.type === "image" || a.type === "video") ?? [];
   const onlyMedia = visual.length > 0 && (message.attachments?.length ?? 0) === visual.length;
   if (onlyMedia) {
@@ -84,12 +120,12 @@ function estimateMessageHeight(message: MessageView | undefined): number {
       const captionLines = message.content?.trim()
         ? Math.max(1, Math.ceil(message.content.length / 55))
         : 0;
-      return 14 + boxHeight + captionLines * 21;
+      return extra + 14 + boxHeight + captionLines * 21;
     }
   }
   const chars = message.content?.length ?? 0;
   const lines = chars === 0 ? 1 : Math.max(1, Math.ceil(chars / 55));
-  return 18 + lines * 21;
+  return extra + 18 + lines * 21;
 }
 
 /**
@@ -172,6 +208,9 @@ export const MessageList = memo(
     const storeMessages = useMessengerStore((s) => s.messages);
     // Notes self-chat passes a folder-filtered view; regular chats use the full list.
     const messages = messagesOverride ?? storeMessages;
+    const isGroupConversation = useMessengerStore(
+      (s) => s.conversations.find((c) => c.id === s.selectedConversationId)?.is_group ?? false,
+    );
     const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
     const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
     const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
@@ -188,6 +227,11 @@ export const MessageList = memo(
     const [newMessageIds, setNewMessageIds] = useState<Set<string>>(() => new Set());
 
     const isAtBottomRef = useRef(true);
+    // True while the user's finger is down on the scroller (touch or mouse).
+    // The bottom pin must yield to an active gesture: a message arriving
+    // between pointerdown and the first scroll event would otherwise yank the
+    // view back to the bottom. Cleared on pointerup/cancel.
+    const userDraggingRef = useRef(false);
     // The live anchor: the message at the top edge of the viewport + offset.
     // null while the user is at the bottom (the pin owns the position then).
     const anchorRef = useRef<ScrollAnchor | null>(null);
@@ -204,7 +248,8 @@ export const MessageList = memo(
     const virtualizer = useVirtualizer({
       count: messages.length,
       getScrollElement: () => scrollerRef.current,
-      estimateSize: (index) => estimateMessageHeight(messages[index]),
+      estimateSize: (index) =>
+        estimateMessageHeight(messages[index], messages[index - 1] ?? null, isGroupConversation),
       overscan: OVERSCAN,
       getItemKey: (index) => messageKey(messages[index]),
     });
@@ -239,6 +284,18 @@ export const MessageList = memo(
     }, [conversationId, meId, messages, virtualizer]);
 
     // ── Scroll: at-bottom tracking + anchor capture + history loader ─────
+    const handlePointerDown = useCallback(() => {
+      // Any touch/click on the list means the user is about to take control of
+      // the position — the pin must stop clamping immediately, not after the
+      // first scroll event (a message arriving in between used to yank the
+      // view back to the bottom mid-gesture).
+      userDraggingRef.current = true;
+    }, []);
+
+    const handlePointerUp = useCallback(() => {
+      userDraggingRef.current = false;
+    }, []);
+
     const handleScroll = useCallback(() => {
       const el = scrollerRef.current;
       if (!el) return;
@@ -309,6 +366,14 @@ export const MessageList = memo(
       const el = scrollerRef.current;
       if (!el) return;
 
+      // Never fight an active scroll gesture. Writing scrollTop mid-drag or
+      // mid-momentum (while measurement corrections, prepends or appends keep
+      // changing totalSize) stutters the list — the JS correction races the
+      // browser's own scrolling every frame. virtualizer.isScrolling stays
+      // true until the gesture settles; userDraggingRef covers the window
+      // between pointerdown and the first scroll event.
+      if (virtualizer.isScrolling || userDraggingRef.current) return;
+
       const restore = restoreAnchorRef.current;
       if (restore) {
         const target = anchorTarget(virtualizer, messages, restore);
@@ -340,7 +405,9 @@ export const MessageList = memo(
       const target = anchorTarget(virtualizer, messages, anchor);
       if (target === null) return;
       if (Math.abs(el.scrollTop - target) > ANCHOR_REALIGN_EPSILON) el.scrollTop = target;
-    }, [totalSize, messages, keyboardInset, virtualizer]);
+      // virtualizer.isScrolling is a dep too: a correction skipped mid-gesture
+      // (the guard above) must be applied the moment the gesture settles.
+    }, [totalSize, messages, keyboardInset, virtualizer, virtualizer.isScrolling]);
 
     // ── Report read receipts after the scroll position has settled ───────
     // Runs after the pin/anchor effect above so the viewport is final when the
@@ -458,6 +525,9 @@ export const MessageList = memo(
             aria-label="Сообщения"
             aria-live="polite"
             onScroll={handleScroll}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
           >
             <div className="message-virtual-list" style={{ height: contentHeight }}>
               {/* Fixed-height box in all states (loading / idle / end) so the

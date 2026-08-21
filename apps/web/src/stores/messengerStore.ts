@@ -221,7 +221,14 @@ export function queueMarkRead(conversationId: string, messageId: string, sentAt?
   // Keep only the newest read line. The backend marks the whole prefix up to
   // it, so older lines are subsumed — no reason to ever send them.
   const existing = pendingReadLine.get(conversationId);
-  if (isLaterReceipt(receipt, existing)) pendingReadLine.set(conversationId, receipt);
+  // This is called on EVERY scroll event (MessageList reports the visible
+  // read line on every pass). When the line did not advance, nothing changed
+  // — bail out before touching the store. An unconditional setState here used
+  // to build a NEW conversation object per scroll event, which re-rendered
+  // the whole chat (ChatView → renderMessage → MessageList) on every scroll.
+  if (existing?.messageId === receipt.messageId) return;
+  if (!isLaterReceipt(receipt, existing)) return;
+  pendingReadLine.set(conversationId, receipt);
   if (sentAt) {
     const previous = localReadThrough.get(conversationId);
     if (!previous || Date.parse(sentAt) >= Date.parse(previous)) localReadThrough.set(conversationId, sentAt);
@@ -229,11 +236,16 @@ export function queueMarkRead(conversationId: string, messageId: string, sentAt?
   // Reset the UI immediately — the conversation the user is looking at is
   // read from their perspective even before the server confirms. The server
   // recomputes the true unread_count from the read line on the next fetch.
-  useMessengerStore.setState((s) => ({
-    conversations: s.conversations.map((c) =>
-      c.id === conversationId ? { ...c, unread_count: 0 } : c,
-    ),
-  }));
+  // Only write the store when unread_count actually flips, so the steady-state
+  // scroll path (already read) costs zero store writes.
+  const conv = useMessengerStore.getState().conversations.find((c) => c.id === conversationId);
+  if (conv && (conv.unread_count ?? 0) > 0) {
+    useMessengerStore.setState((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId ? { ...c, unread_count: 0 } : c,
+      ),
+    }));
+  }
   scheduleReadFlush();
 }
 

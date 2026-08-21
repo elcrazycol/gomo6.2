@@ -462,6 +462,12 @@ function writeGeometryVars(next: MobileKeyboardState) {
  * position every frame and glides the layout with it in one continuous
  * motion — no interpolation lag (the composer is always exactly at the
  * keyboard top), no event-stepping.
+ *
+ * The follow also re-arms itself while the keyboard is open, so the frame
+ * loop survives the whole typing session, not just the slide-in animation.
+ * That lets the window-scroll pin below counteract Safari's document pan
+ * continuously (a pan fired after the last timer used to leave the fixed
+ * messenger shell shifted — the header drifting up, the composer down).
  */
 function startGeometryFollow() {
   followUntil = Date.now() + FOLLOW_MS;
@@ -470,11 +476,38 @@ function startGeometryFollow() {
     followRaf = null;
     if (dismissalActive) return; // the dismissal animation owns the vars
     writeGeometryVars(computeRaw());
-    if (Date.now() < followUntil) {
+    pinAppShellScroll();
+    if (Date.now() < followUntil || state.isOpen) {
       followRaf = requestAnimationFrame(step);
     }
   };
   followRaf = requestAnimationFrame(step);
+}
+
+/**
+ * iOS pans the document when the soft keyboard opens and an input is
+ * focused: the visual viewport shrinks, Safari scrolls the layout viewport
+ * to "reveal" the input, and the whole `position: fixed` messenger shell
+ * (which is fixed to the LAYOUT viewport) rides the pan — the chat header
+ * drifts up, the composer drifts down. The old fix restored window.scrollY
+ * at a few checkpoints (rAF + 120/300ms timers), which missed pans that
+ * landed after the last checkpoint or on re-focus (emoji insert, editor tap).
+ *
+ * Instead the per-frame follow loop (active for the whole keyboard-open
+ * window) keeps the document scroll pinned to 0 while an editable inside a
+ * [data-kb-app] surface (the messenger shell) is focused. Cheap: a scrollY
+ * read per frame, and the write only happens when the browser actually
+ * panned.
+ */
+function pinAppShellScroll() {
+  if (!state.isOpen || !state.isTouch) return;
+  const el = focusedEditable;
+  if (!el || !el.isConnected) return;
+  if (!el.closest("[data-kb-app]")) return;
+  if (typeof window === "undefined") return;
+  if (window.scrollY !== 0 || window.scrollX !== 0) {
+    window.scrollTo(0, 0);
+  }
 }
 
 function applyState(next: MobileKeyboardState) {

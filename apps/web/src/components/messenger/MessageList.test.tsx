@@ -10,8 +10,10 @@ const h = vi.hoisted(() => ({
   virtualizerOpts: {} as Record<string, unknown>,
   scrollToIndexSpy: vi.fn(),
   queueMarkReadMock: vi.fn(),
+  isScrolling: false,
   storeState: {
     selectedConversationId: "c1",
+    conversations: [] as Array<{ id: string; is_group?: boolean }>,
     messages: [] as MessageView[],
     openingUnreadCount: 0,
     isMessagesLoading: false,
@@ -30,12 +32,16 @@ const h = vi.hoisted(() => ({
 // list `virtualizer` as an effect dependency without re-running on every
 // render.
 vi.mock("@tanstack/react-virtual", () => {
-  const instances = new Map<number, Record<string, unknown>>();
+  // Cached per (count, isScrolling): the real virtualizer re-measures when the
+  // scroll state changes, which swaps the instance. Mirroring that lets the
+  // MessageList layout effect re-run the moment a gesture settles.
+  const instances = new Map<string, Record<string, unknown>>();
   return {
     useVirtualizer: (opts: Record<string, unknown>) => {
       h.virtualizerOpts = opts;
       const count = (opts.count as number) ?? 0;
-      let instance = instances.get(count);
+      const key = `${count}:${h.isScrolling}`;
+      let instance = instances.get(key);
       if (!instance) {
         instance = {
           getVirtualItems: () =>
@@ -50,8 +56,11 @@ vi.mock("@tanstack/react-virtual", () => {
           getOffsetForIndex: (index: number) => [index * 72, "start"] as const,
           measureElement: () => undefined,
           scrollToIndex: h.scrollToIndexSpy,
+          get isScrolling() {
+            return h.isScrolling;
+          },
         };
-        instances.set(count, instance);
+        instances.set(key, instance);
       }
       return instance;
     },
@@ -128,6 +137,8 @@ const scrollScroller = (scroller: HTMLElement) =>
     fireEvent.scroll(scroller);
   });
 
+
+
 beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0));
   vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
@@ -137,6 +148,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   h.storeState.messages = [];
+  h.storeState.conversations = [];
   h.storeState.openingUnreadCount = 0;
   h.storeState.isMessagesLoading = false;
   h.storeState.isLoadingMore = false;
@@ -146,6 +158,7 @@ afterEach(() => {
   h.scrollToIndexSpy.mockClear();
   h.queueMarkReadMock.mockClear();
   h.virtualizerOpts = {};
+  h.isScrolling = false;
   clearAllScrollPositions();
 });
 
@@ -234,6 +247,67 @@ describe("MessageList virtualization", () => {
     scrollScroller(scroller);
     expect(h.storeState.loadMoreMessages).toHaveBeenCalledTimes(1);
     resolveLoad?.();
+  });
+
+  it("does not fight an active scroll gesture — no scrollTop writes while isScrolling", () => {
+    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
+    h.storeState.messages = base;
+    const { scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
+    // The user is mid-gesture (touch/momentum) when a message arrives.
+    h.isScrolling = true;
+    h.storeState.messages = [...base, makeMessage("new")];
+    metrics.scrollHeight = 766 + 72;
+    rerender(<MessageList renderMessage={renderMessage} />);
+    // No clamp mid-gesture — the JS must not race the browser's scrolling.
+    expect(metrics.scrollTop).toBe(366);
+    // The gesture settles; the pin re-applies and clamps to the new bottom.
+    // A fresh renderMessage reference forces the re-render (like the real
+    // store re-render on isScrolling change) — the instance survives, so
+    // isAtBottomRef is preserved.
+    h.isScrolling = false;
+    rerender(<MessageList renderMessage={(m) => renderMessage(m)} />);
+    expect(metrics.scrollTop).toBe(766 + 72 - 400);
+  });
+
+  it("yields the bottom pin to a pointerdown before the first scroll event", () => {
+    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
+    h.storeState.messages = base;
+    const { scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
+    // Finger lands on the list, then a message arrives before any scroll event.
+    fireEvent.pointerDown(scroller);
+    h.storeState.messages = [...base, makeMessage("new")];
+    metrics.scrollHeight = 766 + 72;
+    rerender(<MessageList renderMessage={renderMessage} />);
+    expect(metrics.scrollTop).toBe(366);
+    fireEvent.pointerUp(scroller);
+  });
+
+  it("estimates date separators and quoted replies in item heights", () => {
+    h.storeState.messages = [
+      makeMessage("first"), // prev = null → date separator above
+      makeMessage("second"), // same day → no separator
+      { ...makeMessage("quoted"), parent_message_id: "first", content: "quote me" },
+    ];
+    mountList();
+    const estimateSize = h.virtualizerOpts.estimateSize as (index: number) => number;
+    const first = estimateSize(0);
+    const second = estimateSize(1);
+    const quoted = estimateSize(2);
+    // Separator ~34px above the first message of the day.
+    expect(first - second).toBe(34);
+    // Quoted reply ~34px above the bubble.
+    expect(quoted - second).toBe(34);
+  });
+
+  it("estimates gift cards at their fixed standalone height", () => {
+    h.storeState.messages = [
+      { ...makeMessage("gift"), content: "__GIFT__:g1:Gift:img.jpg" },
+    ];
+    mountList();
+    const estimateSize = h.virtualizerOpts.estimateSize as (index: number) => number;
+    expect(estimateSize(0)).toBe(190);
   });
 
   it("pins the view to the bottom while at the bottom when content grows", () => {
