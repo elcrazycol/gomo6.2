@@ -410,8 +410,15 @@ const CreateGomoThread = () => {
               <span className="ml-2 text-[11px] text-muted-foreground/70 whitespace-nowrap">черновик</span>
             )}
           </div>
-          <Button size="sm" className="h-8 px-3.5 shrink-0" onClick={handleCreate} disabled={!canSubmit}>
-            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Опубликовать"}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 shrink-0 text-muted-foreground"
+            onClick={() => setShowPreview((v) => !v)}
+          >
+            {showPreview ? <PenLine className="h-4 w-4 mr-1.5" /> : <Eye className="h-4 w-4 mr-1.5" />}
+            {showPreview ? "Редактировать" : "Предпросмотр"}
           </Button>
         </div>
 
@@ -542,15 +549,8 @@ const CreateGomoThread = () => {
             onChange={handleFiles}
           />
           <div className="flex-1" />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-9 text-muted-foreground"
-            onClick={() => setShowPreview((v) => !v)}
-          >
-            {showPreview ? <PenLine className="h-4 w-4 mr-1.5" /> : <Eye className="h-4 w-4 mr-1.5" />}
-            {showPreview ? "Редактировать" : "Предпросмотр"}
+          <Button size="sm" className="h-9 px-3.5" onClick={handleCreate} disabled={!canSubmit}>
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Опубликовать"}
           </Button>
         </div>
       </div>
