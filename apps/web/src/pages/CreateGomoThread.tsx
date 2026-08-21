@@ -302,6 +302,11 @@ const CreateGomoThread = () => {
       // Raw RPC write bypasses query-builder — drop threads/boards GET cache.
       invalidateByPrefix("/api/v1/threads");
       invalidateByPrefix("/api/v1/boards");
+      // Replace the create-page history entry with the sub's board page in the
+      // channel the post was created in, so pressing Back lands on the sub
+      // (with the new post visible) instead of reopening the composer.
+      const backPath = channelSlug ? `/g/${board.slug}/c/${channelSlug}` : `/g/${board.slug}`;
+      navigate(backPath, { replace: true });
       navigate(`/g/${board.slug}/thread/${threadData.id}`);
     } catch (err) {
       console.error("CreateGomoThread error:", err);

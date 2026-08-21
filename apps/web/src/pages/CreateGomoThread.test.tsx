@@ -154,6 +154,9 @@ describe("CreateGomoThread (composer)", () => {
     });
 
     await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith("Запись опубликована"));
+    // The composer history entry is replaced with the sub board page first, so
+    // Back from the new post lands on the sub — not on the composer again.
+    expect(mockNavigate).toHaveBeenCalledWith("/g/test", { replace: true });
     expect(mockNavigate).toHaveBeenCalledWith("/g/test/thread/thread-1");
     expect(mockInvalidate).toHaveBeenCalled();
     expect(localStorage.getItem("gomo6:composer-draft:board-1")).toBeNull();
