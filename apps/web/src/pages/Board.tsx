@@ -1535,8 +1535,6 @@ const Board = () => {
                         currentUsername={currentUsername}
                         currentUserColor={currentUserColor}
                         boardPath={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`}
-                        channelSlug={channelSlug}
-                        channelName={channels.find((ch) => ch.slug === channelSlug)?.name}
                         onImageClick={(items, idx) => {
                           setGalleryItems(items);
                           setGalleryIndex(idx);

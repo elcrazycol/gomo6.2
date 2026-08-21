@@ -101,8 +101,6 @@ const renderCard = (thread: GomoThread, props: Partial<Parameters<typeof GomoThr
         currentUserId="me"
         currentUsername="me"
         boardPath="/g/test"
-        channelSlug="dev"
-        channelName="Разработка"
         onImageClick={vi.fn()}
         {...props}
       />
@@ -122,13 +120,13 @@ beforeEach(() => {
 });
 
 describe("GomoThreadCard", () => {
-  it("renders author, title, content and channel chip", () => {
+  it("renders author, title and content (no channel chips)", () => {
     renderCard(baseThread());
     expect(screen.getByTestId("user-badge")).toHaveTextContent("lesha");
     expect(screen.getByText("Заголовок записи")).toBeInTheDocument();
     expect(screen.getByTestId("processed-content")).toHaveTextContent("Текст записи");
-    expect(screen.getByText("# Разработка")).toBeInTheDocument();
-    expect(screen.getByText("в g/test/")).toBeInTheDocument();
+    expect(screen.queryByText("# Разработка")).not.toBeInTheDocument();
+    expect(screen.queryByText("в g/test/")).not.toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument(); // post_count
   });
 

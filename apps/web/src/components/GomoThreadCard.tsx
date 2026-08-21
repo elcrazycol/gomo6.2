@@ -60,8 +60,6 @@ interface GomoThreadCardProps {
   currentUserColor?: string;
   /** Base path to the sub, e.g. `/g/tech` or `/g/tech/c/dev` (channel suffix optional). */
   boardPath: string;
-  channelSlug?: string | null;
-  channelName?: string | null;
   onImageClick: (items: LightboxItem[], index: number) => void;
 }
 
@@ -115,8 +113,6 @@ export const GomoThreadCard = ({
   currentUsername,
   currentUserColor,
   boardPath,
-  channelSlug,
-  channelName,
   onImageClick,
 }: GomoThreadCardProps) => {
   const dateLocale = useDateLocale();
@@ -198,22 +194,6 @@ export const GomoThreadCard = ({
                       addSuffix: true,
                     })}
                   </span>
-                  {channelSlug && (
-                    <Link
-                      to={`${boardPath}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
-                    >
-                      # {channelName || channelSlug}
-                    </Link>
-                  )}
-                  <Link
-                    to={boardPath}
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
-                  >
-                    в g/{boardPath.split("/").filter(Boolean)[1] || ""}/
-                  </Link>
                 </div>
               </div>
             </div>
