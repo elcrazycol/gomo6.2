@@ -555,11 +555,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
     });
 
-    // Closed: the composer stays mounted but is collapsed (max-h-0, invisible).
-    const wrapper = document.querySelector(".origin-top-right");
-    expect(wrapper?.className).toContain("max-h-0");
-    expect(wrapper?.className).toContain("opacity-0");
-    expect(wrapper?.className).toContain("pointer-events-none");
+    expect(screen.queryByTestId("create-wall-post")).not.toBeInTheDocument();
 
     rerender(
       <ProfileWallComponent
@@ -574,8 +570,6 @@ describe("ProfileWall", () => {
     );
 
     expect(screen.getByTestId("create-wall-post")).toBeInTheDocument();
-    expect(wrapper?.className).toContain("max-h-[1200px]");
-    expect(wrapper?.className).toContain("opacity-100");
   });
 
   it("reports the close request through onCreateOpenChange", async () => {

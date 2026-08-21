@@ -19,6 +19,11 @@ vi.mock("@/integrations/api/compat", () => ({
   },
 }));
 
+const mockUploadAttachments = vi.fn();
+vi.mock("@/utils/mediaUpload", () => ({
+  uploadAttachments: (...args: any[]) => mockUploadAttachments(...args),
+}));
+
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
@@ -92,56 +97,6 @@ vi.mock("@/components/GomoRichEditor", () => {
   };
 });
 
-vi.mock("@/components/ProfileAttachmentUpload", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require("react");
-  return {
-    ProfileAttachmentUpload: React.forwardRef(
-      ({ value, onChange }: any, ref: any) => {
-        React.useImperativeHandle(ref, () => ({
-          attachFiles: (files: File[]) => {
-            onChange([
-              ...value,
-              ...files.map((f) => ({
-                url: `mock-${f.name}`,
-                type: "image",
-                mime: f.type || "image/jpeg",
-                name: f.name,
-                size: 100,
-              })),
-            ]);
-          },
-        }));
-        return (
-          <div data-testid="profile-attachment-upload">
-            <span>{value.length} attachments</span>
-            <button
-              data-testid="add-attachment"
-              onClick={() =>
-                onChange([
-                  ...value,
-                  {
-                    url: "test.jpg",
-                    type: "image",
-                    mime: "image/jpeg",
-                    name: "test.jpg",
-                    size: 1024,
-                  },
-                ])
-              }
-            >
-              Add Image
-            </button>
-            <button data-testid="clear-attachments" onClick={() => onChange([])}>
-              Clear
-            </button>
-          </div>
-        );
-      }
-    ),
-  };
-});
-
 vi.mock("@/components/EmojiPicker", () => ({
   EmojiPicker: ({ onEmojiSelect, children, onSwapToggle, swapOpen, onSwapClose }: any) => (
     <div data-testid="emoji-picker" data-swap-open={swapOpen ? "true" : "false"}>
@@ -160,6 +115,20 @@ vi.mock("@/components/EmojiPicker", () => ({
       {children}
     </div>
   ),
+}));
+
+vi.mock("@/components/Lightbox", () => ({
+  Lightbox: ({ items, initialIndex, onClose }: any) => (
+    <div data-testid="image-gallery" data-images={items?.length} data-index={initialIndex}>
+      <button data-testid="gallery-close" onClick={onClose}>
+        Close Gallery
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("@/components/RichContentRenderer", () => ({
+  RichContentRenderer: () => <div data-testid="rich-content-renderer">Preview</div>,
 }));
 
 // ─── Query Builder Mock ──────────────────────────────────────────────────────
@@ -219,6 +188,14 @@ const defaultCreatedPost = {
   author: { username: "testuser", is_anonymous: false, avatar_url: null },
 };
 
+const mockAttachment = {
+  url: "wall://pic.jpg",
+  type: "image",
+  mime: "image/jpeg",
+  name: "pic.jpg",
+  size: 1024,
+};
+
 let Component: any;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -233,19 +210,20 @@ describe("CreateWallPost", () => {
     vi.clearAllMocks();
     editorSpies.insertEmojiOpts.length = 0;
     editorSpies.focusCalls.length = 0;
+    localStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders in create mode with correct title and submit button", () => {
+  it("renders as an overlay in create mode with header, close and publish button", () => {
     setupApiMocks();
     render(<Component {...defaultProps} />);
 
     expect(screen.getByText("Новая запись на стене")).toBeInTheDocument();
+    expect(screen.getByLabelText("Закрыть")).toBeInTheDocument();
     expect(screen.getByText("Опубликовать")).toBeInTheDocument();
-    expect(screen.getByText("Отмена")).toBeInTheDocument();
   });
 
   it("caps the editor height so long posts scroll inside instead of growing", () => {
@@ -253,10 +231,10 @@ describe("CreateWallPost", () => {
     render(<Component {...defaultProps} />);
 
     // Long posts must scroll INSIDE the editor (capped height + internal
-    // scroll) rather than growing the card and fighting the mobile keyboard.
+    // scroll) rather than growing the overlay and fighting the mobile keyboard.
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute(
       "data-max-height-class",
-      "max-h-[45vh] overflow-y-auto overscroll-contain"
+      "max-h-full"
     );
   });
 
@@ -319,9 +297,8 @@ describe("CreateWallPost", () => {
     await userEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByText("Публикуем")).toBeInTheDocument();
+      expect(screen.getByText("Опубликовать")).toBeDisabled();
     });
-    expect(screen.getByText("Публикуем")).toBeDisabled();
   });
 
   it("submit button is enabled when content is present", async () => {
@@ -336,12 +313,17 @@ describe("CreateWallPost", () => {
 
   it("submit button is enabled when only attachments are present", async () => {
     setupApiMocks();
+    mockUploadAttachments.mockResolvedValue([mockAttachment]);
     render(<Component {...defaultProps} />);
 
     expect(screen.getByText("Опубликовать")).toBeDisabled();
-    await userEvent.click(screen.getByTestId("add-attachment"));
 
-    expect(screen.getByText("Опубликовать")).not.toBeDisabled();
+    const file = new File(["x"], "pic.jpg", { type: "image/jpeg" });
+    await userEvent.upload(screen.getByTestId("composer-file-input"), file);
+
+    await waitFor(() => {
+      expect(screen.getByText("Опубликовать")).not.toBeDisabled();
+    });
   });
 
   it("creates a post successfully and calls onPostCreated", async () => {
@@ -457,48 +439,74 @@ describe("CreateWallPost", () => {
     consoleSpy.mockRestore();
   });
 
-  it("shows character count with the 4000 limit", async () => {
-    setupApiMocks();
-    render(<Component {...defaultProps} />);
-
-    expect(screen.getByText("0/4000 симв.")).toBeInTheDocument();
-
-    const textarea = screen.getByTestId("rich-editor-textarea");
-    await userEvent.type(textarea, "Hello");
-
-    expect(screen.getByText("5/4000 симв.")).toBeInTheDocument();
-  });
-
-  it("shows attachment count", async () => {
-    setupApiMocks();
-    render(<Component {...defaultProps} />);
-
-    expect(screen.getByText("0 влож.")).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("add-attachment"));
-
-    expect(screen.getByText("1 влож.")).toBeInTheDocument();
-  });
-
-  it("shows image count when images are attached", async () => {
-    setupApiMocks();
-    render(<Component {...defaultProps} />);
-
-    expect(screen.queryByText("1")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByTestId("add-attachment"));
-
-    await waitFor(() => {
-      expect(screen.getByText("1")).toBeInTheDocument();
-    });
-  });
-
-  it("calls onCancel when cancel button is clicked", async () => {
+  it("calls onCancel when the close button is clicked", async () => {
     setupApiMocks();
     const onCancel = vi.fn();
     render(<Component {...defaultProps} onCancel={onCancel} />);
 
-    await userEvent.click(screen.getByText("Отмена"));
+    await userEvent.click(screen.getByLabelText("Закрыть"));
 
     expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("calls onCancel when Escape is pressed", async () => {
+    setupApiMocks();
+    const onCancel = vi.fn();
+    render(<Component {...defaultProps} onCancel={onCancel} />);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("toggles between the editor and live preview", async () => {
+    setupApiMocks();
+    render(<Component {...defaultProps} />);
+
+    const textarea = screen.getByTestId("rich-editor-textarea");
+    await userEvent.type(textarea, "Hello");
+
+    await userEvent.click(screen.getByText("Предпросмотр"));
+    expect(screen.getByTestId("rich-content-renderer")).toBeInTheDocument();
+    expect(screen.queryByTestId("rich-editor-textarea")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Редактировать"));
+    expect(screen.getByTestId("rich-editor-textarea")).toBeInTheDocument();
+  });
+
+  it("restores an autosaved draft and shows the draft badge", async () => {
+    setupApiMocks();
+    localStorage.setItem(
+      "gomo6:wall-draft:profile-user-1",
+      JSON.stringify({ content: "Draft text", contentJson: null, attachments: [] })
+    );
+
+    render(<Component {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rich-editor-textarea")).toHaveValue("Draft text");
+    });
+    expect(screen.getByText("черновик")).toBeInTheDocument();
+  });
+
+  it("clears the draft after a successful publish", async () => {
+    setupApiMocks({ data: defaultCreatedPost, error: null });
+    localStorage.setItem(
+      "gomo6:wall-draft:profile-user-1",
+      JSON.stringify({ content: "Draft text", contentJson: null, attachments: [] })
+    );
+
+    render(<Component {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rich-editor-textarea")).toHaveValue("Draft text");
+    });
+    await userEvent.click(screen.getByText("Опубликовать"));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Пост опубликован");
+    });
+    expect(localStorage.getItem("gomo6:wall-draft:profile-user-1")).toBeNull();
   });
 
   it("calls onBeforeCreate before API request", async () => {
@@ -572,7 +580,7 @@ describe("CreateWallPost", () => {
       );
     });
 
-    expect(screen.getByText("1 влож.")).toBeInTheDocument();
+    expect(screen.getByAltText("img.jpg")).toBeInTheDocument();
   });
 
   it("inserts emoji into editor when emoji is selected", async () => {
@@ -632,7 +640,7 @@ describe("CreateWallPost", () => {
   });
 
   describe("drag & drop", () => {
-    it("shows the drop hint while a file drag hovers the card", () => {
+    it("shows the drop hint while a file drag hovers the composer", () => {
       setupApiMocks();
       render(<Component {...defaultProps} />);
       const card = screen.getByTestId("wall-post-composer");
@@ -642,8 +650,9 @@ describe("CreateWallPost", () => {
       expect(screen.getByText("Отпустите, чтобы прикрепить")).toBeInTheDocument();
     });
 
-    it("attaches files dropped anywhere on the composer card", async () => {
+    it("attaches files dropped anywhere on the composer", async () => {
       setupApiMocks();
+      mockUploadAttachments.mockResolvedValue([mockAttachment]);
       render(<Component {...defaultProps} />);
       const card = screen.getByTestId("wall-post-composer");
       const file = new File(["x"], "drop.jpg", { type: "image/jpeg" });
@@ -653,8 +662,9 @@ describe("CreateWallPost", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText("1 влож.")).toBeInTheDocument();
+        expect(mockUploadAttachments).toHaveBeenCalledWith([file], "wall");
       });
+      expect(screen.getByText("Опубликовать")).not.toBeDisabled();
     });
   });
 });

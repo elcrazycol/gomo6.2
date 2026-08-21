@@ -21,7 +21,6 @@ import {
 import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
-import { CreateWallPost } from "@/components/CreateWallPost";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
@@ -65,8 +64,6 @@ export const WallPostCard = ({
   currentProfileUsername,
   isEditing,
   onStartEditing,
-  onCancelEditing,
-  onPostUpdated,
   onDeletePost,
   onTogglePin,
   onRefreshPosts,
@@ -449,16 +446,6 @@ export const WallPostCard = ({
           </div>
         )}
 
-        {isEditing && currentUserId && (
-          <CreateWallPost
-            key={`wall-edit-${post.id}-${post.updated_at}`}
-            profileUserId={profileUserId}
-            currentUserId={currentUserId}
-            editingPost={post}
-            onPostUpdated={onPostUpdated}
-            onCancel={onCancelEditing}
-          />
-        )}
       </CardContent>
 
       <Dialog open={repostComposerOpen} onOpenChange={setRepostComposerOpen}>

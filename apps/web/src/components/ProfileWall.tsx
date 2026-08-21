@@ -403,27 +403,14 @@ export const ProfileWall = ({
   return (
     <>
       <div className="space-y-4">
-        {canPost && !standalone && !focusedPostId && (
-          <div
-            className={`origin-top-right overflow-hidden transition-all duration-300 ease-out ${
-              showCreateForm && currentUserId
-                ? "max-h-[1200px] translate-y-0 opacity-100"
-                : "pointer-events-none max-h-0 -translate-y-2 opacity-0"
-            }`}
-          >
-            <div className="pt-3">
-              {currentUserId && (
-                <CreateWallPost
-                  key={showCreateForm ? "wall-create-open" : "wall-create-closed"}
-                  profileUserId={profileUserId}
-                  currentUserId={currentUserId}
-                  onPostCreated={handlePostCreatedWithTimestamp}
-                  onBeforeCreate={handleBeforeCreate}
-                  onCancel={() => setShowCreateForm(false)}
-                />
-              )}
-            </div>
-          </div>
+        {canPost && !standalone && !focusedPostId && showCreateForm && currentUserId && (
+          <CreateWallPost
+            profileUserId={profileUserId}
+            currentUserId={currentUserId}
+            onPostCreated={handlePostCreatedWithTimestamp}
+            onBeforeCreate={handleBeforeCreate}
+            onCancel={() => setShowCreateForm(false)}
+          />
         )}
 
         {posts.length === 0 ? (
@@ -469,6 +456,17 @@ export const ProfileWall = ({
           items={galleryItems}
           initialIndex={galleryIndex}
           onClose={() => setGalleryItems(null)}
+        />
+      )}
+
+      {/* Edit an existing post through the same overlay composer. */}
+      {activeEditingPost && currentUserId && (
+        <CreateWallPost
+          profileUserId={profileUserId}
+          currentUserId={currentUserId}
+          editingPost={activeEditingPost}
+          onPostUpdated={handlePostUpdated}
+          onCancel={() => setEditingPost(null)}
         />
       )}
     </>
