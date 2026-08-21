@@ -643,26 +643,40 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.name || null;
   }, [activeChannelId, channels]);
 
-  // Mobile: swipe up from the bottom edge to open the channel sheet.
-  const onMobileTouchStart = (e: React.TouchEvent) => {
+  // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
+  // on document (not <main>) so gestures that start below the content area
+  // still count, and only while the sheet is closed.
+  useEffect(() => {
     if (mobileChannelsOpen) return;
-    const touch = e.touches[0];
-    if (!touch) return;
-    const fromBottom = window.innerHeight - touch.clientY <= 48;
-    if (fromBottom) edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
-  };
-  const onMobileTouchMove = (e: React.TouchEvent) => {
-    if (!edgeSwipeStart.current) return;
-    const touch = e.touches[0];
-    if (!touch) return;
-    if (touch.clientY - edgeSwipeStart.current.y < -64) {
-      setMobileChannelsOpen(true);
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      if (window.innerHeight - touch.clientY <= 96) {
+        edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
+      } else {
+        edgeSwipeStart.current = null;
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!edgeSwipeStart.current) return;
+      const touch = e.touches[0];
+      if (touch && touch.clientY - edgeSwipeStart.current.y < -48) {
+        setMobileChannelsOpen(true);
+        edgeSwipeStart.current = null;
+      }
+    };
+    const onTouchEnd = () => {
       edgeSwipeStart.current = null;
-    }
-  };
-  const onMobileTouchEnd = () => {
-    edgeSwipeStart.current = null;
-  };
+    };
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [mobileChannelsOpen]);
 
   // The channel drawer (mobile) and the desktop sidebar share this list markup.
   const renderChannelList = (onSelect: () => void) => (
@@ -900,12 +914,7 @@ const Board = () => {
   const hasChannels = isGomoRoute && channels.length > 0;
 
   return (
-    <main
-      className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}
-      onTouchStart={onMobileTouchStart}
-      onTouchMove={onMobileTouchMove}
-      onTouchEnd={onMobileTouchEnd}
-    >
+    <main className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
         {/* Board header — always full width */}
         <div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
@@ -1595,6 +1604,8 @@ const Board = () => {
               desktop sidebar handles md+). */}
           <Sheet open={mobileChannelsOpen} onOpenChange={setMobileChannelsOpen}>
             <SheetContent side="bottom" className="rounded-t-2xl max-h-[85dvh] p-0 flex flex-col gap-0">
+              {/* Grab handle — native bottom-sheet look */}
+              <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/25 shrink-0" />
               <SheetTitle className="sr-only">{t("board.channels")}</SheetTitle>
               {/* Board header */}
               <div className="p-4 border-b border-border/60 flex items-center gap-3 shrink-0">
