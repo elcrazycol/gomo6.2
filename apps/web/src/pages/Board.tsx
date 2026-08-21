@@ -18,7 +18,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings, Menu } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -127,7 +127,7 @@ const Board = () => {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
-  const edgeSwipeStartX = useRef<number | null>(null);
+  const edgeSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
   const [isBoardOwner, setIsBoardOwner] = useState(false);
   
@@ -643,22 +643,25 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.name || null;
   }, [activeChannelId, channels]);
 
-  // Mobile: swipe from the left edge to open the channel drawer.
+  // Mobile: swipe up from the bottom edge to open the channel sheet.
   const onMobileTouchStart = (e: React.TouchEvent) => {
     if (mobileChannelsOpen) return;
     const touch = e.touches[0];
-    if (touch && touch.clientX <= 24) edgeSwipeStartX.current = touch.clientX;
+    if (!touch) return;
+    const fromBottom = window.innerHeight - touch.clientY <= 48;
+    if (fromBottom) edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
   };
   const onMobileTouchMove = (e: React.TouchEvent) => {
-    if (edgeSwipeStartX.current == null) return;
+    if (!edgeSwipeStart.current) return;
     const touch = e.touches[0];
-    if (touch && touch.clientX - edgeSwipeStartX.current > 64) {
+    if (!touch) return;
+    if (touch.clientY - edgeSwipeStart.current.y < -64) {
       setMobileChannelsOpen(true);
-      edgeSwipeStartX.current = null;
+      edgeSwipeStart.current = null;
     }
   };
   const onMobileTouchEnd = () => {
-    edgeSwipeStartX.current = null;
+    edgeSwipeStart.current = null;
   };
 
   // The channel drawer (mobile) and the desktop sidebar share this list markup.
@@ -1376,15 +1379,7 @@ const Board = () => {
             <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-4 md:p-5">
               <div className="mb-3 sm:mb-4">
                 <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  {/* Mobile channel switcher — opens the channel drawer (Discord-style) */}
-                  <button
-                    onClick={() => setMobileChannelsOpen(true)}
-                    className="md:hidden h-8 w-8 rounded-lg border border-border/50 bg-card flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                    title={t("board.channels")}
-                    aria-label={t("board.channels")}
-                  >
-                    <Menu className="w-4 h-4" />
-                  </button>
+                  {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
                     className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
@@ -1595,11 +1590,11 @@ const Board = () => {
             </div>
           </div>
 
-          {/* Mobile channel drawer — Discord-style: full-height left panel with
-              the channel list; picking a channel drops you into it. Only used
-              below md (the desktop sidebar handles md+). */}
+          {/* Mobile channel sheet — Discord-style: slides up from the bottom,
+              picking a channel drops you into it. Only used below md (the
+              desktop sidebar handles md+). */}
           <Sheet open={mobileChannelsOpen} onOpenChange={setMobileChannelsOpen}>
-            <SheetContent side="left" className="w-[85vw] max-w-[340px] p-0 flex flex-col gap-0">
+            <SheetContent side="bottom" className="rounded-t-2xl max-h-[85dvh] p-0 flex flex-col gap-0">
               <SheetTitle className="sr-only">{t("board.channels")}</SheetTitle>
               {/* Board header */}
               <div className="p-4 border-b border-border/60 flex items-center gap-3 shrink-0">

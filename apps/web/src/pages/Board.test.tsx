@@ -409,23 +409,23 @@ describe("Board (wall)", () => {
 
     render(<BoardComponent />);
 
-    // The mobile channel switcher (hamburger) renders once channels load.
-    const switchers = await screen.findAllByTitle("Каналы");
-    expect(switchers.length).toBeGreaterThan(0);
+    // The mobile channel switcher (current-channel pill) renders once channels load.
+    const pill = await screen.findByTitle("Каналы");
+    expect(pill).toBeInTheDocument();
 
-    // Drawer is closed — no dialog in the DOM.
+    // Sheet is closed — no dialog in the DOM.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    await user.click(switchers[0]);
+    await user.click(pill);
 
-    // Drawer opens (Radix renders it in a portal with role=dialog).
+    // Sheet opens (Radix renders it in a portal with role=dialog).
     const dialog = await screen.findByRole("dialog");
-    // Both the desktop sidebar and the drawer render the channel names.
+    // Both the desktop sidebar and the sheet render the channel names.
     expect(dialog).toHaveTextContent("Новости");
     expect(dialog).toHaveTextContent("Модерация");
     expect(dialog).toHaveTextContent("Основной");
 
-    // Picking a channel closes the drawer (scoped to the dialog to avoid the
+    // Picking a channel closes the sheet (scoped to the dialog to avoid the
     // desktop sidebar copy, which jsdom still renders).
     await user.click(within(dialog).getByRole("link", { name: "Новости" }));
     await waitFor(() => {
