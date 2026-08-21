@@ -51,6 +51,16 @@ vi.mock("@/components/AgeVerification", () => ({
     ) : null,
 }));
 vi.mock("sonner", () => ({ toast: mockToast }));
+// vaul needs matchMedia/ResizeObserver plumbing that jsdom lacks — stub the
+// whole drawer module (mirrors ShareSheet.test.tsx). The mock renders the
+// content only while open, with role=dialog so the sheet assertions below
+// keep working.
+vi.mock("@/components/ui/drawer", () => ({
+  Drawer: ({ open, children }: any) => (open ? <div role="dialog">{children}</div> : null),
+  DrawerContent: ({ children }: any) => <div data-testid="drawer-content">{children}</div>,
+  DrawerHandle: ({ children }: any) => <div>{children}</div>,
+  DrawerTitle: ({ children }: any) => <div>{children}</div>,
+}));
 
 const mockNavigate = vi.fn();
 const mockParams: Record<string, string | undefined> = { slug: "test", channelSlug: undefined };

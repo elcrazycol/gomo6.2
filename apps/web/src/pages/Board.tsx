@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Drawer, DrawerContent, DrawerHandle, DrawerTitle } from "@/components/ui/drawer";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
@@ -651,7 +651,7 @@ const Board = () => {
     const onTouchStart = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
-      if (window.innerHeight - touch.clientY <= 96) {
+      if (window.innerHeight - touch.clientY <= 80) {
         edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
       } else {
         edgeSwipeStart.current = null;
@@ -1599,16 +1599,25 @@ const Board = () => {
             </div>
           </div>
 
-          {/* Mobile channel sheet — Discord-style: slides up from the bottom,
-              picking a channel drops you into it. Only used below md (the
-              desktop sidebar handles md+). */}
-          <Sheet open={mobileChannelsOpen} onOpenChange={setMobileChannelsOpen}>
-            <SheetContent side="bottom" className="rounded-t-2xl max-h-[85dvh] p-0 flex flex-col gap-0">
-              {/* Grab handle — native bottom-sheet look */}
-              <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/25 shrink-0" />
-              <SheetTitle className="sr-only">{t("board.channels")}</SheetTitle>
+          {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
+              opens at 80% height, drag the handle up to expand it to the full
+              screen (fast flick up snaps it open as a full menu), drag down to
+              close. Background stays locked while it's open. */}
+          <Drawer
+            open={mobileChannelsOpen}
+            onOpenChange={setMobileChannelsOpen}
+            snapPoints={[0.8, 1]}
+            shouldScaleBackground={false}
+            handleOnly
+          >
+            <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex flex-col">
+              {/* Drag handle — the pill, with a wide touch strip above it */}
+              <DrawerHandle className="w-full shrink-0 pt-3 pb-1 flex justify-center cursor-grab active:cursor-grabbing touch-none">
+                <div className="h-1 w-10 rounded-full bg-muted-foreground/25" />
+              </DrawerHandle>
+              <DrawerTitle className="sr-only">{t("board.channels")}</DrawerTitle>
               {/* Board header */}
-              <div className="p-4 border-b border-border/60 flex items-center gap-3 shrink-0">
+              <div className="px-4 py-3 border-b border-border/60 flex items-center gap-3 shrink-0">
                 <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex items-center justify-center text-lg font-bold text-muted-foreground shrink-0">
                   {board.gomosub_avatar_url ? (
                     <img
@@ -1626,11 +1635,11 @@ const Board = () => {
                 </div>
               </div>
               {/* Channel list */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-0.5">
+              <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
                 {renderChannelList(() => setMobileChannelsOpen(false))}
               </div>
               {/* Quick actions */}
-              <div className="p-3 border-t border-border/60 space-y-1 shrink-0">
+              <div className="px-3 py-3 border-t border-border/60 space-y-1 shrink-0">
                 {board.rules_markdown?.trim() && (
                   <button
                     onClick={() => { setMobileChannelsOpen(false); setShowRulesDialog(true); }}
@@ -1652,8 +1661,8 @@ const Board = () => {
                   </Link>
                 )}
               </div>
-            </SheetContent>
-          </Sheet>
+            </DrawerContent>
+          </Drawer>
           </>
         ) : (
           <>
