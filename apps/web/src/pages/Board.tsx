@@ -720,18 +720,46 @@ const Board = () => {
     document.body.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
 
+    // While the sheet is open, a downward swipe from the same bottom-left
+    // grab zone closes it (mirror of the swipe-up-to-open gesture). Touches
+    // that start there get tracked; a >48px downward move dismisses the sheet.
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      if (window.innerHeight - touch.clientY <= 80 && touch.clientX < window.innerWidth / 2) {
+        edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
+      } else {
+        edgeSwipeStart.current = null;
+      }
+    };
     const onTouchMove = (e: TouchEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest('[role="dialog"]')) return;
+      if (target?.closest('[role="dialog"]')) {
+        if (edgeSwipeStart.current) {
+          const touch = e.touches[0];
+          if (touch && touch.clientY - edgeSwipeStart.current.y > 48) {
+            setMobileChannelsOpen(false);
+            edgeSwipeStart.current = null;
+          }
+        }
+        return;
+      }
       e.preventDefault();
     };
+    const onTouchEnd = () => {
+      edgeSwipeStart.current = null;
+    };
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
     document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
 
     return () => {
       document.documentElement.style.overflow = prevHtmlOverflow;
       document.body.style.overflow = prevBodyOverflow;
       document.documentElement.style.overscrollBehavior = prevOverscroll;
+      document.removeEventListener("touchstart", onTouchStart);
       document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
+      document.removeEventListener("touchend", onTouchEnd);
     };
   }, [mobileChannelsOpen]);
 
