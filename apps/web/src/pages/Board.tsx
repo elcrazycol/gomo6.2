@@ -655,14 +655,15 @@ const Board = () => {
   // already started (preventDefault on later touchmoves is ignored once the
   // pan recognizer claims the gesture), so the bottom-edge gesture must never
   // start scrolling the feed — otherwise the sheet opens mid-scroll and the
-  // posts behind keep sliding. The bottom 80px therefore act as a pure sheet
-  // grab zone: scrolls from there open the picker instead of moving the feed.
+  // posts behind keep sliding. The grab zone is the bottom 80px of the LEFT
+  // HALF of the screen: the right half keeps normal feed scrolling, so the
+  // sheet gesture doesn't eat the whole bottom bar.
   useEffect(() => {
     if (mobileChannelsOpen) return;
     const onTouchStart = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
-      if (window.innerHeight - touch.clientY <= 80) {
+      if (window.innerHeight - touch.clientY <= 80 && touch.clientX < window.innerWidth / 2) {
         edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
       } else {
         edgeSwipeStart.current = null;
