@@ -56,7 +56,13 @@ vi.mock("sonner", () => ({ toast: mockToast }));
 // content only while open, with role=dialog so the sheet assertions below
 // keep working.
 vi.mock("@/components/ui/drawer", () => ({
-  Drawer: ({ open, children }: any) => (open ? <div role="dialog">{children}</div> : null),
+  Drawer: ({ open, onOpenChange, children }: any) =>
+    open ? (
+      <div role="dialog">
+        <button onClick={() => onOpenChange(false)}>Закрыть</button>
+        {children}
+      </div>
+    ) : null,
   DrawerContent: ({ children }: any) => <div data-testid="drawer-content">{children}</div>,
   DrawerHandle: ({ children }: any) => <div>{children}</div>,
   DrawerTitle: ({ children }: any) => <div>{children}</div>,
@@ -389,7 +395,7 @@ describe("Board (wall)", () => {
     expect(screen.getByTestId("pentagram-loader")).toBeInTheDocument();
   });
 
-  it("opens the mobile channel drawer and closes it after picking a channel", async () => {
+  it("opens the mobile channel drawer and keeps it open after picking a channel", async () => {
     mockParams.slug = "gsub";
     mockPathname.current = "/g/gsub";
     const channels = [
@@ -435,12 +441,11 @@ describe("Board (wall)", () => {
     expect(dialog).toHaveTextContent("Модерация");
     expect(dialog).toHaveTextContent("Основной");
 
-    // Picking a channel closes the sheet (scoped to the dialog to avoid the
-    // desktop sidebar copy, which jsdom still renders).
+    // Picking a channel keeps the sheet open (native-picker behaviour) —
+    // scoped to the dialog to avoid the desktop sidebar copy, which jsdom
+    // still renders.
     await user.click(within(dialog).getByRole("link", { name: "Новости" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("opens the create-post composer from the sheet header (+ button)", async () => {
@@ -505,10 +510,11 @@ describe("Board (wall)", () => {
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.documentElement.style.overflow).toBe("hidden");
 
-    // Close via the X in the fully-expanded state, or simply the overlay…
-    // here we close by unmounting the sheet through the dialog's close path:
-    // the X only exists at snap point 1, so pick a channel to close instead.
+    // Picking a channel keeps the sheet open, so close via the drawer mock's
+    // close button (the real overlay click is mocked away in jsdom).
     await user.click(within(dialog).getByRole("link", { name: "Основной" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Закрыть" }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
