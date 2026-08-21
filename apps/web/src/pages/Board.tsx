@@ -26,6 +26,8 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 import { renderTags } from "@/components/ThreadCard";
 import { LikeButton } from "@/components/LikeButton";
+import { GomoThreadCard } from "@/components/GomoThreadCard";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { wsService } from "@/services/websocket";
 
 interface Board {
@@ -59,7 +61,10 @@ interface Thread {
   id: string;
   title: string;
   content: string;
+  content_json?: unknown;
   image_url: string | null;
+  image_urls?: string[] | null;
+  attachments?: unknown;
   created_at: string;
   updated_at: string;
   post_count: number;
@@ -133,6 +138,11 @@ const Board = () => {
   const edgeSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
   const [isBoardOwner, setIsBoardOwner] = useState(false);
+  // Gallery lightbox for attachment previews (mirrors Index/Wall pattern).
+  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [currentUsername, setCurrentUsername] = useState("");
+  const [currentUserColor, setCurrentUserColor] = useState("");
   
   useSessionTime(user?.id);
 
@@ -147,6 +157,8 @@ const Board = () => {
           // Roles via a TTL-cached batched call instead of a fetch on every mount.
           const meta = await getCurrentUserMeta(sessionUser.id);
           setIsModerator(meta.roles.some((r) => r === 'moderator' || r === 'admin'));
+          setCurrentUsername(meta.username);
+          setCurrentUserColor(meta.color);
         }
     } finally {
       setAuthResolved(true);
@@ -959,6 +971,7 @@ const Board = () => {
   const hasChannels = isGomoRoute && channels.length > 0;
 
   return (
+    <>
     <main className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
         {/* Board header — always full width */}
         <div className="mb-3 sm:mb-4 space-y-3">
@@ -1515,109 +1528,20 @@ const Board = () => {
                       </div>
                     )}
                     {threads.map((thread) => (
-                      <Card key={thread.id} className="border-border/70 bg-card/95 p-0 overflow-hidden hover:border-primary/35 transition-colors rounded-xl">
-                        <div className="p-3 sm:p-5">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                              <UserBadge
-                                userId={thread.user_id}
-                                username={thread.profiles?.username || t("common.anonymous")}
-                                displayName={thread.profiles?.display_name}
-                                emojiId={thread.profiles?.nickname_emoji_id}
-                                isAnonymous={thread.profiles?.is_anonymous}
-                                showOutline={false}
-                                disableLink={true}
-                                className="text-sm"
-                              />
-                              <span>
-                                {formatDistanceToNow(safeDate(thread.created_at), {
-                                  locale: dateLocale,
-                                  addSuffix: true,
-                                })}
-                              </span>
-                            </div>
-                            <div className="h-px bg-border/35" />
-
-                            <Link
-                              to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
-                              className="block group/title"
-                            >
-                              <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
-                                {thread.title}
-                              </h3>
-                            </Link>
-
-                            {Array.isArray(thread.tags?.gomosub_tags) && thread.tags.gomosub_tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {thread.tags.gomosub_tags.map((tag: string) => (
-                                  <span
-                                    key={`${thread.id}-g-${tag}`}
-                                    className="inline-block px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-full border border-primary/20"
-                                  >
-                                    #{tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="relative">
-                              <div
-                                className={`text-sm sm:text-base text-foreground/90 whitespace-pre-wrap break-words leading-relaxed ${thread.content.length > 900 ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]" : ""}`}
-                              >
-                                {hasVisibilityTags(thread.content)
-                                  ? t("board.openThreadToView")
-                                  : renderContent(thread.content)}
-                              </div>
-                              {thread.content.length > 900 && (
-                                <Link
-                                  to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
-                                  className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
-                                >
-                                  Читать полностью
-                                  <ArrowUpRight className="w-4 h-4" />
-                                </Link>
-                              )}
-                            </div>
-
-                            {thread.image_url && (
-                              <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`} className="block pt-1">
-                                <img
-                                  src={storageUrl("content", thread.image_url) || thread.image_url}
-                                  alt="Thread"
-                                  className="max-w-[220px] sm:max-w-[280px] max-h-40 sm:max-h-48 object-cover rounded-md"
-                                />
-                              </Link>
-                            )}
-
-                            <div className="h-px bg-border/35 mt-1" />
-                            <div className="pt-2 flex items-center justify-between text-sm text-muted-foreground">
-                              <LikeButton
-                                postId={thread.id}
-                                currentUserId={user?.id ?? null}
-                                postAuthorId={thread.user_id}
-                                isThread={true}
-                              />
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`)}
-                                className="h-9 rounded-full px-3 gap-2"
-                              >
-                                <MessageCircle className="w-4 h-4" />
-                                {thread.post_count > 0 ? thread.post_count : 0}
-                              </Button>
-                            </div>
-
-                            {thread.latest_post?.content && (
-                              <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-                                <span className="font-medium">{t("board.lastComment")}</span>{" "}
-                                {thread.latest_post.content.slice(0, 120)}
-                                {thread.latest_post.content.length > 120 && "..."}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </Card>
+                      <GomoThreadCard
+                        key={thread.id}
+                        thread={thread}
+                        currentUserId={user?.id ?? null}
+                        currentUsername={currentUsername}
+                        currentUserColor={currentUserColor}
+                        boardPath={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`}
+                        channelSlug={channelSlug}
+                        channelName={channels.find((ch) => ch.slug === channelSlug)?.name}
+                        onImageClick={(items, idx) => {
+                          setGalleryItems(items);
+                          setGalleryIndex(idx);
+                        }}
+                      />
                     ))}
                   </>
                 )}
@@ -2154,6 +2078,16 @@ const Board = () => {
           </Dialog>
         )}
       </main>
+
+      {/* Attachment lightbox (from WallAttachments in GomoThreadCard) */}
+      {!!galleryItems && (
+        <Lightbox
+          items={galleryItems}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryItems(null)}
+        />
+      )}
+    </>
   );
 };
 
