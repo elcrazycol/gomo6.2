@@ -294,7 +294,7 @@ const Index = () => {
         </div>
 
         <div className="bg-card border border-border p-6 mb-6">
-          <h3 className="text-xl font-bold mb-4">Популярные треды</h3>
+          <h3 className="text-xl font-bold mb-4">Популярные записи</h3>
           <div className="space-y-2">
             {popularThreads.map((thread) => (
               <Link
@@ -326,7 +326,7 @@ const Index = () => {
           <div className="space-y-4">
             {randomThread && (
               <div>
-                <h4 className="font-semibold mb-2">Случайный тред:</h4>
+                <h4 className="font-semibold mb-2">Случайная запись:</h4>
                 <Link
                   to={`/${randomThread.boards.slug}/thread/${randomThread.id}`}
                   className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group"

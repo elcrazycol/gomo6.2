@@ -108,7 +108,7 @@ const filterByRange = (series: StatPoint[], range: Range) => {
 };
 
 // mergeSeries combines multiple series into one by summing values on the same
-// timestamp (used for the unified metrics: Записи = треды + стена, etc.).
+// timestamp (used for the unified metrics: Записи = сабы + стена, etc.).
 const mergeSeries = (series: StatPoint[]): StatPoint[] => {
   const map = new Map<number, { value: number; ts: number; label: string }>();
   series.forEach((p) => {
@@ -292,7 +292,7 @@ export default function Stats() {
     };
 
     switch (metric) {
-      // Unified «Записи» = треды + записи стены.
+      // Unified «Записи» = записи сабов + записи стены.
       case "posts": {
         const combined = mergeSeries([...threadsDaily, ...wallPostsDaily]);
         const combinedTs = [...threadsTs, ...wallPostsTs];
@@ -300,7 +300,7 @@ export default function Stats() {
           ? scaleSeries(filterByRange(accumulate(combined), range), (profile?.thread_count || 0) + (profile?.wall_post_count || 0))
           : build(combinedTs);
       }
-      // Unified «Комментарии» = посты в тредах + комментарии на стене.
+      // Unified «Комментарии» = посты в сабах + комментарии на стене.
       case "comments": {
         const combined = mergeSeries([...postsDaily, ...wallCommentsDaily]);
         const combinedTs = [...postsTs, ...wallCommentsTs];
@@ -309,7 +309,7 @@ export default function Stats() {
           : build(combinedTs);
       }
       // Unified «Лайки» = все типы лайков. Таймстампы лайков стены пока не
-      // отдаются RPC, поэтому серия (посты+треды) масштабируется до полного
+      // отдаются RPC, поэтому серия (посты+записи сабов) масштабируется до полного
       // числа полученных лайков (включая стену) — форма приблизительная.
       case "likes": {
         const combined = mergeSeries([...postLikesDaily, ...threadLikesDaily]);
@@ -380,13 +380,13 @@ export default function Stats() {
 
   const garmaBreakdown = useMemo(() => {
     const sum = (arr: StatPoint[]) => arr.reduce((s, p) => s + p.value, 0);
-    // Комментарии (посты в тредах + комменты стены) имеют одинаковый вес 0.5.
+    // Комментарии (посты в сабах + комменты стены) имеют одинаковый вес 0.5.
     const commentsVal = (sum(postsDaily) + sum(wallCommentsDaily)) * 0.5;
     const threadsVal = sum(threadsDaily) * 4;
     const wallPostsVal = sum(wallPostsDaily) * 0.5;
     const postLikesVal = sum(postLikesDaily) * 2;
     const threadLikesVal = sum(threadLikesDaily) * 3;
-    // Лайки стены = все полученные лайки минус лайки постов/тредов. Вес 2
+    // Лайки стены = все полученные лайки минус лайки постов/записей сабов. Вес 2
     // (как лайк поста) — приближение: лайки комментов стены стоят 1, но их
     // таймстампы не отдаются RPC, поэтому раскладка не делит их на два бара.
     const knownLikes = sum(postLikesDaily) + sum(threadLikesDaily);
@@ -397,13 +397,13 @@ export default function Stats() {
     const target = profile?.garma && profile.garma > 0 ? profile.garma : total;
     const k = total > 0 ? target / total : 1;
     return [
-      { label: "Треды", value: threadsVal * k, color: "#a855f7" },
+      { label: "Записи в сабах", value: threadsVal * k, color: "#a855f7" },
       { label: "Записи на стене", value: wallPostsVal * k, color: "#f59e0b" },
       { label: "Комментарии", value: commentsVal * k, color: "#f97316" },
       { label: "Лайки постов", value: postLikesVal * k, color: "#22c55e" },
-      { label: "Лайки тредов", value: threadLikesVal * k, color: "#3b82f6" },
+      { label: "Лайки записей", value: threadLikesVal * k, color: "#3b82f6" },
       { label: "Лайки стены", value: wallLikesVal * k, color: "#14b8a6" },
-      { label: "Ответы в моих тредах", value: repliesVal * k, color: "#ef4444" },
+      { label: "Ответы в моих записях", value: repliesVal * k, color: "#ef4444" },
       { label: "Время на сайте", value: timeVal * k, color: "#0ea5e9" },
     ];
   }, [postsDaily, threadsDaily, wallPostsDaily, wallCommentsDaily, postLikesDaily, threadLikesDaily, repliesDaily, timeStats, profile]);
@@ -511,13 +511,13 @@ export default function Stats() {
               <SelectTrigger className="w-[200px] sm:w-[220px]"><SelectValue placeholder="Метрика" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="garma">gарма (накопительно)</SelectItem>
-                <SelectItem value="posts">Записи (треды + стена)</SelectItem>
+                <SelectItem value="posts">Записи (сабы + стена)</SelectItem>
                 <SelectItem value="comments">Комментарии</SelectItem>
                 <SelectItem value="likes">Лайки полученные</SelectItem>
-                <SelectItem value="threads">Треды</SelectItem>
+                <SelectItem value="threads">Записи в сабах</SelectItem>
                 <SelectItem value="postLikes">Лайки постов</SelectItem>
-                <SelectItem value="threadLikes">Лайки тредов</SelectItem>
-                <SelectItem value="replies">Ответы в моих тредах</SelectItem>
+                <SelectItem value="threadLikes">Лайки записей</SelectItem>
+                <SelectItem value="replies">Ответы в моих записях</SelectItem>
               </SelectContent>
             </Select>
             <div className="flex gap-1 flex-wrap">

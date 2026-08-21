@@ -1583,7 +1583,7 @@ const Board = () => {
 
               {threads.length === 0 && !pageLoading && !threadsLoading && (
                 <div className="text-center text-muted-foreground p-8">
-                  Тредов пока нет. Будьте первым!
+                  Записей пока нет. Будьте первым!
                 </div>
               )}
 
@@ -1595,7 +1595,7 @@ const Board = () => {
                 )}
                 {!hasMoreThreads && threads.length > 0 && (
                   <div className="text-center text-muted-foreground py-2 text-sm">
-                    Все треды загружены
+                    Все записи загружены
                   </div>
                 )}
               </div>
@@ -2025,7 +2025,7 @@ const Board = () => {
 
         {threads.length === 0 && !pageLoading && !threadsLoading && (
           <div className="text-center text-muted-foreground p-8">
-            Тредов пока нет. Будьте первым!
+            Записей пока нет. Будьте первым!
           </div>
         )}
 
@@ -2038,7 +2038,7 @@ const Board = () => {
           )}
           {!hasMoreThreads && threads.length > 0 && (
             <div className="text-center text-muted-foreground py-2 text-sm">
-              Все треды загружены
+              Все записи загружены
             </div>
           )}
         </div>

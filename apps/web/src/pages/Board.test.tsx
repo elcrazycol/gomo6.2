@@ -229,7 +229,7 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getByText("Тредов пока нет. Будьте первым!")).toBeInTheDocument();
+      expect(screen.getByText("Записей пока нет. Будьте первым!")).toBeInTheDocument();
     });
   });
 
@@ -237,7 +237,7 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("Создать тред").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Создать запись").length).toBeGreaterThan(0);
     });
   });
 
@@ -248,7 +248,7 @@ describe("Board (wall)", () => {
     await waitFor(() => {
       expect(screen.getByText("Board description text")).toBeInTheDocument();
     });
-    expect(screen.queryAllByText("Создать тред").length).toBe(0);
+    expect(screen.queryAllByText("Создать запись").length).toBe(0);
   });
 
   it("navigates with a content tag filter when a filter chip is clicked", async () => {
@@ -273,7 +273,7 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("зайдите в тему чтобы посмотреть").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("зайдите в запись чтобы посмотреть").length).toBeGreaterThan(0);
     });
     expect(screen.queryAllByText(/secret/).length).toBe(0);
   });

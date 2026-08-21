@@ -90,7 +90,7 @@ const baseProps = {
   onOpenChange: vi.fn(),
   target: { type: "thread" as const, id: "t1" },
   url: "https://gomo6.wtf/games/thread/t1",
-  title: "Заголовок треда",
+  title: "Заголовок записи",
 };
 
 function renderSheet(props: Partial<typeof baseProps> = {}) {

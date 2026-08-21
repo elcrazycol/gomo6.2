@@ -25,7 +25,7 @@ import { AdminBadge } from "@/components/AdminBadge";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 
 // Ключ 'post_count' сохранён для обратной совместимости с сохранёнными
-// user_placeholders, но теперь рендерит объединённое «записи» (треды + стена).
+// user_placeholders, но теперь рендерит объединённое «записи» (записи сабов + стена).
 const PRESET_PLACEHOLDERS = [
   { value: '', labelKey: 'placeholderNone' },
   { value: 'bio', labelKey: 'placeholderBio' },

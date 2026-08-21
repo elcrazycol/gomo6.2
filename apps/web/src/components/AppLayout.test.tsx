@@ -280,7 +280,7 @@ describe("AppLayout", () => {
 
       // Open desktop search
       fireEvent.click(screen.getByRole("button", { name: "Открыть поиск" }));
-      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, тред..."), {
+      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, запись..."), {
         target: { value: "ali" },
       });
 
@@ -295,7 +295,7 @@ describe("AppLayout", () => {
     it("shows 'Ничего не найдено' when search has no results", async () => {
       renderLayout();
       fireEvent.click(screen.getByRole("button", { name: "Открыть поиск" }));
-      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, тред..."), {
+      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, запись..."), {
         target: { value: "zzz" },
       });
       await waitFor(() => {
@@ -306,17 +306,17 @@ describe("AppLayout", () => {
     it("navigates to /search on submit", async () => {
       renderLayout();
       fireEvent.click(screen.getByRole("button", { name: "Открыть поиск" }));
-      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, тред..."), {
+      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, запись..."), {
         target: { value: "алиса" },
       });
-      fireEvent.submit(screen.getByPlaceholderText("Поиск: юзер, g-саб, тред...").closest("form")!);
+      fireEvent.submit(screen.getByPlaceholderText("Поиск: юзер, g-саб, запись...").closest("form")!);
       expect(mockNavigate).toHaveBeenCalledWith("/search?q=%D0%B0%D0%BB%D0%B8%D1%81%D0%B0");
     });
 
     it("does not search for queries shorter than 2 chars", async () => {
       renderLayout();
       fireEvent.click(screen.getByRole("button", { name: "Открыть поиск" }));
-      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, тред..."), {
+      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, запись..."), {
         target: { value: "a" },
       });
       expect(mockSearchGlobal).not.toHaveBeenCalled();
@@ -333,7 +333,7 @@ describe("AppLayout", () => {
 
       // Open search and wait for real results to appear
       fireEvent.click(screen.getByRole("button", { name: "Открыть поиск" }));
-      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, тред..."), {
+      fireEvent.change(screen.getByPlaceholderText("Поиск: юзер, g-саб, запись..."), {
         target: { value: "ali" },
       });
       await waitFor(() => {

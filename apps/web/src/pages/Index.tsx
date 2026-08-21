@@ -318,7 +318,7 @@ const Index = () => {
               created_at: post.created_at,
               thread_id: post.thread_id,
               user_id: post.user_id,
-              thread_title: thread?.title || "Тред",
+              thread_title: thread?.title || "Запись",
               board_slug: thread?.boards?.slug || "b",
               board_is_gomosub: Boolean(thread?.boards?.is_gomosub),
               author_username: author?.username || "Аноним",
@@ -443,7 +443,7 @@ const Index = () => {
               <div className="space-y-4">
                 <Card className="border-primary/30">
                   <CardHeader>
-                    <CardTitle className="text-lg">Новые посты в подписанных тредах</CardTitle>
+                    <CardTitle className="text-lg">Новые записи из подписок</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {subscribedPostUpdates.length === 0 ? (
@@ -473,7 +473,7 @@ const Index = () => {
                 {subscriptionsFeed.length === 0 ? (
                   <Card>
                     <CardContent className="py-8 text-center">
-                      <p className="text-muted-foreground">Подпишись на g-сабы и треды, чтобы собрать свою ленту</p>
+                      <p className="text-muted-foreground">Подпишись на g-сабы и записи, чтобы собрать свою ленту</p>
                     </CardContent>
                   </Card>
                 ) : (

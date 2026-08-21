@@ -268,7 +268,7 @@ export const FeedThreadCard = ({
           />
           <ActionButton
             icon={<ExternalLink className="h-4 w-4" />}
-            label="Открыть тред"
+            label="Открыть запись"
             showLabel={false}
             onClick={handleOpenThread}
           />
@@ -289,7 +289,7 @@ export const FeedThreadCard = ({
       onOpenChange={setShareOpen}
       target={{ type: "thread", id: thread.id }}
       url={`${window.location.origin}${threadPath}`}
-      title={thread.title || thread.content || "Тред"}
+      title={thread.title || thread.content || "Запись"}
     />
     </>
   );

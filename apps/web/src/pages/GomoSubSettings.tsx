@@ -43,7 +43,7 @@ const buildRulesMarkdown = (s: string, a: string[], f: string[]) => {
   return blocks.join("\n\n").trim() || null;
 };
 
-const PERMISSION_LABELS: Record<string, string> = { can_manage_roles: "Управление ролями", can_manage_channels: "Управление каналами", can_manage_members: "Управление участниками", can_delete_threads: "Удаление тредов", can_pin_threads: "Закрепление тредов" };
+const PERMISSION_LABELS: Record<string, string> = { can_manage_roles: "Управление ролями", can_manage_channels: "Управление каналами", can_manage_members: "Управление участниками", can_delete_threads: "Удаление записей", can_pin_threads: "Закрепление записей" };
 
 const GomoSubSettings = () => {
   const { slug } = useParams();

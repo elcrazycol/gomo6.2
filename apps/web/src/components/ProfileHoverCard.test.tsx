@@ -251,7 +251,7 @@ describe("ProfileHoverCard", () => {
     });
   });
 
-  it("shows unified записи placeholder (треды + стена)", async () => {
+  it("shows unified записи placeholder (записи сабов + стена)", async () => {
     mockUseQuery.mockReturnValue({
       data: {
         profile: { username: "testuser", id: "user-1", post_count: 42, thread_count: 40, wall_post_count: 2 },
