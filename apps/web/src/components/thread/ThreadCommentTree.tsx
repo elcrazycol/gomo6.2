@@ -767,7 +767,7 @@ export const ThreadCommentTree = ({
       unsub();
       wsService.unsubscribe(threadId);
     };
-  }, [threadId, currentUserId, onPostCountChange]);
+  }, [threadId, currentUserId, onPostCountChange, loadProfiles]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const startReply = useCallback((postId: string) => {
