@@ -646,65 +646,6 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.name || null;
   }, [activeChannelId, channels]);
 
-  // True while the page is still decelerating (momentum scroll). Detected by
-  // POLLING window.scrollY every frame — iOS is unreliable about delivering
-  // scroll events during the momentum phase (and about delivering touches at
-  // all while a scroll gesture owns the screen), but scrollY always reflects
-  // reality.
-  //
-  // On iOS, EVERY touch during the glide is swallowed — even on elements with
-  // touch-action:none — so a grab-zone swipe can never arrive mid-momentum.
-  // The only reliable fix is to cancel the momentum itself: once the finger
-  // lifts (touchend) any further scrollY movement is the glide, and a
-  // programmatic scrollTo interrupts the scroll gesture, so the feed stops
-  // within a frame. The next touch then always lands on an idle feed and the
-  // normal 48px-threshold swipe works. The user's own drag (finger down) is
-  // never touched, and only iOS is affected (Android delivers touches during
-  // fling and already works).
-  const scrollActiveRef = useRef(false);
-  const fingerDownRef = useRef(false);
-
-  useEffect(() => {
-    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const isTouch = window.matchMedia("(pointer: coarse)").matches;
-    let raf = 0;
-    let lastY = window.scrollY;
-    let lastChangedAt = 0;
-
-    const onTouchStart = () => {
-      fingerDownRef.current = true;
-    };
-    const onTouchEnd = () => {
-      fingerDownRef.current = false;
-    };
-    document.addEventListener("touchstart", onTouchStart, { passive: true });
-    document.addEventListener("touchend", onTouchEnd, { passive: true });
-
-    const tick = () => {
-      const y = window.scrollY;
-      const now = performance.now();
-      if (y !== lastY) {
-        lastY = y;
-        lastChangedAt = now;
-        scrollActiveRef.current = true;
-        if (isIOS && isTouch && !fingerDownRef.current) {
-          // Finger is up and the position is still changing → the glide.
-          // Interrupt the scroll gesture so it stops right now.
-          window.scrollTo(window.scrollX, y);
-        }
-      } else if (now - lastChangedAt > 400) {
-        scrollActiveRef.current = false;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(raf);
-      document.removeEventListener("touchstart", onTouchStart);
-      document.removeEventListener("touchend", onTouchEnd);
-    };
-  }, []);
-
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
   // on document (not <main>) so gestures that start below the content area
   // still count, and only while the sheet is closed.
@@ -714,24 +655,16 @@ const Board = () => {
   // already started (preventDefault on later touchmoves is ignored once the
   // pan recognizer claims the gesture), so the bottom-edge gesture must never
   // start scrolling the feed — otherwise the sheet opens mid-scroll and the
-  // posts behind keep sliding. The grab zone is the bottom 80px of the LEFT
-  // HALF of the screen: the right half keeps normal feed scrolling, so the
-  // sheet gesture doesn't eat the whole bottom bar.
+  // posts behind keep sliding. The bottom 80px therefore act as a pure sheet
+  // grab zone: scrolls from there open the picker instead of moving the feed.
   useEffect(() => {
     if (mobileChannelsOpen) return;
     const onTouchStart = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
-      const inZone = window.innerHeight - touch.clientY <= 80 && touch.clientX < window.innerWidth / 2;
-      if (!inZone) {
-        edgeSwipeStart.current = null;
-        return;
-      }
-      edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
-      // Content is still moving: the touch already stopped the momentum, so
-      // open the sheet right away instead of waiting for suppressed moves.
-      if (scrollActiveRef.current) {
-        setMobileChannelsOpen(true);
+      if (window.innerHeight - touch.clientY <= 80) {
+        edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
+      } else {
         edgeSwipeStart.current = null;
       }
     };
