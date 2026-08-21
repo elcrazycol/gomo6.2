@@ -155,7 +155,7 @@ describe("GomoThreadCard", () => {
     expect(screen.getByTestId("wall-attachments").dataset.count).toBe("2");
   });
 
-  it("renders the latest answer preview", () => {
+  it("does not render the latest answer preview anymore", () => {
     renderCard(
       baseThread({
         latest_post: {
@@ -166,7 +166,7 @@ describe("GomoThreadCard", () => {
         },
       }),
     );
-    expect(screen.getByText(/Последний ответ в записи/)).toBeInTheDocument();
+    expect(screen.queryByText(/Последний ответ в записи/)).not.toBeInTheDocument();
   });
 
   it("toggles a like via thread_likes", async () => {

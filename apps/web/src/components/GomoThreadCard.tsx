@@ -15,7 +15,6 @@ import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { parseAttachments } from "@/components/ThreadAttachments";
 import { safeDate } from "@/utils/safeDate";
-import { storageUrl } from "@/utils/storage";
 import type { AttachmentMeta } from "@/types/forum";
 import type { LightboxItem } from "@/components/Lightbox";
 
@@ -289,42 +288,6 @@ export const GomoThreadCard = ({
               galleryKey={`gomo-thread-${thread.id}`}
               onImageClick={onImageClick}
             />
-          )}
-
-          {/* Latest answer preview */}
-          {thread.latest_post?.content && (
-            <div className="flex items-start gap-2.5 rounded-md border border-border/70 bg-muted/35 px-3 py-2.5">
-              <div className="w-8 h-8 rounded-full bg-muted shrink-0 overflow-hidden flex items-center justify-center text-sm font-semibold text-muted-foreground">
-                {thread.latest_post.profiles?.avatar_url ? (
-                  <img
-                    src={storageUrl("post-images", thread.latest_post.profiles.avatar_url) || undefined}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span>
-                    {(thread.latest_post.profiles?.username || "А").charAt(0).toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2 text-xs">
-                  <span className="font-medium text-foreground/90">
-                    {thread.latest_post.profiles?.username || t("common.anonymous")}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {formatDistanceToNow(safeDate(thread.latest_post.created_at), {
-                      locale: dateLocale,
-                      addSuffix: true,
-                    })}
-                  </span>
-                </div>
-                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground break-words">
-                  {thread.latest_post.content.slice(0, 200)}
-                  {thread.latest_post.content.length > 200 && "..."}
-                </p>
-              </div>
-            </div>
           )}
 
           {/* Actions */}
