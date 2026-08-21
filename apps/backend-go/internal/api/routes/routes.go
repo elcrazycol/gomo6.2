@@ -392,12 +392,54 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/gomosub_memberships", universalHandler.HandleTableRequest)
 		genericProtected.GET("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
+		// Writes: join (POST), leave (DELETE) and role assignment (PUT) are
+		// called by Board.tsx / GomoSubSettings.tsx. GET-only routes made Gin
+		// return 404 before the already-implemented handler was reached —
+		// joining or leaving a gomosub fired a 404 and the frontend crashed on
+		// JSON.parse of the non-JSON 404 body.
+		genericProtected.POST("/gomosub_memberships", universalHandler.HandleTableRequest)
+		genericProtected.POST("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/gomosub_memberships", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/gomosub_memberships", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/gomosub_roles", universalHandler.HandleTableRequest)
 		genericProtected.GET("/gomosub_roles/*path", universalHandler.HandleTableRequest)
+		// Writes: role create (POST) / delete (DELETE) from GomoSubSettings.tsx.
+		// GET-only routes made Gin return 404 — role management was completely
+		// broken (same JSON.parse crash on the 404 body).
+		genericProtected.POST("/gomosub_roles", universalHandler.HandleTableRequest)
+		genericProtected.POST("/gomosub_roles/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/gomosub_roles", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/gomosub_roles/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/gomosub_roles", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/gomosub_roles/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/channel_permissions", universalHandler.HandleTableRequest)
 		genericProtected.GET("/channel_permissions/*path", universalHandler.HandleTableRequest)
+		// Writes: per-role channel access toggles (POST/PUT) from
+		// GomoSubSettings.tsx — 404 before this registration.
+		genericProtected.POST("/channel_permissions", universalHandler.HandleTableRequest)
+		genericProtected.POST("/channel_permissions/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/channel_permissions", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/channel_permissions/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/channel_permissions", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/channel_permissions/*path", universalHandler.HandleTableRequest)
+
+		// Writes: the frontend creates/renames/reorders/deletes channels via the
+		// universal CRUD handler (GomoSubSettings.tsx handleAddChannel & co).
+		// Channels GET is guest-visible in genericRead above; writes stay behind
+		// AuthCacheMiddleware + CSRF here. GET-only routes made Gin return 404 —
+		// channel creation was completely broken (JSON.parse crash on the 404
+		// body), even though the handler and can_manage_channels permission
+		// check were already implemented.
+		genericProtected.POST("/channels", universalHandler.HandleTableRequest)
+		genericProtected.POST("/channels/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/channels", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/channels/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/channels", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/channels/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/user_session_time", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_session_time/*path", universalHandler.HandleTableRequest)
