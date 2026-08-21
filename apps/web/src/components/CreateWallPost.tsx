@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -102,10 +103,19 @@ export const CreateWallPost = ({
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  // While closing, the panel plays its slide-down animation before onCancel is
+  // fired (which unmounts the overlay).
+  const [closing, setClosing] = useState(false);
 
   const isEditing = !!editingPost;
   const canSubmit = content.trim().length > 0 || attachments.length > 0;
   const draftKey = `${DRAFT_PREFIX}${profileUserId}`;
+
+  const close = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    window.setTimeout(() => onCancel(), 280);
+  }, [closing, onCancel]);
 
   useEffect(() => {
     setContent(editingPost?.content || "");
@@ -113,6 +123,16 @@ export const CreateWallPost = ({
     setAttachments(normalizeAttachments(editingPost));
     setEditorResetKey((prev) => prev + 1);
   }, [editingPost]);
+
+  // Lock page scroll while the overlay is up so the content underneath can't
+  // move (restored on unmount — after the close animation finishes).
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   // Restore an autosaved draft for this wall (create mode only).
   useEffect(() => {
@@ -157,12 +177,12 @@ export const CreateWallPost = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !emojiSwap.open) {
         e.preventDefault();
-        onCancel();
+        close();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel, emojiSwap.open]);
+  }, [close, emojiSwap.open]);
 
   // Emoji panel ↔ keyboard: the composer is bottom-anchored at --kb-inset, so
   // while the keyboard is up the toolbar floats right above it. The moment the
@@ -421,14 +441,19 @@ export const CreateWallPost = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
+  // Rendered in a portal so the overlay sits at the root stacking context:
+  // the profile page main is `isolate`, which would otherwise trap the overlay
+  // below the fixed app header (z-50) and let the header cover its top.
+  return createPortal(
+    <div className="fixed inset-0 z-[60] md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
       <div
         ref={composerRootRef}
         role="dialog"
         aria-modal="true"
         {...wallDragHandlers}
-        className="fixed inset-x-0 top-0 bottom-[var(--kb-inset)] md:static flex flex-col w-full md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:border md:border-border/60 md:shadow-2xl bg-background md:bg-card overflow-hidden animate-in slide-in-from-bottom-full md:slide-in-from-bottom-8 duration-300 ease-out"
+        className={`fixed inset-x-0 top-0 bottom-[var(--kb-inset)] md:static flex flex-col w-full md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:border md:border-border/60 md:shadow-2xl bg-background md:bg-card overflow-hidden transition-[transform,opacity] duration-300 ease-out animate-in slide-in-from-bottom-full md:slide-in-from-bottom-8 ${
+          closing ? "translate-y-full md:translate-y-0 md:opacity-0" : "translate-y-0 md:opacity-100"
+        }`}
         data-testid="wall-post-composer"
       >
         {/* Drag & drop attach hint covering the whole composer */}
@@ -448,7 +473,7 @@ export const CreateWallPost = ({
         <div className="flex items-center gap-1 px-2 py-2 border-b border-border/60 shrink-0">
           <button
             type="button"
-            onClick={onCancel}
+            onClick={close}
             aria-label="Закрыть"
             className="p-2 rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 transition"
           >
@@ -512,6 +537,7 @@ export const CreateWallPost = ({
                 setContent(text);
               }}
               onSubmit={handleSubmit}
+              autoFocus
               placeholder="Что у вас нового? Напишите красиво, добавьте теги, эмодзи и вложения."
               minHeightClassName="min-h-[160px]"
               maxHeightClassName="max-h-full"
@@ -598,6 +624,7 @@ export const CreateWallPost = ({
           }}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 };

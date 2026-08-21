@@ -439,14 +439,18 @@ describe("CreateWallPost", () => {
     consoleSpy.mockRestore();
   });
 
-  it("calls onCancel when the close button is clicked", async () => {
+  it("slides the panel down and calls onCancel when the close button is clicked", async () => {
     setupApiMocks();
     const onCancel = vi.fn();
     render(<Component {...defaultProps} onCancel={onCancel} />);
 
     await userEvent.click(screen.getByLabelText("Закрыть"));
 
-    expect(onCancel).toHaveBeenCalled();
+    // The panel starts its slide-down animation before the overlay unmounts.
+    expect(screen.getByTestId("wall-post-composer").className).toContain("translate-y-full");
+    await waitFor(() => {
+      expect(onCancel).toHaveBeenCalled();
+    });
   });
 
   it("calls onCancel when Escape is pressed", async () => {
@@ -456,7 +460,19 @@ describe("CreateWallPost", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(onCancel).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onCancel).toHaveBeenCalled();
+    });
+  });
+
+  it("locks page scroll while open and restores it on unmount", () => {
+    setupApiMocks();
+    const { unmount } = render(<Component {...defaultProps} />);
+
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("toggles between the editor and live preview", async () => {
