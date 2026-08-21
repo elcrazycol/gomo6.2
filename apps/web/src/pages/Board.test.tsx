@@ -518,7 +518,11 @@ describe("Board (wall)", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
-    expect(document.body.style.overflow).not.toBe("hidden");
+    // The scroll lock is released only after the close animation (0.5s) to
+    // avoid a background flash — so wait for the release.
+    await waitFor(() => {
+      expect(document.body.style.overflow).not.toBe("hidden");
+    }, { timeout: 1500 });
   });
 
   it("closes the channel sheet with a downward swipe from the bottom-left edge", async () => {

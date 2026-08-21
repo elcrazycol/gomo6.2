@@ -142,6 +142,11 @@ const Board = () => {
   // Tracks the channel sheet snap point (0.4 = compact, 1 = full screen) so we
   // can show a close button only when the sheet is fully expanded.
   const [channelSheetSnapPoint, setChannelSheetSnapPoint] = useState<number>(0.4);
+  // Timers for the sheet close animation (vaul slides it out over 0.5s): the
+  // scroll lock and the snap point must outlive the animation, otherwise the
+  // background flashes and the sheet jumps back to 40% while closing.
+  const scrollLockReleaseTimer = useRef<number | null>(null);
+  const snapResetTimer = useRef<number | null>(null);
   const edgeSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
   const [isBoardOwner, setIsBoardOwner] = useState(false);
@@ -720,6 +725,13 @@ const Board = () => {
   // the drag handle — keep working).
   useEffect(() => {
     if (!mobileChannelsOpen) return;
+    // A previous close may have scheduled a delayed scroll-lock release;
+    // cancel it so reopening mid-animation doesn't unlock the page under the
+    // still-open sheet.
+    if (scrollLockReleaseTimer.current !== null) {
+      window.clearTimeout(scrollLockReleaseTimer.current);
+      scrollLockReleaseTimer.current = null;
+    }
     const prevHtmlOverflow = document.documentElement.style.overflow;
     const prevBodyOverflow = document.body.style.overflow;
     const prevOverscroll = document.documentElement.style.overscrollBehavior;
@@ -761,14 +773,38 @@ const Board = () => {
     document.addEventListener("touchend", onTouchEnd, { passive: true });
 
     return () => {
-      document.documentElement.style.overflow = prevHtmlOverflow;
-      document.body.style.overflow = prevBodyOverflow;
-      document.documentElement.style.overscrollBehavior = prevOverscroll;
+      // Keep the page scroll-locked until vaul's 0.5s close animation ends.
+      // Restoring overflow mid-animation re-paints the feed underneath and
+      // shows a one-frame flash.
+      scrollLockReleaseTimer.current = window.setTimeout(() => {
+        scrollLockReleaseTimer.current = null;
+        document.documentElement.style.overflow = prevHtmlOverflow;
+        document.body.style.overflow = prevBodyOverflow;
+        document.documentElement.style.overscrollBehavior = prevOverscroll;
+      }, 500);
       document.removeEventListener("touchstart", onTouchStart);
       document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
       document.removeEventListener("touchend", onTouchEnd);
     };
   }, [mobileChannelsOpen]);
+
+  // Leaving the page (or unmounting in tests): cancel pending close-animation
+  // timers and release the scroll lock right away — no 0.5s hangover.
+  useEffect(() => {
+    return () => {
+      if (scrollLockReleaseTimer.current !== null) {
+        window.clearTimeout(scrollLockReleaseTimer.current);
+        scrollLockReleaseTimer.current = null;
+      }
+      if (snapResetTimer.current !== null) {
+        window.clearTimeout(snapResetTimer.current);
+        snapResetTimer.current = null;
+      }
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
+      document.documentElement.style.overscrollBehavior = "";
+    };
+  }, []);
 
   // The channel drawer (mobile) and the desktop sidebar share this list markup.
   const renderChannelList = (onSelect: () => void) => (
@@ -1612,8 +1648,22 @@ const Board = () => {
             open={mobileChannelsOpen}
             onOpenChange={(open) => {
               setMobileChannelsOpen(open);
-              // Reopen in the compact state next time.
-              if (!open) setChannelSheetSnapPoint(0.4);
+              if (open) {
+                // Reopening — cancel any pending snap-point reset so the sheet
+                // doesn't jump to 40% mid-open.
+                if (snapResetTimer.current !== null) {
+                  window.clearTimeout(snapResetTimer.current);
+                  snapResetTimer.current = null;
+                }
+              } else if (snapResetTimer.current === null) {
+                // Reset after the close animation, so the sheet slides down
+                // from its current snap point instead of snapping back to 40%
+                // mid-animation (a visible blink).
+                snapResetTimer.current = window.setTimeout(() => {
+                  snapResetTimer.current = null;
+                  setChannelSheetSnapPoint(0.4);
+                }, 500);
+              }
             }}
             snapPoints={[0.4, 1]}
             activeSnapPoint={channelSheetSnapPoint}
