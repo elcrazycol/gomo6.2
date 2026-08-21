@@ -33,7 +33,7 @@ import { wsService } from "@/services/websocket";
 // Mobile channel sheet grab zone: bottom-left corner of the screen.
 // Used both for the swipe-up-to-open and swipe-down-to-close.
 const EDGE_ZONE_HEIGHT = 100;
-const EDGE_ZONE_WIDTH = 0.25;
+const EDGE_ZONE_WIDTH = 0.3;
 
 interface Board {
   id: string;
@@ -737,38 +737,11 @@ const Board = () => {
     document.body.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
 
-    // While the sheet is open, a downward swipe from the same bottom-left
-    // grab zone closes it (mirror of the swipe-up-to-open gesture). Touches
-    // that start there get tracked; a >48px downward move dismisses the sheet.
-    const onTouchStart = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      if (!touch) return;
-      if (window.innerHeight - touch.clientY <= EDGE_ZONE_HEIGHT && touch.clientX < window.innerWidth * EDGE_ZONE_WIDTH) {
-        edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
-      } else {
-        edgeSwipeStart.current = null;
-      }
-    };
     const onTouchMove = (e: TouchEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest('[role="dialog"]')) {
-        if (edgeSwipeStart.current) {
-          const touch = e.touches[0];
-          if (touch && touch.clientY - edgeSwipeStart.current.y > 48) {
-            setMobileChannelsOpen(false);
-            edgeSwipeStart.current = null;
-          }
-        }
-        return;
-      }
+      // Outside the drawer: never let a touch scroll the feed behind.
       e.preventDefault();
     };
-    const onTouchEnd = () => {
-      edgeSwipeStart.current = null;
-    };
-    document.addEventListener("touchstart", onTouchStart, { passive: true });
     document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
-    document.addEventListener("touchend", onTouchEnd, { passive: true });
 
     return () => {
       // Keep the page scroll-locked until vaul's 0.5s close animation ends.
@@ -780,9 +753,7 @@ const Board = () => {
         document.body.style.overflow = prevBodyOverflow;
         document.documentElement.style.overscrollBehavior = prevOverscroll;
       }, 500);
-      document.removeEventListener("touchstart", onTouchStart);
       document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
-      document.removeEventListener("touchend", onTouchEnd);
     };
   }, [mobileChannelsOpen]);
 

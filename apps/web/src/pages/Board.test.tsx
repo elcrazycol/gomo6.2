@@ -524,42 +524,4 @@ describe("Board (wall)", () => {
       expect(document.body.style.overflow).not.toBe("hidden");
     }, { timeout: 1500 });
   });
-
-  it("closes the channel sheet with a downward swipe from the bottom-left edge", async () => {
-    mockParams.slug = "gsub";
-    mockPathname.current = "/g/gsub";
-    mockFetch.mockImplementation((url: string) => {
-      if (url.startsWith("/api/v1/channels")) {
-        return jsonResponse([{ id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false }]);
-      }
-      if (url.startsWith("/api/v1/boards/")) {
-        return jsonResponse({ id: "g-3", slug: "gsub", name: "G-Sub", description: "sub", is_rules_board: false, is_gomosub: true, owner_id: "user-1" });
-      }
-      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
-      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
-      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
-      return jsonResponse([]);
-    });
-    const user = userEvent.setup();
-
-    render(<BoardComponent />);
-    const pill = await screen.findByTitle("Каналы");
-    await user.click(pill);
-    const dialog = await screen.findByRole("dialog");
-
-    // Simulate a touch in the bottom-left grab zone (80px from the bottom,
-    // left half of the 1024×768 jsdom viewport) swiping straight down.
-    const fireTouch = (type: string, x: number, y: number) => {
-      const ev = new Event(type, { bubbles: true, cancelable: true });
-      Object.defineProperty(ev, "touches", { value: [{ clientX: x, clientY: y }] });
-      dialog.dispatchEvent(ev);
-    };
-    fireTouch("touchstart", 50, 700);
-    fireTouch("touchmove", 50, 820);
-    fireTouch("touchend", 50, 820);
-
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    });
-  });
 });
