@@ -517,6 +517,42 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("180px");
     expect(document.documentElement.style.getPropertyValue("--app-vh")).toBe("620px");
   });
+
+  it("pins the document scroll to 0 while an input in the messenger shell is focused with the keyboard open", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const scrollToSpy = vi.fn();
+    Object.defineProperty(window, "scrollY", { value: 0, configurable: true, writable: true });
+    Object.defineProperty(window, "scrollX", { value: 0, configurable: true, writable: true });
+    Object.defineProperty(window, "scrollTo", { value: scrollToSpy, configurable: true, writable: true });
+
+    // The composer lives inside the full-screen messenger shell.
+    const shell = document.createElement("div");
+    shell.dataset.kbApp = "";
+    shell.style.position = "fixed";
+    const input = document.createElement("input");
+    shell.appendChild(input);
+    document.body.appendChild(shell);
+
+    dispose = initMobileKeyboard();
+    input.focus();
+
+    // The keyboard opens → Safari pans the document (scrollY becomes 120).
+    vv.height = 500;
+    (window as any).scrollY = 120;
+    (window as any).scrollX = 0;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(16);
+
+    // The per-frame follow pins the pan back to 0 immediately.
+    expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+
+    // The pin persists while typing — a late pan (after the old 300ms
+    // checkpoint) is still corrected.
+    (window as any).scrollY = 90;
+    vi.advanceTimersByTime(400);
+    expect(scrollToSpy).toHaveBeenLastCalledWith(0, 0);
+  });
 });
 
 describe("getScrollContext", () => {
