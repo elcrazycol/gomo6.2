@@ -1645,7 +1645,13 @@ const Board = () => {
                   full-width bar; inline styles neutralize it. */}
               <DrawerHandle
                 style={{ background: "transparent", height: "auto" }}
-                className="w-full shrink-0 pt-2 pb-1.5 flex justify-center cursor-grab active:cursor-grabbing touch-none"
+                className={`w-full shrink-0 flex justify-center cursor-grab active:cursor-grabbing touch-none ${
+                  channelSheetSnapPoint === 1
+                    ? // Full screen: the sheet's top edge touches the viewport
+                      // top, so push the handle below the status bar / notch.
+                      "pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-1.5"
+                    : "pt-2 pb-1.5"
+                }`}
               >
                 <div className="h-1 w-10 rounded-full bg-muted-foreground/25" />
               </DrawerHandle>
