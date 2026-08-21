@@ -19,6 +19,9 @@ WORKDIR /app
 
 # Root workspace + ALL workspace manifests — npm needs the full workspace set.
 COPY package.json package-lock.json turbo.json ./
+# The root postinstall (scripts/patch-vaul.mjs) runs inside npm ci below, so
+# scripts/ must be present before the install step.
+COPY scripts/ ./scripts/
 COPY apps/dev-dashboard/package.json ./apps/dev-dashboard/
 COPY apps/web/package.json ./apps/web/
 COPY apps/docs/package.json ./apps/docs/
