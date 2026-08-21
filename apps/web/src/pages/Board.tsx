@@ -646,6 +646,29 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.name || null;
   }, [activeChannelId, channels]);
 
+  // True while the page is still decelerating (momentum scroll). During
+  // momentum iOS suppresses touchmove delivery until the scroll settles, so a
+  // grab-zone touch mid-scroll would never reach the 48px threshold — instead
+  // the touch itself (which already stops the momentum) opens the sheet
+  // immediately.
+  const scrollActiveRef = useRef(false);
+  const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const onScroll = () => {
+      scrollActiveRef.current = true;
+      if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current);
+      scrollIdleTimerRef.current = setTimeout(() => {
+        scrollActiveRef.current = false;
+      }, 300);
+    };
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
+      if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current);
+    };
+  }, []);
+
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
   // on document (not <main>) so gestures that start below the content area
   // still count, and only while the sheet is closed.
@@ -663,9 +686,18 @@ const Board = () => {
     const onTouchStart = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
-      if (window.innerHeight - touch.clientY <= 80 && touch.clientX < window.innerWidth / 2) {
-        edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
-      } else {
+      const inZone = window.innerHeight - touch.clientY <= 80 && touch.clientX < window.innerWidth / 2;
+      if (!inZone) {
+        edgeSwipeStart.current = null;
+        return;
+      }
+      edgeSwipeStart.current = { x: touch.clientX, y: touch.clientY };
+      // Content is still moving: the touch already stopped the momentum, so
+      // open the sheet right away instead of waiting for suppressed moves.
+      const wasScrolling = scrollActiveRef.current;
+      scrollActiveRef.current = false;
+      if (wasScrolling) {
+        setMobileChannelsOpen(true);
         edgeSwipeStart.current = null;
       }
     };
