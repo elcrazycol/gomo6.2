@@ -22,6 +22,8 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { RichContentRenderer } from "@/components/RichContentRenderer";
+import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 
 type GomoBoard = {
   id: string;
@@ -65,6 +67,12 @@ const CreateGomoThread = () => {
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composerRootRef = useRef<HTMLDivElement | null>(null);
+
+  // Touch: the emoji trigger swaps the soft keyboard for the panel (same
+  // height, same slide) and back — Telegram-style, see useEmojiKeyboardSwap.
+  const emojiSwap = useEmojiKeyboardSwap(editorRef);
+  const { keyboardInset } = useMobileKeyboard();
 
   // Load board + resolve channel slug → id, then restore the draft (if any).
   useEffect(() => {
@@ -139,17 +147,37 @@ const CreateGomoThread = () => {
     };
   }, [board, title, content, contentJson, attachments]);
 
-  // Escape closes the composer (browser back also works).
+  // Escape closes the composer (browser back also works) — unless the emoji
+  // panel is up, where Escape belongs to the panel (closes it, keyboard back).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !emojiSwap.open) {
         e.preventDefault();
         navigate(-1);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [navigate]);
+  }, [navigate, emojiSwap.open]);
+
+  // Emoji panel ↔ keyboard: the composer is bottom-anchored at --kb-inset, so
+  // while the keyboard is up the toolbar floats right above it. The moment the
+  // swap panel opens the keyboard dismisses and --kb-inset drops to 0 — if we
+  // did nothing, the toolbar would fall to the screen bottom and the panel
+  // would cover it. Instead the composer's bottom is lifted by the panel
+  // height (same space the keyboard just vacated), so the toolbar never moves.
+  // On close the override is removed and the global --kb-inset takes over:
+  // a returning keyboard rides the composer back up with no React lag.
+  useEffect(() => {
+    const root = composerRootRef.current;
+    if (!root) return;
+    if (emojiSwap.open) {
+      const lift = Math.max(emojiSwap.height, keyboardInset);
+      root.style.setProperty("bottom", `${lift}px`);
+    } else {
+      root.style.removeProperty("bottom");
+    }
+  }, [emojiSwap.open, emojiSwap.height, keyboardInset]);
 
   const close = useCallback(() => navigate(-1), [navigate]);
 
@@ -201,8 +229,15 @@ const CreateGomoThread = () => {
   };
 
   const handleEmojiSelect = (data: { emojiId: string; packId: string; url: string; name: string }) => {
-    editorRef.current?.focus();
-    editorRef.current?.insertEmoji(data);
+    if (emojiSwap.open) {
+      // Panel replaced the keyboard: insert at the saved caret WITHOUT
+      // refocusing, so the keyboard stays hidden and the user can keep
+      // adding emojis.
+      editorRef.current?.insertEmoji(data, { focus: false });
+    } else {
+      editorRef.current?.focus();
+      editorRef.current?.insertEmoji(data);
+    }
   };
 
   const handleCreate = async () => {
@@ -275,7 +310,7 @@ const CreateGomoThread = () => {
   const renderAttachmentsGrid = (readonly: boolean) => {
     if (attachments.length === 0) return null;
     return (
-      <div className="grid grid-cols-3 gap-2 max-h-[30dvh] overflow-y-auto pr-0.5">
+      <div className="grid grid-cols-3 gap-2 max-h-[22dvh] overflow-y-auto pr-0.5">
         {attachments.map((att, index) => {
           const removeBtn = (
             <button
@@ -353,9 +388,10 @@ const CreateGomoThread = () => {
   return (
     <div className="fixed inset-0 z-50 md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
       <div
+        ref={composerRootRef}
         role="dialog"
         aria-modal="true"
-        className="flex flex-col w-full h-[var(--app-vh)] md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:border md:border-border/60 md:shadow-2xl bg-background md:bg-card overflow-hidden animate-in slide-in-from-bottom-full md:slide-in-from-bottom-8 duration-300 ease-out"
+        className="fixed inset-x-0 top-0 bottom-[var(--kb-inset)] md:static flex flex-col w-full md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:border md:border-border/60 md:shadow-2xl bg-background md:bg-card overflow-hidden animate-in slide-in-from-bottom-full md:slide-in-from-bottom-8 duration-300 ease-out"
       >
         {/* Header — close, destination, publish */}
         <div className="flex items-center gap-1 px-2 py-2 border-b border-border/60 shrink-0">
@@ -454,7 +490,15 @@ const CreateGomoThread = () => {
 
         {/* Toolbar */}
         <div className="px-2 py-1.5 border-t border-border/60 flex items-center gap-0.5 shrink-0">
-          <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
+          <EmojiPicker
+            onEmojiSelect={handleEmojiSelect}
+            triggerRef={emojiButtonRef}
+            keyboardSwap
+            swapOpen={emojiSwap.open}
+            swapHeight={emojiSwap.height}
+            onSwapToggle={emojiSwap.toggle}
+            onSwapClose={() => emojiSwap.closePanel(false)}
+          >
             <Button
               ref={emojiButtonRef}
               type="button"
