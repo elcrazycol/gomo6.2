@@ -107,6 +107,16 @@ const TOUCH_SLOP_PX = 10;
  *  away over roughly this time on iOS; the eased interpolation keeps the
  *  fixed/sticky bars glued to it instead of teleporting. */
 const DISMISS_DURATION_MS = 280;
+/** Below this delta the geometry event is a real in-flight step (URL-bar
+ *  collapse, small keyboard adjustments) and must be applied instantly;
+ *  larger deltas — e.g. the single resize iOS fires AFTER the keyboard
+ *  animation finished, or a full open/close of a real keyboard — are eased
+ *  over ~280ms so fixed/sticky bars glide instead of teleporting. */
+const JUMP_EASE_THRESHOLD_PX = 80;
+/** How long an eased geometry transition runs when a resize event reports the
+ *  whole keyboard height at once (iOS defers its events until the slide
+ *  finishes). Matches the dismissal descent so open/close feel symmetric. */
+const JUMP_EASE_DURATION_MS = 280;
 
 const listeners = new Set<Listener>();
 let initialized = false;
@@ -116,6 +126,11 @@ let state: MobileKeyboardState = {
   viewportHeight: typeof window === "undefined" ? 0 : window.innerHeight,
   isTouch: false,
 };
+// The last values actually written to the CSS variables. The jump-ease reads
+// them as its animation start, and applyState compares against them (not the
+// state) to decide whether an event is a smooth step or a deferred jump.
+let displayedInset = 0;
+let displayedVh = 0;
 let focusedEditable: HTMLElement | null = null;
 const pendingScrollTimers = new Set<ReturnType<typeof setTimeout>>();
 let cancelUserInterrupt: (() => void) | null = null;
@@ -130,6 +145,17 @@ let focusPollTimer: ReturnType<typeof setTimeout> | null = null;
 // Per-frame geometry follow (see startGeometryFollow).
 let followRaf: number | null = null;
 let followUntil = 0;
+// Eased geometry transition (see startJumpEase): runs when a single resize
+// event reports a large inset/viewport jump at once (iOS defers its
+// visual-viewport events until the keyboard slide finished), so fixed/sticky
+// bars glide to the new position instead of teleporting. Owns the CSS vars
+// while active, exactly like the dismissal animation.
+let jumpEaseFrame: number | null = null;
+let jumpEaseStart = 0;
+let jumpEaseFromInset = 0;
+let jumpEaseFromVh = 0;
+let jumpEaseToInset = 0;
+let jumpEaseToVh = 0;
 let gestureStart: { x: number; y: number } | null = null;
 let dismissAnimFrame: number | null = null;
 // True while the current touch began on a `[data-kb-locked]` element (a
@@ -240,7 +266,12 @@ export function initMobileKeyboard(): () => void {
   document.addEventListener("touchcancel", handleTouchEnd, { passive: true, capture: true });
 
   // Seed the CSS variables immediately so full-screen surfaces are sized
-  // correctly before the first user interaction.
+  // correctly before the first user interaction. Prime the displayed-values
+  // bookkeeping first so this first applyState is not mistaken for a
+  // keyboard-sized "jump" (which would trigger a spurious ease animation).
+  const seed = computeRaw();
+  displayedInset = seed.keyboardInset;
+  displayedVh = seed.viewportHeight;
   handleMetricsChanged();
 
   return () => {
@@ -273,6 +304,8 @@ export function initMobileKeyboard(): () => void {
     followRaf = null;
     if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
     dismissAnimFrame = null;
+    if (jumpEaseFrame !== null) cancelAnimationFrame(jumpEaseFrame);
+    jumpEaseFrame = null;
     gestureStart = null;
     lockedGestureActive = false;
     stickyScrollActive = false;
@@ -530,9 +563,49 @@ function computeRaw(): MobileKeyboardState {
 
 function writeGeometryVars(next: MobileKeyboardState) {
   if (typeof document === "undefined") return;
+  displayedInset = next.keyboardInset;
+  displayedVh = next.viewportHeight;
   const root = document.documentElement;
   root.style.setProperty("--app-vh", `${next.viewportHeight}px`);
   root.style.setProperty("--kb-inset", `${next.keyboardInset}px`);
+}
+
+/**
+ * Eases the CSS geometry vars from their currently-displayed values to the
+ * given target over ~280ms (easeOutCubic). Runs when a resize event reports a
+ * LARGE single-step change — iOS defers its visual-viewport events until the
+ * keyboard slide has already finished, so the whole 300px lands in one event
+ * and bottom-anchored bars would teleport. Easing the jump makes the composer
+ * glide up on open and down on close exactly like the keyboard's own motion,
+ * symmetric with the scroll-to-dismiss descent (same duration + easing).
+ * While active it owns the vars, so the per-frame follow stands down.
+ */
+function startJumpEase(toInset: number, toVh: number) {
+  if (typeof document === "undefined") return;
+  if (jumpEaseFrame !== null) cancelAnimationFrame(jumpEaseFrame);
+  jumpEaseFromInset = displayedInset;
+  jumpEaseFromVh = displayedVh;
+  jumpEaseToInset = toInset;
+  jumpEaseToVh = toVh;
+  // Date.now(), not performance.now(): rAF's timestamp argument is on a
+  // different clock under test fake timers, and the rest of this module
+  // measures animation progress with Date.now() too.
+  jumpEaseStart = Date.now();
+  const step = () => {
+    const progress = Math.min(1, (Date.now() - jumpEaseStart) / JUMP_EASE_DURATION_MS);
+    const eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+    writeGeometryVars({
+      ...state,
+      keyboardInset: Math.round(jumpEaseFromInset + (jumpEaseToInset - jumpEaseFromInset) * eased),
+      viewportHeight: Math.round(jumpEaseFromVh + (jumpEaseToVh - jumpEaseFromVh) * eased),
+    });
+    if (progress < 1) {
+      jumpEaseFrame = requestAnimationFrame(step);
+    } else {
+      jumpEaseFrame = null;
+    }
+  };
+  jumpEaseFrame = requestAnimationFrame(step);
 }
 
 /**
@@ -556,7 +629,15 @@ function startGeometryFollow() {
   if (followRaf !== null) return;
   const step = () => {
     followRaf = null;
-    if (dismissalActive) return; // the dismissal animation owns the vars
+    // A dismissal or jump-ease animation owns the vars — the follow must not
+    // overwrite their in-flight interpolation with a stale final value. The
+    // loop itself keeps running so the scroll-pin below survives the ease.
+    if (dismissalActive || jumpEaseFrame !== null) {
+      if (Date.now() < followUntil || state.isOpen) {
+        followRaf = requestAnimationFrame(step);
+      }
+      return;
+    }
     writeGeometryVars(computeRaw());
     // While the document is pinned (composer-bar input focused), undo any
     // focus-pan that slipped through despite the touchstart pin: the keyboard
@@ -589,7 +670,20 @@ function applyState(next: MobileKeyboardState) {
     next.isTouch !== state.isTouch;
   state = next;
 
-  writeGeometryVars(next);
+  // A resize event whose inset/vh moved a lot from what is DISPLAYED (not the
+  // previous state) is a deferred post-animation jump, not a smooth in-flight
+  // step — ease it so bars glide instead of teleporting. Small deltas keep
+  // following the keyboard directly. An event arriving while an ease is still
+  // running simply retargets it to the new geometry.
+  const jump =
+    jumpEaseFrame !== null ||
+    Math.abs(next.keyboardInset - displayedInset) >= JUMP_EASE_THRESHOLD_PX ||
+    Math.abs(next.viewportHeight - displayedVh) >= JUMP_EASE_THRESHOLD_PX;
+  if (jump && !dismissalActive) {
+    startJumpEase(next.keyboardInset, next.viewportHeight);
+  } else {
+    writeGeometryVars(next);
+  }
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("kb-open", next.isOpen);
   }

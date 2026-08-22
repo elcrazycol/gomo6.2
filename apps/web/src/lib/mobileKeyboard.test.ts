@@ -516,12 +516,53 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.documentElement.classList.contains("kb-open")).toBe(false);
 
     // The real viewport is still 500 (the 800 was a stale report) and no more
-    // events fire. The close verify re-measures and restores the open state.
+    // events fire. The close verify re-measures and restores the open state
+    // (the inset eases back up over ~280ms, so give the animation time).
     vv.height = 500;
     vi.advanceTimersByTime(200);
+    vi.advanceTimersByTime(300);
 
     expect(document.documentElement.classList.contains("kb-open")).toBe(true);
     expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+  });
+
+  it("eases a deferred close so the composer glides down instead of teleporting", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    dispose = initMobileKeyboard();
+
+    input.focus();
+    // Keyboard opens normally: 800 → 500 (delta 300).
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    // Let the open ease (0 → 300, ~280ms) complete before closing.
+    vi.advanceTimersByTime(400);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+
+    // iOS defers its resize until AFTER the keyboard finished sliding away:
+    // one event reports the whole closed geometry at once (delta 0). The old
+    // code wrote inset 0 instantly — the composer teleported down. Now the
+    // big jump is eased over ~280ms, so the bar descends smoothly.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+    // Let a couple of ease frames run, then check the inset is mid-descent:
+    // still between the old 300 and 0 (not teleported to 0 instantly).
+    vi.advanceTimersByTime(50);
+    const midInset = Number.parseInt(
+      document.documentElement.style.getPropertyValue("--kb-inset") || "0",
+      10
+    );
+    expect(midInset).toBeGreaterThan(0);
+    expect(midInset).toBeLessThan(300);
+
+    // Once the animation finishes, the vars land exactly at the closed values.
+    vi.advanceTimersByTime(400);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
   });
 
   it("glides with the LIVE viewport every frame, not just on resize events", () => {
