@@ -40,6 +40,34 @@ const WallPost = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Lock page scroll while the overlay is up so the profile wall
+  // underneath can't be scrolled (restored on unmount).
+  useEffect(() => {
+    if (!isOverlay) return;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevOverscroll = document.documentElement.style.overscrollBehavior;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overscrollBehavior = prevOverscroll;
+    };
+  }, [isOverlay]);
+
+  // Notify the app shell that the wall-post overlay is open so the
+  // header can force itself visible and keep the content padding correct.
+  useEffect(() => {
+    if (!isOverlay) return;
+    window.dispatchEvent(new CustomEvent("wall-post-overlay", { detail: { isOpen: true } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("wall-post-overlay", { detail: { isOpen: false } }));
+    };
+  }, [isOverlay]);
+
   useEffect(() => {
     const loadPageContext = async () => {
       try {
@@ -181,7 +209,11 @@ const WallPost = () => {
         }
       }}
     >
-      <div ref={overlayScrollRef} className="h-full overflow-y-auto">
+      <div
+        ref={overlayScrollRef}
+        className="h-full overflow-y-auto"
+        style={{ paddingTop: 'var(--app-header-height)' }}
+      >
         {content}
       </div>
     </motion.div>
