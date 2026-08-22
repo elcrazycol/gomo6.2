@@ -324,6 +324,31 @@ describe("live keyboard geometry", () => {
     expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
   });
 
+  it("publishes --vv-offset from the live visualViewport.offsetTop", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    dispose = initMobileKeyboard();
+    input.focus();
+
+    // Initially no pan: offset 0.
+    expect(document.documentElement.style.getPropertyValue("--vv-offset")).toBe("0px");
+
+    // iOS pans the visual viewport down when the keyboard opens / the URL bar
+    // expands: offsetTop grows. The CSS var must follow so fixed top-anchored
+    // surfaces can compensate (top: var(--vv-offset)) and their header stays
+    // glued to the visible area instead of sliding up off-screen.
+    vv.offsetTop = 60;
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    expect(document.documentElement.style.getPropertyValue("--vv-offset")).toBe("60px");
+    // The keyboard inset already subtracts the pan (URL bar) from the delta,
+    // so bottom-anchored bars are unaffected by the compensation.
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("240px"); // 800-500-60
+  });
+
   it("applies a deferred close instantly — live geometry, no easing", () => {
     vi.useFakeTimers();
     const vv = stubTouchViewport();

@@ -34,6 +34,14 @@
  *                   for full-screen surfaces (messenger page, chat panel…).
  *      --kb-inset — keyboard height in px. Add to `bottom` of fixed/sticky
  *                   bars so they float exactly above the keyboard on iOS.
+ *      --vv-offset — visualViewport.offsetTop in px. When the iOS keyboard
+ *                   opens (or the URL bar expands), Safari pans the visual
+ *                   viewport DOWN (offsetTop grows) and `position: fixed`
+ *                   elements — which anchor to the LAYOUT viewport — shift UP
+ *                   on screen, pushing a top-anchored header off-screen.
+ *                   Fixed surfaces sized `height: var(--app-vh)` must set
+ *                   `top: var(--vv-offset)` so they stay glued to the visible
+ *                   area (top edge under the URL bar / status area) instead.
  *    plus a `kb-open` class on <html>.
  *  • A short per-frame follow reads the LIVE visual viewport while the
  *    keyboard is animating (its resize events are choppy — a handful of
@@ -123,6 +131,9 @@ let followActive = false;
 // against it; fresh runs reset it to +∞ so the first write catches up to the
 // real geometry before capping kicks in.
 let lastCommittedInset = 0;
+// Last known visualViewport.offsetTop (iOS URL bar / keyboard focus-pan).
+// Published as `--vv-offset` so fixed surfaces can compensate their `top`.
+let lastOffsetTop = 0;
 // True while the current touch began on a `[data-kb-keep]` element (the
 // messenger chat surface). Scrolling such a surface is content browsing, not
 // a dismissal gesture — the keyboard must stay up, exactly like when the
@@ -334,12 +345,13 @@ function computeRaw(): MobileKeyboardState {
   const isTouch = isCoarsePointer();
   const innerHeight = typeof window === "undefined" ? 0 : window.innerHeight;
   const vv = typeof window !== "undefined" ? window.visualViewport : null;
+  lastOffsetTop = vv ? vv.offsetTop : 0;
   return {
     isTouch,
     ...computeKeyboardMetrics({
       innerHeight,
       visualViewportHeight: vv ? vv.height : null,
-      visualViewportOffsetTop: vv ? vv.offsetTop : 0,
+      visualViewportOffsetTop: lastOffsetTop,
       isTouch,
     }),
   };
@@ -350,6 +362,9 @@ function writeGeometryVars(next: MobileKeyboardState) {
   const root = document.documentElement;
   root.style.setProperty("--app-vh", `${next.viewportHeight}px`);
   root.style.setProperty("--kb-inset", `${next.keyboardInset}px`);
+  // Offset of the visible area within the layout viewport (iOS URL bar /
+  // keyboard focus-pan). Fixed surfaces use it as `top: var(--vv-offset)`.
+  root.style.setProperty("--vv-offset", `${lastOffsetTop}px`);
 }
 
 /**
@@ -583,6 +598,9 @@ function startDismissalAnimation() {
       const root = document.documentElement;
       root.style.setProperty("--kb-inset", `${frame.keyboardInset}px`);
       root.style.setProperty("--app-vh", `${frame.viewportHeight}px`);
+      // Keep the fixed surfaces' top compensation in sync with the (stale)
+      // live viewport; the post-gesture probe re-syncs it from computeRaw().
+      root.style.setProperty("--vv-offset", `${lastOffsetTop}px`);
     }
     if (progress < 1) {
       dismissAnimFrame = requestAnimationFrame(step);

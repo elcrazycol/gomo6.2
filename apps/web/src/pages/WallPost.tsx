@@ -201,8 +201,16 @@ const WallPost = () => {
   return (
     <motion.div
       data-testid="wall-post-page"
-      className="fixed inset-0 z-[40] flex flex-col bg-background"
-      style={{ x, touchAction: "pan-y" }}
+      className="fixed left-0 right-0 bottom-0 z-[40] flex flex-col bg-background"
+      style={{
+        x,
+        touchAction: "pan-y",
+        // iOS pans the visual viewport down when the keyboard opens (offsetTop
+        // grows), shifting fixed top:0 boxes up. Compensate so the overlay
+        // (and its header) stays glued to the visible area, like the
+        // messenger chat panel — see lib/mobileKeyboard.ts (--vv-offset).
+        top: "var(--vv-offset, 0px)",
+      }}
       drag="x"
       dragConstraints={{ left: 0 }}
       dragElastic={{ left: 0 }}

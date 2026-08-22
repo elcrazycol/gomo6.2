@@ -2856,7 +2856,14 @@ main.is-messenger-page {
 @media (max-width: 980px) {
   .messenger-app {
     position: fixed;
-    inset: 0;
+    /* iOS pans the visual viewport DOWN when the keyboard opens / the URL
+       bar expands (visualViewport.offsetTop grows), which shifts fixed
+       top-anchored boxes up on screen. Compensating `top` with --vv-offset
+       (published by lib/mobileKeyboard) keeps the messenger — and its chat
+       header — glued to the visible area instead of sliding up. */
+    top: var(--vv-offset, 0px);
+    left: 0;
+    right: 0;
     /* Visual-viewport height: the whole messenger shrinks when the keyboard
        opens so the composer (grid row auto) stays above it on iOS. */
     height: var(--app-vh, 100svh);
@@ -2889,8 +2896,9 @@ main.is-messenger-page {
        --kb-inset by MessageComposer). The composer stays in flow as the
        panel's last grid row, so it always floats exactly above whatever is up
        — no pinning, no fixed/flow switching, nothing to flicker or land under
-       the keyboard. */
-    top: 0;
+       the keyboard. `top` compensates the iOS visual-viewport pan so the chat
+       header never slides up off-screen when the keyboard opens. */
+    top: var(--vv-offset, 0px);
     left: 0;
     right: 0;
     bottom: var(--kb-inset, 0px);
