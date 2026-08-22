@@ -432,6 +432,34 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.atEnd(doc)));
   }, [editor]);
 
+  // iOS does NOT keep the caret where a selection dispatch puts it: while the
+  // soft keyboard slides in (~250-450ms after focus), Safari re-syncs the DOM
+  // selection and resets the caret to the START of the content, undoing the
+  // single dispatch we do right after focus. So on autoFocus we re-dispatch
+  // the end-selection a few times across that whole window — still pure
+  // selection dispatches (no native focus, so no pan) — and cancel the
+  // pending nudges the moment the user actually touches or types, so a
+  // deliberate caret placement in the middle of the text is never overridden.
+  const caretSettleTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const clearCaretSettle = useCallback(() => {
+    for (const timer of caretSettleTimersRef.current) clearTimeout(timer);
+    caretSettleTimersRef.current.clear();
+  }, []);
+  const settleCaretToEnd = useCallback(() => {
+    clearCaretSettle();
+    const fire = () => {
+      // Only nudge while the editor still owns focus — a blur mid-window (or
+      // a tap into the text, which also cleared the timers) must not yank the
+      // caret around.
+      if (editor && !editor.isDestroyed && editor.isFocused) moveCaretToEnd();
+    };
+    fire();
+    for (const delay of [80, 200, 350, 500]) {
+      const timer = setTimeout(fire, delay);
+      caretSettleTimersRef.current.add(timer);
+    }
+  }, [clearCaretSettle, editor, moveCaretToEnd]);
+
   useEffect(() => {
     if (editor && autoFocus) {
       const el = editorContainerRef.current;
@@ -442,11 +470,11 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           const scrollY = window.scrollY;
           const scrollX = window.scrollX;
           editable.focus({ preventScroll: true });
-          // Focus FIRST (preventScroll — the only pan-free focus), then move
-          // the caret to the end as a pure selection dispatch. A native focus
-          // on a freshly-mounted contenteditable would leave the caret at the
-          // START of the draft; the dispatch fixes it without re-focusing.
-          moveCaretToEnd();
+          // Focus FIRST (preventScroll — the only pan-free focus), then settle
+          // the caret at the END of the draft via repeated pure selection
+          // dispatches across the keyboard-open window (see settleCaretToEnd —
+          // a single dispatch loses to iOS's own caret reset mid-animation).
+          settleCaretToEnd();
           requestAnimationFrame(() => {
             if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
               window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
@@ -459,9 +487,22 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       // with preventScroll — never the focus command, whose view.dom.focus()
       // on iOS pans.
       (editor.view.dom as HTMLElement | undefined)?.focus({ preventScroll: true });
-      moveCaretToEnd();
+      settleCaretToEnd();
     }
-  }, [editor, autoFocus, moveCaretToEnd]);
+  }, [editor, autoFocus, settleCaretToEnd]);
+
+  // Cancel pending caret-settle nudges when the user actually interacts (a
+  // tap on the editable — which cleared the timers via the interception
+  // below — or typing, which means the caret is exactly where they want it).
+  const handleUserInput = useCallback(() => clearCaretSettle(), [clearCaretSettle]);
+  useEffect(() => {
+    if (!editor) return;
+    editor.on("update", handleUserInput);
+    return () => {
+      editor.off("update", handleUserInput);
+      clearCaretSettle();
+    };
+  }, [editor, handleUserInput, clearCaretSettle]);
 
   // The app loads the user's Google Font with font-display: swap, so on the
   // VERY first open of a composer the custom font can still be downloading
@@ -609,6 +650,9 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         return;
       }
       lastTapAt = now;
+      // A deliberate caret placement: cancel any pending autoFocus caret
+      // settle so it never yanks the caret back to the end.
+      clearCaretSettle();
       e.preventDefault();
       focusAt(t.clientX, t.clientY);
     };
@@ -619,7 +663,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       dom.removeEventListener("touchstart", onTouchStart);
       dom.removeEventListener("touchend", onTouchEnd, true);
     };
-  }, [editor]);
+  }, [editor, clearCaretSettle]);
 
   useImperativeHandle(ref, () => ({
     focus: () => {

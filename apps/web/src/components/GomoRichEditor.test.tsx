@@ -161,6 +161,31 @@ describe("GomoRichEditor caret placement", () => {
       expect(editor!.state.selection.empty).toBe(true);
     });
   });
+
+  it("re-settles the caret at the end after iOS-style selection resets", async () => {
+    stubRAF();
+    vi.useFakeTimers();
+    try {
+      const { ref } = renderWithRef({ legacyContent: "hello world", autoFocus: true });
+      const editor = ref.current?.getEditor();
+      // First settle lands at the end.
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+
+      // iOS resets the DOM selection to the START while the keyboard slides
+      // in — simulate that reset landing after the initial dispatch, then let
+      // the 80ms settle timer put the caret back at the end.
+      const start = editor!.state.tr.setSelection(
+        TextSelection.atStart(editor!.state.doc)
+      );
+      editor!.view.dispatch(start);
+      expect(editor!.state.selection.from).toBe(TextSelection.atStart(editor!.state.doc).from);
+
+      vi.advanceTimersByTime(100);
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("GomoRichEditor native-tap interception", () => {
