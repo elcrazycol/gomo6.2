@@ -12,6 +12,8 @@ import {
   isIOSDevice,
   isLockedGestureTarget,
   isStickyGestureTarget,
+  pinDocumentForSurface,
+  unpinDocumentForSurface,
 } from "./mobileKeyboard";
 
 describe("isIOSDevice", () => {
@@ -625,6 +627,96 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.body.style.position).toBe("");
     expect(document.body.style.top).toBe("");
     expect(document.documentElement.style.overflow).toBe("");
+  });
+});
+
+describe("document pin — surface + keyboard contributions", () => {
+  // initMobileKeyboard is module-global: dispose in afterEach so a mid-test
+  // failure can never leak `initialized` into the other tests of this file.
+  let dispose: (() => void) | null = null;
+
+  afterEach(() => {
+    dispose?.();
+    dispose = null;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete (window as any).visualViewport;
+    delete (window as any).innerHeight;
+    document.body.innerHTML = "";
+  });
+
+  const stubMatchMedia = (coarse: boolean) => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: coarse ? query === "(pointer: coarse)" : false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+    );
+  };
+
+  const stubScroll = (y: number) => {
+    Object.defineProperty(window, "scrollY", { value: y, configurable: true, writable: true });
+    Object.defineProperty(window, "scrollX", { value: 0, configurable: true, writable: true });
+  };
+
+  it("pins the document for a full-screen surface and releases on unpin", () => {
+    stubMatchMedia(true);
+    stubScroll(250);
+    dispose = initMobileKeyboard();
+
+    pinDocumentForSurface();
+    expect(document.body.style.position).toBe("fixed");
+    expect(document.body.style.top).toBe("-250px");
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.overflow).toBe("hidden");
+
+    unpinDocumentForSurface();
+    expect(document.body.style.position).toBe("");
+    expect(document.body.style.top).toBe("");
+    expect(document.documentElement.style.overflow).toBe("");
+  });
+
+  it("keeps the surface pin while the keyboard pin is released on blur", () => {
+    stubMatchMedia(true);
+    stubScroll(0);
+
+    // Composer input inside a fixed bar (messenger / wall overlay).
+    const shell = document.createElement("div");
+    shell.style.position = "fixed";
+    const input = document.createElement("input");
+    shell.appendChild(input);
+    document.body.appendChild(shell);
+
+    dispose = initMobileKeyboard();
+    pinDocumentForSurface(); // messenger route / overlay open
+    input.focus();           // keyboard pin on top (no-op, already pinned)
+    input.blur();            // keyboard releases its contribution
+
+    // The surface still holds the pin — blur alone must not freeze/unfreeze
+    // the document in a way that lets iOS pan.
+    expect(document.body.style.position).toBe("fixed");
+
+    unpinDocumentForSurface(); // surface closes
+    expect(document.body.style.position).toBe("");
+  });
+
+  it("is a no-op on desktop (fine pointer)", () => {
+    stubMatchMedia(false);
+    dispose = initMobileKeyboard();
+
+    pinDocumentForSurface();
+    expect(document.body.style.position).toBe("");
+    expect(document.documentElement.style.overflow).toBe("");
+
+    unpinDocumentForSurface();
+    expect(document.body.style.position).toBe("");
   });
 });
 

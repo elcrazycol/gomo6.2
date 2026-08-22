@@ -39,8 +39,12 @@
  *    (position:fixed + overflow:hidden) from the TOUCHSTART on a composer bar
  *    (before the native focus-pan can even start — the focusin-only pin
  *    raced it and sometimes lost), and the pin is held while the input is
- *    focused, so the keyboard slide-in has nothing to scroll and content no
- *    longer flies down then back up (see lockDocumentScroll / handleTouchStart).
+ *    focused. Full-screen surfaces (the messenger route, the wall-post
+ *    overlay) additionally hold the pin for their whole lifetime on touch
+ *    (pinDocumentForSurface), which makes the pan structurally impossible
+ *    instead of racing it: the keyboard slide-in has nothing to scroll and
+ *    content never flies down then back up.
+ *    (see syncScrollLock / handleTouchStart).
  *  • iOS scroll-to-dismiss behaves exactly like tapping outside the composer:
  *    the focused input is blurred (so focus-to-expand composers collapse via
  *    their own onBlur animation) and the fixed/sticky bars descend smoothly
@@ -138,15 +142,28 @@ let lockedGestureActive = false;
 // emoji swap panel is open (there the editor is blurred, so no dismissal can
 // fire; the open keyboard must match that stability).
 let stickyScrollActive = false;
-// Document scroll lock. While an editable inside a fixed/sticky composer bar
-// is focused on touch, the document is pinned (position:fixed + overflow:hidden)
-// so iOS cannot pan it to "reveal" the input. That pan is the root cause of the
-// jump (content flies down then back up) in the messenger and the wall comments:
-// it feeds visualViewport.offsetTop — which the --kb-inset formula subtracts —
-// so the fixed bar wiggles, and every scroll-restore the app tried just fought
-// it visibly. Prevent the pan instead of undoing it. Internal scrollers
-// (message list, overlay container) are separate overflow containers and keep
-// working while the lock is on.
+// Document scroll lock. The body is pinned (position:fixed + top:-scrollY +
+// overflow:hidden on html/body) while the pin is needed, so iOS cannot pan the
+// document to "reveal" a focused input. That pan is the root cause of the jump
+// (content flies down then back up) in the messenger and the wall comments: it
+// feeds visualViewport.offsetTop — which the --kb-inset formula subtracts — so
+// the fixed bar wiggles, and every scroll-restore the app tried just fought it
+// visibly. Prevent the pan instead of undoing it. Internal scrollers (message
+// list, overlay container) are separate overflow containers and keep working
+// while the pin is on.
+//
+// The pin has TWO independent owners, so a full-screen surface (messenger
+// route, wall-post overlay) can hold the document pinned for its whole
+// lifetime — making the focus-pan structurally impossible instead of racing it
+// — while the per-focus keyboard pin (touchstart on a composer bar, focusin in
+// a fixed bar) adds/releases its own contribution on top:
+//   surfacePinActive  — set by full-screen surfaces via pinDocumentForSurface()
+//                       for as long as they are open (touch only).
+//   keyboardPinActive — set while an editable inside a composer bar is focused
+//                       (touchstart/focusin), released on blur / touch outside
+//                       the bar / keyboard close.
+let surfacePinActive = false;
+let keyboardPinActive = false;
 let scrollLock: {
   rootOverflow: string;
   bodyOverflow: string;
@@ -168,6 +185,27 @@ export function subscribeMobileKeyboard(listener: Listener): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+/**
+ * Pin the document for the whole lifetime of a full-screen surface (the
+ * messenger route, the wall-post overlay) on touch devices. While any surface
+ * holds this pin the body stays position:fixed, so iOS's focus-pan has
+ * literally nothing to scroll when a composer input inside the surface is
+ * focused — the keyboard slide-in is always smooth, no race. The pin is
+ * released by unpinDocumentForSurface (call it when the surface unmounts).
+ * No-op on desktop / non-touch.
+ */
+export function pinDocumentForSurface(): void {
+  if (!isCoarsePointer()) return;
+  surfacePinActive = true;
+  syncScrollLock();
+}
+
+/** Release a surface-level document pin (see pinDocumentForSurface). */
+export function unpinDocumentForSurface(): void {
+  surfacePinActive = false;
+  syncScrollLock();
 }
 
 /** Idempotent. Call once from the app entry point. Returns a dispose fn. */
@@ -241,7 +279,11 @@ export function initMobileKeyboard(): () => void {
     dismissUntil = 0;
     dismissalActive = false;
     focusedEditable = null;
-    unlockDocumentScroll();
+    // Release both pin contributions — surfaces and the keyboard — so a test
+    // dispose never leaves the body frozen.
+    surfacePinActive = false;
+    keyboardPinActive = false;
+    syncScrollLock();
   };
 }
 
@@ -463,11 +505,16 @@ export function getScrollContext(el: HTMLElement): ScrollContext {
 
 // ── Internal wiring ──────────────────────────────────────────────────────────
 
-function computeRaw(): MobileKeyboardState {
-  const isTouch =
+function isCoarsePointer(): boolean {
+  return (
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia(TOUCH_QUERY).matches;
+    window.matchMedia(TOUCH_QUERY).matches
+  );
+}
+
+function computeRaw(): MobileKeyboardState {
+  const isTouch = isCoarsePointer();
   const innerHeight = typeof window === "undefined" ? 0 : window.innerHeight;
   const vv = typeof window !== "undefined" ? window.visualViewport : null;
   return {
@@ -992,7 +1039,36 @@ function clearPendingScrolls() {
  * safe — the pan only ever happens at the moment of focus, and the saved
  * scroll position is restored.
  */
-function lockDocumentScroll() {
+/**
+ * Applies or removes the body pin based on the two contributions
+ * (surfacePinActive || keyboardPinActive). Safe to call anytime — no-ops when
+ * the state already matches.
+ */
+function syncScrollLock() {
+  const shouldPin = surfacePinActive || keyboardPinActive;
+  if (shouldPin && !scrollLock) applyScrollLock();
+  else if (!shouldPin && scrollLock) releaseScrollLock();
+}
+
+/**
+ * iOS pans the document when an input inside a fixed/sticky composer bar is
+ * focused — the keyboard slides in and Safari scrolls the page to "reveal"
+ * the input, even though the bar is already positioned above the keyboard by
+ * the app. The pan moves every fixed element with it (and corrupts
+ * visualViewport.offsetTop, which --kb-inset subtracts), so the bar and the
+ * content visibly jump down then up. Undoing the pan with scroll-restores
+ * only turns it into a fight — the pan wins the race on real devices.
+ *
+ * Instead, pin the document while the pin is needed: the body is taken out of
+ * scroll flow (position:fixed + top: -scrollY + overflow:hidden on html/body),
+ * so Safari has nothing to pan — the same canonical technique this app already
+ * uses for the avatar gallery modal (see AvatarGallery.tsx), where iOS
+ * otherwise shifts the whole page when a modal input is focused. The visual
+ * position is preserved (top: -scrollY) and internal scrollers (message list,
+ * overlay container) are unaffected. Releasing is safe — the pan only ever
+ * happens at the moment of focus, and the saved scroll position is restored.
+ */
+function applyScrollLock() {
   if (scrollLock || typeof document === "undefined") return;
   const root = document.documentElement;
   const body = document.body;
@@ -1011,7 +1087,7 @@ function lockDocumentScroll() {
   body.style.width = "100%";
 }
 
-function unlockDocumentScroll() {
+function releaseScrollLock() {
   if (!scrollLock) return;
   const root = document.documentElement;
   const body = document.body;
@@ -1025,6 +1101,19 @@ function unlockDocumentScroll() {
   if (typeof window !== "undefined" && window.scrollY !== scrollY) {
     window.scrollTo(0, scrollY);
   }
+}
+
+/** Keyboard-pin contribution: while an editable in a composer bar is focused
+ *  (or a touch on a bar is about to focus it). Released on blur / touch
+ *  outside the bar / keyboard close — see unlockDocumentScroll. */
+function lockDocumentScroll() {
+  keyboardPinActive = true;
+  syncScrollLock();
+}
+
+function unlockDocumentScroll() {
+  keyboardPinActive = false;
+  syncScrollLock();
 }
 
 function scheduleScrollIntoView(delay: number) {
