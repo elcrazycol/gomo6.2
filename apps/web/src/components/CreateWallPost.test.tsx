@@ -224,6 +224,10 @@ describe("CreateWallPost", () => {
     expect(screen.getByText("Новая запись на стене")).toBeInTheDocument();
     expect(screen.getByLabelText("Закрыть")).toBeInTheDocument();
     expect(screen.getByText("Опубликовать")).toBeInTheDocument();
+
+    // The mobile backdrop below the sheet must be opaque (bg-background), so
+    // page content can't show through the keyboard area.
+    expect(screen.getByTestId("wall-post-composer").parentElement?.className).toContain("bg-background");
   });
 
   it("caps the editor height so long posts scroll inside instead of growing", () => {

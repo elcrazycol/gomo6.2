@@ -468,7 +468,10 @@ export const CreateWallPost = ({
   // the profile page main is `isolate`, which would otherwise trap the overlay
   // below the fixed app header (z-50) and let the header cover its top.
   return createPortal(
-    <div className="fixed inset-0 z-[60] md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
+    // On mobile the sheet only spans to the keyboard top, so the backdrop
+    // below it must be opaque — otherwise the page content shows through the
+    // (often translucent) keyboard area.
+    <div className="fixed inset-0 z-[60] bg-background md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
       <div
         ref={composerRootRef}
         role="dialog"
