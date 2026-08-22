@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import { useDrag } from "@use-gesture/react";
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
+
+const SWIPE_THRESHOLD = 90;
 
 type WallPostNavigationState = {
   wallPost?: WallPostData;
@@ -25,7 +28,6 @@ const WallPost = () => {
   const [profileUsername, setProfileUsername] = useState("");
   const [loading, setLoading] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const loadPageContext = async () => {
@@ -119,33 +121,30 @@ const WallPost = () => {
     });
   };
 
-  // Swipe right to go back — the same action as the back button. Horizontal
-  // dominance + threshold keeps it from fighting the vertical scroll of the
-  // comment list.
-  const handleTouchStart = (event: React.TouchEvent) => {
-    if (event.targetTouches.length !== 1) return;
-    touchStartRef.current = {
-      x: event.targetTouches[0].clientX,
-      y: event.targetTouches[0].clientY,
-    };
-  };
+  // Interactive swipe-to-go-back: the page follows the finger horizontally
+  // (right only) and springs back unless the swipe passes the threshold. The
+  // same drag primitive used for the messenger swipe-reply.
+  const isTouchDevice = typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(pointer: coarse)").matches;
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const handleTouchEnd = (event: React.TouchEvent) => {
-    const start = touchStartRef.current;
-    touchStartRef.current = null;
-    if (!start) return;
-
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-
-    const dx = touch.clientX - start.x;
-    const dy = Math.abs(touch.clientY - start.y);
-    const threshold = 70;
-
-    if (dx > threshold && dx > dy) {
-      goBack();
-    }
-  };
+  const bind = useDrag(
+    ({ movement: [mx], last, active }) => {
+      if (!isTouchDevice) return;
+      setIsDragging(active);
+      if (active) {
+        setSwipeOffset(Math.max(0, Math.min(window.innerWidth * 0.9, mx)));
+      } else {
+        if (last && mx > SWIPE_THRESHOLD) {
+          goBack();
+        }
+        setSwipeOffset(0);
+      }
+    },
+    { axis: "x", filterTaps: true, threshold: 8, from: () => [0, 0] },
+  );
 
   if (!userId || !postId) {
     return (
@@ -159,10 +158,15 @@ const WallPost = () => {
     <main
       className="wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5"
       data-testid="wall-post-page"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      style={{ touchAction: "pan-y" }}
     >
+      <div
+        {...bind()}
+        style={{
+          transform: `translateX(${swipeOffset}px)`,
+          touchAction: "pan-y",
+          transition: isDragging ? "none" : "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+      >
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -190,6 +194,7 @@ const WallPost = () => {
           standalone
         />
       )}
+      </div>
     </main>
   );
 };
