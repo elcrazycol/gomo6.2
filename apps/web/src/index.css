@@ -1035,7 +1035,7 @@ html.kb-open body {
 }
 
 .wall-post-page-exit {
-  animation: wall-post-page-exit 380ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: wall-post-page-exit 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: transform, opacity;
 }
 

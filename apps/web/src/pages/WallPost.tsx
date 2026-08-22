@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
@@ -25,6 +25,7 @@ const WallPost = () => {
   const [profileUsername, setProfileUsername] = useState("");
   const [loading, setLoading] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const loadPageContext = async () => {
@@ -114,8 +115,36 @@ const WallPost = () => {
     void waitForReady.then(() => {
       if (!overlay) return;
       overlay.classList.add("wall-post-page-exit");
-      window.setTimeout(() => overlay?.remove(), 400);
+      window.setTimeout(() => overlay?.remove(), 500);
     });
+  };
+
+  // Swipe right to go back — the same action as the back button. Horizontal
+  // dominance + threshold keeps it from fighting the vertical scroll of the
+  // comment list.
+  const handleTouchStart = (event: React.TouchEvent) => {
+    if (event.targetTouches.length !== 1) return;
+    touchStartRef.current = {
+      x: event.targetTouches[0].clientX,
+      y: event.targetTouches[0].clientY,
+    };
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start) return;
+
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+
+    const dx = touch.clientX - start.x;
+    const dy = Math.abs(touch.clientY - start.y);
+    const threshold = 70;
+
+    if (dx > threshold && dx > dy) {
+      goBack();
+    }
   };
 
   if (!userId || !postId) {
@@ -130,6 +159,9 @@ const WallPost = () => {
     <main
       className="wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5"
       data-testid="wall-post-page"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      style={{ touchAction: "pan-y" }}
     >
       <div className="flex flex-wrap items-center gap-3">
         <button

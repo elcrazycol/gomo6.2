@@ -210,6 +210,17 @@ describe("WallPost page", () => {
     });
   });
 
+  it("goes back on a rightward swipe", () => {
+    Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
+    renderPage();
+
+    const main = screen.getByTestId("wall-post-page");
+    fireEvent.touchStart(main, { targetTouches: [{ clientX: 20, clientY: 20 }] });
+    fireEvent.touchEnd(main, { changedTouches: [{ clientX: 140, clientY: 24 }] });
+
+    expect(mockNavigateFn).toHaveBeenCalledWith(-1);
+  });
+
   it("loads wall owner via ProfileCacheContext (cached) instead of a raw fetch", async () => {
     renderPage();
 
