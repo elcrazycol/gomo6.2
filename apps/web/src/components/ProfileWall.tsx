@@ -1,8 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { api } from "@/integrations/api/compat";
-import { Button } from "@/components/ui/button";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
-import { Plus, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { wsService } from "@/services/websocket";
@@ -35,6 +34,16 @@ interface ProfileWallProps {
   wallHidden?: boolean;
   /** True when the wall owner's profile is private (used to word the notice). */
   privateProfile?: boolean;
+  /** Already loaded post from the previous screen, used to avoid a skeleton
+   * flash while the focused-post request refreshes in the background. */
+  initialPost?: WallPost | null;
+  /**
+   * External control of the create-post form. The "Написать на стене" button
+   * now lives on the profile page (floating, always on screen) and drives this
+   * state from outside. When omitted, the form keeps its internal state.
+   */
+  createOpen?: boolean;
+  onCreateOpenChange?: (open: boolean) => void;
 }
 
 export const ProfileWall = ({
@@ -48,10 +57,24 @@ export const ProfileWall = ({
   refreshKey = 0,
   wallHidden = false,
   privateProfile = false,
+  initialPost = null,
+  createOpen = false,
+  onCreateOpenChange,
 }: ProfileWallProps) => {
-  const [posts, setPosts] = useState<WallPost[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [posts, setPosts] = useState<WallPost[]>(() => initialPost ? [initialPost] : []);
+  const [loading, setLoading] = useState(!initialPost);
+  const [internalCreateOpen, setInternalCreateOpen] = useState(false);
+  // The create form is controlled from the profile page when
+  // onCreateOpenChange is provided; otherwise it keeps its internal state.
+  const createOpenControlled = onCreateOpenChange !== undefined;
+  const showCreateForm = createOpenControlled ? createOpen : internalCreateOpen;
+  const setShowCreateForm = (open: boolean) => {
+    if (createOpenControlled) {
+      onCreateOpenChange(open);
+    } else {
+      setInternalCreateOpen(open);
+    }
+  };
   const [editingPost, setEditingPost] = useState<string | null>(null);
   const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -72,9 +95,17 @@ export const ProfileWall = ({
     [editingPost, posts]
   );
 
+  useEffect(() => {
+    if (!initialPost) return;
+    setPosts([initialPost]);
+    setLoading(false);
+  }, [initialPost]);
+
   const loadPosts = useCallback(async () => {
     try {
-      setLoading(true);
+      // A post passed by the previous screen is already renderable. Refresh it
+      // in the background without replacing it with a loading skeleton.
+      if (!initialPost) setLoading(true);
       let query = api
         .from("profile_wall_posts")
         .select(`\n          id,\n          user_id,\n          author_id,\n          title,\n          content,\n          content_json,\n          image_url,\n          attachments,\n          repost_of_post_id,\n          created_at,\n          updated_at,\n          is_pinned,\n          pinned_order,\n          author:profiles!author_id (\n            username,\n            is_anonymous,\n            avatar_url\n          )\n        `)
@@ -152,7 +183,7 @@ export const ProfileWall = ({
     } finally {
       setLoading(false);
     }
-  }, [profileUserId, focusedPostId]);
+  }, [focusedPostId, initialPost, profileUserId]);
 
   useEffect(() => {
     if (showWall && !wallHidden) {
@@ -384,48 +415,14 @@ export const ProfileWall = ({
   return (
     <>
       <div className="space-y-4">
-        {canPost && !standalone && !focusedPostId && (
-          <div className="flex justify-end">
-            <div className="relative w-full max-w-3xl">
-              <div className={`flex ${showCreateForm ? "justify-start" : "justify-end"} transition-all duration-300 ease-out`}>
-                <Button
-                  variant="default"
-                  size="icon"
-                  onClick={() => {
-                    setEditingPost(null);
-                    setShowCreateForm((prev) => !prev);
-                  }}
-                  className={`z-20 h-12 w-12 rounded-2xl text-xl shadow-lg transition-all duration-300 ease-out ${
-                    showCreateForm ? "absolute right-4 top-0" : "relative"
-                  }`}
-                  title={showCreateForm ? "Скрыть форму" : "Написать на стене"}
-                >
-                  <Plus className={`h-5 w-5 transition-transform duration-300 ease-out ${showCreateForm ? "rotate-45" : "rotate-0"}`} />
-                </Button>
-              </div>
-
-              <div
-                className={`origin-top-right overflow-hidden transition-all duration-300 ease-out ${
-                  showCreateForm && currentUserId
-                    ? "max-h-[1200px] translate-y-0 opacity-100"
-                    : "pointer-events-none max-h-0 -translate-y-2 opacity-0"
-                }`}
-              >
-                <div className="pt-3">
-                  {currentUserId && (
-                    <CreateWallPost
-                      key={showCreateForm ? "wall-create-open" : "wall-create-closed"}
-                      profileUserId={profileUserId}
-                      currentUserId={currentUserId}
-                      onPostCreated={handlePostCreatedWithTimestamp}
-                      onBeforeCreate={handleBeforeCreate}
-                      onCancel={() => setShowCreateForm(false)}
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+        {canPost && !standalone && !focusedPostId && showCreateForm && currentUserId && (
+          <CreateWallPost
+            profileUserId={profileUserId}
+            currentUserId={currentUserId}
+            onPostCreated={handlePostCreatedWithTimestamp}
+            onBeforeCreate={handleBeforeCreate}
+            onCancel={() => setShowCreateForm(false)}
+          />
         )}
 
         {posts.length === 0 ? (
@@ -471,6 +468,17 @@ export const ProfileWall = ({
           items={galleryItems}
           initialIndex={galleryIndex}
           onClose={() => setGalleryItems(null)}
+        />
+      )}
+
+      {/* Edit an existing post through the same overlay composer. */}
+      {activeEditingPost && currentUserId && (
+        <CreateWallPost
+          profileUserId={profileUserId}
+          currentUserId={currentUserId}
+          editingPost={activeEditingPost}
+          onPostUpdated={handlePostUpdated}
+          onCancel={() => setEditingPost(null)}
         />
       )}
     </>

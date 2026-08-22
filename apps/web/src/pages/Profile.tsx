@@ -19,7 +19,7 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileSkeleton } from "@/components/skeletons/ContentSkeletons";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X, ImagePlus, Palette } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X, ImagePlus, Palette, Plus } from "lucide-react";
 import { safeDate } from "@/utils/safeDate";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
@@ -183,6 +183,10 @@ const Profile = () => {
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [pageLoading, setPageLoading] = useState(true);
+  // Do not flash the full-page skeleton during a fast back navigation. It is
+  // useful for a genuinely slow first load, but a short delayed threshold
+  // keeps cached/already loaded profiles visually continuous.
+  const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
@@ -194,6 +198,9 @@ const Profile = () => {
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
   const [showProfileWall, setShowProfileWall] = useState(true);
   const [wallRefreshKey, setWallRefreshKey] = useState(0);
+  // The create-post form is opened from a floating button that stays on screen
+  // on every profile tab; this state drives the form inside ProfileWall.
+  const [wallCreateOpen, setWallCreateOpen] = useState(false);
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
   const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads' | 'gifts' | 'friends'>('achievements');
   const [showThreadsTab, setShowThreadsTab] = useState(true);
@@ -301,6 +308,15 @@ const Profile = () => {
     };
     loadCount();
   }, [userId]);
+
+  useEffect(() => {
+    if (!profile || pageLoading) {
+      const timeoutId = window.setTimeout(() => setShowLoadingSkeleton(true), 250);
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    setShowLoadingSkeleton(false);
+  }, [pageLoading, profile]);
 
   useEffect(() => {
     if (userId) {
@@ -441,6 +457,21 @@ const Profile = () => {
   // non-friends on a private profile it renders the "wall is hidden" notice
   // instead of content.
   const wallTabVisible = showProfileWall && (isNonFriendOnPrivate || canViewSection(privateHideWall));
+
+  // The floating "Написать на стене" button is shown when this viewer may
+  // actually leave a post: logged in, allowed on this wall, and the wall is
+  // visible (not hidden server-side, not disabled, not in edit mode).
+  const canPostOnWall = !!currentUser && (currentUser.id === userId || allowWallPostsFromOthers) && showProfileWall && !wallHiddenFromViewer && !isEditing;
+
+  const handleWallCreateClick = () => {
+    if (activeTab !== 'wall') {
+      // Coming from another tab: jump to the wall and open the composer.
+      setActiveTab('wall');
+      setWallCreateOpen(true);
+    } else {
+      setWallCreateOpen((prev) => !prev);
+    }
+  };
 
   // Set default tab based on wall visibility. The wall tab is available to
   // every viewer while showProfileWall is on (for non-friends on a private
@@ -1262,10 +1293,12 @@ const Profile = () => {
     );
   })() : null;
 
-  const showSkeleton = !profile || pageLoading;
+  const showSkeleton = showLoadingSkeleton && (!profile || pageLoading);
 
   return (
-    <main className="max-w-2xl mx-auto p-4 isolate">
+    <main
+      className="max-w-2xl mx-auto p-4 isolate"
+    >
         {/* Full-page profile background (viewer variant: page / page_dim) */}
         {bgUrl && (bgVariant === 'page' || bgVariant === 'page_dim') && (
           <>
@@ -1435,7 +1468,7 @@ const Profile = () => {
                 <div className="flex gap-0 min-w-max">
                   {wallTabVisible && (
                     <button
-                      onClick={() => setActiveTab('wall')}
+                      onClick={() => { setActiveTab('wall'); setWallCreateOpen(false); }}
                       className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                         activeTab === 'wall'
                           ? 'text-primary border-b-2 border-primary'
@@ -1447,7 +1480,7 @@ const Profile = () => {
                   )}
                   {canViewSection(privateHideAchievements) && (
                   <button
-                    onClick={() => setActiveTab('achievements')}
+                    onClick={() => { setActiveTab('achievements'); setWallCreateOpen(false); }}
                     className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                       activeTab === 'achievements'
                         ? 'text-primary border-b-2 border-primary'
@@ -1459,7 +1492,7 @@ const Profile = () => {
                   )}
                     {showThreadsTab && canViewSection(privateHideThreads) && (
                     <button
-                      onClick={() => setActiveTab('threads')}
+                      onClick={() => { setActiveTab('threads'); setWallCreateOpen(false); }}
                       className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                         activeTab === 'threads'
                           ? 'text-primary border-b-2 border-primary'
@@ -1471,7 +1504,7 @@ const Profile = () => {
                   )}
                   {canViewSection(privateHideGifts) && (
                   <button
-                    onClick={() => setActiveTab('gifts')}
+                    onClick={() => { setActiveTab('gifts'); setWallCreateOpen(false); }}
                     className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                       activeTab === 'gifts'
                         ? 'text-primary border-b-2 border-primary'
@@ -1487,7 +1520,7 @@ const Profile = () => {
                   {canViewSection(privateHideFriends) && (
                   <FriendsTabButton
                     activeTab={activeTab}
-                    onClick={() => setActiveTab('friends')}
+                    onClick={() => { setActiveTab('friends'); setWallCreateOpen(false); }}
                     userId={userId!}
                   />
                   )}
@@ -1512,6 +1545,8 @@ const Profile = () => {
                 refreshKey={wallRefreshKey}
                 wallHidden={wallHiddenFromViewer}
                 privateProfile={privateProfile}
+                createOpen={wallCreateOpen}
+                onCreateOpenChange={setWallCreateOpen}
               />
             </div>
           )}
@@ -1704,6 +1739,20 @@ const Profile = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Floating "Написать на стене" button — always on screen (fixed
+            bottom-right), so a post can be created from any profile tab. */}
+        {canPostOnWall && (
+          <Button
+            variant="default"
+            size="icon"
+            onClick={handleWallCreateClick}
+            className="fixed bottom-24 right-6 z-40 h-12 w-12 rounded-2xl shadow-lg"
+            title={wallCreateOpen ? "Скрыть форму" : "Написать на стене"}
+          >
+            <Plus className={`h-5 w-5 transition-transform duration-300 ease-out ${wallCreateOpen ? "rotate-45" : "rotate-0"}`} />
+          </Button>
+        )}
       </main>
   );
 };

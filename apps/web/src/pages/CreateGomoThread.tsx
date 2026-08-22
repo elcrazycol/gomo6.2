@@ -395,7 +395,10 @@ const CreateGomoThread = () => {
   if (!board) return null;
 
   return (
-    <div className="fixed inset-0 z-50 md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
+    // On mobile the sheet only spans to the keyboard top, so the backdrop
+    // below it must be opaque — otherwise the page content shows through the
+    // (often translucent) keyboard area.
+    <div className="fixed inset-0 z-50 bg-background md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
       <div
         ref={composerRootRef}
         role="dialog"

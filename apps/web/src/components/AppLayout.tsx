@@ -316,6 +316,60 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     }
   });
 
+  // Wall-post overlay scroll bridge: the overlay has its own scroll container,
+  // so we forward its scrollTop to the same hide/show logic used for window
+  // scroll, keeping the header in sync.
+  useEffect(() => {
+    let prevScrollTop = 0;
+    const onOverlayScroll = (e: Event) => {
+      const { scrollTop, scrollHeight, clientHeight } = (e as CustomEvent).detail as {
+        scrollTop: number;
+        scrollHeight: number;
+        clientHeight: number;
+      };
+      const maxScroll = Math.max(0, scrollHeight - clientHeight);
+      const clampedLatest = Math.min(Math.max(scrollTop, 0), maxScroll);
+      const delta = scrollTop - prevScrollTop;
+      prevScrollTop = scrollTop;
+
+      if (Math.abs(delta) < 4) return;
+
+      const atTop = clampedLatest <= 4;
+      const nearBottom = clampedLatest >= maxScroll - Math.max(headerHeight + 8, 56);
+
+      if (atTop) {
+        if (!isHeaderVisibleRef.current) setIsHeaderVisible(true);
+        return;
+      }
+      if (nearBottom) return;
+
+      if (delta > 0 && clampedLatest > 120 && isHeaderVisibleRef.current) {
+        setIsHeaderVisible(false);
+        return;
+      }
+      if (delta < 0 && !isHeaderVisibleRef.current) {
+        setIsHeaderVisible(true);
+      }
+    };
+    window.addEventListener("wall-post-scroll", onOverlayScroll);
+    return () => window.removeEventListener("wall-post-scroll", onOverlayScroll);
+  }, [headerHeight]);
+
+  // When the wall-post overlay opens, force the header to stay
+  // visible so it is always open at the top and the content padding
+  // accounts for it. Normal scroll-based hide/show resumes when the
+  // overlay closes.
+  useEffect(() => {
+    const onOverlayChange = (e: Event) => {
+      const { isOpen } = (e as CustomEvent).detail as { isOpen: boolean };
+      if (isOpen) {
+        setIsHeaderVisible(true);
+      }
+    };
+    window.addEventListener("wall-post-overlay", onOverlayChange);
+    return () => window.removeEventListener("wall-post-overlay", onOverlayChange);
+  }, []);
+
   // One shared, cancellable animation drives the header slide, the content
   // padding and the now-playing bar position in perfect sync.
   useEffect(() => {
@@ -969,6 +1023,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     ro.observe(el);
     return () => ro.disconnect();
   }, [hideChrome]);
+
+  // Expose the header height as a CSS custom property so overlays
+  // (e.g. wall-post page) can offset their content below the header.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--app-header-height', `${headerHeight}px`);
+  }, [headerHeight]);
 
   if (isSpecialPage) {
     return <>{children}</>;

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
@@ -47,6 +47,7 @@ export const FeedWallPostCard = ({
 }: FeedWallPostCardProps) => {
   const dateLocale = useDateLocale();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   // Reports the post as viewed once the card becomes visible in the viewport.
@@ -59,8 +60,11 @@ export const FeedWallPostCard = ({
   const [shareOpen, setShareOpen] = useState(false);
 
   const handleOpenPost = useCallback(() => {
-    navigate(postPath);
-  }, [navigate, postPath]);
+    // Carry the already rendered card to the post page (removes the skeleton
+    // flash) and keep the feed mounted underneath via backgroundLocation so the
+    // post opens as a draggable overlay over it.
+    navigate(postPath, { state: { wallPost: post, backgroundLocation: location } });
+  }, [navigate, post, postPath, location]);
 
   const handleLikeToggle = async () => {
     if (!currentUserId || isLiking) return;

@@ -6,13 +6,15 @@ interface PublishButtonProps {
   creating?: boolean;
   disabled?: boolean;
   onClick: () => void;
+  /** Overrides the default «Опубликовать» label (e.g. «Сохранить» in edit mode). */
+  label?: string;
 }
 
 /**
  * The g-sub composer publish button. The visual style is user-selectable in
  * Settings → Appearance → «Кнопка публикации».
  */
-export const PublishButton = ({ style, creating = false, disabled = false, onClick }: PublishButtonProps) => {
+export const PublishButton = ({ style, creating = false, disabled = false, onClick, label = "Опубликовать" }: PublishButtonProps) => {
   const spinner = <Loader2 className="h-4 w-4 animate-spin" />;
 
   if (style === "text-link") {
@@ -27,7 +29,7 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
           spinner
         ) : (
           <>
-            Опубликовать
+            {label}
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </>
         )}
@@ -41,8 +43,8 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
         type="button"
         onClick={onClick}
         disabled={disabled || creating}
-        title="Опубликовать"
-        aria-label="Опубликовать"
+        title={label}
+        aria-label={label}
         className="group inline-flex h-9 items-center rounded-full bg-gradient-to-r from-primary to-accent px-2.5 text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.35)] transition-all hover:brightness-110 hover:shadow-[0_4px_22px_hsl(var(--primary)/0.5)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
       >
         {creating ? (
@@ -51,7 +53,7 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
           <Send className="h-4 w-4 shrink-0" />
         )}
         <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-all duration-200 group-hover:ml-1.5 group-hover:max-w-[140px] group-hover:opacity-100">
-          Опубликовать
+          {label}
         </span>
       </button>
     );
@@ -71,7 +73,7 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
         }}
       >
         {creating ? spinner : <Send className="h-4 w-4 -ml-0.5" />}
-        Опубликовать
+        {label}
       </button>
     );
   }
@@ -85,7 +87,7 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
         className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
       >
         {creating ? spinner : <Rocket className="h-4 w-4 -ml-0.5" />}
-        Опубликовать
+        {label}
       </button>
     );
   }
@@ -99,7 +101,7 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
       className="inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-accent px-4 text-sm font-semibold text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.35)] transition-all hover:brightness-110 hover:shadow-[0_4px_22px_hsl(var(--primary)/0.5)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
     >
       {creating ? spinner : <Send className="h-4 w-4 -ml-0.5" />}
-      Опубликовать
+      {label}
     </button>
   );
 };

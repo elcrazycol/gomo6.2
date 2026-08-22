@@ -1,19 +1,72 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { motion, useMotionValue, animate } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
+
+const SWIPE_THRESHOLD = 90;
+
+type WallPostNavigationState = {
+  wallPost?: WallPostData;
+  backgroundLocation?: { pathname: string };
+};
 
 const WallPost = () => {
   const { userId, postId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
+  const navigationState = location.state as WallPostNavigationState | null;
+  const initialPost = navigationState?.wallPost ?? null;
+  // When opened from the profile or feed the page is rendered as a full-screen
+  // overlay above the still-mounted background route (background-location
+  // pattern). A direct link renders as a plain in-layout page instead.
+  const isOverlay = Boolean(navigationState?.backgroundLocation);
   const { loadProfile } = useProfileCache();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState("");
   const [profileUsername, setProfileUsername] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isClosing, setIsClosing] = useState(false);
+  const x = useMotionValue(window.innerWidth);
+
+  // Slide the overlay in from the right on mount.
+  useEffect(() => {
+    if (!isOverlay) return;
+    animate(x, 0, { type: "spring", stiffness: 300, damping: 30 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Lock page scroll while the overlay is up so the profile wall
+  // underneath can't be scrolled (restored on unmount).
+  useEffect(() => {
+    if (!isOverlay) return;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevOverscroll = document.documentElement.style.overscrollBehavior;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overscrollBehavior = prevOverscroll;
+    };
+  }, [isOverlay]);
+
+  // Notify the app shell that the wall-post overlay is open so the
+  // header can force itself visible and keep the content padding correct.
+  useEffect(() => {
+    if (!isOverlay) return;
+    window.dispatchEvent(new CustomEvent("wall-post-overlay", { detail: { isOpen: true } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("wall-post-overlay", { detail: { isOpen: false } }));
+    };
+  }, [isOverlay]);
 
   useEffect(() => {
     const loadPageContext = async () => {
@@ -42,16 +95,51 @@ const WallPost = () => {
     void loadPageContext();
   }, [userId, loadProfile]);
 
-  // Go back to wherever the post was opened from (feed, notifications,
-  // messenger, profile wall). Fall back to the profile page when the post was
-  // opened directly (shared link / fresh tab) and there is no in-app history.
-  const goBack = () => {
+  const goToPrevious = useCallback(() => {
     if (window.history.length > 1) {
       navigate(-1);
     } else if (userId) {
       navigate(`/profile/${userId}`, { replace: true });
+    } else {
+      navigate("/", { replace: true });
     }
-  };
+  }, [navigate, userId]);
+
+  // Overlay mode slides the surface out to the right, then goes back once it
+  // is off screen. A direct link has no underlying page to reveal, so it just
+  // navigates back immediately.
+  const close = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    if (!isOverlay) {
+      goToPrevious();
+      return;
+    }
+    animate(x, window.innerWidth, {
+      duration: 0.32,
+      ease: [0.22, 1, 0.36, 1],
+    }).then(goToPrevious);
+  }, [isClosing, isOverlay, x, goToPrevious]);
+
+  // Forward the overlay's scroll so the app header can hide/show in sync.
+  const overlayScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = overlayScrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      window.dispatchEvent(
+        new CustomEvent("wall-post-scroll", {
+          detail: {
+            scrollTop: el.scrollTop,
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+          },
+        }),
+      );
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
   if (!userId || !postId) {
     return (
@@ -61,24 +149,28 @@ const WallPost = () => {
     );
   }
 
-  return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={goBack}
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Назад</span>
-        </button>
+  const header = (
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        onClick={close}
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        <span>Назад</span>
+      </button>
 
-        <div className="text-sm text-muted-foreground">
-          {profileUsername ? `Запись на стене @${profileUsername}` : "Запись на стене"}
-        </div>
+      <div className="text-sm text-muted-foreground">
+        {profileUsername ? `Запись на стене @${profileUsername}` : "Запись на стене"}
       </div>
+    </div>
+  );
 
-      {!loading && (
+  const content = (
+    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5">
+      {header}
+
+      {(initialPost || !loading) && (
         <ProfileWall
           profileUserId={userId}
           currentUserId={currentUserId}
@@ -86,10 +178,45 @@ const WallPost = () => {
           canPost={false}
           showWall
           focusedPostId={postId}
+          initialPost={initialPost}
           standalone
         />
       )}
-    </main>
+    </div>
+  );
+
+  // Direct link: plain in-layout page, no drag gesture.
+  if (!isOverlay) {
+    return <main className="flex w-full flex-1 flex-col">{content}</main>;
+  }
+
+  // Opened from profile/feed: full-screen overlay dragged over the live page.
+  // z-[40] keeps the overlay below the app header (z-50) so the header is
+  // interactive and the post content shifts when the header slides out.
+  return (
+    <motion.div
+      data-testid="wall-post-page"
+      className="fixed inset-0 z-[40] flex flex-col bg-background"
+      style={{ x, touchAction: "pan-y" }}
+      drag="x"
+      dragConstraints={{ left: 0 }}
+      dragElastic={{ left: 0 }}
+      onDragEnd={(_, info) => {
+        if (info.offset.x > SWIPE_THRESHOLD || info.velocity.x > 500) {
+          close();
+        } else {
+          animate(x, 0, { type: "spring", stiffness: 300, damping: 30 });
+        }
+      }}
+    >
+      <div
+        ref={overlayScrollRef}
+        className="h-full overflow-y-auto"
+        style={{ paddingTop: 'var(--app-header-height)' }}
+      >
+        {content}
+      </div>
+    </motion.div>
   );
 };
 

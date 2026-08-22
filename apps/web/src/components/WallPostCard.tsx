@@ -2,7 +2,7 @@ import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, us
 
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
@@ -21,7 +21,6 @@ import {
 import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
-import { CreateWallPost } from "@/components/CreateWallPost";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
@@ -65,8 +64,6 @@ export const WallPostCard = ({
   currentProfileUsername,
   isEditing,
   onStartEditing,
-  onCancelEditing,
-  onPostUpdated,
   onDeletePost,
   onTogglePin,
   onRefreshPosts,
@@ -76,6 +73,7 @@ export const WallPostCard = ({
   standalone = false,
 }: WallPostCardProps) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const dateLocale = useDateLocale();
   const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
@@ -295,7 +293,9 @@ export const WallPostCard = ({
 
   const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
     if (!postHref || isEditing || isInteractiveTarget(event.target, event.currentTarget)) return;
-    navigate(postHref);
+    // backgroundLocation keeps the profile mounted underneath so the post opens
+    // as a draggable overlay over it instead of replacing the page.
+    navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
   };
 
   return (
@@ -449,16 +449,6 @@ export const WallPostCard = ({
           </div>
         )}
 
-        {isEditing && currentUserId && (
-          <CreateWallPost
-            key={`wall-edit-${post.id}-${post.updated_at}`}
-            profileUserId={profileUserId}
-            currentUserId={currentUserId}
-            editingPost={post}
-            onPostUpdated={onPostUpdated}
-            onCancel={onCancelEditing}
-          />
-        )}
       </CardContent>
 
       <Dialog open={repostComposerOpen} onOpenChange={setRepostComposerOpen}>

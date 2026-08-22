@@ -52,9 +52,12 @@ vi.mock("@/components/ProfileWall", () => ({
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function renderPage() {
+function renderPage(state?: unknown) {
+  const entry = state === undefined
+    ? "/profile/wall-owner/wall/post-1"
+    : { pathname: "/profile/wall-owner/wall/post-1", state };
   return render(
-    <MemoryRouter initialEntries={["/profile/wall-owner/wall/post-1"]}>
+    <MemoryRouter initialEntries={[entry]}>
       <WallPost />
     </MemoryRouter>,
   );
@@ -106,6 +109,30 @@ describe("WallPost page", () => {
     expect(screen.getByText("Назад")).toBeInTheDocument();
   });
 
+  it("passes the already-rendered wall post to ProfileWall during navigation", async () => {
+    const wallPost = {
+      id: "post-1",
+      user_id: "wall-owner",
+      author_id: "author-1",
+      content: "Already rendered",
+      title: "Already rendered",
+      content_json: null,
+      image_url: null,
+      attachments: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      author: { username: "author", is_anonymous: false, avatar_url: null },
+    };
+
+    renderPage({ wallPost });
+
+    await waitFor(() => {
+      expect(mockProfileWall).toHaveBeenCalledWith(
+        expect.objectContaining({ initialPost: wallPost }),
+      );
+    });
+  });
+
   it("passes null currentUserId for anonymous visitors", async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockLoadProfile.mockResolvedValue({ username: "owner", color: "", isAdmin: false, customization: null });
@@ -142,17 +169,34 @@ describe("WallPost page", () => {
     expect(screen.getByText("Запись на стене")).toBeInTheDocument();
   });
 
-  it("goes back in history when the post was opened from another page", () => {
+  it("renders as a full-screen overlay when opened from the profile", () => {
+    renderPage({ backgroundLocation: { pathname: "/profile/wall-owner" } });
+    const overlay = screen.getByTestId("wall-post-page");
+    expect(overlay).toBeInTheDocument();
+    expect(overlay.tagName.toLowerCase()).toBe("div");
+  });
+
+  it("renders as a plain page when opened directly (no background location)", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("profile-wall")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("wall-post-page")).not.toBeInTheDocument();
+  });
+
+  it("navigates back when the back button is clicked", () => {
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Назад" }));
+
     expect(mockNavigateFn).toHaveBeenCalledWith(-1);
   });
 
-  it("falls back to the profile when the post was opened directly", () => {
+  it("navigates to the profile with replace when opened directly without history", () => {
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 1 });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Назад" }));
+
     expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner", { replace: true });
   });
 
