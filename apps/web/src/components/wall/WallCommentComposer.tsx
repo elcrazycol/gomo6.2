@@ -1,4 +1,4 @@
-import { useEffect, type FocusEvent, type Ref } from "react";
+import { type FocusEvent, type Ref } from "react";
 import { Loader2, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
