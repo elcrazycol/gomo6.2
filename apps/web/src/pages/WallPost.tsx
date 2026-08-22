@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion, useMotionValue, animate } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
@@ -31,7 +31,14 @@ const WallPost = () => {
   const [profileUsername, setProfileUsername] = useState("");
   const [loading, setLoading] = useState(true);
   const [isClosing, setIsClosing] = useState(false);
-  const x = useMotionValue(0);
+  const x = useMotionValue(window.innerWidth);
+
+  // Slide the overlay in from the right on mount.
+  useEffect(() => {
+    if (!isOverlay) return;
+    animate(x, 0, { type: "spring", stiffness: 300, damping: 30 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const loadPageContext = async () => {
@@ -86,6 +93,26 @@ const WallPost = () => {
     }).then(goToPrevious);
   }, [isClosing, isOverlay, x, goToPrevious]);
 
+  // Forward the overlay's scroll so the app header can hide/show in sync.
+  const overlayScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = overlayScrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      window.dispatchEvent(
+        new CustomEvent("wall-post-scroll", {
+          detail: {
+            scrollTop: el.scrollTop,
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+          },
+        }),
+      );
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   if (!userId || !postId) {
     return (
       <main className="mx-auto flex w-full max-w-4xl flex-1 items-center justify-center p-4">
@@ -136,10 +163,12 @@ const WallPost = () => {
   }
 
   // Opened from profile/feed: full-screen overlay dragged over the live page.
+  // z-[40] keeps the overlay below the app header (z-50) so the header is
+  // interactive and the post content shifts when the header slides out.
   return (
     <motion.div
       data-testid="wall-post-page"
-      className="fixed inset-0 z-[60] flex flex-col bg-background"
+      className="fixed inset-0 z-[40] flex flex-col bg-background"
       style={{ x, touchAction: "pan-y" }}
       drag="x"
       dragConstraints={{ left: 0 }}
@@ -152,7 +181,9 @@ const WallPost = () => {
         }
       }}
     >
-      <div className="h-full overflow-y-auto">{content}</div>
+      <div ref={overlayScrollRef} className="h-full overflow-y-auto">
+        {content}
+      </div>
     </motion.div>
   );
 };
