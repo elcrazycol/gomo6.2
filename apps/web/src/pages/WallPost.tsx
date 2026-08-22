@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
 
 const WallPost = () => {
   const { userId, postId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
+  const initialPost = (location.state as { wallPost?: WallPostData } | null)?.wallPost ?? null;
   const { loadProfile } = useProfileCache();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState("");
@@ -62,7 +65,10 @@ const WallPost = () => {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5">
+    <main
+      className="wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5"
+      data-testid="wall-post-page"
+    >
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -78,7 +84,7 @@ const WallPost = () => {
         </div>
       </div>
 
-      {!loading && (
+      {(initialPost || !loading) && (
         <ProfileWall
           profileUserId={userId}
           currentUserId={currentUserId}
@@ -86,6 +92,7 @@ const WallPost = () => {
           canPost={false}
           showWall
           focusedPostId={postId}
+          initialPost={initialPost}
           standalone
         />
       )}

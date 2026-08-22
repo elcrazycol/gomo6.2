@@ -33,7 +33,7 @@ export const EmbeddedWallPost = ({
   const attachments = normalizeAttachments(post);
   const handleOpenPost = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (isInteractiveTarget(event.target, event.currentTarget)) return;
-    navigate(getWallPostPath(post.user_id, post.id));
+    navigate(getWallPostPath(post.user_id, post.id), { state: { wallPost: post } });
   };
 
   return (

@@ -52,9 +52,12 @@ vi.mock("@/components/ProfileWall", () => ({
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function renderPage() {
+function renderPage(state?: unknown) {
+  const entry = state === undefined
+    ? "/profile/wall-owner/wall/post-1"
+    : { pathname: "/profile/wall-owner/wall/post-1", state };
   return render(
-    <MemoryRouter initialEntries={["/profile/wall-owner/wall/post-1"]}>
+    <MemoryRouter initialEntries={[entry]}>
       <WallPost />
     </MemoryRouter>,
   );
@@ -104,6 +107,30 @@ describe("WallPost page", () => {
     );
     expect(screen.getByText("Запись на стене @owner")).toBeInTheDocument();
     expect(screen.getByText("Назад")).toBeInTheDocument();
+  });
+
+  it("passes the already-rendered wall post to ProfileWall during navigation", async () => {
+    const wallPost = {
+      id: "post-1",
+      user_id: "wall-owner",
+      author_id: "author-1",
+      content: "Already rendered",
+      title: "Already rendered",
+      content_json: null,
+      image_url: null,
+      attachments: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      author: { username: "author", is_anonymous: false, avatar_url: null },
+    };
+
+    renderPage({ wallPost });
+
+    await waitFor(() => {
+      expect(mockProfileWall).toHaveBeenCalledWith(
+        expect.objectContaining({ initialPost: wallPost }),
+      );
+    });
   });
 
   it("passes null currentUserId for anonymous visitors", async () => {

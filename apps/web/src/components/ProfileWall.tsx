@@ -34,6 +34,9 @@ interface ProfileWallProps {
   wallHidden?: boolean;
   /** True when the wall owner's profile is private (used to word the notice). */
   privateProfile?: boolean;
+  /** Already loaded post from the previous screen, used to avoid a skeleton
+   * flash while the focused-post request refreshes in the background. */
+  initialPost?: WallPost | null;
   /**
    * External control of the create-post form. The "Написать на стене" button
    * now lives on the profile page (floating, always on screen) and drives this
@@ -54,11 +57,12 @@ export const ProfileWall = ({
   refreshKey = 0,
   wallHidden = false,
   privateProfile = false,
+  initialPost = null,
   createOpen = false,
   onCreateOpenChange,
 }: ProfileWallProps) => {
-  const [posts, setPosts] = useState<WallPost[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts] = useState<WallPost[]>(() => initialPost ? [initialPost] : []);
+  const [loading, setLoading] = useState(!initialPost);
   const [internalCreateOpen, setInternalCreateOpen] = useState(false);
   // The create form is controlled from the profile page when
   // onCreateOpenChange is provided; otherwise it keeps its internal state.
@@ -91,9 +95,17 @@ export const ProfileWall = ({
     [editingPost, posts]
   );
 
+  useEffect(() => {
+    if (!initialPost) return;
+    setPosts([initialPost]);
+    setLoading(false);
+  }, [initialPost]);
+
   const loadPosts = useCallback(async () => {
     try {
-      setLoading(true);
+      // A post passed by the previous screen is already renderable. Refresh it
+      // in the background without replacing it with a loading skeleton.
+      if (!initialPost) setLoading(true);
       let query = api
         .from("profile_wall_posts")
         .select(`\n          id,\n          user_id,\n          author_id,\n          title,\n          content,\n          content_json,\n          image_url,\n          attachments,\n          repost_of_post_id,\n          created_at,\n          updated_at,\n          is_pinned,\n          pinned_order,\n          author:profiles!author_id (\n            username,\n            is_anonymous,\n            avatar_url\n          )\n        `)
@@ -171,7 +183,7 @@ export const ProfileWall = ({
     } finally {
       setLoading(false);
     }
-  }, [profileUserId, focusedPostId]);
+  }, [focusedPostId, initialPost, profileUserId]);
 
   useEffect(() => {
     if (showWall && !wallHidden) {
