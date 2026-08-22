@@ -1026,3 +1026,33 @@ html.kb-open body {
 .wall-comments-pad {
   padding-bottom: calc(var(--kb-inset, 0px) + 16rem);
 }
+
+/* ── Wall comment composer: docked bottom bar on touch ───────────────────────
+
+   On touch the wall-post comment composer is a fixed bar glued to the bottom
+   of the screen — always visible while the comments are open, whether the
+   user is scrolled at the top or the end. Its bottom edge rides --kb-inset
+   (the soft-keyboard height, 0 when closed) exactly like the messenger chat
+   panel, so there is no pinning, no fixed/flow switching and nothing to land
+   under the keyboard. The sticky + JS-pin approach above stays for desktop,
+   where the composer sits at the end of the comments. */
+.wall-composer-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--kb-inset, 0px);
+  z-index: 40;
+}
+
+/* Bottom padding of the docked bar: a small margin + the home-indicator
+   safe area (which collapses to 0 while the keyboard is up). */
+.wall-composer-dock-pad {
+  padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Reserve scroll room at the end of the comments so the last comment clears
+   the docked bar; --kb-inset covers the keyboard on iOS, where the layout
+   viewport never resizes. */
+.wall-comments-pad-touch {
+  padding-bottom: calc(var(--kb-inset, 0px) + 5rem);
+}

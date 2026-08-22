@@ -761,9 +761,9 @@ describe("WallCommentTree", () => {
     });
   });
 
-  it("pins the composer as fixed above the keyboard on touch while focused", async () => {
-    // Simulate a coarse-pointer device so the keyboard handling (and the pin)
-    // is active; everything else reports false.
+  it("docks the composer as a fixed bottom bar on touch", async () => {
+    // Simulate a coarse-pointer device so the touch layout is active;
+    // everything else reports false.
     const matchMediaMock = vi.fn((query: string) => ({
       matches: query === "(pointer: coarse)",
       media: query,
@@ -784,41 +784,31 @@ describe("WallCommentTree", () => {
         expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
       });
 
-      // Expand the pill, then focus the editor the way a tap would.
+      // The composer is a fixed bar at the bottom of the screen (always
+      // visible while the comments are open), not a sticky element at the end
+      // of the comments — and the scroll-room pad is reserved.
+      const dock = view.container.querySelector(".wall-composer-dock");
+      expect(dock).toBeTruthy();
+      expect(view.container.querySelector(".sticky")).toBeNull();
+      expect(view.container.querySelector(".wall-comments-pad-touch")).toBeTruthy();
+
+      // Expanding the pill and focusing the editor keeps the bar docked —
+      // there is no pinning dance because it never leaves the bottom.
       await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
       const textarea = screen.getByPlaceholderText("Напишите комментарий");
       act(() => {
         textarea.focus();
       });
-
-      // The composer anchor must pin synchronously: fixed above the keyboard,
-      // and gestures starting on it must not dismiss the keyboard.
-      const anchor = view.container.querySelector(".sticky");
-      expect(anchor).toBeTruthy();
-      await waitFor(() => {
-        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
-        expect(anchor!.getAttribute("data-kb-locked")).toBe("true");
-      });
-      // The scroll-room pad kicks in while the composer is pinned.
-      expect(view.container.querySelector(".wall-comments-pad")).toBeTruthy();
-
-      // Leaving the composer releases the pin and the pad.
-      act(() => {
-        textarea.blur();
-      });
-      await waitFor(() => {
-        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
-        expect(anchor!.getAttribute("data-kb-locked")).toBeNull();
-      });
-      expect(view.container.querySelector(".wall-comments-pad")).toBeNull();
+      expect(view.container.querySelector(".wall-composer-dock")).toBeTruthy();
+      expect(view.container.querySelector(".wall-composer-pinned")).toBeNull();
     } finally {
       dispose();
       vi.unstubAllGlobals();
     }
   });
 
-  it("does not pin the collapsed pill button — only the editor pins, so the first tap expands", async () => {
-    // Coarse pointer: keyboard handling (and the pin) is active.
+  it("portals the touch composer out of the overlay scroll container", async () => {
+    // Simulate a coarse-pointer device so the touch layout is active.
     const matchMediaMock = vi.fn((query: string) => ({
       matches: query === "(pointer: coarse)",
       media: query,
@@ -834,46 +824,48 @@ describe("WallCommentTree", () => {
     const dispose = initMobileKeyboard();
 
     try {
-      const view = renderTree({ comments: [] });
+      // The wall-post overlay scrolls in its OWN container (the page is
+      // locked). Render the tree inside it — a direct re-tap on the editor
+      // would make iOS focus-scroll this container. The dock must be portaled
+      // OUT of it so the editor has no scrollable ancestor.
+      const overlay = document.createElement("div");
+      overlay.setAttribute("data-testid", "wall-post-page");
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "auto";
+      overlay.appendChild(scroller);
+      document.body.appendChild(overlay);
+
+      render(
+        <WallCommentTree
+          postId="post-1"
+          postUserId="wall-owner"
+          currentUserId="user-1"
+          currentUsername="alice"
+          onCommentCountChange={vi.fn()}
+        />,
+        { container: scroller },
+      );
+
       await waitFor(() => {
         expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
       });
 
-      const anchor = view.container.querySelector(".sticky");
-      expect(anchor).toBeTruthy();
-
-      // Tapping the collapsed pill focuses the BUTTON before the click that
-      // expands the composer. That focus must NOT pin the bar — pinning yanks
-      // it out of the flow (position:fixed + the scroll pad under the finger),
-      // so the click that should call setExpanded(true) misses the pill and
-      // the composer never opens on the first tap.
-      const pill = screen.getByLabelText(/Напишите комментарий/);
-      act(() => {
-        pill.focus();
-      });
-      expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
-      expect(anchor!.getAttribute("data-kb-locked")).toBeNull();
-      expect(view.container.querySelector(".wall-comments-pad")).toBeNull();
-
-      // The click then expands the composer and the editor takes focus — only
-      // now must the bar pin (exactly the pre-existing behavior).
-      await userEvent.click(pill);
-      const textarea = screen.getByPlaceholderText("Напишите комментарий");
-      act(() => {
-        textarea.focus();
-      });
+      // The dock lives in the overlay root, NOT in the scroll container.
       await waitFor(() => {
-        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
-        expect(anchor!.getAttribute("data-kb-locked")).toBe("true");
+        expect(overlay.querySelector(".wall-composer-dock")).toBeTruthy();
       });
-      expect(view.container.querySelector(".wall-comments-pad")).toBeTruthy();
+      expect(scroller.querySelector(".wall-composer-dock")).toBeNull();
+      // The in-flow spacer still reserves room at the end of the comments.
+      expect(scroller.querySelector(".wall-comments-pad-touch")).toBeTruthy();
     } finally {
       dispose();
       vi.unstubAllGlobals();
+      document.body.innerHTML = "";
     }
   });
 
-  it("keeps the composer docked while the keyboard is up even after focus leaves", async () => {
+  it("renders a minimal single-line composer on touch", async () => {
+    // Simulate a coarse-pointer device so the minimal composer layout is used.
     const matchMediaMock = vi.fn((query: string) => ({
       matches: query === "(pointer: coarse)",
       media: query,
@@ -885,71 +877,67 @@ describe("WallCommentTree", () => {
       dispatchEvent: vi.fn(),
     }));
     vi.stubGlobal("matchMedia", matchMediaMock);
-    // Fake a visual viewport that reports the keyboard covering 300px so the
-    // global keyboard state reads as OPEN.
-    const vv = { height: 500, addEventListener: vi.fn(), removeEventListener: vi.fn() };
-    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
-    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
     const { initMobileKeyboard } = await import("@/lib/mobileKeyboard");
     const dispose = initMobileKeyboard();
-    window.dispatchEvent(new Event("resize"));
 
     try {
-      const view = renderTree({ comments: [] });
+      renderTree({ comments: [] });
       await waitFor(() => {
         expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
       });
 
       await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
-      const textarea = screen.getByPlaceholderText("Напишите комментарий");
-      act(() => {
-        textarea.focus();
-      });
-      const anchor = view.container.querySelector(".sticky");
-      await waitFor(() => {
-        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
-      });
 
-      // Focus leaves to a NON-editable (e.g. a reply button on a comment)
-      // while the keyboard is still up — the dock must NOT be released.
-      const outsideButton = document.createElement("button");
-      document.body.appendChild(outsideButton);
-      act(() => {
-        outsideButton.focus();
-      });
-      expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
-      expect(view.container.querySelector(".wall-comments-pad")).toBeTruthy();
-
-      // Simulate the keyboard closing: the visual viewport returns to full
-      // height, and focus is outside → the dock releases.
-      Object.defineProperty(window, "visualViewport", { value: { ...vv, height: 800 }, configurable: true });
-      act(() => {
-        window.dispatchEvent(new Event("resize"));
-      });
-      await waitFor(() => {
-        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
-      });
-
-      // Re-focus the editor, then hand the keyboard over to ANOTHER editable
-      // (e.g. a comment's inline edit box) — the dock must release immediately
-      // via the document-level focusin listener.
-      act(() => {
-        textarea.focus();
-      });
-      await waitFor(() => {
-        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
-      });
-      const otherEditor = document.createElement("textarea");
-      document.body.appendChild(otherEditor);
-      act(() => {
-        otherEditor.focus();
-      });
-      expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
+      // The expanded editor stays a small pill: one-line input + an icon-only
+      // send button — no big editor box, no toolbar, no text buttons.
+      expect(screen.getByPlaceholderText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText("Отправить")).toBeInTheDocument();
+      expect(screen.queryByText("Ответить")).toBeNull();
+      expect(screen.queryByText("Отмена")).toBeNull();
+      expect(screen.queryByText("Отправляем")).toBeNull();
     } finally {
       dispose();
       vi.unstubAllGlobals();
-      delete (window as any).visualViewport;
-      delete (window as any).innerHeight;
     }
   });
+
+  it("keeps the sticky full composer on desktop", async () => {
+    // Non-coarse pointer so the touch layout is OFF — and re-init the keyboard
+    // module (its state leaks isTouch=true from the touch tests above).
+    const matchMediaMock = vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.stubGlobal("matchMedia", matchMediaMock);
+    const { initMobileKeyboard } = await import("@/lib/mobileKeyboard");
+    const dispose = initMobileKeyboard();
+
+    try {
+    const view = renderTree({ comments: [] });
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
+    });
+
+    // No touch → the composer stays sticky at the end of the comments (no
+    // dock, no touch pad) and expands into the full box with text buttons.
+    expect(view.container.querySelector(".sticky")).toBeTruthy();
+    expect(view.container.querySelector(".wall-composer-dock")).toBeNull();
+    expect(view.container.querySelector(".wall-comments-pad-touch")).toBeNull();
+
+    await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
+    expect(screen.getByPlaceholderText("Напишите комментарий")).toBeInTheDocument();
+    expect(screen.getByText("Ответить")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Отправить")).toBeNull();
+    } finally {
+      dispose();
+      vi.unstubAllGlobals();
+    }
+  });
+
 });
