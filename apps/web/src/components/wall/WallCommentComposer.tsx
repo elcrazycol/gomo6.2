@@ -107,10 +107,11 @@ export const WallCommentComposer = ({
       // Skip if the composer was blurred/collapsed or destroyed meanwhile —
       // refocusing a hidden editor would summon the keyboard back up.
       if (editor.isDestroyed || !editor.isFocused) return;
-      // scrollIntoView:false — a focus() here defaults to scrolling the
-      // editor into view, which would fight the keyboard pin right after
-      // open (the "teleport" the pin is there to prevent).
-      editor.commands.focus("end", { scrollIntoView: false });
+      // moveCaretToEnd is a PURE selection dispatch — no native focus. On iOS
+      // a commands.focus("end") here would call view.dom.focus() WITHOUT
+      // preventScroll, re-triggering the focus-pan while the keyboard
+      // animation is still settling (the intermittent "every 7-8 opens" jump).
+      handle?.moveCaretToEnd?.();
     }, 450);
     return () => window.clearTimeout(timer);
   }, [isMinimal, expanded, editorRef]);

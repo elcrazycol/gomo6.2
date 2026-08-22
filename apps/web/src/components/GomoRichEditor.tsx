@@ -54,6 +54,10 @@ interface GomoRichEditorProps {
 
 export interface GomoRichEditorHandle {
   focus: () => void;
+  /** Move the caret to the end of the draft via a PURE selection dispatch —
+      never a native focus (on iOS that re-triggers the focus-pan and resets
+      the caret to the start). Safe to call when the editor is not focused. */
+  moveCaretToEnd: () => void;
   insertText: (text: string) => void;
   insertEmoji: (
     data: { emojiId: string; packId: string; url: string; name: string },
@@ -414,6 +418,20 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     },
   });
 
+  // Move the caret to the END of the draft via a PURE ProseMirror selection
+  // dispatch — never editor.commands.focus("end"): on iOS that command calls
+  // view.dom.focus() WITHOUT preventScroll (verified in @tiptap/core), which
+  // re-triggers the native focus — the pan — and iOS then resets the caret
+  // back to the START of the content. Dispatching the selection directly
+  // moves the caret with no native focus at all, so nothing can race it.
+  const moveCaretToEnd = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    const doc = editor.state.doc;
+    // atEnd resolves INSIDE the last textblock (doc.content.size counts the
+    // paragraph node itself, so resolving there overshoots by one position).
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.atEnd(doc)));
+  }, [editor]);
+
   useEffect(() => {
     if (editor && autoFocus) {
       const el = editorContainerRef.current;
@@ -424,12 +442,11 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           const scrollY = window.scrollY;
           const scrollX = window.scrollX;
           editable.focus({ preventScroll: true });
-          // Native focus on a freshly-mounted contenteditable leaves the caret
-          // at the START of the draft. Move it to the end so typing continues
-          // where the user left off. scrollIntoView:false — see the fallback
-          // branch below: a focus("end") here must not re-introduce the
-          // browser's own focus-scroll (exactly what the pin prevents).
-          editor.commands.focus("end", { scrollIntoView: false });
+          // Focus FIRST (preventScroll — the only pan-free focus), then move
+          // the caret to the end as a pure selection dispatch. A native focus
+          // on a freshly-mounted contenteditable would leave the caret at the
+          // START of the draft; the dispatch fixes it without re-focusing.
+          moveCaretToEnd();
           requestAnimationFrame(() => {
             if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
               window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
@@ -438,13 +455,13 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           return;
         }
       }
-      // Never scrollIntoView on a programmatic focus: the browser's own
-      // focus-scroll is exactly what the mobile-keyboard pin prevents, and a
-      // focus("end") here (or the caret nudge in the composer) must not
-      // re-introduce it.
-      editor.commands.focus("end", { scrollIntoView: false });
+      // No contenteditable found (unlikely): focus the editor's own DOM node
+      // with preventScroll — never the focus command, whose view.dom.focus()
+      // on iOS pans.
+      (editor.view.dom as HTMLElement | undefined)?.focus({ preventScroll: true });
+      moveCaretToEnd();
     }
-  }, [editor, autoFocus]);
+  }, [editor, autoFocus, moveCaretToEnd]);
 
   // The app loads the user's Google Font with font-display: swap, so on the
   // VERY first open of a composer the custom font can still be downloading
@@ -608,12 +625,14 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     focus: () => {
       const el = editorContainerRef.current;
       if (!el) {
-        editor?.commands.focus(undefined, { scrollIntoView: false });
+        // No container: focus the editor's own DOM node with preventScroll —
+        // never the focus command, whose view.dom.focus() on iOS pans.
+        (editor?.view.dom as HTMLElement | undefined)?.focus({ preventScroll: true });
         return;
       }
       const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
       if (!editable) {
-        editor?.commands.focus(undefined, { scrollIntoView: false });
+        (editor?.view.dom as HTMLElement | undefined)?.focus({ preventScroll: true });
         return;
       }
       // Capture scroll position BEFORE focus. Mobile browsers often ignore
@@ -630,6 +649,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         }
       });
     },
+    moveCaretToEnd,
     insertText: (text: string) => {
       editor?.chain().focus(undefined, { scrollIntoView: false }).insertContent(text).run();
     },
@@ -649,7 +669,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       }
     },
     getEditor: () => editor,
-  }), [editor]);
+  }), [editor, moveCaretToEnd]);
 
   useEffect(() => {
     if (!editor) return;

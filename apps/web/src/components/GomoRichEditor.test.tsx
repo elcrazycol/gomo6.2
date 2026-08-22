@@ -1,6 +1,8 @@
 import { render } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { GomoRichEditor } from "./GomoRichEditor";
+import { createRef } from "react";
+import { TextSelection } from "@tiptap/pm/state";
+import { GomoRichEditor, type GomoRichEditorHandle } from "./GomoRichEditor";
 
 // jsdom may not provide requestAnimationFrame, and ProseMirror schedules its
 // DOM updates on it — shim it with a timer-based fallback (same pattern as
@@ -114,6 +116,50 @@ describe("GomoRichEditor maxHeightClassName", () => {
     expect(cls).toContain("overflow-y-auto");
     expect(cls).toContain("outline-none"); // base editor classes intact
     expect(cls).toContain("relative");
+  });
+});
+
+describe("GomoRichEditor caret placement", () => {
+  const renderWithRef = (props: Partial<React.ComponentProps<typeof GomoRichEditor>> = {}) => {
+    const ref = createRef<GomoRichEditorHandle>();
+    const utils = render(<GomoRichEditor ref={ref} onChange={vi.fn()} {...props} />);
+    return { ref, ...utils };
+  };
+
+  it("moveCaretToEnd places the caret at the end of a draft", async () => {
+    stubRAF();
+    const { ref, container } = renderWithRef({ legacyContent: "hello world" });
+    const editable = container.querySelector("[contenteditable]") as HTMLElement | null;
+    expect(editable).not.toBeNull();
+    editable!.focus();
+
+    ref.current?.moveCaretToEnd();
+    const editor = ref.current?.getEditor();
+    const doc = editor!.state.doc;
+    // Caret at the very end of the last textblock (after "world").
+    expect(editor!.state.selection.from).toBe(TextSelection.atEnd(doc).from);
+    expect(editor!.state.selection.empty).toBe(true);
+  });
+
+  it("autoFocus places the caret at the end of an existing draft", async () => {
+    stubRAF();
+    const { ref } = renderWithRef({ legacyContent: "hello world", autoFocus: true });
+    const editor = ref.current?.getEditor();
+    // The autofocus effect runs after mount; the caret must sit at the end of
+    // the draft (not the start a native focus would leave it at).
+    await vi.waitFor(() => {
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+    });
+  });
+
+  it("autoFocus on an empty draft still lands at a valid position", async () => {
+    stubRAF();
+    const { ref } = renderWithRef({ autoFocus: true });
+    await vi.waitFor(() => {
+      const editor = ref.current?.getEditor();
+      expect(editor?.isFocused).toBe(true);
+      expect(editor!.state.selection.empty).toBe(true);
+    });
   });
 });
 

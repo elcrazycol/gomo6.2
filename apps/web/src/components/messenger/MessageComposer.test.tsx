@@ -46,6 +46,7 @@ vi.mock("@/components/GomoRichEditor", () => {
           focus: () => {
             editorSpies.focusCalls.push(true);
           },
+          moveCaretToEnd: () => {},
           insertText: (value: string) => {
             onChange?.({ json: makeDoc(value), text: value });
           },
@@ -159,7 +160,7 @@ function setup(overrides: {
   draft?: string;
   isSending?: boolean;
   onTyping?: (isTyping: boolean) => void;
-  composerRef?: RefObject<{ focus: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>;
+  composerRef?: RefObject<{ focus: () => void; moveCaretToEnd: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>;
 } = {}) {
   const setDraft = vi.fn();
   const onSend = vi.fn();
