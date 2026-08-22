@@ -294,6 +294,36 @@ describe("live keyboard geometry", () => {
     expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
   });
 
+  it("caps a one-frame inset spike so the composer never jumps up for a millisecond", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    dispose = initMobileKeyboard();
+
+    input.focus();
+    // Keyboard opens to 300px (800 → 500). The per-frame follow is live and
+    // the committed inset is 300.
+    vv.height = 500;
+    vi.advanceTimersByTime(16);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+
+    // One-frame spike: the URL-bar/visualViewport desync at the end of the
+    // slide-in reports 680px for a single frame (a 380px jump). Growth is
+    // capped at lastCommitted (300) + MAX_KB_GROWTH_PER_FRAME (40) = 340 —
+    // the composer glides up a hair instead of teleporting for a frame.
+    vv.height = 120;
+    vi.advanceTimersByTime(16);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+    // Spike gone: the true position is 500 again. Shrink is never capped, so
+    // the inset returns to 300 the same frame — no bounce.
+    vv.height = 500;
+    vi.advanceTimersByTime(16);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+  });
+
   it("applies a deferred close instantly — live geometry, no easing", () => {
     vi.useFakeTimers();
     const vv = stubTouchViewport();

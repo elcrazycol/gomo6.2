@@ -89,6 +89,15 @@ const DISMISS_DURATION_MS = 280;
  *  the keyboard for the whole animation, and a keyboard that opens without
  *  ANY events is detected while the editable is focused. */
 const FOLLOW_MS = 600;
+/** While the per-frame follow is tracking the keyboard, cap how much the
+ *  inset may GROW per frame. The keyboard rises ~20px/frame at 60fps; a
+ *  one-frame spike — the URL-bar/visualViewport desync at the end of the
+ *  slide-in, or a keyboard overshoot — is 50-90px and made the composer jump
+ *  UP for a millisecond before settling back. Capping growth spreads the
+ *  spike over 1-2 frames (invisible) while the real motion passes untouched.
+ *  Shrink is never capped: the closing side drops freely (scroll-to-dismiss
+ *  animates it anyway), so the composer never lags a departing keyboard. */
+const MAX_KB_GROWTH_PER_FRAME = 40;
 
 const listeners = new Set<Listener>();
 let initialized = false;
@@ -107,6 +116,13 @@ let followRaf: number | null = null;
 let followUntil = 0;
 let gestureStart: { x: number; y: number } | null = null;
 let dismissAnimFrame: number | null = null;
+// True while the per-frame geometry follow loop is running. While set, the
+// inset-growth clamp in commitState is active (see MAX_KB_GROWTH_PER_FRAME).
+let followActive = false;
+// The last inset actually written. The follow's growth clamp measures
+// against it; fresh runs reset it to +∞ so the first write catches up to the
+// real geometry before capping kicks in.
+let lastCommittedInset = 0;
 // True while the current touch began on a `[data-kb-keep]` element (the
 // messenger chat surface). Scrolling such a surface is content browsing, not
 // a dismissal gesture — the keyboard must stay up, exactly like when the
@@ -185,6 +201,7 @@ export function initMobileKeyboard(): () => void {
     stickyScrollActive = false;
     dismissUntil = 0;
     dismissalActive = false;
+    followActive = false;
     focusedEditable = null;
   };
 }
@@ -341,13 +358,27 @@ function writeGeometryVars(next: MobileKeyboardState) {
  * the follow loop itself must not re-arm itself through here).
  */
 function commitState(next: MobileKeyboardState) {
+  let keyboardInset = next.keyboardInset;
+  // While the per-frame follow is actively tracking the keyboard, consecutive
+  // writes are ≤1 frame apart and the keyboard cannot physically rise faster
+  // than ~20-40px/frame. Capping inset GROWTH kills the one-frame spikes —
+  // the URL-bar/visualViewport desync at the end of the slide-in, or a
+  // keyboard overshoot — that made the composer jump UP for a millisecond and
+  // settle back. Shrink is never capped: the closing side drops freely (and
+  // scroll-to-dismiss animates it), so the composer never lags a departing
+  // keyboard. lastCommittedInset is +∞ after a fresh follow start, so the
+  // first write catches up to reality instead of being falsely clamped.
+  if (followActive && next.isOpen) {
+    keyboardInset = Math.min(keyboardInset, lastCommittedInset + MAX_KB_GROWTH_PER_FRAME);
+  }
+  lastCommittedInset = keyboardInset;
   const changed =
     next.isOpen !== state.isOpen ||
-    next.keyboardInset !== state.keyboardInset ||
+    keyboardInset !== state.keyboardInset ||
     next.viewportHeight !== state.viewportHeight ||
     next.isTouch !== state.isTouch;
-  state = next;
-  writeGeometryVars(next);
+  state = { ...next, keyboardInset };
+  writeGeometryVars({ ...next, keyboardInset });
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("kb-open", next.isOpen);
   }
@@ -378,6 +409,11 @@ function applyState(next: MobileKeyboardState) {
 function startGeometryFollow() {
   followUntil = Date.now() + FOLLOW_MS;
   if (followRaf !== null) return;
+  // Fresh run: no clamp baseline yet — the first write must catch up to the
+  // real geometry (e.g. a keyboard already open) before growth capping kicks
+  // in on subsequent frames.
+  lastCommittedInset = Number.POSITIVE_INFINITY;
+  followActive = true;
   const step = () => {
     followRaf = null;
     // Scroll-to-dismiss in progress: WebKit reports the old keyboard-open
@@ -387,12 +423,16 @@ function startGeometryFollow() {
     if (dismissalActive) {
       if (Date.now() < followUntil || state.isOpen) {
         followRaf = requestAnimationFrame(step);
+      } else {
+        followActive = false;
       }
       return;
     }
     commitState(computeRaw());
     if (Date.now() < followUntil || state.isOpen) {
       followRaf = requestAnimationFrame(step);
+    } else {
+      followActive = false;
     }
   };
   followRaf = requestAnimationFrame(step);
