@@ -518,17 +518,16 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.documentElement.style.getPropertyValue("--app-vh")).toBe("620px");
   });
 
-  it("pins the document scroll to 0 while an input in the messenger shell is focused with the keyboard open", () => {
+  it("pins the document while an input in a fixed bar is focused, so Safari cannot pan it", () => {
     vi.useFakeTimers();
-    const vv = stubTouchViewport();
+    stubTouchViewport();
     const scrollToSpy = vi.fn();
-    Object.defineProperty(window, "scrollY", { value: 0, configurable: true, writable: true });
+    Object.defineProperty(window, "scrollY", { value: 340, configurable: true, writable: true });
     Object.defineProperty(window, "scrollX", { value: 0, configurable: true, writable: true });
     Object.defineProperty(window, "scrollTo", { value: scrollToSpy, configurable: true, writable: true });
 
-    // The composer lives inside the full-screen messenger shell.
+    // The composer lives inside a fixed bar (messenger chat panel, wall dock).
     const shell = document.createElement("div");
-    shell.dataset.kbApp = "";
     shell.style.position = "fixed";
     const input = document.createElement("input");
     shell.appendChild(input);
@@ -537,21 +536,24 @@ describe("keyboard-open scroll corrections", () => {
     dispose = initMobileKeyboard();
     input.focus();
 
-    // The keyboard opens → Safari pans the document (scrollY becomes 120).
-    vv.height = 500;
-    (window as any).scrollY = 120;
-    (window as any).scrollX = 0;
-    window.dispatchEvent(new Event("resize"));
-    vi.advanceTimersByTime(16);
+    // Focus on a fixed-bar input pins the document (position:fixed + top:
+    // -scrollY + overflow:hidden) so iOS has nothing to pan when the keyboard
+    // opens — the pan is what made content fly down then back up. The visual
+    // position is preserved via top: -scrollY.
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body.style.position).toBe("fixed");
+    expect(document.body.style.top).toBe("-340px");
 
-    // The per-frame follow pins the pan back to 0 immediately.
-    expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
-
-    // The pin persists while typing — a late pan (after the old 300ms
-    // checkpoint) is still corrected.
-    (window as any).scrollY = 90;
-    vi.advanceTimersByTime(400);
-    expect(scrollToSpy).toHaveBeenLastCalledWith(0, 0);
+    // Blur releases the pin and restores the scroll position. Simulate a
+    // pan that slipped through anyway (scrollY moved while pinned) — the
+    // unlock must put the reader back exactly where they were.
+    (window as any).scrollY = 420;
+    input.blur();
+    expect(document.documentElement.style.overflow).toBe("");
+    expect(document.body.style.position).toBe("");
+    expect(document.body.style.top).toBe("");
+    expect(scrollToSpy).toHaveBeenCalledWith(0, 340);
   });
 });
 

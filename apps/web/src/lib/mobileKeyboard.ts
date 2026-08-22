@@ -33,8 +33,12 @@
  *    plus a `kb-open` class on <html>.
  *  • Keeps the focused editable element visible inside the *visual* viewport
  *    (12px above the keyboard) with exact math, overriding the browser's own
- *    buggy focus-scrolling, and cancels Safari's document pan when typing
- *    inside the full-screen messenger.
+ *    buggy focus-scrolling.
+ *  • Prevents Safari's document pan for inputs inside fixed/sticky composer
+ *    bars (messenger chat, wall/thread comments): while such an input is
+ *    focused the document is pinned (position:fixed + overflow:hidden), so
+ *    the keyboard slide-in has nothing to scroll and content no longer
+ *    flies down then back up (see lockDocumentScroll).
  *  • iOS scroll-to-dismiss behaves exactly like tapping outside the composer:
  *    the focused input is blurred (so focus-to-expand composers collapse via
  *    their own onBlur animation) and the fixed/sticky bars descend smoothly
@@ -132,8 +136,23 @@ let lockedGestureActive = false;
 // emoji swap panel is open (there the editor is blurred, so no dismissal can
 // fire; the open keyboard must match that stability).
 let stickyScrollActive = false;
-// Cancels an in-flight fixed-bar scroll guard (see guardFixedBarFocusScroll).
-let cancelFixedGuard: (() => void) | null = null;
+// Document scroll lock. While an editable inside a fixed/sticky composer bar
+// is focused on touch, the document is pinned (position:fixed + overflow:hidden)
+// so iOS cannot pan it to "reveal" the input. That pan is the root cause of the
+// jump (content flies down then back up) in the messenger and the wall comments:
+// it feeds visualViewport.offsetTop — which the --kb-inset formula subtracts —
+// so the fixed bar wiggles, and every scroll-restore the app tried just fought
+// it visibly. Prevent the pan instead of undoing it. Internal scrollers
+// (message list, overlay container) are separate overflow containers and keep
+// working while the lock is on.
+let scrollLock: {
+  rootOverflow: string;
+  bodyOverflow: string;
+  bodyPosition: string;
+  bodyTop: string;
+  bodyWidth: string;
+  scrollY: number;
+} | null = null;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -220,8 +239,7 @@ export function initMobileKeyboard(): () => void {
     dismissUntil = 0;
     dismissalActive = false;
     focusedEditable = null;
-    cancelFixedGuard?.();
-    cancelFixedGuard = null;
+    unlockDocumentScroll();
   };
 }
 
@@ -476,38 +494,11 @@ function startGeometryFollow() {
     followRaf = null;
     if (dismissalActive) return; // the dismissal animation owns the vars
     writeGeometryVars(computeRaw());
-    pinAppShellScroll();
     if (Date.now() < followUntil || state.isOpen) {
       followRaf = requestAnimationFrame(step);
     }
   };
   followRaf = requestAnimationFrame(step);
-}
-
-/**
- * iOS pans the document when the soft keyboard opens and an input is
- * focused: the visual viewport shrinks, Safari scrolls the layout viewport
- * to "reveal" the input, and the whole `position: fixed` messenger shell
- * (which is fixed to the LAYOUT viewport) rides the pan — the chat header
- * drifts up, the composer drifts down. The old fix restored window.scrollY
- * at a few checkpoints (rAF + 120/300ms timers), which missed pans that
- * landed after the last checkpoint or on re-focus (emoji insert, editor tap).
- *
- * Instead the per-frame follow loop (active for the whole keyboard-open
- * window) keeps the document scroll pinned to 0 while an editable inside a
- * [data-kb-app] surface (the messenger shell) is focused. Cheap: a scrollY
- * read per frame, and the write only happens when the browser actually
- * panned.
- */
-function pinAppShellScroll() {
-  if (!state.isOpen || !state.isTouch) return;
-  const el = focusedEditable;
-  if (!el || !el.isConnected) return;
-  if (!el.closest("[data-kb-app]")) return;
-  if (typeof window === "undefined") return;
-  if (window.scrollY !== 0 || window.scrollX !== 0) {
-    window.scrollTo(0, 0);
-  }
 }
 
 function applyState(next: MobileKeyboardState) {
@@ -529,6 +520,10 @@ function applyState(next: MobileKeyboardState) {
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("kb-open", next.isOpen);
   }
+  // The keyboard is gone — the document scroll lock (fixed-bar focus) is no
+  // longer needed: the pan it prevents only ever happens at the moment of
+  // focus, so releasing now can never cause a jump.
+  if (!next.isOpen) unlockDocumentScroll();
   // Keep the per-frame follow alive — the LIVE viewport keeps gliding after
   // this event (see startGeometryFollow).
   startGeometryFollow();
@@ -638,11 +633,12 @@ function handleFocusIn(e: FocusEvent) {
   // Focus inside a fixed/sticky bar (pinned wall composer, messenger shell):
   // the bar is already positioned above the keyboard by the app, so the
   // browser's own focus-scroll must not move the page — iOS yanks it (and
-  // collapses the URL bar) the moment the keyboard opens, which reads as the
-  // composer "flying up" when re-tapped mid-page. Pin the scroll position for
-  // the keyboard-animation window; a real user touch cancels the pin.
+  // collapses the URL bar) the moment the keyboard opens, reading as the
+  // composer "flying up" when re-tapped mid-page. Lock the document so there
+  // is nothing to pan (see lockDocumentScroll); a real user touch or blur
+  // releases it.
   if (getScrollContext(el).mode === "fixed") {
-    guardFixedBarFocusScroll();
+    lockDocumentScroll();
     return;
   }
   // Skip scroll-into-view for elements that are already fully visible.
@@ -668,6 +664,11 @@ function handleFocusOut() {
     focusPollTimer = null;
   }
   clearPendingScrolls();
+  // The pan the lock prevents only ever happens at the moment of focus, so a
+  // blur can release it immediately — even if the keyboard is still animating
+  // closed. Releasing on blur also covers focus migration (fixed bar → plain
+  // input), where the document must become scrollable again right away.
+  unlockDocumentScroll();
 }
 
 /**
@@ -742,6 +743,18 @@ function handleTouchStart(e: TouchEvent) {
   const touch = e.touches?.[0];
   if (!touch) return;
   gestureStart = { x: touch.clientX, y: touch.clientY };
+  // A real user touch while the document is pinned (fixed-bar focus) releases
+  // the pin UNLESS it lands on the focused composer itself (caret drag, tap
+  // to reposition): the pan the pin prevents only ever happens at the moment
+  // of focus, so after that a touch is the user browsing — the page must not
+  // feel frozen, and the normal scroll-to-dismiss flow takes over. A later
+  // re-focus re-pins via handleFocusIn.
+  if (scrollLock) {
+    const target = e.target;
+    if (!(focusedEditable && target instanceof Node && focusedEditable.contains(target))) {
+      unlockDocumentScroll();
+    }
+  }
   // Pinned composer bars carry [data-kb-locked]; a scroll that begins on one
   // must not move the page (the bar is fixed and can't be dragged along).
   lockedGestureActive = state.isTouch && isLockedGestureTarget(e.target);
@@ -916,40 +929,60 @@ function clearPendingScrolls() {
   for (const timer of pendingScrollTimers) clearTimeout(timer);
   pendingScrollTimers.clear();
   cancelUserInterrupt?.();
-  cancelFixedGuard?.();
 }
 
 /**
- * Undoes the browser's own focus-scroll for a fixed/sticky composer bar. The
- * browser scrolls the page to "reveal" a just-focused element even when it
- * lives inside a fixed bar that is already positioned above the keyboard —
- * that yanks the page (and collapses the URL bar), reading as the composer
- * "flying up" when re-tapped mid-page.
+ * iOS pans the document when an input inside a fixed/sticky composer bar is
+ * focused — the keyboard slides in and Safari scrolls the page to "reveal"
+ * the input, even though the bar is already positioned above the keyboard by
+ * the app. The pan moves every fixed element with it (and corrupts
+ * visualViewport.offsetTop, which --kb-inset subtracts), so the bar and the
+ * content visibly jump down then up. Undoing the pan with scroll-restores
+ * only turns it into a fight — the pan wins the race on real devices.
  *
- * The scroll position is snap-restored across the keyboard-animation window
- * (rAF + two later checkpoints). Plain scroll events do NOT cancel the pin —
- * the browser fires those itself and they are exactly what we are undoing;
- * a real user touch (touchstart), a blur, or the next fixed-bar focus cancels
- * it, so the user is never fought.
+ * Instead, pin the document while the bar's editor is focused: the body is
+ * taken out of scroll flow (position:fixed + top: -scrollY + overflow:hidden
+ * on html/body), so Safari has nothing to pan — the same canonical technique
+ * this app already uses for the avatar gallery modal (see AvatarGallery.tsx),
+ * where iOS otherwise shifts the whole page when a modal input is focused.
+ * The visual position is preserved (top: -scrollY) and internal scrollers
+ * (message list, overlay container) are unaffected. Releasing the lock is
+ * safe — the pan only ever happens at the moment of focus, and the saved
+ * scroll position is restored.
  */
-function guardFixedBarFocusScroll() {
-  const scrollY = window.scrollY;
-  const scrollX = window.scrollX;
-  const restore = () => {
-    if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
-      window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
-    }
+function lockDocumentScroll() {
+  if (scrollLock || typeof document === "undefined") return;
+  const root = document.documentElement;
+  const body = document.body;
+  scrollLock = {
+    rootOverflow: root.style.overflow,
+    bodyOverflow: body.style.overflow,
+    bodyPosition: body.style.position,
+    bodyTop: body.style.top,
+    bodyWidth: body.style.width,
+    scrollY: typeof window === "undefined" ? 0 : window.scrollY,
   };
-  cancelFixedGuard?.();
-  requestAnimationFrame(restore);
-  const timers = [120, 300].map((delay) => setTimeout(restore, delay));
-  const onUserTouch = () => cancelFixedGuard?.();
-  cancelFixedGuard = () => {
-    cancelFixedGuard = null;
-    for (const timer of timers) clearTimeout(timer);
-    document.removeEventListener("touchstart", onUserTouch, true);
-  };
-  document.addEventListener("touchstart", onUserTouch, true);
+  root.style.overflow = "hidden";
+  body.style.overflow = "hidden";
+  body.style.position = "fixed";
+  body.style.top = `-${scrollLock.scrollY}px`;
+  body.style.width = "100%";
+}
+
+function unlockDocumentScroll() {
+  if (!scrollLock) return;
+  const root = document.documentElement;
+  const body = document.body;
+  root.style.overflow = scrollLock.rootOverflow;
+  body.style.overflow = scrollLock.bodyOverflow;
+  body.style.position = scrollLock.bodyPosition;
+  body.style.top = scrollLock.bodyTop;
+  body.style.width = scrollLock.bodyWidth;
+  const scrollY = scrollLock.scrollY;
+  scrollLock = null;
+  if (typeof window !== "undefined" && window.scrollY !== scrollY) {
+    window.scrollTo(0, scrollY);
+  }
 }
 
 function scheduleScrollIntoView(delay: number) {
@@ -988,12 +1021,9 @@ export function scrollEditableIntoView() {
   const context = getScrollContext(el);
 
   if (context.mode === "fixed") {
-    // The full-screen messenger shell sizes itself to the visible area via
-    // --app-vh; cancel the document pan Safari performs when focusing an
-    // input inside it. For floating fixed bars (thread composer) iOS manages
-    // them itself — resetting the page scroll there would yank the reader to
-    // the top, so we never touch it.
-    if (el.closest("[data-kb-app]") && window.scrollY !== 0) window.scrollTo(0, 0);
+    // The bar is already positioned above the keyboard by the app, and the
+    // document scroll is locked while the editor is focused (see
+    // lockDocumentScroll) — there is nothing to scroll here.
     return;
   }
 
