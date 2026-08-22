@@ -1085,12 +1085,14 @@ function applyScrollLock() {
   body.style.position = "fixed";
   body.style.top = `-${scrollLock.scrollY}px`;
   body.style.width = "100%";
+  attachPinnedScrollGuard();
 }
 
 function releaseScrollLock() {
   if (!scrollLock) return;
   const root = document.documentElement;
   const body = document.body;
+  detachPinnedScrollGuard();
   root.style.overflow = scrollLock.rootOverflow;
   body.style.overflow = scrollLock.bodyOverflow;
   body.style.position = scrollLock.bodyPosition;
@@ -1101,6 +1103,36 @@ function releaseScrollLock() {
   if (typeof window !== "undefined" && window.scrollY !== scrollY) {
     window.scrollTo(0, scrollY);
   }
+}
+
+/**
+ * While the document is pinned, force the WINDOW scroll to stay at the pinned
+ * position. Even with the body position:fixed, some iOS versions still pan the
+ * window when the keyboard opens (the URL bar collapses, the visual viewport
+ * shifts) — and a panned window drags every fixed element with it, which is
+ * the residual "content flies down then back up". Event-driven (scroll/resize
+ * fire only when something actually moves), so holding the pin for a whole
+ * surface lifetime never costs a permanent rAF loop.
+ */
+function handlePinnedScroll() {
+  if (!scrollLock || typeof window === "undefined") return;
+  if (window.scrollY !== scrollLock.scrollY || window.scrollX !== 0) {
+    window.scrollTo(0, scrollLock.scrollY);
+  }
+}
+
+function attachPinnedScrollGuard() {
+  window.addEventListener("scroll", handlePinnedScroll, { passive: true, capture: true });
+  window.addEventListener("resize", handlePinnedScroll, { passive: true, capture: true });
+  window.visualViewport?.addEventListener("scroll", handlePinnedScroll, { passive: true });
+  window.visualViewport?.addEventListener("resize", handlePinnedScroll, { passive: true });
+}
+
+function detachPinnedScrollGuard() {
+  window.removeEventListener("scroll", handlePinnedScroll, { capture: true });
+  window.removeEventListener("resize", handlePinnedScroll, { capture: true });
+  window.visualViewport?.removeEventListener("scroll", handlePinnedScroll);
+  window.visualViewport?.removeEventListener("resize", handlePinnedScroll);
 }
 
 /** Keyboard-pin contribution: while an editable in a composer bar is focused

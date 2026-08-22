@@ -718,6 +718,31 @@ describe("document pin — surface + keyboard contributions", () => {
     unpinDocumentForSurface();
     expect(document.body.style.position).toBe("");
   });
+
+  it("clamps stray window pans back to the pinned position while pinned", () => {
+    stubMatchMedia(true);
+    stubScroll(80);
+    const scrollToSpy = vi.fn();
+    Object.defineProperty(window, "scrollTo", { value: scrollToSpy, configurable: true, writable: true });
+    dispose = initMobileKeyboard();
+
+    pinDocumentForSurface();
+    expect(scrollToSpy).not.toHaveBeenCalled();
+
+    // A stray pan — iOS shifted the window despite the body being fixed (URL
+    // bar collapse / visual-viewport nudge). The guard must snap it back
+    // immediately, so fixed surfaces never visibly fly down then back up.
+    (window as any).scrollY = 240;
+    window.dispatchEvent(new Event("scroll"));
+    expect(scrollToSpy).toHaveBeenCalledWith(0, 80);
+
+    // Unpinning restores the pinned scroll position (1 more call), and once
+    // the pin is released the guard is gone — a later pan is not fought.
+    unpinDocumentForSurface();
+    (window as any).scrollY = 300;
+    window.dispatchEvent(new Event("scroll"));
+    expect(scrollToSpy).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("getScrollContext", () => {
