@@ -928,6 +928,30 @@ html, body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   ProseMirror composer — fixed text metrics for a correct iOS caret
+   ═══════════════════════════════════════════════════════════════════════════
+
+   iOS draws the caret from the CURRENT font metrics. If the editable is sized
+   by relative line-height / a still-downloading custom font (font-display:
+   swap), the caret can land visually in the MIDDLE of a letter or stretch
+   across the whole line. Anchor the composer text to absolute metrics: 16px
+   is also the iOS auto-zoom threshold (smaller input fonts get zoomed on
+   focus). Unlayered, so it wins over Tailwind's text-sm/text-base utilities
+   on the editable. GomoRichEditor re-asserts the end-caret on document.fonts
+   .ready, after the final metrics apply. */
+.ProseMirror {
+  font-size: 16px;
+  line-height: 22px;
+}
+
+/* No vertical padding on paragraphs — it shifts the baseline the caret is
+   measured against. Margins stay inside the editable, not outside. */
+.ProseMirror p {
+  margin: 0;
+  padding: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    Mobile virtual keyboard (see lib/mobileKeyboard.ts)
    ═══════════════════════════════════════════════════════════════════════════
 
