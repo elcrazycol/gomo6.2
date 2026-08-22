@@ -1,6 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
@@ -503,6 +504,87 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     const nextContent = normalizeContent(contentJson, legacyContent);
     editor.commands.setContent(nextContent ?? EMPTY_EDITOR_STATE, { emitUpdate: false });
   }, [editor, composerKey, contentJson, legacyContent]);
+
+  // ── Native-tap interception (the iOS keyboard-pan fix) ─────────────────────
+  // A DIRECT tap on the contenteditable is a NATIVE focus — and on iOS the
+  // native focus-scroll (the pan) is what makes the composer visibly fly down
+  // then back up, even with the document pinned (the pinned guard can only
+  // clamp window scroll AFTER the browser already shifted the visual viewport;
+  // the pan itself is the jitter we see). Proof: opening the emoji panel first
+  // and then switching to the keyboard is always smooth — that path focuses
+  // the editor PROGRAMMATICALLY via editor.focus({preventScroll:true}).
+  //
+  // So: while the editor does NOT own focus, a tap-like touch on it is
+  // intercepted and converted into the same programmatic focus — the native
+  // focus (and its pan) never happens. The caret is placed at the tap point
+  // via posAtCoords, so behavior is identical, just pan-free. Once focused,
+  // taps are left alone (caret moves, text selection, inner scrolling all
+  // work natively — and no pan can occur because focus doesn't change).
+  // Non-tap gestures (scrolls, long-press selection, drag-select) are never
+  // intercepted.
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom as HTMLElement;
+
+    let touchStart: { x: number; y: number; t: number } | null = null;
+
+    const hasFocus = () => document.activeElement === dom || dom.contains(document.activeElement);
+
+    const focusAt = (x: number, y: number) => {
+      const view = editor.view;
+      try {
+        const coords = view.posAtCoords({ left: x, top: y });
+        if (coords) {
+          // Set the caret at the tap point first — then focus without scroll;
+          // ProseMirror syncs the DOM selection to the state on focus.
+          view.dispatch(
+            view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(coords.pos)))
+          );
+        }
+      } catch {
+        // posAtCoords needs document.elementFromPoint, which is missing in
+        // some environments (jsdom). Fall through to a plain pan-free focus.
+      }
+      if (document.activeElement !== dom) {
+        dom.focus({ preventScroll: true });
+      }
+    };
+
+    // Atomic leaves (custom emoji, mention chips) are rendered
+    // contenteditable="false" and handle their own taps (select/insert) —
+    // intercepting would fight their click handlers.
+    const onLeaf = (target: EventTarget | null) =>
+      target instanceof Element && typeof target.closest === "function"
+        ? target.closest('[contenteditable="false"]')
+        : null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches?.[0];
+      if (!t) return;
+      touchStart = { x: t.clientX, y: t.clientY, t: Date.now() };
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      const start = touchStart;
+      touchStart = null;
+      const t = e.changedTouches?.[0];
+      if (hasFocus() || !start || !t || onLeaf(e.target)) return;
+      // Only tap-like touches: short and still. Scrolls, long-press selection
+      // and drag-selection keep their native behavior (and no pan can happen
+      // on them — they don't change focus).
+      const moved = Math.abs(t.clientX - start.x) + Math.abs(t.clientY - start.y);
+      if (moved > 10 || Date.now() - start.t > 400) return;
+      e.preventDefault();
+      focusAt(t.clientX, t.clientY);
+    };
+
+    dom.addEventListener("touchstart", onTouchStart, { passive: true });
+    dom.addEventListener("touchend", onTouchEnd, { passive: false, capture: true });
+    return () => {
+      dom.removeEventListener("touchstart", onTouchStart);
+      dom.removeEventListener("touchend", onTouchEnd, true);
+    };
+  }, [editor]);
 
   useImperativeHandle(ref, () => ({
     focus: () => {

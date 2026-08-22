@@ -117,6 +117,74 @@ describe("GomoRichEditor maxHeightClassName", () => {
   });
 });
 
+describe("GomoRichEditor native-tap interception", () => {
+  // A tap on the UNFOCUSED editor is a native focus on iOS — the focus-scroll
+  // (pan) that makes the composer jump. It must be converted into a
+  // programmatic focus({preventScroll:true}) with the caret at the tap point.
+  const fireTouch = (editable: HTMLElement, type: string, x: number, y: number) => {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, type === "touchstart" ? "touches" : "changedTouches", {
+      value: [{ clientX: x, clientY: y }],
+    });
+    editable.dispatchEvent(ev);
+    return ev;
+  };
+
+  it("converts a tap on the unfocused editor into a programmatic focus", () => {
+    stubRAF();
+    const preventDefaultSpy = vi.spyOn(Event.prototype, "preventDefault");
+    try {
+      const { container } = render(<GomoRichEditor onChange={vi.fn()} />);
+      const editable = container.querySelector("[contenteditable]") as HTMLElement | null;
+      expect(editable).not.toBeNull();
+      expect(document.activeElement).not.toBe(editable);
+
+      // Tap-like touch (tiny movement, short): intercepted → focused.
+      fireTouch(editable!, "touchstart", 10, 10);
+      fireTouch(editable!, "touchend", 12, 12);
+      expect(preventDefaultSpy).toHaveBeenCalled();
+      expect(document.activeElement).toBe(editable);
+    } finally {
+      preventDefaultSpy.mockRestore();
+    }
+  });
+
+  it("leaves scroll-like touches alone (no interception, no focus)", () => {
+    stubRAF();
+    const preventDefaultSpy = vi.spyOn(Event.prototype, "preventDefault");
+    try {
+      const { container } = render(<GomoRichEditor onChange={vi.fn()} />);
+      const editable = container.querySelector("[contenteditable]") as HTMLElement | null;
+      expect(editable).not.toBeNull();
+
+      // A drag (50px move) is scroll intent — never intercepted.
+      fireTouch(editable!, "touchstart", 10, 10);
+      fireTouch(editable!, "touchend", 60, 10);
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
+      expect(document.activeElement).not.toBe(editable);
+    } finally {
+      preventDefaultSpy.mockRestore();
+    }
+  });
+
+  it("does not intercept when the editor already owns focus", () => {
+    stubRAF();
+    const preventDefaultSpy = vi.spyOn(Event.prototype, "preventDefault");
+    try {
+      const { container } = render(<GomoRichEditor onChange={vi.fn()} />);
+      const editable = container.querySelector("[contenteditable]") as HTMLElement | null;
+      editable!.focus();
+      expect(document.activeElement).toBe(editable);
+
+      fireTouch(editable!, "touchstart", 10, 10);
+      fireTouch(editable!, "touchend", 12, 12);
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
+    } finally {
+      preventDefaultSpy.mockRestore();
+    }
+  });
+});
+
 describe("GomoRichEditor font-swap caret realignment", () => {
   // A focused editor + a spy on the native selection. Restored in every path.
   const setupFocusedEditor = () => {
