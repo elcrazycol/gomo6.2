@@ -76,6 +76,13 @@ const WallPost = () => {
       overlay.removeAttribute("data-testid");
       overlay.setAttribute("aria-hidden", "true");
       overlay.classList.remove("wall-post-page-enter");
+      // Reset any in-progress swipe offset in the snapshot so the exit
+      // animation always starts from a clean, full-height surface.
+      const swipeEl = overlay.querySelector<HTMLElement>("[data-wall-post-swipe]");
+      if (swipeEl) {
+        swipeEl.style.transform = "none";
+        swipeEl.style.transition = "none";
+      }
       const rect = source.getBoundingClientRect();
       overlay.style.position = "fixed";
       overlay.style.top = `${rect.top}px`;
@@ -156,44 +163,48 @@ const WallPost = () => {
 
   return (
     <main
-      className="wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5"
+      className="wall-post-page-enter relative flex w-full flex-1 flex-col"
       data-testid="wall-post-page"
     >
       <div
         {...bind()}
+        data-wall-post-swipe=""
+        className="flex min-h-screen w-full flex-col bg-background"
         style={{
           transform: `translateX(${swipeOffset}px)`,
           touchAction: "pan-y",
           transition: isDragging ? "none" : "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       >
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={goBack}
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Назад</span>
-        </button>
+        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={goBack}
+              className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Назад</span>
+            </button>
 
-        <div className="text-sm text-muted-foreground">
-          {profileUsername ? `Запись на стене @${profileUsername}` : "Запись на стене"}
+            <div className="text-sm text-muted-foreground">
+              {profileUsername ? `Запись на стене @${profileUsername}` : "Запись на стене"}
+            </div>
+          </div>
+
+          {(initialPost || !loading) && (
+            <ProfileWall
+              profileUserId={userId}
+              currentUserId={currentUserId}
+              currentUsername={currentUsername}
+              canPost={false}
+              showWall
+              focusedPostId={postId}
+              initialPost={initialPost}
+              standalone
+            />
+          )}
         </div>
-      </div>
-
-      {(initialPost || !loading) && (
-        <ProfileWall
-          profileUserId={userId}
-          currentUserId={currentUserId}
-          currentUsername={currentUsername}
-          canPost={false}
-          showWall
-          focusedPostId={postId}
-          initialPost={initialPost}
-          standalone
-        />
-      )}
       </div>
     </main>
   );
