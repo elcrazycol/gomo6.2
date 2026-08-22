@@ -5,6 +5,8 @@ import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
+import { pinDocumentForSurface, unpinDocumentForSurface } from "@/lib/mobileKeyboard";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
 
@@ -41,7 +43,14 @@ const WallPost = () => {
   }, []);
 
   // Lock page scroll while the overlay is up so the profile wall
-  // underneath can't be scrolled (restored on unmount).
+  // underneath can't be scrolled (restored on unmount). On touch devices the
+  // document is additionally PINNED (position:fixed on body, via
+  // mobileKeyboard) for the whole overlay lifetime: overflow:hidden alone is
+  // ignored by iOS for its focus-pan, and the per-gesture pin raced it — with
+  // the pin held structurally, Safari has literally nothing to scroll when a
+  // composer input inside the overlay is focused, so the keyboard slide-in is
+  // always smooth (no content flying down then back up).
+  const { isTouch } = useMobileKeyboard();
   useEffect(() => {
     if (!isOverlay) return;
     const prevHtmlOverflow = document.documentElement.style.overflow;
@@ -50,13 +59,15 @@ const WallPost = () => {
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
+    if (isTouch) pinDocumentForSurface();
 
     return () => {
       document.documentElement.style.overflow = prevHtmlOverflow;
       document.body.style.overflow = prevBodyOverflow;
       document.documentElement.style.overscrollBehavior = prevOverscroll;
+      if (isTouch) unpinDocumentForSurface();
     };
-  }, [isOverlay]);
+  }, [isOverlay, isTouch]);
 
   // Notify the app shell that the wall-post overlay is open so the
   // header can force itself visible and keep the content padding correct.

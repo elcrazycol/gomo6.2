@@ -5,6 +5,8 @@ import { useMessengerStore, selectSelectedConversation } from "@/stores/messenge
 import { messengerWs } from "@/services/messengerWebSocket";
 import { eventManager } from "@/services/eventManager";
 import { useMessengerPresence } from "@/hooks/useMessengerPresence";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
+import { pinDocumentForSurface, unpinDocumentForSurface } from "@/lib/mobileKeyboard";
 import { MessengerErrorBoundary } from "./ErrorBoundary";
 import { ConversationList } from "./ConversationList";
 import { ChatView } from "./ChatView";
@@ -64,6 +66,20 @@ export const MessengerView = () => {
 
   const conversation = useMessengerStore(selectSelectedConversation);
   const showMobileChat = Boolean(conversation) && (!isMobile || !sidebarOpen);
+
+  // The messenger is a fixed-height app surface (the document never scrolls
+  // on /messages). On touch devices, pin the document for the whole route
+  // lifetime (position:fixed on body via mobileKeyboard): iOS's focus-pan has
+  // literally nothing to scroll when the composer input is focused, so the
+  // keyboard slide-in is always smooth instead of racing the per-gesture pin
+  // (which is what made the content fly down then back up on re-tap with
+  // text). Released on unmount.
+  const { isTouch } = useMobileKeyboard();
+  useEffect(() => {
+    if (!isTouch) return;
+    pinDocumentForSurface();
+    return () => unpinDocumentForSurface();
+  }, [isTouch]);
 
   // ChatIcon (always in header) manages store init + WS connect lifecycle.
   // Here we just ensure store is initialized (idempotent if already done)
