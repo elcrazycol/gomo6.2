@@ -214,6 +214,17 @@ describe("isInteractiveTarget", () => {
     div.setAttribute("role", "button");
     expect(isInteractiveTarget(div)).toBe(true);
   });
+
+  it("returns true for an SVG icon inside a button", () => {
+    const container = document.createElement("div");
+    const btn = document.createElement("button");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    btn.appendChild(svg);
+    container.appendChild(btn);
+    // SVGElement is not an HTMLElement, but closest() must still resolve the
+    // enclosing button so card-wide click handlers don't treat it as dead space.
+    expect(isInteractiveTarget(svg)).toBe(true);
+  });
 });
 
 describe("normalizeAttachments", () => {

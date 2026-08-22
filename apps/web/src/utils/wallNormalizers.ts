@@ -136,7 +136,11 @@ export const getWallPostPath = (profileUserId: string, postId: string) =>
   `/profile/${profileUserId}/wall/${postId}`;
 
 export const isInteractiveTarget = (target: EventTarget | null, currentTarget?: HTMLElement | null) => {
-  if (!(target instanceof HTMLElement)) return false;
+  // `Element` (not `HTMLElement`) so SVG targets — e.g. a lucide icon inside a
+  // button — still resolve their enclosing interactive element via closest().
+  // Without this, clicking directly on an icon would skip the check and the
+  // card's navigate-on-click would fire alongside the button's own action.
+  if (!(target instanceof Element)) return false;
   const interactiveElement = target.closest(
     "a, button, input, textarea, select, summary, [role='button'], [contenteditable='true'], [data-wall-no-open='true']"
   );

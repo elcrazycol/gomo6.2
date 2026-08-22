@@ -291,11 +291,18 @@ export const WallPostCard = ({
     }
   };
 
+  // The whole card is one big tap target (matching FeedWallPostCard): a click
+  // anywhere — dead space in the header, gaps between the action buttons, the
+  // views counter — opens the post. Clicks that land on real interactive
+  // elements (like/repost/comment/share buttons, images, links, the comment
+  // composer) are filtered out by isInteractiveTarget and do their own thing.
+  const isClickable = Boolean(postHref) && !isEditing;
+
   const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!postHref || isEditing || isInteractiveTarget(event.target, event.currentTarget)) return;
+    if (!isClickable || isInteractiveTarget(event.target, event.currentTarget)) return;
     // backgroundLocation keeps the profile mounted underneath so the post opens
     // as a draggable overlay over it instead of replacing the page.
-    navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
+    navigate(postHref!, { state: { wallPost: post, backgroundLocation: location } });
   };
 
   return (
@@ -304,9 +311,22 @@ export const WallPostCard = ({
       // overflow-clip keeps the rounded-corner clipping but does NOT create a
       // scroll container, so position:sticky works for the floating composer.
       ref={viewTrackingRef}
+      onClick={handleOpenPost}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={(e) => {
+        // Only act when the card itself is focused — Enter/Space on a nested
+        // button (like, comment…) must run that button's own handler instead.
+        if (e.target !== e.currentTarget) return;
+        if (!postHref || isEditing) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
+        }
+      }}
       className={`overflow-clip border-border/70 shadow-none ${
         post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "bg-background"
-      }`}
+      }${isClickable ? " cursor-pointer" : ""}`}
     >
       <CardContent className="space-y-4 p-3 sm:p-4">
         <div className="flex items-start justify-between gap-3">
@@ -381,12 +401,7 @@ export const WallPostCard = ({
           )}
         </div>
 
-        <div
-          className={`${postHref && !isEditing ? "cursor-pointer" : ""}`}
-          onClick={handleOpenPost}
-          role={postHref && !isEditing ? "button" : undefined}
-          tabIndex={postHref && !isEditing ? 0 : undefined}
-        >
+        <div>
           {post.content?.trim() && (
             <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
               <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />

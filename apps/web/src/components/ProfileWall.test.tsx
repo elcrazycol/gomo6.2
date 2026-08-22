@@ -1,4 +1,4 @@
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { toast } from "sonner";
@@ -1536,6 +1536,129 @@ describe("ProfileWall", () => {
     // No processed-content should exist since there's no text content
     const processedContents = screen.queryAllByTestId("processed-content");
     expect(processedContents.length).toBe(0);
+  });
+
+  // ─── WallPostCard: whole card opens the post ────────────────────────────────
+
+  it("opens the post when clicking dead space on a photo-only post", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "photo-only",
+        content: null,
+        content_json: null,
+        attachments: [{ url: "img.jpg", type: "image", mime: "image/jpeg", name: "photo.jpg", size: 0 }],
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByAltText("photo.jpg")).toBeInTheDocument();
+    });
+
+    // The non-interactive views counter in the action row is dead space —
+    // clicking it must open the post (photo-only posts have no text block to
+    // click on, so the whole card is the tap target).
+    await userEvent.click(screen.getByTestId("post-views-count"));
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      "/profile/profile-user-1/wall/photo-only",
+      expect.objectContaining({ state: expect.objectContaining({ wallPost: expect.objectContaining({ id: "photo-only" }) }) })
+    );
+  });
+
+  it("opens the post when clicking the pinned badge in the header", async () => {
+    setupApiMocks({ posts: [createMockPost({ id: "pinned-post", is_pinned: true })] });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Закреплено")).toBeInTheDocument();
+    });
+
+    // The badge is plain text in the header (right of the nickname, next to
+    // the time) — clicking it opens the post, not the user profile.
+    await userEvent.click(screen.getByText("Закреплено"));
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      "/profile/profile-user-1/wall/pinned-post",
+      expect.objectContaining({ state: expect.objectContaining({ wallPost: expect.objectContaining({ id: "pinned-post" }) }) })
+    );
+  });
+
+  it("opens the post with Enter when the card is focused", async () => {
+    setupApiMocks({ posts: [createMockPost()] });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    const card = screen.getByText("Hello wall!").closest(".cursor-pointer");
+    expect(card).not.toBeNull();
+    fireEvent.keyDown(card!, { key: "Enter" });
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      "/profile/profile-user-1/wall/post-1",
+      expect.objectContaining({ state: expect.objectContaining({ wallPost: expect.objectContaining({ id: "post-1" }) }) })
+    );
+  });
+
+  it("does not open the post when clicking action buttons (like toggles instead)", async () => {
+    setupApiMocks({ posts: [createMockPost()] });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    // Click directly on the heart SVG icon — the target is an SVGElement, not
+    // an HTMLElement, so the interactive-target check must still find the
+    // enclosing button and let the like fire without navigating.
+    const likeButton = screen.getByText("Нравится").closest("button");
+    expect(likeButton).not.toBeNull();
+    const heartIcon = likeButton!.querySelector("svg");
+    expect(heartIcon).not.toBeNull();
+    fireEvent.click(heartIcon!);
+
+    await waitFor(() => {
+      expect(mockFrom).toHaveBeenCalledWith("profile_wall_post_likes");
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // ─── WallPostCard: post with text + attachments ──────────────────────────────
