@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import WallPost from "./WallPost";
@@ -169,18 +169,54 @@ describe("WallPost page", () => {
     expect(screen.getByText("Запись на стене")).toBeInTheDocument();
   });
 
-  it("goes back in history when the post was opened from another page", () => {
+  it("goes back in history with a native view transition when supported", () => {
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: (update: () => void) => {
+        update();
+        return {};
+      },
+    });
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Назад" }));
     expect(mockNavigateFn).toHaveBeenCalledWith(-1);
+    delete (document as Document & { startViewTransition?: unknown }).startViewTransition;
   });
 
-  it("falls back to the profile when the post was opened directly", () => {
+  it("falls back to the profile with a view transition when opened directly", () => {
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: (update: () => void) => {
+        update();
+        return {};
+      },
+    });
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 1 });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Назад" }));
     expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner", { replace: true });
+    delete (document as Document & { startViewTransition?: unknown }).startViewTransition;
+  });
+
+  it("plays the rightward exit animation before navigating without native view transitions", () => {
+    delete (document as Document & { startViewTransition?: unknown }).startViewTransition;
+    vi.useFakeTimers();
+    try {
+      Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
+      renderPage();
+      fireEvent.click(screen.getByRole("button", { name: "Назад" }));
+
+      expect(screen.getByTestId("wall-post-page").className).toContain("wall-post-page-exit");
+      expect(mockNavigateFn).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(380);
+      });
+      expect(mockNavigateFn).toHaveBeenCalledWith(-1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("loads wall owner via ProfileCacheContext (cached) instead of a raw fetch", async () => {

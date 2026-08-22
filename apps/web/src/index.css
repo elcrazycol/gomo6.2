@@ -1018,12 +1018,57 @@ html.kb-open body {
 }
 
 .wall-post-page-enter {
+  view-transition-name: wall-post-page;
   animation: wall-post-page-enter 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: transform, opacity;
 }
 
+@keyframes wall-post-page-exit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.wall-post-page-exit {
+  animation: wall-post-page-exit 380ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  will-change: transform, opacity;
+}
+
+/* React Router 7 uses the native View Transition API when navigate() is
+   called with viewTransition:true. Keep the destination profile/feed static
+   underneath and animate only the outgoing post surface. */
+::view-transition-old(wall-post-page) {
+  animation: wall-post-page-exit 380ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  z-index: 2;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+@media (min-width: 768px) {
+  @keyframes wall-post-page-exit {
+    from {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translate3d(0, 16px, 0) scale(0.985);
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .wall-post-page-enter {
+  .wall-post-page-enter,
+  .wall-post-page-exit,
+  ::view-transition-old(wall-post-page) {
     animation: none;
   }
 }

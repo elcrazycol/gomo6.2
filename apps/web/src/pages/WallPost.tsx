@@ -17,6 +17,7 @@ const WallPost = () => {
   const [currentUsername, setCurrentUsername] = useState("");
   const [profileUsername, setProfileUsername] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
     const loadPageContext = async () => {
@@ -49,11 +50,55 @@ const WallPost = () => {
   // messenger, profile wall). Fall back to the profile page when the post was
   // opened directly (shared link / fresh tab) and there is no in-app history.
   const goBack = () => {
-    if (window.history.length > 1) {
-      navigate(-1);
-    } else if (userId) {
-      navigate(`/profile/${userId}`, { replace: true });
+    if (isExiting) return;
+
+    const goToPreviousPage = () => {
+      if (window.history.length > 1) {
+        // The numeric navigate overload does not accept options; the native
+        // transition wrapper below handles the animation for history back.
+        navigate(-1);
+      } else if (userId) {
+        navigate(`/profile/${userId}`, { replace: true });
+      }
+    };
+
+    const playCssExitFallback = () => {
+      // Older Safari/Firefox fallback: keep the post mounted long enough to
+      // play the same exit animation before changing the route.
+      setIsExiting(true);
+      window.setTimeout(goToPreviousPage, 380);
+    };
+
+    // BrowserRouter is intentionally used in this app instead of a data
+    // router, so its numeric navigate() overload does not accept
+    // { viewTransition: true }. Use the native API directly, but return a
+    // promise from the update callback: history.go() notifies BrowserRouter
+    // asynchronously, and the transition must wait until the previous page
+    // has committed before it captures the destination profile/feed.
+    const supportsViewTransition = typeof document !== "undefined"
+      && typeof (document as Document & { startViewTransition?: unknown }).startViewTransition === "function";
+    if (supportsViewTransition) {
+      const startViewTransition = (document as Document & {
+        startViewTransition: (update: () => void | Promise<void>) => unknown;
+      }).startViewTransition;
+      try {
+        startViewTransition(() => {
+          goToPreviousPage();
+          return new Promise<void>((resolve) => {
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => resolve());
+            });
+          });
+        });
+      } catch {
+        // A partially implemented WebView API should not strand the user on
+        // the post page; fall back to the CSS exit animation.
+        playCssExitFallback();
+      }
+      return;
     }
+
+    playCssExitFallback();
   };
 
   if (!userId || !postId) {
@@ -66,7 +111,7 @@ const WallPost = () => {
 
   return (
     <main
-      className="wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5"
+      className={`wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5${isExiting ? " wall-post-page-exit" : ""}`}
       data-testid="wall-post-page"
     >
       <div className="flex flex-wrap items-center gap-3">
