@@ -7,6 +7,7 @@ import {
   getScrollContext,
   initMobileKeyboard,
   isBeyondTouchSlop,
+  isComposerBarTarget,
   isEditableElement,
   isIOSDevice,
   isLockedGestureTarget,
@@ -213,6 +214,33 @@ describe("isStickyGestureTarget", () => {
     keep.appendChild(bubble);
     document.body.appendChild(keep);
     expect(isStickyGestureTarget(bubble)).toBe(true);
+  });
+});
+
+describe("isComposerBarTarget", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("returns false for null / non-element targets", () => {
+    expect(isComposerBarTarget(null)).toBe(false);
+    expect(isComposerBarTarget(undefined)).toBe(false);
+  });
+
+  it("returns false for ordinary elements", () => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    expect(isComposerBarTarget(el)).toBe(false);
+  });
+
+  it("returns true for an element inside a data-kb-pin composer bar", () => {
+    const bar = document.createElement("div");
+    bar.setAttribute("data-kb-pin", "true");
+    const editor = document.createElement("input");
+    bar.appendChild(editor);
+    document.body.appendChild(bar);
+    expect(isComposerBarTarget(editor)).toBe(true);
+    expect(isComposerBarTarget(bar)).toBe(true);
   });
 });
 
@@ -554,6 +582,49 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.body.style.position).toBe("");
     expect(document.body.style.top).toBe("");
     expect(scrollToSpy).toHaveBeenCalledWith(0, 340);
+  });
+
+  it("pins the document on touchstart inside a composer bar, before focus lands", () => {
+    vi.useFakeTimers();
+    stubTouchViewport();
+    Object.defineProperty(window, "scrollY", { value: 120, configurable: true, writable: true });
+    Object.defineProperty(window, "scrollX", { value: 0, configurable: true, writable: true });
+
+    // A composer bar carrying data-kb-pin (wall dock / messenger composer).
+    const bar = document.createElement("div");
+    bar.setAttribute("data-kb-pin", "true");
+    bar.style.position = "fixed";
+    const input = document.createElement("input");
+    bar.appendChild(input);
+    document.body.appendChild(bar);
+
+    dispose = initMobileKeyboard();
+
+    // Touch the editor inside the bar: touchstart fires BEFORE the native
+    // focus, so the pin must land here — that is what makes the re-tap on an
+    // already-expanded composer deterministic instead of racing the focusin
+    // pin (the race was the "sometimes jumps, sometimes smooth" behaviour).
+    const fireTouchStart = (target: Element, x: number, y: number) => {
+      const start = new Event("touchstart", { bubbles: true, cancelable: true });
+      Object.defineProperty(start, "touches", { value: [{ clientX: x, clientY: y }] });
+      target.dispatchEvent(start);
+    };
+    fireTouchStart(input, 10, 10);
+
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body.style.position).toBe("fixed");
+    expect(document.body.style.top).toBe("-120px");
+
+    // A real touch OUTSIDE the bar releases the pin (user browsing — the page
+    // must not feel frozen).
+    const outside = document.createElement("div");
+    document.body.appendChild(outside);
+    fireTouchStart(outside, 200, 200);
+
+    expect(document.body.style.position).toBe("");
+    expect(document.body.style.top).toBe("");
+    expect(document.documentElement.style.overflow).toBe("");
   });
 });
 

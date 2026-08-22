@@ -1073,7 +1073,15 @@ export const ThreadCommentTree = ({
       )}
 
       {currentUserId && (
-        <div ref={composerAnchorRef} className={`sticky kb-bottom-8 z-20 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}>
+        <div
+          ref={composerAnchorRef}
+          // data-kb-pin: mobileKeyboard pins the document on touchstart inside
+          // this bar (BEFORE the native focus), so iOS has nothing to pan when
+          // the keyboard opens — the focusin-only pin raced the pan and the
+          // content sometimes flew down then back up.
+          data-kb-pin={isTouch ? "true" : undefined}
+          className={`sticky kb-bottom-8 z-20 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}
+        >
           <WallCommentComposer
             focusToExpand
             autoFocus

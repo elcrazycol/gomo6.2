@@ -441,6 +441,11 @@ export const WallCommentTree = ({
   const dock = (
     <div
       ref={composerAnchorRef}
+      // data-kb-pin: mobileKeyboard pins the document on touchstart inside
+      // this bar (BEFORE the native focus), so iOS has nothing to pan when
+      // the keyboard opens — the focusin-only pin raced the pan and the
+      // content sometimes flew down then back up.
+      data-kb-pin={isTouch ? "true" : undefined}
       className={isTouch ? "wall-composer-dock" : "sticky kb-bottom-8 z-20"}
     >
       <div className={isTouch ? "mx-auto w-full max-w-4xl px-3 pt-2 wall-composer-dock-pad" : undefined}>

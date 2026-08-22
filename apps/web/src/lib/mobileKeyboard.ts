@@ -35,10 +35,12 @@
  *    (12px above the keyboard) with exact math, overriding the browser's own
  *    buggy focus-scrolling.
  *  • Prevents Safari's document pan for inputs inside fixed/sticky composer
- *    bars (messenger chat, wall/thread comments): while such an input is
- *    focused the document is pinned (position:fixed + overflow:hidden), so
- *    the keyboard slide-in has nothing to scroll and content no longer
- *    flies down then back up (see lockDocumentScroll).
+ *    bars (messenger chat, wall/thread comments): the document is pinned
+ *    (position:fixed + overflow:hidden) from the TOUCHSTART on a composer bar
+ *    (before the native focus-pan can even start — the focusin-only pin
+ *    raced it and sometimes lost), and the pin is held while the input is
+ *    focused, so the keyboard slide-in has nothing to scroll and content no
+ *    longer flies down then back up (see lockDocumentScroll / handleTouchStart).
  *  • iOS scroll-to-dismiss behaves exactly like tapping outside the composer:
  *    the focused input is blurred (so focus-to-expand composers collapse via
  *    their own onBlur animation) and the fixed/sticky bars descend smoothly
@@ -407,6 +409,21 @@ export function isStickyGestureTarget(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * Whether a touch began on a composer bar ([data-kb-pin] — the wall comment
+ * dock, the messenger composer, the thread comment composer). A tap there is
+ * about to focus its editor, so the document is pinned on touchstart (BEFORE
+ * the native focus) to beat Safari's focus-pan deterministically — the
+ * focusin-only pin raced it and sometimes lost (see handleTouchStart).
+ */
+export function isComposerBarTarget(target: EventTarget | null): boolean {
+  return !!(
+    target instanceof Element &&
+    typeof target.closest === "function" &&
+    target.closest("[data-kb-pin]")
+  );
+}
+
 export type ScrollContext =
   | { mode: "window"; scroller: null }
   | { mode: "container"; scroller: HTMLElement }
@@ -494,6 +511,15 @@ function startGeometryFollow() {
     followRaf = null;
     if (dismissalActive) return; // the dismissal animation owns the vars
     writeGeometryVars(computeRaw());
+    // While the document is pinned (composer-bar input focused), undo any
+    // focus-pan that slipped through despite the touchstart pin: the keyboard
+    // slide-in is exactly the window where Safari may still shift the page,
+    // and the LIVE-geometry follow keeps this loop alive through the whole
+    // animation, so a stray pan is reverted within a frame instead of being
+    // visible as the content flying down then back up.
+    if (scrollLock && typeof window !== "undefined" && window.scrollY !== scrollLock.scrollY) {
+      window.scrollTo(0, scrollLock.scrollY);
+    }
     if (Date.now() < followUntil || state.isOpen) {
       followRaf = requestAnimationFrame(step);
     }
@@ -737,24 +763,40 @@ function handleGestureScroll(e: Event) {
 
 /**
  * Records where the current touch began so handleGestureScroll can tell a
- * real scroll from sub-slop tap jitter.
+ * real scroll from sub-slop tap jitter — and pins the document BEFORE the
+ * native focus-pan for taps on composer bars.
+ *
+ * iOS pans the document when the keyboard opens after focusing an input in a
+ * fixed bar, even when the app already positioned the bar above the keyboard.
+ * The focusin handler pins the document, but that races the pan and sometimes
+ * loses — the content then visibly flies down and back up, and the bar wiggles
+ * as visualViewport.offsetTop corrupts the --kb-inset formula mid-pan. A tap
+ * on a [data-kb-pin] bar (wall dock, messenger composer, thread composer) is
+ * about to focus its editor, so pinning HERE — inside the gesture, before
+ * focus even fires — makes the document unpannable before iOS can start:
+ * nothing to race, the slide-in is always smooth.
  */
 function handleTouchStart(e: TouchEvent) {
   const touch = e.touches?.[0];
   if (!touch) return;
   gestureStart = { x: touch.clientX, y: touch.clientY };
-  // A real user touch while the document is pinned (fixed-bar focus) releases
-  // the pin UNLESS it lands on the focused composer itself (caret drag, tap
-  // to reposition): the pan the pin prevents only ever happens at the moment
-  // of focus, so after that a touch is the user browsing — the page must not
-  // feel frozen, and the normal scroll-to-dismiss flow takes over. A later
-  // re-focus re-pins via handleFocusIn.
-  if (scrollLock) {
-    const target = e.target;
-    if (!(focusedEditable && target instanceof Node && focusedEditable.contains(target))) {
-      unlockDocumentScroll();
-    }
+  const target = e.target;
+  const inBar = state.isTouch && isComposerBarTarget(target);
+
+  // A real user touch while the document is pinned (composer-bar focus)
+  // releases the pin UNLESS it lands on the composer bar itself (the focused
+  // editor — caret drag, tap to reposition — or the bar around it, which is
+  // about to re-focus): the pan the pin prevents only ever happens at the
+  // moment of focus, so after that a touch is the user browsing — the page
+  // must not feel frozen, and the normal scroll-to-dismiss flow takes over.
+  // A later re-focus re-pins (focusin, or the touchstart pin just below).
+  if (scrollLock && !inBar) {
+    const onEditor = focusedEditable && target instanceof Node && focusedEditable.contains(target);
+    if (!onEditor) unlockDocumentScroll();
   }
+  // Pin BEFORE the native focus-pan (see the comment above).
+  if (inBar) lockDocumentScroll();
+
   // Pinned composer bars carry [data-kb-locked]; a scroll that begins on one
   // must not move the page (the bar is fixed and can't be dragged along).
   lockedGestureActive = state.isTouch && isLockedGestureTarget(e.target);
