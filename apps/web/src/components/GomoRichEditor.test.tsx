@@ -186,6 +186,89 @@ describe("GomoRichEditor caret placement", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps re-settling and catches a LATE iOS caret reset (past 500ms)", async () => {
+    stubRAF();
+    vi.useFakeTimers();
+    try {
+      const { ref } = renderWithRef({ legacyContent: "hello world", autoFocus: true });
+      const editor = ref.current?.getEditor();
+      // Initial settle lands at the end (immediate + 80ms passes).
+      vi.advanceTimersByTime(100);
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+
+      // iOS resets the caret to the START very late — a slow keyboard
+      // animation or the URL-bar collapse, past the old 500ms window.
+      vi.advanceTimersByTime(400);
+      const start = editor!.state.tr.setSelection(TextSelection.atStart(editor!.state.doc));
+      editor!.view.dispatch(start);
+      expect(editor!.state.selection.from).toBe(TextSelection.atStart(editor!.state.doc).from);
+
+      // The extended 800ms settle must still catch it.
+      vi.advanceTimersByTime(400);
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels the settle when the user actually types (docChanged)", async () => {
+    stubRAF();
+    vi.useFakeTimers();
+    try {
+      const { ref } = renderWithRef({ legacyContent: "hello world", autoFocus: true });
+      const editor = ref.current?.getEditor();
+      vi.advanceTimersByTime(100);
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+
+      // The user types: a real doc change (docChanged: true) must cancel the
+      // settle — the caret stays after the typed char and is never yanked
+      // back to the end by a pending nudge. (No .scrollIntoView() on the tr —
+      // ProseMirror's scrollToSelection needs getClientRects, which jsdom
+      // lacks.)
+      editor!.view.dispatch(editor!.state.tr.insertText("Z"));
+      // Caret sits right after the typed char — capture it, then verify no
+      // pending settle nudge yanks it back to the end.
+      const afterTyping = editor!.state.selection.from;
+      expect(afterTyping).toBeGreaterThan(0);
+
+      vi.advanceTimersByTime(1000);
+      expect(editor!.state.selection.from).toBe(afterTyping);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("forces preventScroll on Tiptap's internal view.dom.focus() calls", async () => {
+    stubRAF();
+    vi.useFakeTimers();
+    try {
+      // Install the spy BEFORE render: the patch binds the (spied) native
+      // focus at mount, so every focus through the editor's DOM node is
+      // recorded with the options it actually received.
+      const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+      const { ref } = renderWithRef({ legacyContent: "hello" });
+      const editor = ref.current?.getEditor();
+      expect(editor).not.toBeNull();
+
+      // Tiptap's focus command calls view.dom.focus() WITHOUT preventScroll on
+      // iOS (a bare call, plus a delayed view.focus() in a rAF — stubRAF maps
+      // the rAF to a 16ms timer). The patch must force preventScroll on both.
+      // (scrollIntoView: false — PM's scroll-to-selection needs getClientRects,
+      // which jsdom lacks.)
+      editor!.commands.focus("end", { scrollIntoView: false });
+      await vi.advanceTimersByTimeAsync(32);
+
+      const calls = focusSpy.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      for (const args of calls) {
+        expect(args[0]).toEqual(expect.objectContaining({ preventScroll: true }));
+      }
+      focusSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("GomoRichEditor native-tap interception", () => {

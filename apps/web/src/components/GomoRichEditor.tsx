@@ -1,7 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
@@ -418,6 +418,26 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     },
   });
 
+  // Tiptap/ProseMirror call view.dom.focus() WITHOUT preventScroll on
+  // iOS/Android (verified in @tiptap/core's focus command — it does a bare
+  // view.dom.focus() there, plus a second delayed focus via rAF). Every such
+  // call re-triggers the native focus-pan AND resets the caret to the start of
+  // the content, even when we already focused with preventScroll ourselves.
+  // Patch the editor's DOM node so EVERY focus — ours and Tiptap's internal
+  // ones (commands.focus(), the delayed focus after mount, toolbar
+  // chain().focus()) — is forced to preventScroll:true. Restored on unmount.
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom as HTMLElement;
+    const nativeFocus = dom.focus.bind(dom);
+    dom.focus = (options?: FocusOptions) => {
+      nativeFocus({ ...options, preventScroll: true });
+    };
+    return () => {
+      dom.focus = nativeFocus;
+    };
+  }, [editor]);
+
   // Move the caret to the END of the draft via a PURE ProseMirror selection
   // dispatch — never editor.commands.focus("end"): on iOS that command calls
   // view.dom.focus() WITHOUT preventScroll (verified in @tiptap/core), which
@@ -433,12 +453,13 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   }, [editor]);
 
   // iOS does NOT keep the caret where a selection dispatch puts it: while the
-  // soft keyboard slides in (~250-450ms after focus), Safari re-syncs the DOM
-  // selection and resets the caret to the START of the content, undoing the
-  // single dispatch we do right after focus. So on autoFocus we re-dispatch
-  // the end-selection a few times across that whole window — still pure
-  // selection dispatches (no native focus, so no pan) — and cancel the
-  // pending nudges the moment the user actually touches or types, so a
+  // soft keyboard slides in, Safari re-syncs the DOM selection and resets the
+  // caret to the START of the content, undoing the single dispatch we do right
+  // after focus. So on autoFocus we re-dispatch the end-selection repeatedly
+  // across the WHOLE keyboard-open window (up to ~800ms — the slide, the URL
+  // bar collapse and any native focus re-sync can each reset the caret) —
+  // still pure selection dispatches (no native focus, so no pan) — and cancel
+  // the pending nudges the moment the user actually touches or types, so a
   // deliberate caret placement in the middle of the text is never overridden.
   const caretSettleTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const clearCaretSettle = useCallback(() => {
@@ -450,11 +471,17 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     const fire = () => {
       // Only nudge while the editor still owns focus — a blur mid-window (or
       // a tap into the text, which also cleared the timers) must not yank the
-      // caret around.
-      if (editor && !editor.isDestroyed && editor.isFocused) moveCaretToEnd();
+      // caret around. Check the DOM directly (not editor.isFocused): on iOS
+      // the ProseMirror focus event can lag the actual focus() call, and the
+      // settle would skip every nudge waiting for a flag that arrives late.
+      if (!editor || editor.isDestroyed) return;
+      const dom = editor.view.dom;
+      if (document.activeElement === dom || dom.contains(document.activeElement)) {
+        moveCaretToEnd();
+      }
     };
     fire();
-    for (const delay of [80, 200, 350, 500]) {
+    for (const delay of [80, 200, 350, 500, 800]) {
       const timer = setTimeout(fire, delay);
       caretSettleTimersRef.current.add(timer);
     }
@@ -494,7 +521,18 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   // Cancel pending caret-settle nudges when the user actually interacts (a
   // tap on the editable — which cleared the timers via the interception
   // below — or typing, which means the caret is exactly where they want it).
-  const handleUserInput = useCallback(() => clearCaretSettle(), [clearCaretSettle]);
+  // Only REAL content edits cancel: the settle's own caret nudges are
+  // selection-only transactions, and clearing on those would kill the whole
+  // re-dispatch chain after the first nudge — letting iOS's mid-animation
+  // caret reset to the START win again. (@tiptap/core v3 already skips
+  // non-docChanged transactions for the update event, but the guard keeps
+  // the settle safe across versions.)
+  const handleUserInput = useCallback(
+    ({ transaction }: { editor: Editor; transaction: Transaction }) => {
+      if (transaction.docChanged) clearCaretSettle();
+    },
+    [clearCaretSettle]
+  );
   useEffect(() => {
     if (!editor) return;
     editor.on("update", handleUserInput);
