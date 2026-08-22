@@ -169,49 +169,35 @@ describe("WallPost page", () => {
     expect(screen.getByText("Запись на стене")).toBeInTheDocument();
   });
 
-  it("navigates back immediately and keeps a snapshot overlay on top", () => {
+  it("renders as a full-screen overlay when opened from the profile", () => {
+    renderPage({ backgroundLocation: { pathname: "/profile/wall-owner" } });
+    const overlay = screen.getByTestId("wall-post-page");
+    expect(overlay).toBeInTheDocument();
+    expect(overlay.tagName.toLowerCase()).toBe("div");
+  });
+
+  it("renders as a plain page when opened directly (no background location)", async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId("profile-wall")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("wall-post-page")).not.toBeInTheDocument();
+  });
+
+  it("navigates back when the back button is clicked", () => {
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Назад" }));
 
     expect(mockNavigateFn).toHaveBeenCalledWith(-1);
-
-    const overlay = document.body.querySelector<HTMLElement>("main[aria-hidden='true']");
-    expect(overlay).not.toBeNull();
-    expect(overlay!.style.position).toBe("fixed");
-    expect(overlay!.getAttribute("data-testid")).toBeNull();
-    // The exit slide is driven by a CSS variable so a swipe can start it from
-    // wherever the finger left the page; the back button starts it at 0.
-    expect(overlay!.style.getPropertyValue("--wall-post-exit-x")).toBe("0px");
-    expect(overlay!.style.transform).toBe("translate3d(0px, 0, 0)");
   });
 
-  it("navigates to the profile with replace when opened directly", () => {
+  it("navigates to the profile with replace when opened directly without history", () => {
     Object.defineProperty(window.history, "length", { configurable: true, get: () => 1 });
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Назад" }));
+
     expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner", { replace: true });
-  });
-
-  it("slides the snapshot away only after the destination is ready", () => {
-    Object.defineProperty(window.history, "length", { configurable: true, get: () => 5 });
-    renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Назад" }));
-
-    const overlay = document.body.querySelector<HTMLElement>("main[aria-hidden='true']");
-    expect(overlay).not.toBeNull();
-
-    // Before the destination signals readiness the snapshot must stay put.
-    expect(overlay!.classList.contains("wall-post-page-exit")).toBe(false);
-
-    // Simulate the profile/feed finishing its render.
-    const ready = document.createElement("div");
-    ready.setAttribute("data-wall-return-ready", "profile");
-    document.body.appendChild(ready);
-
-    return waitFor(() => {
-      expect(overlay!.classList.contains("wall-post-page-exit")).toBe(true);
-    });
   });
 
   it("loads wall owner via ProfileCacheContext (cached) instead of a raw fetch", async () => {

@@ -38,6 +38,7 @@ vi.mock("@/components/share/ShareSheet", () => ({
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
+  useLocation: () => ({ pathname: "/profile/wall-owner", search: "", hash: "", state: null, key: "default" }),
   Link: ({ children, to, className, onClick }: any) => (
     <a href={to} className={className} onClick={onClick}>
       {children}

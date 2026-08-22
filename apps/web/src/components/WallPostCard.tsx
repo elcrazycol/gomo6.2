@@ -2,7 +2,7 @@ import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, us
 
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
@@ -36,7 +36,6 @@ import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
-import { captureWallReturnUnderlay } from "@/lib/wallReturnUnderlay";
 
 interface WallPostCardProps {
   post: WallPost;
@@ -74,6 +73,7 @@ export const WallPostCard = ({
   standalone = false,
 }: WallPostCardProps) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const dateLocale = useDateLocale();
   const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
@@ -293,8 +293,9 @@ export const WallPostCard = ({
 
   const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
     if (!postHref || isEditing || isInteractiveTarget(event.target, event.currentTarget)) return;
-    captureWallReturnUnderlay();
-    navigate(postHref, { state: { wallPost: post, wallPostReturn: "profile" } });
+    // backgroundLocation keeps the profile mounted underneath so the post opens
+    // as a draggable overlay over it instead of replacing the page.
+    navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
   };
 
   return (

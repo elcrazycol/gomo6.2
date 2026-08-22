@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
@@ -23,7 +23,6 @@ import {
   isInteractiveTarget,
 } from "@/utils/wallNormalizers";
 import type { LightboxItem } from "@/components/Lightbox";
-import { captureWallReturnUnderlay } from "@/lib/wallReturnUnderlay";
 
 interface FeedWallPostCardProps {
   post: WallPost;
@@ -48,6 +47,7 @@ export const FeedWallPostCard = ({
 }: FeedWallPostCardProps) => {
   const dateLocale = useDateLocale();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   // Reports the post as viewed once the card becomes visible in the viewport.
@@ -60,13 +60,11 @@ export const FeedWallPostCard = ({
   const [shareOpen, setShareOpen] = useState(false);
 
   const handleOpenPost = useCallback(() => {
-    // Carry the already rendered card to the post page. WallPost still
-    // refreshes it from the API, but this removes the loading-skeleton flash
-    // during the route transition. Also snapshot the feed so the post page can
-    // reveal it underneath during the swipe-back gesture.
-    captureWallReturnUnderlay();
-    navigate(postPath, { state: { wallPost: post, wallPostReturn: "feed" } });
-  }, [navigate, post, postPath]);
+    // Carry the already rendered card to the post page (removes the skeleton
+    // flash) and keep the feed mounted underneath via backgroundLocation so the
+    // post opens as a draggable overlay over it.
+    navigate(postPath, { state: { wallPost: post, backgroundLocation: location } });
+  }, [navigate, post, postPath, location]);
 
   const handleLikeToggle = async () => {
     if (!currentUserId || isLiking) return;

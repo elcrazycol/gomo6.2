@@ -1298,7 +1298,6 @@ const Profile = () => {
   return (
     <main
       className="max-w-2xl mx-auto p-4 isolate"
-      data-wall-return-ready={!showSkeleton && friendshipLoaded ? "profile" : undefined}
     >
         {/* Full-page profile background (viewer variant: page / page_dim) */}
         {bgUrl && (bgVariant === 'page' || bgVariant === 'page_dim') && (
