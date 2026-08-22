@@ -452,10 +452,14 @@ describe("CreateWallPost", () => {
 
     // The panel starts its slide-down animation before the overlay unmounts,
     // and detaches from the keyboard inset (full-height slide) so the motion
-    // stays smooth while the keyboard retracts behind it.
+    // stays smooth while the keyboard retracts behind it. The backdrop fades
+    // to transparent so the page reveals behind the sliding sheet.
     const className = screen.getByTestId("wall-post-composer").className;
     expect(className).toContain("translate-y-full");
     expect(className).toContain("!bottom-0");
+    const backdrop = screen.getByTestId("wall-post-composer").parentElement;
+    expect(backdrop?.className).toContain("transition-opacity");
+    expect(backdrop?.className).toContain("opacity-0");
     await waitFor(() => {
       expect(onCancel).toHaveBeenCalled();
     });

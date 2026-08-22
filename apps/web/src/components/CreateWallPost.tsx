@@ -475,8 +475,13 @@ export const CreateWallPost = ({
   return createPortal(
     // On mobile the sheet only spans to the keyboard top, so the backdrop
     // below it must be opaque — otherwise the page content shows through the
-    // (often translucent) keyboard area.
-    <div className="fixed inset-0 z-[60] bg-background md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center">
+    // (often translucent) keyboard area. While CLOSING it fades to transparent
+    // so the page reveals smoothly behind the sliding sheet.
+    <div
+      className={`fixed inset-0 z-[60] bg-background md:bg-black/50 md:backdrop-blur-[2px] md:flex md:items-center md:justify-center transition-opacity duration-300 ease-out ${
+        closing ? "opacity-0" : "opacity-100"
+      }`}
+    >
       <div
         ref={composerRootRef}
         role="dialog"
