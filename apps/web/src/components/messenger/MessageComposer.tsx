@@ -313,11 +313,9 @@ export const MessageComposer = memo(function MessageComposer({
   return (
     <div
       ref={rootRef}
-      // data-kb-pin: mobileKeyboard pins the document on touchstart inside
-      // this bar (BEFORE the native focus), so iOS has nothing to pan when
-      // the keyboard opens — the focusin-only pin raced the pan and the
-      // content sometimes flew down then back up.
-      data-kb-pin="true"
+      // The composer is the chat panel's last grid row and the panel is
+      // bottom-anchored at --kb-inset, so it always floats exactly above the
+      // keyboard with no pinning at all (see messenger.css).
       className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${emojiSwap.open ? " is-emoji-open" : ""}`}
     >
       {replyToMessage && (

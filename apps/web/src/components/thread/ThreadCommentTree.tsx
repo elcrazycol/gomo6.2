@@ -989,7 +989,6 @@ export const ThreadCommentTree = ({
       {currentUserId && (
         <ComposerDock
           ref={composerAnchorRef}
-          pin={isTouch}
           className={isTouch ? "wall-composer-dock" : "sticky kb-bottom-8 z-20"}
           innerClassName={isTouch ? "mx-auto w-full max-w-4xl px-3 pt-2 wall-composer-dock-pad" : undefined}
         >

@@ -931,15 +931,16 @@ html, body {
    ProseMirror composer — fixed text metrics for a correct iOS caret
    ═══════════════════════════════════════════════════════════════════════════
 
-   iOS draws the caret from the CURRENT font metrics. If the editable is sized
-   by relative line-height / a still-downloading custom font (font-display:
-   swap), the caret can land visually in the MIDDLE of a letter or stretch
-   across the whole line. Anchor the composer text to absolute metrics: 16px
-   is also the iOS auto-zoom threshold (smaller input fonts get zoomed on
-   focus). Unlayered, so it wins over Tailwind's text-sm/text-base utilities
-   on the editable. GomoRichEditor re-asserts the end-caret on document.fonts
-   .ready, after the final metrics apply. */
+   iOS draws the caret from the CURRENT font metrics. Anchor the composer
+   text to absolute metrics — and to the SYSTEM font (like X's input field):
+   the custom UI font stays on the rest of the app, but the editable never
+   loads it, so there is nothing to swap and the caret is measured against the
+   same final metrics from the very first frame (the "caret in the middle of a
+   letter" bug dies structurally). 16px is also the iOS auto-zoom threshold
+   (smaller input fonts get zoomed on focus). Unlayered, so it wins over
+   Tailwind's text-sm/text-base utilities on the editable. */
 .ProseMirror {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 16px;
   line-height: 22px;
 }
@@ -1015,11 +1016,10 @@ html.kb-open body {
    Shared by every mobile composer surface (wall comments, thread comments, …)
    via components/composer/ComposerDock: a fixed bar glued to the bottom of
    the screen, riding --kb-inset (the soft-keyboard height, 0 when closed) so
-   it floats EXACTLY above the keyboard and glides with it — no pinning, no
-   fixed/flow switching, nothing to land under the keyboard. The document is
-   pinned by lib/mobileKeyboard from touchstart on the bar, so iOS's focus-pan
-   has nothing to scroll and the slide-in is always smooth. Surfaces layer
-   their own padding/width via the inner wrapper (see wall-composer-dock-pad). */
+   it floats EXACTLY above the keyboard and glides with it — the vars ARE the
+   live visual viewport, no pinning, no easing, nothing to land under the
+   keyboard. Surfaces layer their own padding/width via the inner wrapper
+   (see wall-composer-dock-pad). */
 .composer-dock {
   position: fixed;
   left: 0;

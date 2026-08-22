@@ -1,7 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import { TextSelection, type Transaction } from "@tiptap/pm/state";
+import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
@@ -481,164 +481,41 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     }
   }, [editor]);
 
-  // iOS does NOT keep the caret where a selection dispatch puts it: while the
-  // soft keyboard slides in, Safari re-syncs the DOM selection and resets the
-  // caret to the START of the content, undoing the single dispatch we do right
-  // after focus. So on autoFocus we re-assert the end-selection repeatedly
-  // across the WHOLE keyboard-open window — immediately, in the next rAF,
-  // at 50/150/350/600/850ms (the slide, the URL-bar collapse and any native
-  // focus re-sync can each reset the caret), and again once fonts finish
-  // loading (the custom font swap re-measures the caret against the final
-  // metrics). All pan-free (pure dispatches + native ranges). Cancelled the
-  // moment the user actually touches or types, so a deliberate caret placement
-  // in the middle of the text is never overridden.
-  const caretSettleTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-  const caretSettleRafRef = useRef<number | null>(null);
-  const caretSettleCancelledRef = useRef(true);
-  const clearCaretSettle = useCallback(() => {
-    caretSettleCancelledRef.current = true;
-    for (const timer of caretSettleTimersRef.current) clearTimeout(timer);
-    caretSettleTimersRef.current.clear();
-    if (caretSettleRafRef.current !== null) {
-      cancelAnimationFrame(caretSettleRafRef.current);
-      caretSettleRafRef.current = null;
-    }
-  }, []);
-  const settleCaretToEnd = useCallback(() => {
-    clearCaretSettle();
-    caretSettleCancelledRef.current = false;
-    const run = () => {
-      // Cancelled by a user tap/typing (or unmount) mid-window — and only
-      // nudge while the editor still owns focus (a blur must not yank the
-      // caret around). Check the DOM directly (not editor.isFocused): on iOS
-      // the ProseMirror focus event can lag the actual focus() call, and the
-      // settle would skip every nudge waiting for a flag that arrives late.
-      if (caretSettleCancelledRef.current || !editor || editor.isDestroyed) return;
-      const dom = editor.view.dom;
-      if (document.activeElement === dom || dom.contains(document.activeElement)) {
-        moveCaretToEnd();
-      }
-    };
-    run();
-    caretSettleRafRef.current = requestAnimationFrame(run);
-    for (const delay of [50, 150, 350, 600, 850]) {
-      const timer = setTimeout(run, delay);
-      caretSettleTimersRef.current.add(timer);
-    }
-    const fonts = typeof document !== "undefined" ? document.fonts : null;
-    if (fonts && typeof fonts.ready?.then === "function") {
-      fonts.ready.then(run).catch(() => {});
-    }
-  }, [clearCaretSettle, editor, moveCaretToEnd]);
-
+  // AutoFocus: place the caret at the END BEFORE focusing, then focus once
+  // with preventScroll, then re-assert ONCE in the next frame. When iOS
+  // focuses a fresh contenteditable it snaps the caret to the current DOM
+  // selection — so the selection must already be at the end before the focus
+  // lands (PM syncs the DOM selection to its state on focus via selectionToDOM
+  // on the patched view.focus). One rAF covers the keyboard slide-in reset;
+  // no timer swarm — the caret is native from then on (the composer text uses
+  // a system font, so there is no font-swap caret drift to chase either).
   useEffect(() => {
-    if (editor && autoFocus) {
-      const el = editorContainerRef.current;
-      if (el) {
-        const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
-        if (editable) {
-          // Capture scroll position and restore if browser forces a scroll
-          const scrollY = window.scrollY;
-          const scrollX = window.scrollX;
-          editable.focus({ preventScroll: true });
-          // Focus FIRST (preventScroll — the only pan-free focus), then settle
-          // the caret at the END of the draft via repeated pure selection
-          // dispatches across the keyboard-open window (see settleCaretToEnd —
-          // a single dispatch loses to iOS's own caret reset mid-animation).
-          settleCaretToEnd();
-          requestAnimationFrame(() => {
-            if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
-              window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
-            }
-          });
-          return;
+    if (!editor || !autoFocus) return;
+    moveCaretToEnd();
+    const el = editorContainerRef.current;
+    const editable = el?.querySelector('[contenteditable]') as HTMLElement | null;
+    if (editable) {
+      const scrollY = window.scrollY;
+      const scrollX = window.scrollX;
+      editable.focus({ preventScroll: true });
+      requestAnimationFrame(() => {
+        // Snap back if the browser scrolled anyway (mobile browsers can
+        // ignore preventScroll), and re-assert the end caret once — the
+        // keyboard slide-in can still reset it right after focus.
+        if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
+          window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
         }
-      }
-      // No contenteditable found (unlikely): focus the editor's own DOM node
-      // with preventScroll — never the focus command, whose view.dom.focus()
-      // on iOS pans.
-      (editor.view.dom as HTMLElement | undefined)?.focus({ preventScroll: true });
-      settleCaretToEnd();
+        if (document.activeElement === editable || editable.contains(document.activeElement)) {
+          moveCaretToEnd();
+        }
+      });
+      return;
     }
-  }, [editor, autoFocus, settleCaretToEnd]);
-
-  // Cancel pending caret-settle nudges when the user actually interacts (a
-  // tap on the editable — which cleared the timers via the interception
-  // below — or typing, which means the caret is exactly where they want it).
-  // Only REAL content edits cancel: the settle's own caret nudges are
-  // selection-only transactions, and clearing on those would kill the whole
-  // re-dispatch chain after the first nudge — letting iOS's mid-animation
-  // caret reset to the START win again. (@tiptap/core v3 already skips
-  // non-docChanged transactions for the update event, but the guard keeps
-  // the settle safe across versions.)
-  const handleUserInput = useCallback(
-    ({ transaction }: { editor: Editor; transaction: Transaction }) => {
-      if (transaction.docChanged) clearCaretSettle();
-    },
-    [clearCaretSettle]
-  );
-  useEffect(() => {
-    if (!editor) return;
-    editor.on("update", handleUserInput);
-    return () => {
-      editor.off("update", handleUserInput);
-      clearCaretSettle();
-    };
-  }, [editor, handleUserInput, clearCaretSettle]);
-
-  // The app loads the user's Google Font with font-display: swap, so on the
-  // VERY first open of a composer the custom font can still be downloading
-  // while the editor is already focused. Chromium lays out the caret using
-  // fallback-font metrics, and when the font swaps in the glyphs shift but the
-  // caret keeps its stale rect — it reads as sitting in the middle of the
-  // letters instead of after them. On the second open the font is cached, so
-  // the problem vanishes. Fix: once document.fonts.ready resolves (or any font
-  // batch finishes loading), re-apply the DOM selection at the current
-  // position — a fresh range makes the browser recompute the caret rect
-  // against the final font metrics. Harmless no-op when the caret is already
-  // correct (or the editor isn't focused).
-  useEffect(() => {
-    if (!editor) return;
-    const fonts = typeof document !== "undefined" ? document.fonts : null;
-    if (!fonts || typeof fonts.ready?.then !== "function") return;
-    let cancelled = false;
-    const realignCaret = () => {
-      try {
-        const view = editor.view;
-        if (cancelled || editor.isDestroyed || !editor.isFocused || view.composing) return;
-        const sel = view.state.selection;
-        // Only the caret needs realigning. Skipping non-empty selections is
-        // also what keeps a NodeSelection (e.g. a selected custom emoji atom)
-        // from being collapsed by the re-applied range below.
-        if (!sel.empty) return;
-        // Force a synchronous reflow so the inline text is laid out with the
-        // now-loaded font before the selection is re-applied — otherwise the
-        // browser could still measure the caret against the stale layout.
-        void view.dom.getBoundingClientRect();
-        const pos = view.domAtPos(sel.from);
-        if (!pos) return;
-        // The editor lives in the top-level document (no shadow DOM), so
-        // window.getSelection() is the right selection object.
-        const domSel = window.getSelection?.();
-        if (!domSel) return;
-        const range = document.createRange();
-        range.setStart(pos.node, pos.offset);
-        range.collapse(true);
-        domSel.removeAllRanges();
-        domSel.addRange(range);
-      } catch {
-        // Realignment is best-effort — never let a font-load callback crash.
-      }
-    };
-    fonts.ready.then(realignCaret).catch(() => {});
-    // Also catch font batches that start loading after the editor mounted
-    // (e.g. the user changes the font in Settings while a composer is open).
-    fonts.addEventListener?.("loadingdone", realignCaret);
-    return () => {
-      cancelled = true;
-      fonts.removeEventListener?.("loadingdone", realignCaret);
-    };
-  }, [editor]);
+    // No contenteditable found (unlikely): focus the editor's own DOM node
+    // with preventScroll — never the focus command, whose view.dom.focus()
+    // on iOS pans.
+    (editor.view.dom as HTMLElement | undefined)?.focus({ preventScroll: true });
+  }, [editor, autoFocus, moveCaretToEnd]);
 
   // Reset the editor ONLY when the parent explicitly asks for it (resetKey changes).
   // The old code reset on every contentJson change — but parents echo the editor's own
@@ -650,102 +527,6 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     const nextContent = normalizeContent(contentJson, legacyContent);
     editor.commands.setContent(nextContent ?? EMPTY_EDITOR_STATE, { emitUpdate: false });
   }, [editor, composerKey, contentJson, legacyContent]);
-
-  // ── Native-tap interception (the iOS keyboard-pan fix) ─────────────────────
-  // A DIRECT tap on the contenteditable is a NATIVE focus — and on iOS the
-  // native focus-scroll (the pan) is what makes the composer visibly fly down
-  // then back up, even with the document pinned (the pinned guard can only
-  // clamp window scroll AFTER the browser already shifted the visual viewport;
-  // the pan itself is the jitter we see). Proof: opening the emoji panel first
-  // and then switching to the keyboard is always smooth — that path focuses
-  // the editor PROGRAMMATICALLY via editor.focus({preventScroll:true}).
-  //
-  // So: while the editor does NOT own focus, a tap-like touch on it is
-  // intercepted and converted into the same programmatic focus — the native
-  // focus (and its pan) never happens. The caret is placed at the tap point
-  // via posAtCoords, so behavior is identical, just pan-free. Once focused,
-  // taps are left alone (caret moves, text selection, inner scrolling all
-  // work natively — and no pan can occur because focus doesn't change).
-  // Non-tap gestures (scrolls, long-press selection, drag-select) are never
-  // intercepted.
-  useEffect(() => {
-    if (!editor) return;
-    const dom = editor.view.dom as HTMLElement;
-
-    let touchStart: { x: number; y: number; t: number } | null = null;
-    let lastTapAt = 0;
-
-    const focusAt = (x: number, y: number) => {
-      const view = editor.view;
-      try {
-        const coords = view.posAtCoords({ left: x, top: y });
-        if (coords) {
-          // Set the caret at the tap point first — then focus without scroll;
-          // ProseMirror syncs the DOM selection to the state on focus.
-          view.dispatch(
-            view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(coords.pos)))
-          );
-        }
-      } catch {
-        // posAtCoords needs document.elementFromPoint, which is missing in
-        // some environments (jsdom). Fall through to a plain pan-free focus.
-      }
-      if (document.activeElement !== dom) {
-        dom.focus({ preventScroll: true });
-      }
-    };
-
-    // Atomic leaves (custom emoji, mention chips) are rendered
-    // contenteditable="false" and handle their own taps (select/insert) —
-    // intercepting would fight their click handlers.
-    const onLeaf = (target: EventTarget | null) =>
-      target instanceof Element && typeof target.closest === "function"
-        ? target.closest('[contenteditable="false"]')
-        : null;
-
-    const onTouchStart = (e: TouchEvent) => {
-      const t = e.touches?.[0];
-      if (!t) return;
-      touchStart = { x: t.clientX, y: t.clientY, t: Date.now() };
-    };
-
-    const onTouchEnd = (e: TouchEvent) => {
-      const start = touchStart;
-      touchStart = null;
-      const t = e.changedTouches?.[0];
-      if (!start || !t || onLeaf(e.target)) return;
-      // Only tap-like touches: short and still. Scrolls, long-press selection
-      // and drag-selection keep their native behavior (and no pan can happen
-      // on them — they don't change focus).
-      const moved = Math.abs(t.clientX - start.x) + Math.abs(t.clientY - start.y);
-      if (moved > 10 || Date.now() - start.t > 400) return;
-      // Intercept EVERY tap, focused or not: a native tap on an already-focused
-      // editor is still a native focus gesture on iOS (it re-runs the
-      // scroll-to-caret pan), so converting it to a programmatic caret move is
-      // what keeps the composer from jumping on the second and subsequent taps.
-      const now = Date.now();
-      // A quick second tap (double-tap word selection) is left alone — it is
-      // an editing gesture the browser owns, and the editor is focused by then
-      // so it cannot pan.
-      if (now - lastTapAt < 300) {
-        lastTapAt = now;
-        return;
-      }
-      lastTapAt = now;
-      // A deliberate caret placement: cancel any pending autoFocus caret
-      // settle so it never yanks the caret back to the end.
-      clearCaretSettle();
-      e.preventDefault();
-      focusAt(t.clientX, t.clientY);
-    };
-
-    dom.addEventListener("touchstart", onTouchStart, { passive: true });
-    dom.addEventListener("touchend", onTouchEnd, { passive: false, capture: true });
-    return () => {
-      dom.removeEventListener("touchstart", onTouchStart);
-      dom.removeEventListener("touchend", onTouchEnd, true);
-    };
-  }, [editor, clearCaretSettle]);
 
   useImperativeHandle(ref, () => ({
     focus: () => {

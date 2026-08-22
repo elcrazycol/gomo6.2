@@ -441,14 +441,12 @@ export const WallCommentTree = ({
 
   const dock = (
     // ComposerDock: shared fixed-bottom shell — position:fixed riding
-    // --kb-inset (always exactly above the keyboard), data-kb-pin (document
-    // pinned from touchstart, before the native focus-pan), and the portal
-    // OUT of the overlay's scroll container so the editor has no scrollable
-    // ancestor for iOS to focus-scroll on a direct re-tap.
+    // --kb-inset (always exactly above the keyboard) and the portal OUT of
+    // the overlay's scroll container so the editor has no scrollable ancestor
+    // for iOS to focus-scroll on a direct re-tap.
     <ComposerDock
       ref={composerAnchorRef}
       portalTo={isTouch ? dockPortalRoot : null}
-      pin={isTouch}
       className={isTouch ? "wall-composer-dock" : "sticky kb-bottom-8 z-20"}
       innerClassName={isTouch ? "mx-auto w-full max-w-4xl px-3 pt-2 wall-composer-dock-pad" : undefined}
     >

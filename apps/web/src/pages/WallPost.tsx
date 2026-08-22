@@ -5,8 +5,6 @@ import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
-import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
-import { pinDocumentForSurface, unpinDocumentForSurface } from "@/lib/mobileKeyboard";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
 
@@ -42,15 +40,13 @@ const WallPost = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Lock page scroll while the overlay is up so the profile wall
-  // underneath can't be scrolled (restored on unmount). On touch devices the
-  // document is additionally PINNED (position:fixed on body, via
-  // mobileKeyboard) for the whole overlay lifetime: overflow:hidden alone is
-  // ignored by iOS for its focus-pan, and the per-gesture pin raced it — with
-  // the pin held structurally, Safari has literally nothing to scroll when a
-  // composer input inside the overlay is focused, so the keyboard slide-in is
-  // always smooth (no content flying down then back up).
-  const { isTouch } = useMobileKeyboard();
+  // Lock page scroll while the overlay is up so the profile wall underneath
+  // can't be scrolled (restored on unmount). The overlay itself is a fixed
+  // CSS-box surface (fixed + internal scroller), and the composer dock rides
+  // --kb-inset above the keyboard — no document pin; iOS's focus-pan has
+  // nothing to scroll inside the boxed overlay, and on the scrolling profile
+  // behind it a slight background shift is acceptable (a CSS-box surface,
+  // not a pin, would fix it if it ever shows).
   useEffect(() => {
     if (!isOverlay) return;
     const prevHtmlOverflow = document.documentElement.style.overflow;
@@ -59,15 +55,13 @@ const WallPost = () => {
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
-    if (isTouch) pinDocumentForSurface();
 
     return () => {
       document.documentElement.style.overflow = prevHtmlOverflow;
       document.body.style.overflow = prevBodyOverflow;
       document.documentElement.style.overscrollBehavior = prevOverscroll;
-      if (isTouch) unpinDocumentForSurface();
     };
-  }, [isOverlay, isTouch]);
+  }, [isOverlay]);
 
   // Notify the app shell that the wall-post overlay is open so the
   // header can force itself visible and keep the content padding correct.

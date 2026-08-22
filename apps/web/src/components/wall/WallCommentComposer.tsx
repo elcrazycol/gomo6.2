@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FocusEvent, type Ref } from "react";
+import { useEffect, type FocusEvent, type Ref } from "react";
 import { Loader2, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
@@ -88,38 +88,6 @@ export const WallCommentComposer = ({
     !/^\u200b+$/.test(text.trim()) &&
     text.trim() !== "\u200b";
 
-  // First-open caret fix (minimal bar on touch). On the VERY first open the
-  // custom font can still be downloading: the caret is laid out against
-  // fallback-font metrics and, once the real font swaps in, keeps its stale
-  // rect — it reads as sitting in the middle of the text instead of after it.
-  // On the second open the font is cached, so the problem vanishes (see the
-  // font realignment in GomoRichEditor). That realignment can miss here
-  // because the minimal bar mounts while the pill expands and the keyboard
-  // slides in, so nudge the caret to the end once everything has settled.
-  const caretNudgedOnceRef = useRef(false);
-  useEffect(() => {
-    if (!isMinimal || !expanded || caretNudgedOnceRef.current) return;
-    caretNudgedOnceRef.current = true;
-    const handle = editorRef && typeof editorRef === "object" && "current" in editorRef ? editorRef.current : null;
-    const editor = handle?.getEditor ? handle.getEditor() : null;
-    if (!editor) return;
-    const timer = window.setTimeout(() => {
-      // Skip if the composer was blurred/collapsed or destroyed meanwhile —
-      // refocusing a hidden editor would summon the keyboard back up. Check
-      // the DOM (not editor.isFocused): on iOS PM's focus event can lag the
-      // actual focus() call.
-      if (editor.isDestroyed) return;
-      const dom = editor.view.dom;
-      if (document.activeElement !== dom && !dom.contains(document.activeElement)) return;
-      // moveCaretToEnd is a PURE selection dispatch + native range — no native
-      // focus. On iOS a commands.focus("end") here would call view.dom.focus()
-      // WITHOUT preventScroll, re-triggering the focus-pan while the keyboard
-      // animation is still settling (the intermittent "every 7-8 opens" jump).
-      handle?.moveCaretToEnd?.();
-    }, 450);
-    return () => window.clearTimeout(timer);
-  }, [isMinimal, expanded, editorRef]);
-
   // Collapse on blur only while the draft is empty — never swallow typed text.
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     if (focusToExpand && !text.trim() && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -164,7 +132,7 @@ export const WallCommentComposer = ({
                 // contenteditable breaks the iOS caret position (it floats to
                 // the middle of the text instead of sitting after the letter).
                 ? "flex items-center gap-1.5 p-1"
-                : `space-y-2 rounded-2xl border border-border/70 bg-background p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none ${compact ? "" : "p-3"}`
+                : `space-y-2 rounded-2xl border border-border/70 bg-background p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md animate-in fade-in-0 duration-200 motion-reduce:animate-none ${compact ? "" : "p-3"}`
             }`}
           >
             {isMinimal ? (
