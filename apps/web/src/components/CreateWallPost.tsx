@@ -114,6 +114,11 @@ export const CreateWallPost = ({
   const close = useCallback(() => {
     if (closing) return;
     setClosing(true);
+    // Drop focus so the mobile keyboard starts retracting right away — the
+    // slide-down plays while it descends behind the opaque panel.
+    if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+    }
     window.setTimeout(() => onCancel(), 280);
   }, [closing, onCancel]);
 
@@ -478,7 +483,12 @@ export const CreateWallPost = ({
         aria-modal="true"
         {...wallDragHandlers}
         className={`fixed inset-x-0 top-0 bottom-[var(--kb-inset)] md:static flex flex-col w-full md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-2xl md:border md:border-border/60 md:shadow-2xl bg-background md:bg-card overflow-hidden transition-[transform,opacity] duration-300 ease-out animate-in slide-in-from-bottom-full md:slide-in-from-bottom-8 ${
-          closing ? "translate-y-full md:translate-y-0 md:opacity-0" : "translate-y-0 md:opacity-100"
+          // On close the sheet detaches from the (still animating) keyboard
+          // inset and covers the full screen, so translate-y-full slides it
+          // cleanly off while the keyboard retracts behind it — otherwise the
+          // shrinking --kb-inset changes the panel height mid-slide and the
+          // motion looks janky.
+          closing ? "translate-y-full !bottom-0 md:translate-y-0 md:opacity-0" : "translate-y-0 md:opacity-100"
         }`}
         data-testid="wall-post-composer"
       >

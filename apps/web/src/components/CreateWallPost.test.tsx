@@ -450,8 +450,12 @@ describe("CreateWallPost", () => {
 
     await userEvent.click(screen.getByLabelText("Закрыть"));
 
-    // The panel starts its slide-down animation before the overlay unmounts.
-    expect(screen.getByTestId("wall-post-composer").className).toContain("translate-y-full");
+    // The panel starts its slide-down animation before the overlay unmounts,
+    // and detaches from the keyboard inset (full-height slide) so the motion
+    // stays smooth while the keyboard retracts behind it.
+    const className = screen.getByTestId("wall-post-composer").className;
+    expect(className).toContain("translate-y-full");
+    expect(className).toContain("!bottom-0");
     await waitFor(() => {
       expect(onCancel).toHaveBeenCalled();
     });
