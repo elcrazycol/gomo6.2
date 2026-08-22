@@ -62,7 +62,7 @@ export const FeedWallPostCard = ({
     // Carry the already rendered card to the post page. WallPost still
     // refreshes it from the API, but this removes the loading-skeleton flash
     // during the route transition.
-    navigate(postPath, { state: { wallPost: post } });
+    navigate(postPath, { state: { wallPost: post, wallPostReturn: "feed" } });
   }, [navigate, post, postPath]);
 
   const handleLikeToggle = async () => {

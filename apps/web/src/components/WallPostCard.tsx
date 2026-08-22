@@ -292,7 +292,7 @@ export const WallPostCard = ({
 
   const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
     if (!postHref || isEditing || isInteractiveTarget(event.target, event.currentTarget)) return;
-    navigate(postHref, { state: { wallPost: post } });
+    navigate(postHref, { state: { wallPost: post, wallPostReturn: "profile" } });
   };
 
   return (

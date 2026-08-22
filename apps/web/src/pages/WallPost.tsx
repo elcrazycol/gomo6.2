@@ -7,11 +7,31 @@ import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
 
+type WallPostNavigationState = {
+  wallPost?: WallPostData;
+  wallPostReturn?: "profile" | "feed";
+};
+
+// The destination route is lazy. Warm its chunk up before navigating back so
+// the profile/feed mounts immediately and the post slides away over real
+// content instead of a blank Suspense fallback.
+const preloadDestination = (kind: "profile" | "feed" | undefined): Promise<void> => {
+  if (kind === "profile") {
+    return import("./Profile").then(() => undefined);
+  }
+  if (kind === "feed") {
+    return import("./Index").then(() => undefined);
+  }
+  return Promise.resolve();
+};
+
 const WallPost = () => {
   const { userId, postId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const initialPost = (location.state as { wallPost?: WallPostData } | null)?.wallPost ?? null;
+  const navigationState = location.state as WallPostNavigationState | null;
+  const initialPost = navigationState?.wallPost ?? null;
+  const wallPostReturn = navigationState?.wallPostReturn;
   const { loadProfile } = useProfileCache();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState("");
@@ -63,18 +83,47 @@ const WallPost = () => {
     };
 
     const playCssExitFallback = () => {
-      // Older Safari/Firefox fallback: keep the post mounted long enough to
-      // play the same exit animation before changing the route.
+      // Older Safari/Firefox fallback: warm the destination chunk first, then
+      // keep the post mounted long enough to play the exit animation before
+      // changing the route. The preload makes the destination paint instantly
+      // instead of flashing a blank Suspense fallback under the slide.
       setIsExiting(true);
-      window.setTimeout(goToPreviousPage, 380);
+      preloadDestination(wallPostReturn).then(() => {
+        window.setTimeout(goToPreviousPage, 380);
+      });
     };
 
     // BrowserRouter is intentionally used in this app instead of a data
     // router, so its numeric navigate() overload does not accept
-    // { viewTransition: true }. Use the native API directly, but return a
-    // promise from the update callback: history.go() notifies BrowserRouter
-    // asynchronously, and the transition must wait until the previous page
-    // has committed before it captures the destination profile/feed.
+    // { viewTransition: true }. Use the native API directly, but hold the
+    // outgoing post snapshot until the destination profile/feed has actually
+    // rendered its content. Resolving after two frames was not enough: the
+    // destination is a lazy route, so two frames later it was still the
+    // blank Suspense fallback and the post slid out over an empty page.
+    const waitForDestination = () => new Promise<void>((resolve) => {
+      const finishAfterTwoFrames = () => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      };
+
+      if (!wallPostReturn) {
+        finishAfterTwoFrames();
+        return;
+      }
+
+      const selector = `[data-wall-return-ready="${wallPostReturn}"]`;
+      const deadline = Date.now() + 2000;
+      const wait = () => {
+        if (document.querySelector(selector) || Date.now() >= deadline) {
+          finishAfterTwoFrames();
+          return;
+        }
+        window.requestAnimationFrame(wait);
+      };
+      wait();
+    });
+
     const supportsViewTransition = typeof document !== "undefined"
       && typeof (document as Document & { startViewTransition?: unknown }).startViewTransition === "function";
     if (supportsViewTransition) {
@@ -84,11 +133,7 @@ const WallPost = () => {
       try {
         startViewTransition(() => {
           goToPreviousPage();
-          return new Promise<void>((resolve) => {
-            window.requestAnimationFrame(() => {
-              window.requestAnimationFrame(() => resolve());
-            });
-          });
+          return waitForDestination();
         });
       } catch {
         // A partially implemented WebView API should not strand the user on

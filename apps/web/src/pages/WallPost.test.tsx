@@ -199,7 +199,7 @@ describe("WallPost page", () => {
     delete (document as Document & { startViewTransition?: unknown }).startViewTransition;
   });
 
-  it("plays the rightward exit animation before navigating without native view transitions", () => {
+  it("plays the rightward exit animation before navigating without native view transitions", async () => {
     delete (document as Document & { startViewTransition?: unknown }).startViewTransition;
     vi.useFakeTimers();
     try {
@@ -210,6 +210,11 @@ describe("WallPost page", () => {
       expect(screen.getByTestId("wall-post-page").className).toContain("wall-post-page-exit");
       expect(mockNavigateFn).not.toHaveBeenCalled();
 
+      // Flush the resolved preload promise so its .then schedules the delayed
+      // navigation timer before we advance fake time.
+      await act(async () => {
+        await Promise.resolve();
+      });
       act(() => {
         vi.advanceTimersByTime(380);
       });
