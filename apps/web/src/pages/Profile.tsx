@@ -183,6 +183,10 @@ const Profile = () => {
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [pageLoading, setPageLoading] = useState(true);
+  // Do not flash the full-page skeleton during a fast back navigation. It is
+  // useful for a genuinely slow first load, but a short delayed threshold
+  // keeps cached/already loaded profiles visually continuous.
+  const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
@@ -304,6 +308,15 @@ const Profile = () => {
     };
     loadCount();
   }, [userId]);
+
+  useEffect(() => {
+    if (!profile || pageLoading) {
+      const timeoutId = window.setTimeout(() => setShowLoadingSkeleton(true), 250);
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    setShowLoadingSkeleton(false);
+  }, [pageLoading, profile]);
 
   useEffect(() => {
     if (userId) {
@@ -1280,7 +1293,7 @@ const Profile = () => {
     );
   })() : null;
 
-  const showSkeleton = !profile || pageLoading;
+  const showSkeleton = showLoadingSkeleton && (!profile || pageLoading);
 
   return (
     <main className="max-w-2xl mx-auto p-4 isolate">

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
@@ -154,14 +154,24 @@ describe("Profile", () => {
     mockRpc.mockResolvedValue({ data: 0, error: null });
   }
 
-  it("shows skeleton loader before profile loads", () => {
-    mockAuth.getSession.mockReturnValue(new Promise(() => {}));
-    mockAuth.getUser.mockReturnValue(new Promise(() => {}));
-    mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
+  it("shows skeleton loader only after a slow profile load", () => {
+    vi.useFakeTimers();
+    try {
+      mockAuth.getSession.mockReturnValue(new Promise(() => {}));
+      mockAuth.getUser.mockReturnValue(new Promise(() => {}));
+      mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
 
-    const { container } = renderWithProviders(<ProfileComponent />);
-    // Skeleton loading state renders animated pulse divs
-    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+      const { container } = renderWithProviders(<ProfileComponent />);
+      // A fast return must not flash the skeleton before the delayed threshold.
+      expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders username after profile loads", async () => {
