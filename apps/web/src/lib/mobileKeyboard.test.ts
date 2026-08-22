@@ -1,19 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
-  computeContainerScrollDelta,
   computeDismissalFrame,
   computeKeyboardMetrics,
-  computeWindowScrollDelta,
-  getScrollContext,
   initMobileKeyboard,
   isBeyondTouchSlop,
-  isComposerBarTarget,
   isEditableElement,
   isIOSDevice,
-  isLockedGestureTarget,
   isStickyGestureTarget,
-  pinDocumentForSurface,
-  unpinDocumentForSurface,
 } from "./mobileKeyboard";
 
 describe("isIOSDevice", () => {
@@ -152,39 +145,6 @@ describe("isBeyondTouchSlop", () => {
   });
 });
 
-describe("isLockedGestureTarget", () => {
-  beforeEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  it("returns false for null / non-element targets", () => {
-    expect(isLockedGestureTarget(null)).toBe(false);
-    expect(isLockedGestureTarget(undefined)).toBe(false);
-  });
-
-  it("returns false for ordinary elements", () => {
-    const el = document.createElement("div");
-    document.body.appendChild(el);
-    expect(isLockedGestureTarget(el)).toBe(false);
-  });
-
-  it("returns true for an element carrying data-kb-locked", () => {
-    const locked = document.createElement("div");
-    locked.setAttribute("data-kb-locked", "true");
-    document.body.appendChild(locked);
-    expect(isLockedGestureTarget(locked)).toBe(true);
-  });
-
-  it("returns true for descendants of a locked bar (the editor inside the composer)", () => {
-    const locked = document.createElement("div");
-    locked.setAttribute("data-kb-locked", "true");
-    const editor = document.createElement("div");
-    locked.appendChild(editor);
-    document.body.appendChild(locked);
-    expect(isLockedGestureTarget(editor)).toBe(true);
-  });
-});
-
 describe("isStickyGestureTarget", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -195,9 +155,8 @@ describe("isStickyGestureTarget", () => {
     expect(isStickyGestureTarget(undefined)).toBe(false);
   });
 
-  it("returns false for ordinary elements and locked bars", () => {
+  it("returns false for ordinary elements", () => {
     const el = document.createElement("div");
-    el.setAttribute("data-kb-locked", "true");
     document.body.appendChild(el);
     expect(isStickyGestureTarget(el)).toBe(false);
   });
@@ -216,33 +175,6 @@ describe("isStickyGestureTarget", () => {
     keep.appendChild(bubble);
     document.body.appendChild(keep);
     expect(isStickyGestureTarget(bubble)).toBe(true);
-  });
-});
-
-describe("isComposerBarTarget", () => {
-  beforeEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  it("returns false for null / non-element targets", () => {
-    expect(isComposerBarTarget(null)).toBe(false);
-    expect(isComposerBarTarget(undefined)).toBe(false);
-  });
-
-  it("returns false for ordinary elements", () => {
-    const el = document.createElement("div");
-    document.body.appendChild(el);
-    expect(isComposerBarTarget(el)).toBe(false);
-  });
-
-  it("returns true for an element inside a data-kb-pin composer bar", () => {
-    const bar = document.createElement("div");
-    bar.setAttribute("data-kb-pin", "true");
-    const editor = document.createElement("input");
-    bar.appendChild(editor);
-    document.body.appendChild(bar);
-    expect(isComposerBarTarget(editor)).toBe(true);
-    expect(isComposerBarTarget(bar)).toBe(true);
   });
 });
 
@@ -271,74 +203,12 @@ describe("isEditableElement", () => {
   });
 });
 
-describe("computeWindowScrollDelta", () => {
-  it("returns 0 when the element is fully visible above the keyboard", () => {
-    expect(computeWindowScrollDelta({ elementRectTop: 10, elementRectBottom: 300, visibleHeight: 500 })).toBe(0);
-  });
+// ── Integration: LIVE keyboard geometry (the cooperate-with-iOS model) ─────
+// The per-frame follow reads the LIVE visual viewport every frame while the
+// keyboard is animating / an editable is focused and writes the vars directly
+// — no interpolation, no easing, no document pin.
 
-  it("scrolls down so the element bottom sits 12px above the keyboard", () => {
-    // visibleHeight 500, keyboard covers 300px of an 800px screen: an element
-    // at bottom 700 must be brought up by 700 - (500 - 12) = 212.
-    expect(computeWindowScrollDelta({ elementRectTop: 400, elementRectBottom: 700, visibleHeight: 500 })).toBe(212);
-  });
-
-  it("scrolls up when the browser scrolled the element past the top", () => {
-    expect(computeWindowScrollDelta({ elementRectTop: -150, elementRectBottom: -80, visibleHeight: 500 })).toBe(-158);
-  });
-
-  it("scrolls down by the exact overshoot when slightly below the gap line", () => {
-    // gap line = 500 - 12 = 488; bottom 496 is 8px below → scroll down 8.
-    expect(computeWindowScrollDelta({ elementRectTop: 100, elementRectBottom: 496, visibleHeight: 500 })).toBe(8);
-  });
-
-  it("returns 0 when fully visible above the gap line", () => {
-    expect(computeWindowScrollDelta({ elementRectTop: 100, elementRectBottom: 480, visibleHeight: 500 })).toBe(0);
-  });
-});
-
-describe("computeContainerScrollDelta", () => {
-  it("scrolls the container so the element is visible above the keyboard", () => {
-    const delta = computeContainerScrollDelta({
-      elementRectTop: 100,
-      elementRectBottom: 600,
-      scrollerRectTop: 50,
-      scrollerRectBottom: 700,
-      visibleHeight: 500, // keyboard top at 500
-    });
-    // visibleBottom = min(700, 500) - 12 = 488; delta = 600 - 488 = 112
-    expect(delta).toBe(112);
-  });
-
-  it("returns 0 when the element already sits inside the visible area", () => {
-    const delta = computeContainerScrollDelta({
-      elementRectTop: 100,
-      elementRectBottom: 400,
-      scrollerRectTop: 50,
-      scrollerRectBottom: 700,
-      visibleHeight: 500,
-    });
-    expect(delta).toBe(0);
-  });
-
-  it("scrolls up when the element scrolled above the container top", () => {
-    const delta = computeContainerScrollDelta({
-      elementRectTop: 20,
-      elementRectBottom: 100,
-      scrollerRectTop: 50,
-      scrollerRectBottom: 700,
-      visibleHeight: 500,
-    });
-    expect(delta).toBe(20 - 50 - 8); // -38
-  });
-});
-
-// ── Integration: keyboard-open scroll corrections (see applyState) ─────────
-// The slide-in alignment must arm ONCE per keyboard-open transition: the
-// keyboard animation fires a stream of visualViewport resizes, and re-arming
-// on each one re-scrolled the page against the live (growing) editor rect,
-// making long-post composers visibly fight the browser's caret scrolling.
-
-describe("keyboard-open scroll corrections", () => {
+describe("live keyboard geometry", () => {
   // initMobileKeyboard is module-global: dispose in afterEach (not just in
   // try/finally) so a mid-test failure can never leak `initialized` into the
   // other tests of this file.
@@ -379,241 +249,6 @@ describe("keyboard-open scroll corrections", () => {
     return vv;
   };
 
-  // A focused input inside a scrollable container, with CONTROLLED geometry
-  // (jsdom reports all-zero rects). While the keyboard is open the input's
-  // bottom edge sits below the keyboard line, so a correction WOULD scroll.
-  const setupFocusedInput = () => {
-    const scroller = document.createElement("div");
-    scroller.style.overflowY = "auto";
-    Object.defineProperty(scroller, "scrollHeight", { value: 2000, configurable: true });
-    Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
-
-    let scrollTopValue = 0;
-    let scrollWrites = 0;
-    Object.defineProperty(scroller, "scrollTop", {
-      configurable: true,
-      get: () => scrollTopValue,
-      set: (v: number) => {
-        scrollTopValue = v;
-        scrollWrites += 1;
-      },
-    });
-
-    const input = document.createElement("input");
-    scroller.appendChild(input);
-    document.body.appendChild(scroller);
-
-    let rect = { top: 400, bottom: 700 };
-    Object.defineProperty(input, "getBoundingClientRect", {
-      configurable: true,
-      value: () => rect,
-    });
-
-    return {
-      input,
-      getScrollWrites: () => scrollWrites,
-      setRect: (next: { top: number; bottom: number }) => {
-        rect = next;
-      },
-    };
-  };
-
-  it("arms the 4 progressive corrections once when the keyboard opens", () => {
-    vi.useFakeTimers();
-    const vv = stubTouchViewport();
-    const { input, getScrollWrites } = setupFocusedInput();
-
-    dispose = initMobileKeyboard();
-
-    // Focused while fully visible at 800px — focus-in arms nothing.
-    input.focus();
-    expect(getScrollWrites()).toBe(0);
-
-    // Keyboard slides in: visual viewport 800 → 500 (delta 300 ≥ 60).
-    vv.height = 500;
-    window.dispatchEvent(new Event("resize"));
-
-    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
-    // Corrections are scheduled, not yet run.
-    expect(getScrollWrites()).toBe(0);
-
-    // The 0/120/300/600ms passes fire — exactly one arm = 4 corrections.
-    vi.advanceTimersByTime(700);
-    expect(getScrollWrites()).toBe(4);
-  });
-
-  it("does not re-arm corrections while the keyboard stays open", () => {
-    vi.useFakeTimers();
-    const vv = stubTouchViewport();
-    const { input, getScrollWrites, setRect } = setupFocusedInput();
-
-    dispose = initMobileKeyboard();
-
-    input.focus();
-    vv.height = 500;
-    window.dispatchEvent(new Event("resize"));
-    vi.advanceTimersByTime(700);
-    const writesAfterOpen = getScrollWrites();
-    expect(writesAfterOpen).toBe(4);
-
-    // While typing, the editor grows: its bottom edge (900) drops back below
-    // the keyboard line (visible 450 − 12 = 438), so a correction WOULD be
-    // needed — the old re-arm-on-resize code scrolled again here, which was
-    // the long-post jitter. AND the visual viewport keeps changing (more
-    // resize events). Neither may re-arm corrections.
-    setRect({ top: 600, bottom: 900 });
-    vv.height = 450;
-    window.dispatchEvent(new Event("resize"));
-
-    // The keyboard is still open; the CSS inset follows the new geometry…
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("350px");
-    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
-
-    vi.advanceTimersByTime(1000);
-    // …but no NEW scroll corrections ran.
-    expect(getScrollWrites()).toBe(writesAfterOpen);
-  });
-
-  it("re-opens when the keyboard comes up without any visual-viewport events (focus poll)", () => {
-    vi.useFakeTimers();
-    const vv = stubTouchViewport();
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-
-    dispose = initMobileKeyboard();
-
-    input.focus();
-    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
-
-    // iOS quirk: the keyboard slides up but NO resize event fires on re-focus.
-    // vv.height is a live property, so the focus poll detects it exactly.
-    vv.height = 500;
-    vi.advanceTimersByTime(300);
-
-    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
-  });
-
-  it("re-opens after a transient false close from a stale final event (close verify)", () => {
-    vi.useFakeTimers();
-    const vv = stubTouchViewport();
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-
-    dispose = initMobileKeyboard();
-
-    input.focus();
-    // Keyboard opens normally: 800 → 500 (delta 300).
-    vv.height = 500;
-    window.dispatchEvent(new Event("resize"));
-    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
-
-    // The final frame of the open animation reports the PRE-keyboard geometry
-    // (WebKit quirk): delta 0 → the state falsely closes while the keyboard
-    // is actually still up.
-    vv.height = 800;
-    window.dispatchEvent(new Event("resize"));
-    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
-
-    // The real viewport is still 500 (the 800 was a stale report) and no more
-    // events fire. The close verify re-measures and restores the open state
-    // (the inset eases back up over ~280ms, so give the animation time).
-    vv.height = 500;
-    vi.advanceTimersByTime(200);
-    vi.advanceTimersByTime(300);
-
-    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
-  });
-
-  it("eases a deferred close so the composer glides down instead of teleporting", () => {
-    vi.useFakeTimers();
-    const vv = stubTouchViewport();
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-
-    dispose = initMobileKeyboard();
-
-    input.focus();
-    // Keyboard opens normally: 800 → 500 (delta 300).
-    vv.height = 500;
-    window.dispatchEvent(new Event("resize"));
-    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
-    // Let the open ease (0 → 300, ~280ms) complete before closing.
-    vi.advanceTimersByTime(400);
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
-
-    // iOS defers its resize until AFTER the keyboard finished sliding away:
-    // one event reports the whole closed geometry at once (delta 0). The old
-    // code wrote inset 0 instantly — the composer teleported down. Now the
-    // big jump is eased over ~280ms, so the bar descends smoothly.
-    vv.height = 800;
-    window.dispatchEvent(new Event("resize"));
-    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
-    // Let a couple of ease frames run, then check the inset is mid-descent:
-    // still between the old 300 and 0 (not teleported to 0 instantly).
-    vi.advanceTimersByTime(50);
-    const midInset = Number.parseInt(
-      document.documentElement.style.getPropertyValue("--kb-inset") || "0",
-      10
-    );
-    expect(midInset).toBeGreaterThan(0);
-    expect(midInset).toBeLessThan(300);
-
-    // Once the animation finishes, the vars land exactly at the closed values.
-    vi.advanceTimersByTime(400);
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
-  });
-
-  it("starts the composer descent at blur, in sync with the departing keyboard (not after)", () => {
-    vi.useFakeTimers();
-    // The blur-predicted descent is iOS-specific (Android resizes live) —
-    // stub an iPhone UA so currentIsIOS() is true.
-    vi.stubGlobal("navigator", {
-      userAgent:
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-      platform: "iPhone",
-      maxTouchPoints: 5,
-    });
-    const vv = stubTouchViewport();
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-
-    dispose = initMobileKeyboard();
-    input.focus();
-    // Keyboard opens: 800 → 500 (delta 300).
-    vv.height = 500;
-    window.dispatchEvent(new Event("resize"));
-    // Let the open ease (0 → 300, ~280ms) complete.
-    vi.advanceTimersByTime(400);
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
-
-    // The editor blurs → iOS starts sliding the keyboard away, but its
-    // visual-viewport resize events are deferred until AFTER the slide. The
-    // descent must start NOW so the composer glides down in sync with the
-    // keyboard instead of chasing it 250ms later.
-    input.blur();
-    vi.advanceTimersByTime(50);
-    const midInset = Number.parseInt(
-      document.documentElement.style.getPropertyValue("--kb-inset") || "0",
-      10
-    );
-    expect(midInset).toBeGreaterThan(0);
-    expect(midInset).toBeLessThan(300);
-
-    // Descent completes to 0 — and stays there: the per-frame follow must not
-    // resurrect the open geometry while the deferred close event is in flight.
-    vi.advanceTimersByTime(400);
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
-
-    // The deferred close event finally arrives; the state commits closed.
-    vv.height = 800;
-    window.dispatchEvent(new Event("resize"));
-    vi.advanceTimersByTime(700);
-    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
-    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
-  });
-
   it("glides with the LIVE viewport every frame, not just on resize events", () => {
     vi.useFakeTimers();
     const vv = stubTouchViewport();
@@ -638,272 +273,56 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.documentElement.style.getPropertyValue("--app-vh")).toBe("620px");
   });
 
-  it("pins the document while an input in a fixed bar is focused, so Safari cannot pan it", () => {
+  it("detects a keyboard that opens without any visual-viewport events (live follow)", () => {
     vi.useFakeTimers();
-    stubTouchViewport();
-    const scrollToSpy = vi.fn();
-    Object.defineProperty(window, "scrollY", { value: 340, configurable: true, writable: true });
-    Object.defineProperty(window, "scrollX", { value: 0, configurable: true, writable: true });
-    Object.defineProperty(window, "scrollTo", { value: scrollToSpy, configurable: true, writable: true });
-
-    // The composer lives inside a fixed bar (messenger chat panel, wall dock).
-    const shell = document.createElement("div");
-    shell.style.position = "fixed";
+    const vv = stubTouchViewport();
     const input = document.createElement("input");
-    shell.appendChild(input);
-    document.body.appendChild(shell);
+    document.body.appendChild(input);
 
     dispose = initMobileKeyboard();
+
     input.focus();
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
 
-    // Focus on a fixed-bar input pins the document (position:fixed + top:
-    // -scrollY + overflow:hidden) so iOS has nothing to pan when the keyboard
-    // opens — the pan is what made content fly down then back up. The visual
-    // position is preserved via top: -scrollY.
-    expect(document.documentElement.style.overflow).toBe("hidden");
-    expect(document.body.style.overflow).toBe("hidden");
-    expect(document.body.style.position).toBe("fixed");
-    expect(document.body.style.top).toBe("-340px");
+    // iOS quirk: the keyboard slides up but NO resize event fires on re-focus.
+    // vv.height is a live property, so the per-frame follow (started on
+    // focus) detects it exactly — no focus poll needed.
+    vv.height = 500;
+    vi.advanceTimersByTime(300);
 
-    // Blur releases the pin and restores the scroll position. Simulate a
-    // pan that slipped through anyway (scrollY moved while pinned) — the
-    // unlock must put the reader back exactly where they were.
-    (window as any).scrollY = 420;
-    input.blur();
-    expect(document.documentElement.style.overflow).toBe("");
-    expect(document.body.style.position).toBe("");
-    expect(document.body.style.top).toBe("");
-    expect(scrollToSpy).toHaveBeenCalledWith(0, 340);
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
   });
 
-  it("pins the document on touchstart inside a composer bar, before focus lands", () => {
+  it("applies a deferred close instantly — live geometry, no easing", () => {
     vi.useFakeTimers();
-    stubTouchViewport();
-    Object.defineProperty(window, "scrollY", { value: 120, configurable: true, writable: true });
-    Object.defineProperty(window, "scrollX", { value: 0, configurable: true, writable: true });
-
-    // A composer bar carrying data-kb-pin (wall dock / messenger composer).
-    const bar = document.createElement("div");
-    bar.setAttribute("data-kb-pin", "true");
-    bar.style.position = "fixed";
+    const vv = stubTouchViewport();
     const input = document.createElement("input");
-    bar.appendChild(input);
-    document.body.appendChild(bar);
+    document.body.appendChild(input);
 
     dispose = initMobileKeyboard();
 
-    // Touch the editor inside the bar: touchstart fires BEFORE the native
-    // focus, so the pin must land here — that is what makes the re-tap on an
-    // already-expanded composer deterministic instead of racing the focusin
-    // pin (the race was the "sometimes jumps, sometimes smooth" behaviour).
-    const fireTouchStart = (target: Element, x: number, y: number) => {
-      const start = new Event("touchstart", { bubbles: true, cancelable: true });
-      Object.defineProperty(start, "touches", { value: [{ clientX: x, clientY: y }] });
-      target.dispatchEvent(start);
-    };
-    fireTouchStart(input, 10, 10);
+    input.focus();
+    // Keyboard opens normally: 800 → 500 (delta 300).
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    vi.advanceTimersByTime(400);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
 
-    expect(document.documentElement.style.overflow).toBe("hidden");
-    expect(document.body.style.overflow).toBe("hidden");
-    expect(document.body.style.position).toBe("fixed");
-    expect(document.body.style.top).toBe("-120px");
+    // iOS defers its close resize until AFTER the keyboard finished sliding
+    // away: one event reports the whole closed geometry at once (delta 0).
+    // The vars follow the live viewport directly — no jump-ease, no delayed
+    // glide: the composer lands at the closed values in the same frame.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
+    expect(document.documentElement.style.getPropertyValue("--app-vh")).toBe("800px");
 
-    // A real touch OUTSIDE the bar releases the pin (user browsing — the page
-    // must not feel frozen).
-    const outside = document.createElement("div");
-    document.body.appendChild(outside);
-    fireTouchStart(outside, 200, 200);
-
-    expect(document.body.style.position).toBe("");
-    expect(document.body.style.top).toBe("");
-    expect(document.documentElement.style.overflow).toBe("");
-  });
-});
-
-describe("document pin — surface + keyboard contributions", () => {
-  // initMobileKeyboard is module-global: dispose in afterEach so a mid-test
-  // failure can never leak `initialized` into the other tests of this file.
-  let dispose: (() => void) | null = null;
-
-  afterEach(() => {
-    dispose?.();
-    dispose = null;
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    delete (window as any).visualViewport;
-    delete (window as any).innerHeight;
-    document.body.innerHTML = "";
-  });
-
-  const stubMatchMedia = (coarse: boolean) => {
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        matches: coarse ? query === "(pointer: coarse)" : false,
-        media: query,
-        onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }))
-    );
-  };
-
-  const stubScroll = (y: number) => {
-    Object.defineProperty(window, "scrollY", { value: y, configurable: true, writable: true });
-    Object.defineProperty(window, "scrollX", { value: 0, configurable: true, writable: true });
-  };
-
-  it("pins the document for a full-screen surface and releases on unpin", () => {
-    stubMatchMedia(true);
-    stubScroll(250);
-    dispose = initMobileKeyboard();
-
-    pinDocumentForSurface();
-    expect(document.body.style.position).toBe("fixed");
-    expect(document.body.style.top).toBe("-250px");
-    expect(document.body.style.overflow).toBe("hidden");
-    expect(document.documentElement.style.overflow).toBe("hidden");
-
-    unpinDocumentForSurface();
-    expect(document.body.style.position).toBe("");
-    expect(document.body.style.top).toBe("");
-    expect(document.documentElement.style.overflow).toBe("");
-  });
-
-  it("keeps the surface pin while the keyboard pin is released on blur", () => {
-    stubMatchMedia(true);
-    stubScroll(0);
-
-    // Composer input inside a fixed bar (messenger / wall overlay).
-    const shell = document.createElement("div");
-    shell.style.position = "fixed";
-    const input = document.createElement("input");
-    shell.appendChild(input);
-    document.body.appendChild(shell);
-
-    dispose = initMobileKeyboard();
-    pinDocumentForSurface(); // messenger route / overlay open
-    input.focus();           // keyboard pin on top (no-op, already pinned)
-    input.blur();            // keyboard releases its contribution
-
-    // The surface still holds the pin — blur alone must not freeze/unfreeze
-    // the document in a way that lets iOS pan.
-    expect(document.body.style.position).toBe("fixed");
-
-    unpinDocumentForSurface(); // surface closes
-    expect(document.body.style.position).toBe("");
-  });
-
-  it("is a no-op on desktop (fine pointer)", () => {
-    stubMatchMedia(false);
-    dispose = initMobileKeyboard();
-
-    pinDocumentForSurface();
-    expect(document.body.style.position).toBe("");
-    expect(document.documentElement.style.overflow).toBe("");
-
-    unpinDocumentForSurface();
-    expect(document.body.style.position).toBe("");
-  });
-
-  it("clamps stray window pans back to the pinned position while pinned", () => {
-    stubMatchMedia(true);
-    stubScroll(80);
-    const scrollToSpy = vi.fn();
-    Object.defineProperty(window, "scrollTo", { value: scrollToSpy, configurable: true, writable: true });
-    dispose = initMobileKeyboard();
-
-    pinDocumentForSurface();
-    expect(scrollToSpy).not.toHaveBeenCalled();
-
-    // A stray pan — iOS shifted the window despite the body being fixed (URL
-    // bar collapse / visual-viewport nudge). The guard must snap it back
-    // immediately, so fixed surfaces never visibly fly down then back up.
-    (window as any).scrollY = 240;
-    window.dispatchEvent(new Event("scroll"));
-    expect(scrollToSpy).toHaveBeenCalledWith(0, 80);
-
-    // Unpinning restores the pinned scroll position (1 more call), and once
-    // the pin is released the guard is gone — a later pan is not fought.
-    unpinDocumentForSurface();
-    (window as any).scrollY = 300;
-    window.dispatchEvent(new Event("scroll"));
-    expect(scrollToSpy).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("getScrollContext", () => {
-  beforeEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  const makeScrollable = (): HTMLElement => {
-    const scroller = document.createElement("div");
-    scroller.style.overflowY = "auto";
-    Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
-    Object.defineProperty(scroller, "clientHeight", { value: 300, configurable: true });
-    return scroller;
-  };
-
-  it("returns window mode for plain document flow", () => {
-    const el = document.createElement("input");
-    document.body.appendChild(el);
-    expect(getScrollContext(el)).toEqual({ mode: "window", scroller: null });
-  });
-
-  it("finds the nearest scrollable ancestor", () => {
-    const scroller = makeScrollable();
-    const el = document.createElement("input");
-    scroller.appendChild(el);
-    document.body.appendChild(scroller);
-    const ctx = getScrollContext(el);
-    expect(ctx.mode).toBe("container");
-    expect(ctx.scroller).toBe(scroller);
-  });
-
-  it("stops at a position:fixed ancestor with no closer scroller (app shell / modal)", () => {
-    const shell = document.createElement("div");
-    shell.style.position = "fixed";
-    const el = document.createElement("input");
-    shell.appendChild(el);
-    document.body.appendChild(shell);
-    expect(getScrollContext(el)).toEqual({ mode: "fixed", scroller: null });
-  });
-
-  it("prefers a real scrollable container over a fixed ancestor above it", () => {
-    // e.g. a scrollable conversation list inside the fixed messenger shell:
-    // the container is the element's actual scroll context.
-    const shell = document.createElement("div");
-    shell.style.position = "fixed";
-    const scroller = makeScrollable();
-    const el = document.createElement("input");
-    scroller.appendChild(el);
-    shell.appendChild(scroller);
-    document.body.appendChild(shell);
-    expect(getScrollContext(el)).toEqual({ mode: "container", scroller });
-  });
-
-  it("ignores non-scrollable overflow:hidden ancestors", () => {
-    const wrapper = document.createElement("div");
-    wrapper.style.overflow = "hidden";
-    const el = document.createElement("input");
-    wrapper.appendChild(el);
-    document.body.appendChild(wrapper);
-    expect(getScrollContext(el)).toEqual({ mode: "window", scroller: null });
-  });
-
-  it("ignores scrollable ancestors that cannot actually scroll", () => {
-    const scroller = document.createElement("div");
-    scroller.style.overflowY = "auto";
-    // scrollHeight equals clientHeight → not scrollable
-    Object.defineProperty(scroller, "scrollHeight", { value: 300, configurable: true });
-    Object.defineProperty(scroller, "clientHeight", { value: 300, configurable: true });
-    const el = document.createElement("input");
-    scroller.appendChild(el);
-    document.body.appendChild(scroller);
-    expect(getScrollContext(el)).toEqual({ mode: "window", scroller: null });
+    // The follow keeps reading the live (closed) viewport — nothing bounces.
+    vi.advanceTimersByTime(700);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
   });
 });
