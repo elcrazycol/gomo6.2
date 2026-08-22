@@ -12,19 +12,6 @@ type WallPostNavigationState = {
   wallPostReturn?: "profile" | "feed";
 };
 
-// The destination route is lazy. Warm its chunk up before navigating back so
-// the profile/feed mounts immediately and the post slides away over real
-// content instead of a blank Suspense fallback.
-const preloadDestination = (kind: "profile" | "feed" | undefined): Promise<void> => {
-  if (kind === "profile") {
-    return import("./Profile").then(() => undefined);
-  }
-  if (kind === "feed") {
-    return import("./Index").then(() => undefined);
-  }
-  return Promise.resolve();
-};
-
 const WallPost = () => {
   const { userId, postId } = useParams();
   const location = useLocation();
@@ -71,79 +58,64 @@ const WallPost = () => {
   // opened directly (shared link / fresh tab) and there is no in-app history.
   const goBack = () => {
     if (isExiting) return;
+    setIsExiting(true);
 
-    const goToPreviousPage = () => {
-      if (window.history.length > 1) {
-        // The numeric navigate overload does not accept options; the native
-        // transition wrapper below handles the animation for history back.
-        navigate(-1);
-      } else if (userId) {
-        navigate(`/profile/${userId}`, { replace: true });
-      }
-    };
+    const returnKind = wallPostReturn ?? (userId ? "profile" : undefined);
 
-    const playCssExitFallback = () => {
-      // Older Safari/Firefox fallback: warm the destination chunk first, then
-      // keep the post mounted long enough to play the exit animation before
-      // changing the route. The preload makes the destination paint instantly
-      // instead of flashing a blank Suspense fallback under the slide.
-      setIsExiting(true);
-      preloadDestination(wallPostReturn).then(() => {
-        window.setTimeout(goToPreviousPage, 380);
-      });
-    };
-
-    // BrowserRouter is intentionally used in this app instead of a data
-    // router, so its numeric navigate() overload does not accept
-    // { viewTransition: true }. Use the native API directly, but hold the
-    // outgoing post snapshot until the destination profile/feed has actually
-    // rendered its content. Resolving after two frames was not enough: the
-    // destination is a lazy route, so two frames later it was still the
-    // blank Suspense fallback and the post slid out over an empty page.
-    const waitForDestination = () => new Promise<void>((resolve) => {
-      const finishAfterTwoFrames = () => {
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(() => resolve());
-        });
-      };
-
-      if (!wallPostReturn) {
-        finishAfterTwoFrames();
-        return;
-      }
-
-      const selector = `[data-wall-return-ready="${wallPostReturn}"]`;
-      const deadline = Date.now() + 2000;
-      const wait = () => {
-        if (document.querySelector(selector) || Date.now() >= deadline) {
-          finishAfterTwoFrames();
-          return;
-        }
-        window.requestAnimationFrame(wait);
-      };
-      wait();
-    });
-
-    const supportsViewTransition = typeof document !== "undefined"
-      && typeof (document as Document & { startViewTransition?: unknown }).startViewTransition === "function";
-    if (supportsViewTransition) {
-      const startViewTransition = (document as Document & {
-        startViewTransition: (update: () => void | Promise<void>) => unknown;
-      }).startViewTransition;
-      try {
-        startViewTransition(() => {
-          goToPreviousPage();
-          return waitForDestination();
-        });
-      } catch {
-        // A partially implemented WebView API should not strand the user on
-        // the post page; fall back to the CSS exit animation.
-        playCssExitFallback();
-      }
-      return;
+    // React Router unmounts this page the moment we navigate, so snapshot it
+    // into a fixed overlay first. The overlay keeps the post visible on top
+    // while the destination route mounts underneath; without it the user sees
+    // a blank page until the profile/feed finishes loading.
+    const source = document.querySelector<HTMLElement>('[data-testid="wall-post-page"]');
+    let overlay: HTMLElement | null = null;
+    if (source) {
+      overlay = source.cloneNode(true) as HTMLElement;
+      overlay.removeAttribute("data-testid");
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.classList.remove("wall-post-page-enter");
+      const rect = source.getBoundingClientRect();
+      overlay.style.position = "fixed";
+      overlay.style.top = `${rect.top}px`;
+      overlay.style.left = `${rect.left}px`;
+      overlay.style.width = `${rect.width}px`;
+      overlay.style.height = `${rect.height}px`;
+      overlay.style.zIndex = "9999";
+      overlay.style.overflow = "hidden";
+      overlay.style.backgroundColor = "hsl(var(--background))";
+      overlay.style.pointerEvents = "none";
+      document.body.appendChild(overlay);
     }
 
-    playCssExitFallback();
+    // Navigate immediately so the destination can mount under the overlay.
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else if (userId) {
+      navigate(`/profile/${userId}`, { replace: true });
+    }
+
+    // Slide the snapshot away only once the destination has actually rendered
+    // its content (signalled via data-wall-return-ready), never over a blank
+    // Suspense fallback or a loading skeleton.
+    const waitForReady = returnKind
+      ? new Promise<void>((resolve) => {
+          const selector = `[data-wall-return-ready="${returnKind}"]`;
+          const deadline = Date.now() + 2000;
+          const poll = () => {
+            if (document.querySelector(selector) || Date.now() >= deadline) {
+              resolve();
+              return;
+            }
+            window.requestAnimationFrame(poll);
+          };
+          poll();
+        })
+      : Promise.resolve();
+
+    void waitForReady.then(() => {
+      if (!overlay) return;
+      overlay.classList.add("wall-post-page-exit");
+      window.setTimeout(() => overlay?.remove(), 400);
+    });
   };
 
   if (!userId || !postId) {
@@ -156,7 +128,7 @@ const WallPost = () => {
 
   return (
     <main
-      className={`wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5${isExiting ? " wall-post-page-exit" : ""}`}
+      className="wall-post-page-enter mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 p-3 sm:p-5"
       data-testid="wall-post-page"
     >
       <div className="flex flex-wrap items-center gap-3">
