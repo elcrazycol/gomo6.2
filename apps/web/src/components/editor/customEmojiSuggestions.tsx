@@ -33,7 +33,7 @@ export const createCustomEmojiSuggestion = (getEmojis: () => EmojiData[]): Omit<
   allow: ({ range }) => range.from < range.to,
   items: ({ query }) => getEmojis().filter((emoji) => emoji.unicode_triggers?.some((trigger) => trigger === query && isEmojiSequence(trigger))).slice(0, 8),
   command: ({ editor, range, props }) => {
-    editor.chain().focus().insertContentAt(range, [
+    editor.chain().focus(undefined, { scrollIntoView: false }).insertContentAt(range, [
       { type: 'customEmoji', attrs: { emojiId: props.id, fallback: props.unicode_triggers?.[0] || null, name: props.name } },
       { type: 'text', text: ' ' },
     ]).run();

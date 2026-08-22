@@ -151,7 +151,10 @@ export const WallCommentComposer = ({
       // Skip if the composer was blurred/collapsed or destroyed meanwhile —
       // refocusing a hidden editor would summon the keyboard back up.
       if (editor.isDestroyed || !editor.isFocused) return;
-      editor.commands.focus("end");
+      // scrollIntoView:false — a focus() here defaults to scrolling the
+      // editor into view, which would fight the keyboard pin right after
+      // open (the "teleport" the pin is there to prevent).
+      editor.commands.focus("end", { scrollIntoView: false });
     }, 450);
     return () => window.clearTimeout(timer);
   }, [isMinimal, expanded, editorRef]);

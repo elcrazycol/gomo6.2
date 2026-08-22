@@ -401,7 +401,10 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     content: initialContent || undefined,
     editorProps: {
       attributes: {
-        class: `${minHeightClassName} ${maxHeightClassName ? `${maxHeightClassName} ` : ""}relative z-10 outline-none bg-transparent text-sm sm:text-base`,
+        // touch-manipulation: no double-tap-zoom delay on the editable, so
+        // iOS never pans the page trying to zoom when a tap lands in the
+        // composer (the pan is what content jumps from).
+        class: `${minHeightClassName} ${maxHeightClassName ? `${maxHeightClassName} ` : ""}relative z-10 touch-manipulation outline-none bg-transparent text-sm sm:text-base`,
         spellcheck: "true",
       },
     },
@@ -428,7 +431,11 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           return;
         }
       }
-      editor.commands.focus("end");
+      // Never scrollIntoView on a programmatic focus: the browser's own
+      // focus-scroll is exactly what the mobile-keyboard pin prevents, and a
+      // focus("end") here (or the caret nudge in the composer) must not
+      // re-introduce it.
+      editor.commands.focus("end", { scrollIntoView: false });
     }
   }, [editor, autoFocus]);
 
@@ -501,12 +508,12 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     focus: () => {
       const el = editorContainerRef.current;
       if (!el) {
-        editor?.commands.focus();
+        editor?.commands.focus(undefined, { scrollIntoView: false });
         return;
       }
       const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
       if (!editable) {
-        editor?.commands.focus();
+        editor?.commands.focus(undefined, { scrollIntoView: false });
         return;
       }
       // Capture scroll position BEFORE focus. Mobile browsers often ignore
@@ -524,7 +531,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       });
     },
     insertText: (text: string) => {
-      editor?.chain().focus().insertContent(text).run();
+      editor?.chain().focus(undefined, { scrollIntoView: false }).insertContent(text).run();
     },
     insertEmoji: (data, opts) => {
       const node = {
@@ -538,7 +545,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         // its state, so the insert lands exactly where the user was typing.
         editor?.chain().insertContent(node).run();
       } else {
-        editor?.chain().focus().insertContent(node).run();
+        editor?.chain().focus(undefined, { scrollIntoView: false }).insertContent(node).run();
       }
     },
     getEditor: () => editor,

@@ -100,7 +100,9 @@ const EmojiNodeView = ({ node, editor, getPos }: NodeViewProps) => {
 
       const rect = el.getBoundingClientRect();
       const target = clickOnLeftHalf(rect, event.clientX) ? pos : pos + node.nodeSize;
-      editor.chain().focus().setTextSelection(target).run();
+      // scrollIntoView:false — clicking an emoji while composing in the dock
+      // must not scroll the editor (the keyboard pin is what keeps it still).
+      editor.chain().focus(undefined, { scrollIntoView: false }).setTextSelection(target).run();
     };
 
     // The caret was already placed on mousedown. Swallow the click so

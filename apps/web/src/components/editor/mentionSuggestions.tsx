@@ -28,7 +28,7 @@ export const mentionSuggestion: Omit<
   command: ({ editor, range, props }) => {
     editor
       .chain()
-      .focus()
+      .focus(undefined, { scrollIntoView: false })
       .insertContentAt(range, [
         {
           type: "mention",
