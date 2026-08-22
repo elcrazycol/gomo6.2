@@ -167,7 +167,7 @@ describe("GomoRichEditor native-tap interception", () => {
     }
   });
 
-  it("does not intercept when the editor already owns focus", () => {
+  it("intercepts a tap even when the editor already owns focus (the repeat-tap pan)", () => {
     stubRAF();
     const preventDefaultSpy = vi.spyOn(Event.prototype, "preventDefault");
     try {
@@ -176,8 +176,35 @@ describe("GomoRichEditor native-tap interception", () => {
       editable!.focus();
       expect(document.activeElement).toBe(editable);
 
+      // A tap on the ALREADY-FOCUSED editor is still a native focus gesture
+      // on iOS (it re-runs the scroll-to-caret pan) — it must be intercepted
+      // too, not left native.
       fireTouch(editable!, "touchstart", 10, 10);
       fireTouch(editable!, "touchend", 12, 12);
+      expect(preventDefaultSpy).toHaveBeenCalled();
+    } finally {
+      preventDefaultSpy.mockRestore();
+    }
+  });
+
+  it("leaves a quick double-tap alone (word-selection gesture)", () => {
+    stubRAF();
+    const preventDefaultSpy = vi.spyOn(Event.prototype, "preventDefault");
+    try {
+      const { container } = render(<GomoRichEditor onChange={vi.fn()} />);
+      const editable = container.querySelector("[contenteditable]") as HTMLElement | null;
+      editable!.focus();
+
+      // First tap: intercepted (the editor owns focus, so this is the repeat
+      // tap that must not go native). Second tap within 300ms: a double-tap
+      // word-selection gesture — left native so iOS can select the word.
+      fireTouch(editable!, "touchstart", 10, 10);
+      fireTouch(editable!, "touchend", 12, 12);
+      expect(preventDefaultSpy).toHaveBeenCalled();
+
+      preventDefaultSpy.mockClear();
+      fireTouch(editable!, "touchstart", 14, 14);
+      fireTouch(editable!, "touchend", 16, 16);
       expect(preventDefaultSpy).not.toHaveBeenCalled();
     } finally {
       preventDefaultSpy.mockRestore();

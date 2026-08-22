@@ -424,6 +424,12 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           const scrollY = window.scrollY;
           const scrollX = window.scrollX;
           editable.focus({ preventScroll: true });
+          // Native focus on a freshly-mounted contenteditable leaves the caret
+          // at the START of the draft. Move it to the end so typing continues
+          // where the user left off. scrollIntoView:false — see the fallback
+          // branch below: a focus("end") here must not re-introduce the
+          // browser's own focus-scroll (exactly what the pin prevents).
+          editor.commands.focus("end", { scrollIntoView: false });
           requestAnimationFrame(() => {
             if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
               window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
@@ -527,8 +533,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     const dom = editor.view.dom as HTMLElement;
 
     let touchStart: { x: number; y: number; t: number } | null = null;
-
-    const hasFocus = () => document.activeElement === dom || dom.contains(document.activeElement);
+    let lastTapAt = 0;
 
     const focusAt = (x: number, y: number) => {
       const view = editor.view;
@@ -568,12 +573,25 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       const start = touchStart;
       touchStart = null;
       const t = e.changedTouches?.[0];
-      if (hasFocus() || !start || !t || onLeaf(e.target)) return;
+      if (!start || !t || onLeaf(e.target)) return;
       // Only tap-like touches: short and still. Scrolls, long-press selection
       // and drag-selection keep their native behavior (and no pan can happen
       // on them — they don't change focus).
       const moved = Math.abs(t.clientX - start.x) + Math.abs(t.clientY - start.y);
       if (moved > 10 || Date.now() - start.t > 400) return;
+      // Intercept EVERY tap, focused or not: a native tap on an already-focused
+      // editor is still a native focus gesture on iOS (it re-runs the
+      // scroll-to-caret pan), so converting it to a programmatic caret move is
+      // what keeps the composer from jumping on the second and subsequent taps.
+      const now = Date.now();
+      // A quick second tap (double-tap word selection) is left alone — it is
+      // an editing gesture the browser owns, and the editor is focused by then
+      // so it cannot pan.
+      if (now - lastTapAt < 300) {
+        lastTapAt = now;
+        return;
+      }
+      lastTapAt = now;
       e.preventDefault();
       focusAt(t.clientX, t.clientY);
     };
