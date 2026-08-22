@@ -23,6 +23,7 @@ import {
   isInteractiveTarget,
 } from "@/utils/wallNormalizers";
 import type { LightboxItem } from "@/components/Lightbox";
+import { captureWallReturnUnderlay } from "@/lib/wallReturnUnderlay";
 
 interface FeedWallPostCardProps {
   post: WallPost;
@@ -61,7 +62,9 @@ export const FeedWallPostCard = ({
   const handleOpenPost = useCallback(() => {
     // Carry the already rendered card to the post page. WallPost still
     // refreshes it from the API, but this removes the loading-skeleton flash
-    // during the route transition.
+    // during the route transition. Also snapshot the feed so the post page can
+    // reveal it underneath during the swipe-back gesture.
+    captureWallReturnUnderlay();
     navigate(postPath, { state: { wallPost: post, wallPostReturn: "feed" } });
   }, [navigate, post, postPath]);
 

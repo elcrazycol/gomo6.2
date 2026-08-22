@@ -180,6 +180,10 @@ describe("WallPost page", () => {
     expect(overlay).not.toBeNull();
     expect(overlay!.style.position).toBe("fixed");
     expect(overlay!.getAttribute("data-testid")).toBeNull();
+    // The exit slide is driven by a CSS variable so a swipe can start it from
+    // wherever the finger left the page; the back button starts it at 0.
+    expect(overlay!.style.getPropertyValue("--wall-post-exit-x")).toBe("0px");
+    expect(overlay!.style.transform).toBe("translate3d(0px, 0, 0)");
   });
 
   it("navigates to the profile with replace when opened directly", () => {

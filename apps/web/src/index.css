@@ -1026,7 +1026,7 @@ html.kb-open body {
 @keyframes wall-post-page-exit {
   from {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(var(--wall-post-exit-x, 0), 0, 0);
   }
   to {
     opacity: 0;

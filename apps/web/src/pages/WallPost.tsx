@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
@@ -6,6 +7,7 @@ import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { consumeWallReturnUnderlay } from "@/lib/wallReturnUnderlay";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
 
 const SWIPE_THRESHOLD = 90;
@@ -28,6 +30,27 @@ const WallPost = () => {
   const [profileUsername, setProfileUsername] = useState("");
   const [loading, setLoading] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
+
+  // Snapshot of the page the user came from (profile/feed), revealed underneath
+  // the post while it is dragged back. Consumed lazily once so React StrictMode
+  // re-renders do not drop it.
+  const underlayDataRef = useRef<ReturnType<typeof consumeWallReturnUnderlay> | undefined>(undefined);
+  if (underlayDataRef.current === undefined) {
+    underlayDataRef.current = consumeWallReturnUnderlay();
+  }
+  const underlay = underlayDataRef.current;
+  const underlayContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!underlay || !underlayContainerRef.current) return;
+    const container = underlayContainerRef.current;
+    container.appendChild(underlay.node);
+    return () => {
+      if (underlay.node.parentNode === container) {
+        container.removeChild(underlay.node);
+      }
+    };
+  }, [underlay]);
 
   useEffect(() => {
     const loadPageContext = async () => {
@@ -59,7 +82,9 @@ const WallPost = () => {
   // Go back to wherever the post was opened from (feed, notifications,
   // messenger, profile wall). Fall back to the profile page when the post was
   // opened directly (shared link / fresh tab) and there is no in-app history.
-  const goBack = () => {
+  // `startX` is the swipe offset the finger left the page at, so the slide-out
+  // continues from there instead of snapping back to the left edge.
+  const goBack = (startX = 0) => {
     if (isExiting) return;
     setIsExiting(true);
 
@@ -76,13 +101,16 @@ const WallPost = () => {
       overlay.removeAttribute("data-testid");
       overlay.setAttribute("aria-hidden", "true");
       overlay.classList.remove("wall-post-page-enter");
-      // Reset any in-progress swipe offset in the snapshot so the exit
-      // animation always starts from a clean, full-height surface.
+      // Reset any in-progress swipe offset on the inner surface so it does not
+      // stack with the overlay's own slide, then start the exit from where the
+      // finger stopped (0 for the back button).
       const swipeEl = overlay.querySelector<HTMLElement>("[data-wall-post-swipe]");
       if (swipeEl) {
         swipeEl.style.transform = "none";
         swipeEl.style.transition = "none";
       }
+      overlay.style.transform = `translate3d(${startX}px, 0, 0)`;
+      overlay.style.setProperty("--wall-post-exit-x", `${startX}px`);
       const rect = source.getBoundingClientRect();
       overlay.style.position = "fixed";
       overlay.style.top = `${rect.top}px`;
@@ -145,7 +173,7 @@ const WallPost = () => {
         setSwipeOffset(Math.max(0, Math.min(window.innerWidth * 0.9, mx)));
       } else {
         if (last && mx > SWIPE_THRESHOLD) {
-          goBack();
+          goBack(mx);
         }
         setSwipeOffset(0);
       }
@@ -162,10 +190,19 @@ const WallPost = () => {
   }
 
   return (
-    <main
-      className="wall-post-page-enter relative flex w-full flex-1 flex-col"
-      data-testid="wall-post-page"
-    >
+    <>
+      {underlay && createPortal(
+        <div
+          ref={underlayContainerRef}
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
+        />,
+        document.body,
+      )}
+      <main
+        className="wall-post-page-enter relative z-10 flex w-full flex-1 flex-col"
+        data-testid="wall-post-page"
+      >
       <div
         {...bind()}
         data-wall-post-swipe=""
@@ -180,7 +217,7 @@ const WallPost = () => {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={goBack}
+              onClick={() => goBack()}
               className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -206,7 +243,8 @@ const WallPost = () => {
           )}
         </div>
       </div>
-    </main>
+      </main>
+    </>
   );
 };
 
