@@ -23,7 +23,7 @@ export const CustomTabExtension = Extension.create({
         if (textBefore.endsWith(TAB_SPACES) && $from.parentOffset >= TAB_SPACES.length) {
           const from = $from.pos - TAB_SPACES.length;
           const to = $from.pos;
-          editor.chain().focus().deleteRange({ from, to }).run();
+          editor.chain().focus(undefined, { scrollIntoView: false }).deleteRange({ from, to }).run();
           return true;
         }
 

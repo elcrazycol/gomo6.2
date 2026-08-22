@@ -105,7 +105,9 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     `h-8 w-8 p-0 flex-shrink-0${isActive ? " bg-primary/15 text-primary" : ""}`;
 
   const toggleTextFormat = (format: "bold" | "italic" | "underline" | "strikethrough") => {
-    const chain = editor.chain().focus();
+    // scrollIntoView:false — the composer is pinned above the keyboard; a
+    // Tiptap focus + scrollIntoView would pan the page (the "native" jump).
+    const chain = editor.chain().focus(undefined, { scrollIntoView: false });
     switch (format) {
       case "bold": chain.toggleBold(); break;
       case "italic": chain.toggleItalic(); break;
@@ -124,7 +126,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
   const applyLink = () => {
     const trimmed = linkDraft.trim();
     if (trimmed.length === 0) {
-      editor.chain().focus().unsetLink().run();
+      editor.chain().focus(undefined, { scrollIntoView: false }).unsetLink().run();
     } else {
       // Only treat explicit schemes as-is (https://, http://, mailto:, tel: …);
       // anything else gets https:// prepended ("localhost:3000/x" must not be
@@ -132,13 +134,13 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
       const hasScheme =
         /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) || /^(mailto|tel|sms|ftp):/i.test(trimmed);
       const href = hasScheme ? trimmed : `https://${trimmed}`;
-      editor.chain().focus().setLink({ href }).run();
+      editor.chain().focus(undefined, { scrollIntoView: false }).setLink({ href }).run();
     }
     setIsLinkDialogOpen(false);
   };
 
   const toggleBlur = () => {
-    editor.chain().focus().toggleSpoiler().run();
+    editor.chain().focus(undefined, { scrollIntoView: false }).toggleSpoiler().run();
   };
 
   // Insert "@" at the caret and let the suggestion plugin pick it up (it
@@ -148,14 +150,14 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     const { from } = editor.state.selection;
     const charBefore = editor.state.doc.textBetween(Math.max(0, from - 1), from);
     const needsSpace = charBefore.length > 0 && !/\s/.test(charBefore);
-    editor.chain().focus().insertContent(needsSpace ? " @" : "@").run();
+    editor.chain().focus(undefined, { scrollIntoView: false }).insertContent(needsSpace ? " @" : "@").run();
   };
 
   const applyColor = (nextColor: string) => {
     if (!nextColor) {
-      editor.chain().focus().unsetColor().run();
+      editor.chain().focus(undefined, { scrollIntoView: false }).unsetColor().run();
     } else {
-      editor.chain().focus().setColor(nextColor).run();
+      editor.chain().focus(undefined, { scrollIntoView: false }).setColor(nextColor).run();
     }
     setIsColorDialogOpen(false);
   };
@@ -180,7 +182,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     const raw = px !== undefined ? String(px) : sizeDraft;
     const clean = raw.replace(/[^\d.]/g, "");
     if (clean) {
-      editor.chain().focus().setMark("textStyle", { fontSize: `${clean}px` }).run();
+      editor.chain().focus(undefined, { scrollIntoView: false }).setMark("textStyle", { fontSize: `${clean}px` }).run();
     }
     setIsSizeDialogOpen(false);
   };
@@ -418,14 +420,16 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     },
   });
 
-  // Tiptap/ProseMirror call view.dom.focus() WITHOUT preventScroll on
-  // iOS/Android (verified in @tiptap/core's focus command — it does a bare
-  // view.dom.focus() there, plus a second delayed focus via rAF). Every such
+  // Tiptap calls view.dom.focus() WITHOUT preventScroll on iOS/Android
+  // (verified in @tiptap/core's focus command — delayedFocus does a bare
+  // view.dom.focus() there, plus a second view.focus() in a rAF). Every such
   // call re-triggers the native focus-pan AND resets the caret to the start of
   // the content, even when we already focused with preventScroll ourselves.
-  // Patch the editor's DOM node so EVERY focus — ours and Tiptap's internal
-  // ones (commands.focus(), the delayed focus after mount, toolbar
-  // chain().focus()) — is forced to preventScroll:true. Restored on unmount.
+  // Patch the editor's DOM node so EVERY focus — ours, Tiptap's internal ones
+  // (commands.focus(), the delayed focus after mount, toolbar chain().focus())
+  // — is forced to preventScroll:true. (PM's own view.focus() is NOT patched:
+  // it already goes through focusPreventScroll and additionally runs
+  // selectionToDOM, which must keep working.) Restored on unmount.
   useEffect(() => {
     if (!editor) return;
     const dom = editor.view.dom as HTMLElement;
@@ -438,52 +442,92 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     };
   }, [editor]);
 
-  // Move the caret to the END of the draft via a PURE ProseMirror selection
-  // dispatch — never editor.commands.focus("end"): on iOS that command calls
-  // view.dom.focus() WITHOUT preventScroll (verified in @tiptap/core), which
-  // re-triggers the native focus — the pan — and iOS then resets the caret
-  // back to the START of the content. Dispatching the selection directly
-  // moves the caret with no native focus at all, so nothing can race it.
+  // Move the caret to the END of the draft. Two layers, because a single one
+  // loses to iOS:
+  //   1) ProseMirror state — a PURE selection dispatch, never
+  //      editor.commands.focus("end") (on iOS that command calls
+  //      view.dom.focus() WITHOUT preventScroll — the pan — and iOS then
+  //      resets the caret to the START). Dispatching directly moves the caret
+  //      with no native focus at all.
+  //   2) Native DOM selection — iOS sometimes ignores PM's dispatch and keeps
+  //      the DOM caret at the start of the contenteditable, so also collapse a
+  //      real range at the last text node (or the root for an empty doc).
   const moveCaretToEnd = useCallback(() => {
     if (!editor || editor.isDestroyed) return;
-    const doc = editor.state.doc;
+    const { state, view } = editor;
     // atEnd resolves INSIDE the last textblock (doc.content.size counts the
     // paragraph node itself, so resolving there overshoots by one position).
-    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.atEnd(doc)));
+    view.dispatch(state.tr.setSelection(TextSelection.atEnd(state.doc)));
+    try {
+      const domSel = window.getSelection?.();
+      if (!domSel) return;
+      const root = view.dom;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let last: Text | null = null;
+      let n: Node | null;
+      while ((n = walker.nextNode())) last = n as Text;
+      const range = document.createRange();
+      if (last && last.length >= 0) {
+        range.setStart(last, last.length);
+      } else {
+        // Empty doc — collapse inside the editable itself.
+        range.selectNodeContents(root);
+      }
+      range.collapse(false);
+      domSel.removeAllRanges();
+      domSel.addRange(range);
+    } catch {
+      // Best-effort — a caret nudge must never crash the composer.
+    }
   }, [editor]);
 
   // iOS does NOT keep the caret where a selection dispatch puts it: while the
   // soft keyboard slides in, Safari re-syncs the DOM selection and resets the
   // caret to the START of the content, undoing the single dispatch we do right
-  // after focus. So on autoFocus we re-dispatch the end-selection repeatedly
-  // across the WHOLE keyboard-open window (up to ~800ms — the slide, the URL
-  // bar collapse and any native focus re-sync can each reset the caret) —
-  // still pure selection dispatches (no native focus, so no pan) — and cancel
-  // the pending nudges the moment the user actually touches or types, so a
-  // deliberate caret placement in the middle of the text is never overridden.
+  // after focus. So on autoFocus we re-assert the end-selection repeatedly
+  // across the WHOLE keyboard-open window — immediately, in the next rAF,
+  // at 50/150/350/600/850ms (the slide, the URL-bar collapse and any native
+  // focus re-sync can each reset the caret), and again once fonts finish
+  // loading (the custom font swap re-measures the caret against the final
+  // metrics). All pan-free (pure dispatches + native ranges). Cancelled the
+  // moment the user actually touches or types, so a deliberate caret placement
+  // in the middle of the text is never overridden.
   const caretSettleTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const caretSettleRafRef = useRef<number | null>(null);
+  const caretSettleCancelledRef = useRef(true);
   const clearCaretSettle = useCallback(() => {
+    caretSettleCancelledRef.current = true;
     for (const timer of caretSettleTimersRef.current) clearTimeout(timer);
     caretSettleTimersRef.current.clear();
+    if (caretSettleRafRef.current !== null) {
+      cancelAnimationFrame(caretSettleRafRef.current);
+      caretSettleRafRef.current = null;
+    }
   }, []);
   const settleCaretToEnd = useCallback(() => {
     clearCaretSettle();
-    const fire = () => {
-      // Only nudge while the editor still owns focus — a blur mid-window (or
-      // a tap into the text, which also cleared the timers) must not yank the
-      // caret around. Check the DOM directly (not editor.isFocused): on iOS
+    caretSettleCancelledRef.current = false;
+    const run = () => {
+      // Cancelled by a user tap/typing (or unmount) mid-window — and only
+      // nudge while the editor still owns focus (a blur must not yank the
+      // caret around). Check the DOM directly (not editor.isFocused): on iOS
       // the ProseMirror focus event can lag the actual focus() call, and the
       // settle would skip every nudge waiting for a flag that arrives late.
-      if (!editor || editor.isDestroyed) return;
+      if (caretSettleCancelledRef.current || !editor || editor.isDestroyed) return;
       const dom = editor.view.dom;
       if (document.activeElement === dom || dom.contains(document.activeElement)) {
         moveCaretToEnd();
       }
     };
-    fire();
-    for (const delay of [80, 200, 350, 500, 800]) {
-      const timer = setTimeout(fire, delay);
+    run();
+    caretSettleRafRef.current = requestAnimationFrame(run);
+    for (const delay of [50, 150, 350, 600, 850]) {
+      const timer = setTimeout(run, delay);
       caretSettleTimersRef.current.add(timer);
+    }
+    const fonts = typeof document !== "undefined" ? document.fonts : null;
+    if (fonts && typeof fonts.ready?.then === "function") {
+      fonts.ready.then(run).catch(() => {});
     }
   }, [clearCaretSettle, editor, moveCaretToEnd]);
 

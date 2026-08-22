@@ -139,6 +139,13 @@ describe("GomoRichEditor caret placement", () => {
     // Caret at the very end of the last textblock (after "world").
     expect(editor!.state.selection.from).toBe(TextSelection.atEnd(doc).from);
     expect(editor!.state.selection.empty).toBe(true);
+    // The NATIVE DOM selection must agree (iOS sometimes ignores PM's
+    // dispatch and keeps the caret at the start) — collapsed at the end of
+    // the last text node inside the editable.
+    const domSel = window.getSelection();
+    expect(domSel?.anchorNode?.textContent).toBe("hello world");
+    expect(domSel?.anchorOffset).toBe("hello world".length);
+    expect(domSel?.isCollapsed).toBe(true);
   });
 
   it("autoFocus places the caret at the end of an existing draft", async () => {
@@ -235,6 +242,34 @@ describe("GomoRichEditor caret placement", () => {
       vi.advanceTimersByTime(1000);
       expect(editor!.state.selection.from).toBe(afterTyping);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-asserts the end caret when fonts finish loading (final metrics)", async () => {
+    stubRAF();
+    vi.useFakeTimers();
+    const { fontsMock, restore } = installFontsMock();
+    try {
+      const { ref } = renderWithRef({ legacyContent: "hello world", autoFocus: true });
+      const editor = ref.current?.getEditor();
+      // Initial settle lands at the end.
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+
+      // iOS resets the caret to the START (the settle's own timers are frozen
+      // under fake timers, so only the fonts.ready hook can fix it now).
+      const start = editor!.state.tr.setSelection(TextSelection.atStart(editor!.state.doc));
+      editor!.view.dispatch(start);
+      expect(editor!.state.selection.from).toBe(TextSelection.atStart(editor!.state.doc).from);
+
+      // The custom font finishes loading — the settle's fonts.ready hook must
+      // re-assert the end caret against the final font metrics.
+      fontsMock._resolveReady();
+      await fontsMock.ready;
+      await Promise.resolve();
+      expect(editor!.state.selection.from).toBe(TextSelection.atEnd(editor!.state.doc).from);
+    } finally {
+      restore();
       vi.useRealTimers();
     }
   });
