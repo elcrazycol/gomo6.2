@@ -137,6 +137,14 @@ let cancelUserInterrupt: (() => void) | null = null;
 let closeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let dismissUntil = 0;
 let dismissalActive = false;
+// True from the moment a blur-predicted descent starts (see handleFocusOut)
+// until the keyboard close is CONFIRMED by the deferred resize (applyState
+// committing isOpen:false) or cancelled by a focus migration (handleFocusIn).
+// While set, the per-frame follow must NOT write the still-keyboard-open live
+// geometry (inset 300) back over the descended CSS vars — that would make the
+// composer bounce up again after gliding down, before the deferred close event
+// arrives.
+let blurDescentPending = false;
 let dismissProbeTimer: ReturnType<typeof setTimeout> | null = null;
 // Re-measures shortly after a committed close — see scheduleCloseVerify.
 let closeVerifyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -311,6 +319,7 @@ export function initMobileKeyboard(): () => void {
     stickyScrollActive = false;
     dismissUntil = 0;
     dismissalActive = false;
+    blurDescentPending = false;
     focusedEditable = null;
     // Release both pin contributions — surfaces and the keyboard — so a test
     // dispose never leaves the body frozen.
@@ -631,8 +640,11 @@ function startGeometryFollow() {
     followRaf = null;
     // A dismissal or jump-ease animation owns the vars — the follow must not
     // overwrite their in-flight interpolation with a stale final value. The
-    // loop itself keeps running so the scroll-pin below survives the ease.
-    if (dismissalActive || jumpEaseFrame !== null) {
+    // loop itself keeps running so the scroll-pin below survives the ease. The
+    // same stand-down applies while a blur-predicted descent awaits the
+    // deferred close resize (see blurDescentPending): the live viewport still
+    // reports the keyboard up, but the composer has already glided down.
+    if (dismissalActive || jumpEaseFrame !== null || blurDescentPending) {
       if (Date.now() < followUntil || state.isOpen) {
         followRaf = requestAnimationFrame(step);
       }
@@ -689,8 +701,13 @@ function applyState(next: MobileKeyboardState) {
   }
   // The keyboard is gone — the document scroll lock (fixed-bar focus) is no
   // longer needed: the pan it prevents only ever happens at the moment of
-  // focus, so releasing now can never cause a jump.
-  if (!next.isOpen) unlockDocumentScroll();
+  // focus, so releasing now can never cause a jump. This is also the deferred
+  // resize confirming a blur-predicted descent: the follow may write live
+  // values again (they are now genuinely 0).
+  if (!next.isOpen) {
+    blurDescentPending = false;
+    unlockDocumentScroll();
+  }
   // Keep the per-frame follow alive — the LIVE viewport keeps gliding after
   // this event (see startGeometryFollow).
   startGeometryFollow();
@@ -777,6 +794,19 @@ function handleFocusIn(e: FocusEvent) {
   const el = e.target as HTMLElement | null;
   if (!isEditableElement(el)) return;
   focusedEditable = el;
+  // A focus migration (composer A → composer B) keeps the keyboard up, but
+  // A's blur started a predicted descent (see handleFocusOut). Cancelling it
+  // here — synchronously, before the next paint — and re-syncing with the
+  // LIVE viewport keeps the composer from visibly dropping to the bottom
+  // while the keyboard stays put.
+  if (blurDescentPending && state.isOpen) {
+    blurDescentPending = false;
+    if (jumpEaseFrame !== null) {
+      cancelAnimationFrame(jumpEaseFrame);
+      jumpEaseFrame = null;
+    }
+    writeGeometryVars(computeRaw());
+  }
   // Fresh focus re-arms keyboard detection: cancel any pending dismissal,
   // including an in-flight descent animation (user re-tapped the composer
   // while the keyboard was sliding away).
@@ -836,6 +866,20 @@ function handleFocusOut() {
   // closed. Releasing on blur also covers focus migration (fixed bar → plain
   // input), where the document must become scrollable again right away.
   unlockDocumentScroll();
+  // On iOS the keyboard is about to slide away, but its visual-viewport
+  // resize events are DEFERRED until AFTER the slide finishes — waiting for
+  // them made the composer glide down ~250ms late, visibly chasing a keyboard
+  // that was already gone ("анимация после того, как клавиатура уже уехала").
+  // Blur is the earliest signal the dismissal started, so ease --kb-inset → 0
+  // / --app-vh → innerHeight NOW, in sync with the keyboard's own ~280ms
+  // slide. A focus migration cancels it in handleFocusIn before the next
+  // paint; scroll-to-dismiss already runs its own dismissal animation
+  // (dismissalActive is set before the blur there). Android resizes live, so
+  // it never needs the prediction.
+  if (state.isOpen && !dismissalActive && currentIsIOS()) {
+    blurDescentPending = true;
+    startJumpEase(0, typeof window === "undefined" ? state.viewportHeight : window.innerHeight);
+  }
 }
 
 /**

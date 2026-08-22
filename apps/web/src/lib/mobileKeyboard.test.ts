@@ -565,6 +565,55 @@ describe("keyboard-open scroll corrections", () => {
     expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
   });
 
+  it("starts the composer descent at blur, in sync with the departing keyboard (not after)", () => {
+    vi.useFakeTimers();
+    // The blur-predicted descent is iOS-specific (Android resizes live) —
+    // stub an iPhone UA so currentIsIOS() is true.
+    vi.stubGlobal("navigator", {
+      userAgent:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+    });
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    dispose = initMobileKeyboard();
+    input.focus();
+    // Keyboard opens: 800 → 500 (delta 300).
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    // Let the open ease (0 → 300, ~280ms) complete.
+    vi.advanceTimersByTime(400);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("300px");
+
+    // The editor blurs → iOS starts sliding the keyboard away, but its
+    // visual-viewport resize events are deferred until AFTER the slide. The
+    // descent must start NOW so the composer glides down in sync with the
+    // keyboard instead of chasing it 250ms later.
+    input.blur();
+    vi.advanceTimersByTime(50);
+    const midInset = Number.parseInt(
+      document.documentElement.style.getPropertyValue("--kb-inset") || "0",
+      10
+    );
+    expect(midInset).toBeGreaterThan(0);
+    expect(midInset).toBeLessThan(300);
+
+    // Descent completes to 0 — and stays there: the per-frame follow must not
+    // resurrect the open geometry while the deferred close event is in flight.
+    vi.advanceTimersByTime(400);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
+
+    // The deferred close event finally arrives; the state commits closed.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    expect(document.documentElement.style.getPropertyValue("--kb-inset")).toBe("0px");
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+  });
+
   it("glides with the LIVE viewport every frame, not just on resize events", () => {
     vi.useFakeTimers();
     const vv = stubTouchViewport();
