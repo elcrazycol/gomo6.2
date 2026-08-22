@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FocusEvent, type Ref } from "react";
+import { useEffect, useRef, type FocusEvent, type Ref } from "react";
 import { Loader2, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { useComposerExpand } from "@/hooks/useComposerExpand";
 
 interface WallCommentComposerProps {
   placeholder: string;
@@ -29,15 +30,6 @@ interface WallCommentComposerProps {
       gesture, so the reply button must flush + focus, not wait for effects). */
   editorRef?: Ref<GomoRichEditorHandle>;
 }
-
-// Keep slightly above the CSS transition duration (300ms) so the collapse
-// animation always completes before the box is unmounted.
-const COLLAPSE_TIMEOUT_MS = 320;
-
-const prefersReducedMotion = (): boolean =>
-  typeof window !== "undefined" &&
-  typeof window.matchMedia === "function" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const Pill = ({
   label,
@@ -80,9 +72,14 @@ export const WallCommentComposer = ({
   replyTo = null,
   editorRef,
 }: WallCommentComposerProps) => {
-  const [expanded, setExpanded] = useState(!focusToExpand);
-  const [closing, setClosing] = useState(false);
-  const isExpanded = !focusToExpand || expanded || Boolean(text.trim()) || Boolean(replyTo);
+  // Shared pill ↔ expanded state machine (expand on tap, collapse on
+  // blur-while-empty / after submit, keep open with text or a reply target).
+  const { expanded, closing, isExpanded, showBox, expand, requestCollapse } = useComposerExpand({
+    focusToExpand,
+    text,
+    replyTo,
+    resetKey,
+  });
   // The minimal layout only makes sense for the expand-on-focus pill.
   const isMinimal = minimal && focusToExpand;
   const canSubmit =
@@ -90,47 +87,6 @@ export const WallCommentComposer = ({
     Boolean(text.trim()) &&
     !/^\u200b+$/.test(text.trim()) &&
     text.trim() !== "\u200b";
-
-  const finishCollapse = () => {
-    setExpanded(false);
-    setClosing(false);
-  };
-
-  const requestCollapse = () => {
-    if (!focusToExpand || !expanded || closing) return;
-    setClosing(true);
-  };
-
-  // Choosing a reply target wakes the composer up in reply mode — and cancels
-  // an in-flight collapse so the freshly chosen target isn't swallowed.
-  useEffect(() => {
-    if (replyTo) {
-      setExpanded(true);
-      setClosing(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replyTo?.id]);
-
-  // After a successful submit the parent clears the draft and bumps resetKey —
-  // fold the composer back into its quiet one-line prompt (animated).
-  useEffect(() => {
-    if (focusToExpand && !text.trim()) {
-      requestCollapse();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey]);
-
-  // Finish the collapse once the grid-rows transition has had time to run;
-  // under reduced motion it snaps instantly.
-  useEffect(() => {
-    if (!closing) return;
-    if (prefersReducedMotion()) {
-      finishCollapse();
-      return;
-    }
-    const timer = window.setTimeout(finishCollapse, COLLAPSE_TIMEOUT_MS);
-    return () => window.clearTimeout(timer);
-  }, [closing]);
 
   // First-open caret fix (minimal bar on touch). On the VERY first open the
   // custom font can still be downloading: the caret is laid out against
@@ -169,14 +125,9 @@ export const WallCommentComposer = ({
   const editorPlaceholder = replyTo ? "Напишите ответ" : placeholder;
   const pillLabel = replyTo ? `Ответ для @${replyTo.name}…` : `${placeholder}…`;
 
-  // replyTo forces the box open synchronously (before the setExpanded effect
-  // above runs) so the editor is mounted the instant the reply target is set —
-  // the parent flushes that state change and focuses in the same tap stack.
-  const showBox = !focusToExpand || expanded || closing || Boolean(text.trim()) || Boolean(replyTo);
-
   // Collapsed: just the quiet one-line prompt.
   if (focusToExpand && !showBox) {
-    return <Pill label={pillLabel} onClick={() => setExpanded(true)} />;
+    return <Pill label={pillLabel} onClick={expand} />;
   }
 
   // The pill stays mounted UNDER the editor at all times — while expanded it is
@@ -189,7 +140,7 @@ export const WallCommentComposer = ({
       {focusToExpand && (
         <Pill
           label={pillLabel}
-          onClick={() => setExpanded(true)}
+          onClick={expand}
           hidden={underlayHidden}
           className={`absolute inset-x-0 bottom-0 transition-opacity ${underlayHidden ? "pointer-events-none opacity-0" : "opacity-100"}`}
         />

@@ -12,7 +12,7 @@ import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
-import { isEditableElement } from "@/lib/mobileKeyboard";
+import { ComposerDock } from "@/components/composer/ComposerDock";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 import { wsService } from "@/services/websocket";
@@ -563,105 +563,13 @@ export const ThreadCommentTree = ({
     }).catch(() => {});
   }, [currentUserId]);
 
-  // Mobile keyboard state — same pattern as the wall comment tree.
-  const { isTouch, isOpen: keyboardOpen } = useMobileKeyboard();
-  const isTouchRef = useRef(isTouch);
-  isTouchRef.current = isTouch;
-  const keyboardOpenRef = useRef(keyboardOpen);
-  keyboardOpenRef.current = keyboardOpen;
-  const prevKeyboardOpenRef = useRef(keyboardOpen);
-  const [composerFocused, setComposerFocused] = useState(false);
-
-  const applyPin = useCallback(() => {
-    const anchor = composerAnchorRef.current;
-    if (!anchor || !isTouchRef.current) return;
-    const rect = anchor.getBoundingClientRect();
-    anchor.classList.add("wall-composer-pinned");
-    anchor.setAttribute("data-kb-locked", "true");
-    anchor.style.left = `${rect.left}px`;
-    anchor.style.width = `${rect.width}px`;
-  }, []);
-
-  const clearPin = useCallback(() => {
-    const anchor = composerAnchorRef.current;
-    if (!anchor) return;
-    anchor.classList.remove("wall-composer-pinned");
-    anchor.removeAttribute("data-kb-locked");
-    anchor.style.left = "";
-    anchor.style.width = "";
-  }, []);
-
-  useEffect(() => {
-    const anchor = composerAnchorRef.current;
-    if (!anchor) return;
-
-    const onFocusIn = (e: FocusEvent) => {
-      if (!anchor.contains(e.target as Node)) return;
-      if (!isEditableElement(e.target as HTMLElement | null)) return;
-      setComposerFocused(true);
-      applyPin();
-    };
-    const onFocusOut = (e: FocusEvent) => {
-      const related = e.relatedTarget as HTMLElement | null;
-      if (related && anchor.contains(related)) return;
-      if (!keyboardOpenRef.current) {
-        setComposerFocused(false);
-        clearPin();
-      }
-    };
-    const onDocFocusIn = (e: FocusEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target || !isEditableElement(target) || anchor.contains(target)) return;
-      setComposerFocused(false);
-      clearPin();
-    };
-
-    anchor.addEventListener("focusin", onFocusIn);
-    anchor.addEventListener("focusout", onFocusOut);
-    document.addEventListener("focusin", onDocFocusIn);
-
-    if (isTouchRef.current && anchor.contains(document.activeElement) && isEditableElement(document.activeElement)) {
-      setComposerFocused(true);
-      applyPin();
-    }
-
-    return () => {
-      anchor.removeEventListener("focusin", onFocusIn);
-      anchor.removeEventListener("focusout", onFocusOut);
-      document.removeEventListener("focusin", onDocFocusIn);
-      clearPin();
-    };
-  }, [applyPin, clearPin]);
-
-  useEffect(() => {
-    const wasOpen = prevKeyboardOpenRef.current;
-    prevKeyboardOpenRef.current = keyboardOpen;
-    if (!wasOpen || keyboardOpen) return;
-    const anchor = composerAnchorRef.current;
-    if (anchor && anchor.contains(document.activeElement)) return;
-    setComposerFocused(false);
-    clearPin();
-  }, [keyboardOpen, clearPin]);
-
-  useEffect(() => {
-    if (!composerFocused || !isTouch) return;
-    const realign = () => {
-      const anchor = composerAnchorRef.current;
-      const root = rootRef.current;
-      if (!anchor || !root || !anchor.classList.contains("wall-composer-pinned")) return;
-      const rect = root.getBoundingClientRect();
-      anchor.style.left = `${rect.left}px`;
-      anchor.style.width = `${rect.width}px`;
-    };
-    window.addEventListener("resize", realign);
-    window.addEventListener("orientationchange", realign);
-    window.visualViewport?.addEventListener("resize", realign);
-    return () => {
-      window.removeEventListener("resize", realign);
-      window.removeEventListener("orientationchange", realign);
-      window.visualViewport?.removeEventListener("resize", realign);
-    };
-  }, [composerFocused, isTouch]);
+  // Mobile keyboard state — same pattern as the wall comment tree. On touch
+  // the composer is a fixed dock at the bottom (ComposerDock, riding
+  // --kb-inset), so there is no JS pinning dance anymore: the bar never
+  // leaves the bottom and the document is pinned by mobileKeyboard from
+  // touchstart on the bar. On desktop it stays sticky at the end of the
+  // comments (no pin needed there).
+  const { isTouch } = useMobileKeyboard();
 
   // ── Data loading ──────────────────────────────────────────────────────────
   // The posts REST endpoint does NOT resolve `profiles:user_id(*)` — it
@@ -1014,7 +922,13 @@ export const ThreadCommentTree = ({
   const topLevelState = editorStates["top-level"] || { json: topLevelJson, text: topLevelText };
 
   return (
-    <div ref={rootRef} className="border-t border-border/60 pt-4">
+    <div
+      ref={rootRef}
+      // On touch the dock is always on screen — reserve scroll room at the
+      // end of the comments so the last post clears it (bar height + the
+      // keyboard on iOS, where the layout viewport never resizes).
+      className={`border-t border-border/60 pt-4 ${isTouch ? "wall-comments-pad-touch" : ""}`}
+    >
       {loading ? (
         <div className="space-y-3 py-2">
           {[1, 2, 3].map((i) => (
@@ -1033,7 +947,7 @@ export const ThreadCommentTree = ({
           Тут пока пусто, но это можно исправить.
         </div>
       ) : (
-        <div className={`space-y-0 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}>
+        <div className="space-y-0">
           {rootComments.map((post, index) => (
             <ThreadPostNode
               key={post.id}
@@ -1073,14 +987,11 @@ export const ThreadCommentTree = ({
       )}
 
       {currentUserId && (
-        <div
+        <ComposerDock
           ref={composerAnchorRef}
-          // data-kb-pin: mobileKeyboard pins the document on touchstart inside
-          // this bar (BEFORE the native focus), so iOS has nothing to pan when
-          // the keyboard opens — the focusin-only pin raced the pan and the
-          // content sometimes flew down then back up.
-          data-kb-pin={isTouch ? "true" : undefined}
-          className={`sticky kb-bottom-8 z-20 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}
+          pin={isTouch}
+          className={isTouch ? "wall-composer-dock" : "sticky kb-bottom-8 z-20"}
+          innerClassName={isTouch ? "mx-auto w-full max-w-4xl px-3 pt-2 wall-composer-dock-pad" : undefined}
         >
           <WallCommentComposer
             focusToExpand
@@ -1103,7 +1014,7 @@ export const ThreadCommentTree = ({
               setEditorStates((prev) => ({ ...prev, "top-level": { json, text } }));
             }}
           />
-        </div>
+        </ComposerDock>
       )}
 
       {/* Attachment lightbox */}

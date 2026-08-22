@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { ComposerDock } from "@/components/composer/ComposerDock";
 import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
 import { WallCommentComposer } from "./WallCommentComposer";
@@ -439,37 +440,38 @@ export const WallCommentTree = ({
   const rootComments = tree.get(null) || [];
 
   const dock = (
-    <div
+    // ComposerDock: shared fixed-bottom shell — position:fixed riding
+    // --kb-inset (always exactly above the keyboard), data-kb-pin (document
+    // pinned from touchstart, before the native focus-pan), and the portal
+    // OUT of the overlay's scroll container so the editor has no scrollable
+    // ancestor for iOS to focus-scroll on a direct re-tap.
+    <ComposerDock
       ref={composerAnchorRef}
-      // data-kb-pin: mobileKeyboard pins the document on touchstart inside
-      // this bar (BEFORE the native focus), so iOS has nothing to pan when
-      // the keyboard opens — the focusin-only pin raced the pan and the
-      // content sometimes flew down then back up.
-      data-kb-pin={isTouch ? "true" : undefined}
+      portalTo={isTouch ? dockPortalRoot : null}
+      pin={isTouch}
       className={isTouch ? "wall-composer-dock" : "sticky kb-bottom-8 z-20"}
+      innerClassName={isTouch ? "mx-auto w-full max-w-4xl px-3 pt-2 wall-composer-dock-pad" : undefined}
     >
-      <div className={isTouch ? "mx-auto w-full max-w-4xl px-3 pt-2 wall-composer-dock-pad" : undefined}>
-        <WallCommentComposer
-          minimal={isTouch}
-          focusToExpand
-          autoFocus
-          editorRef={composerEditorRef}
-          placeholder="Напишите комментарий"
-          replyTo={replyTarget && replyTargetName ? { id: replyTarget.id, name: replyTargetName } : null}
-          onSubmit={activeReplyId ? () => submitReply(activeReplyId) : submitTopLevel}
-          onCancel={activeReplyId ? cancelReply : undefined}
-          isSubmitting={isSubmitting["top-level"] || (activeReplyId ? isSubmitting[`reply:${activeReplyId}`] || false : false)}
-          json={topLevelState.json}
-          text={topLevelState.text}
-          resetKey={topLevelResetKey}
-          onChange={({ json, text }) => {
-            setTopLevelJson(json);
-            setTopLevelText(text);
-            setEditorStates((prev) => ({ ...prev, "top-level": { json, text } }));
-          }}
-        />
-      </div>
-    </div>
+      <WallCommentComposer
+        minimal={isTouch}
+        focusToExpand
+        autoFocus
+        editorRef={composerEditorRef}
+        placeholder="Напишите комментарий"
+        replyTo={replyTarget && replyTargetName ? { id: replyTarget.id, name: replyTargetName } : null}
+        onSubmit={activeReplyId ? () => submitReply(activeReplyId) : submitTopLevel}
+        onCancel={activeReplyId ? cancelReply : undefined}
+        isSubmitting={isSubmitting["top-level"] || (activeReplyId ? isSubmitting[`reply:${activeReplyId}`] || false : false)}
+        json={topLevelState.json}
+        text={topLevelState.text}
+        resetKey={topLevelResetKey}
+        onChange={({ json, text }) => {
+          setTopLevelJson(json);
+          setTopLevelText(text);
+          setEditorStates((prev) => ({ ...prev, "top-level": { json, text } }));
+        }}
+      />
+    </ComposerDock>
   );
 
   return (
@@ -521,14 +523,9 @@ export const WallCommentTree = ({
           // user is scrolled at the top or the end. It rides --kb-inset above
           // the keyboard (like the messenger chat panel), so there is nothing
           // to pin or re-align on focus. On desktop it stays sticky at the
-          // end of the comments as before.
-          //
-          // On the wall-post overlay the dock is PORTALED out of the overlay's
-          // scroll container (into the overlay root) so the editor has no
-          // scrollable ancestor — otherwise iOS focus-scrolls that container
-          // on a direct re-tap and the whole page jumps. Position:fixed makes
-          // the move visually invisible.
-          (isTouch && dockPortalRoot ? createPortal(dock, dockPortalRoot) : dock)
+          // end of the comments as before. ComposerDock handles the portal
+          // into the overlay root when the tree lives inside one.
+          dock
         )}
       </div>
     </WallCommentTreeContext.Provider>

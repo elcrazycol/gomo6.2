@@ -986,56 +986,25 @@ html.kb-open body {
   }
 }
 
-/* ── Wall comment composer: pinned above the keyboard on mobile ─────────────
+/* ── Composer dock — universal fixed-bottom bar core ─────────────────────────
 
-   In the comment list the composer is `sticky` (it floats at the end of the
-   comments). The moment its editor is focused on a touch device,
-   WallCommentTree pins it by adding this class SYNCHRONOUSLY inside the focus
-   handler: position:fixed + bottom:--kb-inset floats it exactly above the
-   keyboard (iOS never resizes the layout viewport, so --kb-inset is the only
-   reliable offset), and left/width are mirrored from the comment column via
-   inline styles so it stays pixel-aligned with the post.
-
-   Why fixed and not sticky: a sticky `bottom` bar detaches the moment its
-   in-flow position scrolls above the sticky line — the composer drifts away
-   from the bottom and the pad under it reads as a huge empty area, and iOS
-   focus-scrolling yanks the page on re-tap. A fixed bar never detaches and
-   browsers skip focus-scrolling for it entirely. On blur the class is removed
-   and the composer returns to the sticky in-flow position at the end of the
-   comments. */
-
-.wall-composer-pinned {
-  position: fixed !important;
-  top: auto !important;
-  right: auto !important;
-  /* Exact same bottom as the sticky rest position (kb-bottom-8 = 2rem +
-     --kb-inset, no safe-area, identical on every screen size), so pinning
-     never shifts the bar vertically: a jump mid-tap moves the pill away from
-     the finger and swallows the click that expands the composer. */
-  bottom: calc(2rem + var(--kb-inset, 0px)) !important;
-  z-index: 40 !important;
-  /* NOTE: no `left` here on purpose — WallCommentTree mirrors the comment
-     column via inline style.left/width, and an !important `left` here would
-     override that inline value and pin the bar to the screen edge. */
+   Shared by every mobile composer surface (wall comments, thread comments, …)
+   via components/composer/ComposerDock: a fixed bar glued to the bottom of
+   the screen, riding --kb-inset (the soft-keyboard height, 0 when closed) so
+   it floats EXACTLY above the keyboard and glides with it — no pinning, no
+   fixed/flow switching, nothing to land under the keyboard. The document is
+   pinned by lib/mobileKeyboard from touchstart on the bar, so iOS's focus-pan
+   has nothing to scroll and the slide-in is always smooth. Surfaces layer
+   their own padding/width via the inner wrapper (see wall-composer-dock-pad). */
+.composer-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--kb-inset, 0px);
+  z-index: 40;
 }
 
-/* When the composer is pinned, reserve scroll room so the last comment can be
-   scrolled above the bar (the pinned bar occupies the bottom ~15rem of the
-   screen; --kb-inset covers the keyboard on iOS where the layout viewport
-   never resizes). */
-.wall-comments-pad {
-  padding-bottom: calc(var(--kb-inset, 0px) + 16rem);
-}
-
-/* ── Wall comment composer: docked bottom bar on touch ───────────────────────
-
-   On touch the wall-post comment composer is a fixed bar glued to the bottom
-   of the screen — always visible while the comments are open, whether the
-   user is scrolled at the top or the end. Its bottom edge rides --kb-inset
-   (the soft-keyboard height, 0 when closed) exactly like the messenger chat
-   panel, so there is no pinning, no fixed/flow switching and nothing to land
-   under the keyboard. The sticky + JS-pin approach above stays for desktop,
-   where the composer sits at the end of the comments. */
+/* Backwards-compatible alias for the wall/thread comment docks. */
 .wall-composer-dock {
   position: fixed;
   left: 0;
