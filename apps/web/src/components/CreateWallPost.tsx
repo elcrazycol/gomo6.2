@@ -125,12 +125,35 @@ export const CreateWallPost = ({
   }, [editingPost]);
 
   // Lock page scroll while the overlay is up so the content underneath can't
-  // move (restored on unmount — after the close animation finishes).
+  // move (restored on unmount — after the close animation finishes). The app's
+  // html has overflow-x:hidden in CSS, which stops body overflow:hidden from
+  // propagating to the viewport — so html must be locked too. iOS ignores
+  // overflow:hidden on the body, so touchmoves that start OUTSIDE the composer
+  // (and outside the portaled emoji panel) are prevented outright; touches
+  // inside the panel keep scrolling its own areas.
   useEffect(() => {
-    const prev = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevOverscroll = document.documentElement.style.overscrollBehavior;
+    document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+
+    const root = composerRootRef.current;
+    const onTouchMove = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (root?.contains(target)) return;
+      if (target.closest('[data-testid="emoji-keyboard-panel"], [data-testid="emoji-picker-popover"]')) return;
+      e.preventDefault();
+    };
+    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+
     return () => {
-      document.body.style.overflow = prev;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overscrollBehavior = prevOverscroll;
+      document.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
     };
   }, []);
 

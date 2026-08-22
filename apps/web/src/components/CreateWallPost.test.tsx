@@ -469,10 +469,14 @@ describe("CreateWallPost", () => {
     setupApiMocks();
     const { unmount } = render(<Component {...defaultProps} />);
 
+    expect(document.documentElement.style.overflow).toBe("hidden");
     expect(document.body.style.overflow).toBe("hidden");
+    expect(document.documentElement.style.overscrollBehavior).toBe("none");
 
     unmount();
+    expect(document.documentElement.style.overflow).toBe("");
     expect(document.body.style.overflow).toBe("");
+    expect(document.documentElement.style.overscrollBehavior).toBe("");
   });
 
   it("toggles between the editor and live preview", async () => {
