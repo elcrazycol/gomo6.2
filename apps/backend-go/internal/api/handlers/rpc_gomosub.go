@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -156,6 +157,9 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	_, _ = h.db.Exec(`
 		INSERT INTO gomosub_memberships (board_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
 	`, board.ID, claims.UserID)
+
+	// Achievements: created a gomosub.
+	emitAchievement(h.achEngine, claims.UserID, achievements.EventSubCreated)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }

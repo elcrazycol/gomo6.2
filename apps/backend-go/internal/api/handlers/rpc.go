@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
@@ -32,11 +33,11 @@ func bearerClaims(c *gin.Context) (*auth.Claims, bool) {
 
 // RPCHandler handles all RPC endpoints for the forum.
 type RPCHandler struct {
-	db                 *sql.DB
-	redis              *redis.Client
-	wsHub              interface{}
-	recomputeStatsFn   func(*sql.DB, string)
-	achievementChecker *AchievementChecker
+	db               *sql.DB
+	redis            *redis.Client
+	wsHub            interface{}
+	recomputeStatsFn func(*sql.DB, string)
+	achEngine        *achievements.Engine
 }
 
 // NewRPCHandler creates a new RPCHandler.
@@ -49,8 +50,8 @@ func NewRPCHandler(db *sql.DB) *RPCHandler {
 	}
 }
 
-func (h *RPCHandler) SetAchievementChecker(ac *AchievementChecker) {
-	h.achievementChecker = ac
+func (h *RPCHandler) SetAchievementEngine(e *achievements.Engine) {
+	h.achEngine = e
 }
 
 func (h *RPCHandler) SetRedis(redis *redis.Client) {
@@ -306,9 +307,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	h.recomputeStatsFn(h.db, claims.UserID)
 
-	if h.achievementChecker != nil {
-		go h.achievementChecker.CheckAndAward(claims.UserID)
-	}
+	emitAchievement(h.achEngine, claims.UserID, achievements.EventCommentCreated)
 
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
@@ -530,8 +529,9 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	h.recomputeStatsFn(h.db, claims.UserID)
 
-	if h.achievementChecker != nil {
-		go h.achievementChecker.CheckAndAward(claims.UserID)
+	emitAchievement(h.achEngine, claims.UserID, achievements.EventEntryCreated)
+	if len(req.ImageURLs) > 0 {
+		emitAchievement(h.achEngine, claims.UserID, achievements.EventImageUploaded)
 	}
 
 	if h.redis != nil {
@@ -645,8 +645,8 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 			return
 		}
 
-		if pinnedCount >= 4 {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 4 achievements can be pinned"))
+		if pinnedCount >= 6 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 6 achievements can be pinned"))
 			return
 		}
 
@@ -678,73 +678,6 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 			WHERE user_id = $1 AND achievement_id = $2
 		`, req.UserID, req.AchievementID)
 	}
-
-	if err != nil {
-		serverError(c, "handler error", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(true))
-}
-
-// AwardAchievement awards an achievement to a user (idempotent).
-// POST /api/rpc/award_achievement — protected, requires auth.
-//
-// AwardAchievement godoc
-// @Summary      Award achievement
-// @Description  Award an achievement to a user (idempotent)
-// @Tags         RPC
-// @Accept       json
-// @Produce      json
-// @Param        request body object true "User and achievement IDs"
-// @Success      200 {object} models.APIResponse
-// @Failure      400 {object} models.APIResponse
-// @Failure      401 {object} models.APIResponse
-// @Router       /rpc/award_achievement [post]
-// @Security     BearerAuth
-func (h *RPCHandler) AwardAchievement(c *gin.Context) {
-	claims, ok := bearerClaims(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
-		return
-	}
-
-	var req struct {
-		UserID        string `json:"_user_id"`
-		AchievementID string `json:"_achievement_id"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
-		return
-	}
-
-	if req.UserID == "" || req.AchievementID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("_user_id and _achievement_id are required"))
-		return
-	}
-
-	if claims.UserID != req.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("You can only award achievements to yourself"))
-		return
-	}
-
-	var achExists bool
-	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM achievements WHERE id = $1)", req.AchievementID).Scan(&achExists)
-	if err != nil {
-		serverError(c, "handler error", err)
-		return
-	}
-	if !achExists {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Achievement not found"))
-		return
-	}
-
-	_, err = h.db.Exec(`
-		INSERT INTO user_achievements (user_id, achievement_id, level, is_pinned, pinned_order)
-		VALUES ($1, $2, 1, FALSE, NULL)
-		ON CONFLICT (user_id, achievement_id) DO NOTHING
-	`, req.UserID, req.AchievementID)
 
 	if err != nil {
 		serverError(c, "handler error", err)

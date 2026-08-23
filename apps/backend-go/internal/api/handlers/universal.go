@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
@@ -21,10 +22,10 @@ import (
 
 // UniversalHandler handles generic CRUD operations for any table
 type UniversalHandler struct {
-	db                 *sql.DB
-	hub                *websocket.Hub
-	redis              *redis.Client
-	achievementChecker *AchievementChecker
+	db        *sql.DB
+	hub       *websocket.Hub
+	redis     *redis.Client
+	achEngine *achievements.Engine
 }
 
 func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
@@ -36,9 +37,9 @@ func (h *UniversalHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
-// SetAchievementChecker sets the achievement checker for auto-unlock
-func (h *UniversalHandler) SetAchievementChecker(ac *AchievementChecker) {
-	h.achievementChecker = ac
+// SetAchievementEngine wires the achievements engine for auto-unlock events.
+func (h *UniversalHandler) SetAchievementEngine(e *achievements.Engine) {
+	h.achEngine = e
 }
 
 // ─── Main Router ────────────────────────────────────────────────────────────

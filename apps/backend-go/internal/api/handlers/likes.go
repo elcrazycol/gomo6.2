@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
@@ -15,10 +16,10 @@ import (
 )
 
 type LikesHandler struct {
-	db                 *sql.DB
-	redis              *redis.Client
-	hub                *websocket.Hub
-	achievementChecker *AchievementChecker
+	db        *sql.DB
+	redis     *redis.Client
+	hub       *websocket.Hub
+	achEngine *achievements.Engine
 }
 
 func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
@@ -32,8 +33,8 @@ func (h *LikesHandler) SetWebSocketHub(hub *websocket.Hub) {
 	h.hub = hub
 }
 
-func (h *LikesHandler) SetAchievementChecker(ac *AchievementChecker) {
-	h.achievementChecker = ac
+func (h *LikesHandler) SetAchievementEngine(e *achievements.Engine) {
+	h.achEngine = e
 }
 
 // LikeThread godoc
@@ -114,12 +115,10 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 		_, _ = CreateNotification(h.db, h.redis, h.hub, threadOwner, "like", "", params, &threadID, nil, &userClaims.UserID)
 	}
 
-	// Check achievements for both the liker and the thread author
-	if h.achievementChecker != nil {
-		go h.achievementChecker.CheckAndAward(userClaims.UserID)
-		if threadOwner != "" && threadOwner != userClaims.UserID {
-			go h.achievementChecker.CheckAndAward(threadOwner)
-		}
+	// Achievements: the liker gave a like; the thread author received one.
+	emitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	if threadOwner != "" && threadOwner != userClaims.UserID {
+		emitAchievement(h.achEngine, threadOwner, achievements.EventLikeReceived)
 	}
 
 	// Invalidate cache for thread and its posts
@@ -264,12 +263,10 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 		_, _ = CreateNotification(h.db, h.redis, h.hub, postAuthor, "like", "", params, &threadID, &postID, &userClaims.UserID)
 	}
 
-	// Check achievements for both the liker and the post author
-	if h.achievementChecker != nil {
-		go h.achievementChecker.CheckAndAward(userClaims.UserID)
-		if postAuthor != "" && postAuthor != userClaims.UserID {
-			go h.achievementChecker.CheckAndAward(postAuthor)
-		}
+	// Achievements: the liker gave a like; the post author received one.
+	emitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	if postAuthor != "" && postAuthor != userClaims.UserID {
+		emitAchievement(h.achEngine, postAuthor, achievements.EventLikeReceived)
 	}
 
 	// Invalidate cache for post and its thread
