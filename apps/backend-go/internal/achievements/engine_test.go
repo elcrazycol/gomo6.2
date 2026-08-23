@@ -100,16 +100,23 @@ func expectCurrentLevel(mock sqlmock.Sqlmock, key string, level int) {
 	mock.ExpectQuery("SELECT COALESCE\\(current_level").WithArgs("u1", GroupID(key)).WillReturnRows(rows)
 }
 
-func expectRatchetUpsert(mock sqlmock.Sqlmock, key string, level, progress int) {
+func expectExactUpsert(mock sqlmock.Sqlmock, key string, level, progress int) {
 	mock.ExpectExec("INSERT INTO user_achievements").
 		WithArgs("u1", GroupID(key), level, progress, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 }
 
-func expectExactUpsert(mock sqlmock.Sqlmock, key string, level, progress int) {
-	mock.ExpectExec("INSERT INTO user_achievements").
-		WithArgs("u1", GroupID(key), level, progress, sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+// expectCounterReconcile stubs a counter event: a sourceCount query returning
+// the live value, the counter write, a level read and the exact upsert.
+func expectCounterReconcile(mock sqlmock.Sqlmock, fragment, key string, value, level int) {
+	mock.ExpectQuery(fragment).WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(value))
+	mock.ExpectExec("INSERT INTO user_achievement_counters").
+		WithArgs("u1", key, value).WillReturnResult(sqlmock.NewResult(1, 1))
+	expectCurrentLevel(mock, key, 0)
+	if level > 0 {
+		expectExactUpsert(mock, key, level, value)
+	}
 }
 
 // expectDerivedNoUnlock stubs a derived-group query returning a value below its
@@ -131,27 +138,26 @@ func expectEntryEventDerived(mock sqlmock.Sqlmock, unlocked bool) {
 
 // ──────────────── counter events ────────────────
 
-// TestHandleEvent_CounterUnlock: an entry crosses threshold 1 → the level row
-// is upserted (sqlmock enforces the write; unlocks are silent by design).
+// TestHandleEvent_CounterUnlock: an entry crosses threshold 1 → the counter is
+// reconciled from live data and the level row upserted (silent unlock).
 func TestHandleEvent_CounterUnlock(t *testing.T) {
 	e, mock := newEngine(t)
 
-	mock.ExpectQuery("INSERT INTO user_achievement_counters").
-		WithArgs("u1", "entries").WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow(1))
-	expectCurrentLevel(mock, "entries", 0)
-	expectRatchetUpsert(mock, "entries", 1, 1)
-
+	expectCounterReconcile(mock, "FROM threads t WHERE t.user_id", "entries", 1, 1)
 	expectEntryEventDerived(mock, true)
 
 	e.HandleEvent(Event{UserID: "u1", Type: EventEntryCreated})
 }
 
-// TestHandleEvent_SameLevelNoUpsert: 2 entries still level 1 → no level write.
+// TestHandleEvent_SameLevelNoUpsert: 2 entries still level 1 → counter synced,
+// no level write.
 func TestHandleEvent_SameLevelNoUpsert(t *testing.T) {
 	e, mock := newEngine(t)
 
-	mock.ExpectQuery("INSERT INTO user_achievement_counters").
-		WithArgs("u1", "entries").WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow(2))
+	mock.ExpectQuery("FROM threads t WHERE t.user_id").
+		WithArgs("u1").WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(2))
+	mock.ExpectExec("INSERT INTO user_achievement_counters").
+		WithArgs("u1", "entries", 2).WillReturnResult(sqlmock.NewResult(1, 1))
 	expectCurrentLevel(mock, "entries", 1) // already at level 1; 2 entries still level 1
 	expectEntryEventDerived(mock, false)
 
@@ -161,26 +167,18 @@ func TestHandleEvent_SameLevelNoUpsert(t *testing.T) {
 func TestHandleEvent_OneTimeCounter(t *testing.T) {
 	e, mock := newEngine(t)
 
-	mock.ExpectQuery("INSERT INTO user_achievement_counters").
-		WithArgs("u1", "avatar").WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow(1))
-	expectCurrentLevel(mock, "avatar", 0)
-	expectRatchetUpsert(mock, "avatar", 1, 1)
+	expectCounterReconcile(mock, "avatar_url IS NOT NULL", "avatar", 1, 1)
 
 	e.HandleEvent(Event{UserID: "u1", Type: EventAvatarUpdated})
 }
 
-func TestHandleEvent_DirtyGroupBackfills(t *testing.T) {
+// TestHandleEvent_CounterSelfHeals: the counter reconciles to the LIVE value
+// even when an earlier event was missed (dirty/incomplete history) — the
+// achievement never lags the real row count.
+func TestHandleEvent_CounterSelfHeals(t *testing.T) {
 	e, mock := newEngine(t)
-	e.mu.Lock()
-	e.dirtyGroups["entries"] = true
-	e.mu.Unlock()
 
-	mock.ExpectQuery("FROM threads t WHERE t.user_id").
-		WithArgs("u1").WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(5))
-	mock.ExpectExec("INSERT INTO user_achievement_counters").
-		WithArgs("u1", "entries", 5).WillReturnResult(sqlmock.NewResult(1, 1))
-	expectCurrentLevel(mock, "entries", 0)
-	expectExactUpsert(mock, "entries", 1, 5)
+	expectCounterReconcile(mock, "FROM threads t WHERE t.user_id", "entries", 5, 1)
 	expectEntryEventDerived(mock, true)
 
 	e.HandleEvent(Event{UserID: "u1", Type: EventEntryCreated})

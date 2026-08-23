@@ -26,6 +26,30 @@ func (h *UniversalHandler) emitUniversalAchievementEvents(tableName string, resu
 		return
 	}
 	switch tableName {
+	// Threads and posts created through the generic REST surface (the create
+	// wizards / useCreateThread / useCreatePost go via api.from('threads' |
+	// 'posts').insert(), NOT the RPC endpoints). Without these cases a thread
+	// or post made this way never emitted any event, so the entries/comments
+	// counters silently lagged the real row counts forever.
+	case "threads":
+		if uid := rowUserID(result["user_id"]); uid != "" {
+			emitAchievement(e, uid, achievements.EventEntryCreated)
+			if wallPostHasImage(result) {
+				emitAchievement(e, uid, achievements.EventImageUploaded)
+			}
+		}
+	case "posts":
+		if uid := rowUserID(result["user_id"]); uid != "" {
+			emitAchievement(e, uid, achievements.EventCommentCreated)
+		}
+	case "boards":
+		// A gomosub is created through the generic surface in some UIs; a
+		// newly created gomosub counts as sub_create for its owner.
+		if isTrue(result["is_gomosub"]) {
+			if uid := rowUserID(result["owner_id"]); uid != "" {
+				emitAchievement(e, uid, achievements.EventSubCreated)
+			}
+		}
 	case "profile_wall_posts":
 		if uid := rowUserID(result["author_id"]); uid != "" {
 			emitAchievement(e, uid, achievements.EventEntryCreated)
@@ -75,6 +99,22 @@ func (h *UniversalHandler) emitUniversalAchievementEvents(tableName string, resu
 		if uid := rowUserID(result["user_id"]); uid != "" {
 			emitAchievement(e, uid, achievements.EventProfileStyled)
 		}
+	}
+}
+
+// isTrue reports whether a universal-CRUD result cell carries a boolean true
+// (Postgres RETURNING * can deliver bools as Go bool, or as "t"/"true").
+func isTrue(v interface{}) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		return t == "t" || t == "true" || t == "1"
+	case []byte:
+		s := string(t)
+		return s == "t" || s == "true" || s == "1"
+	default:
+		return false
 	}
 }
 

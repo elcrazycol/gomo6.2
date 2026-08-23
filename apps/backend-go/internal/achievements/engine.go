@@ -141,32 +141,26 @@ func (e *Engine) HandleEvent(ev Event) {
 	}
 }
 
-// handleCounter increments the counter for a group and applies the new level.
-// Returns true if a level increased. Dirty groups (definition changed) are
-// backfilled from live data instead of blindly incremented.
+// handleCounter reconciles a counter group with live data and applies the
+// level. It ALWAYS recomputes from the source tables instead of blindly
+// incrementing: counter groups have a deterministic sourceCount query, so an
+// event is simply a trigger to re-read reality. This makes the counter
+// self-healing — a missed event, a generic-CRUD write that didn't emit, or a
+// pre-existing row can never leave the counter permanently wrong (the "44 vs
+// 41" drift where the achievement lagged the real row count forever).
 func (e *Engine) handleCounter(userID, key string) bool {
 	g, ok := e.catalog.Get(key)
 	if !ok || g.Stat != StatCounter {
 		return false
 	}
 	ctx := context.Background()
-
-	if e.isDirty(key) {
-		value, err := e.sourceCount(ctx, userID, key)
-		if err != nil {
-			e.logf("sourceCount(%s,%s): %v", userID, key, err)
-			return false
-		}
-		e.setCounter(ctx, userID, key, value)
-		return e.applyLevelExact(ctx, userID, g, g.LevelFor(value), value)
-	}
-
-	var value int
-	if err := e.db.QueryRowContext(ctx, incrementCounterSQL, userID, key).Scan(&value); err != nil {
-		e.logf("increment counter(%s,%s): %v", userID, key, err)
+	value, err := e.sourceCount(ctx, userID, key)
+	if err != nil {
+		e.logf("sourceCount(%s,%s): %v", userID, key, err)
 		return false
 	}
-	return e.applyLevelRatchet(ctx, userID, g, g.LevelFor(value), value)
+	e.setCounter(ctx, userID, key, value)
+	return e.applyLevelExact(ctx, userID, g, g.LevelFor(value), value)
 }
 
 // handleDerived computes a derived group's value from live data and applies the
@@ -184,13 +178,6 @@ func (e *Engine) handleDerived(userID, key string, at time.Time) bool {
 	return e.applyLevelExact(context.Background(), userID, g, g.LevelFor(value), value)
 }
 
-const incrementCounterSQL = `
-INSERT INTO user_achievement_counters (user_id, group_key, value)
-VALUES ($1, $2, 1)
-ON CONFLICT (user_id, group_key)
-DO UPDATE SET value = user_achievement_counters.value + 1, updated_at = NOW()
-RETURNING value`
-
 func (e *Engine) setCounter(ctx context.Context, userID, key string, value int) {
 	_, err := e.db.ExecContext(ctx, `
 INSERT INTO user_achievement_counters (user_id, group_key, value, updated_at)
@@ -200,18 +187,6 @@ DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, userID, key, value)
 	if err != nil {
 		e.logf("set counter(%s,%s,%d): %v", userID, key, value, err)
 	}
-}
-
-// applyLevelRatchet upserts the level so it only ever goes up (GREATEST).
-// Returns true if the level increased (an unlock/level-up happened).
-func (e *Engine) applyLevelRatchet(ctx context.Context, userID string, g *Group, newLevel, progress int) bool {
-	currentLevel := e.currentLevel(ctx, userID, g.Key)
-	if newLevel <= currentLevel {
-		return false
-	}
-	e.upsertRatchet(ctx, userID, g, newLevel, progress)
-	e.onLevelUp(userID, g, currentLevel, newLevel)
-	return true
 }
 
 // applyLevelExact writes the level exactly as computed (recompute / derived
@@ -241,25 +216,6 @@ func (e *Engine) currentLevel(ctx context.Context, userID, key string) int {
 		return 0
 	}
 	return level
-}
-
-func (e *Engine) upsertRatchet(ctx context.Context, userID string, g *Group, newLevel, progress int) {
-	_, err := e.db.ExecContext(ctx, `
-INSERT INTO user_achievements (user_id, achievement_id, current_level, progress_current, unlocked_at, rule_hash)
-VALUES ($1, $2, $3, $4, NOW(), $5)
-ON CONFLICT (user_id, achievement_id)
-DO UPDATE SET
-	current_level = GREATEST(user_achievements.current_level, EXCLUDED.current_level),
-	progress_current = GREATEST(user_achievements.progress_current, EXCLUDED.progress_current),
-	unlocked_at = CASE
-		WHEN user_achievements.current_level < EXCLUDED.current_level THEN NOW()
-		ELSE COALESCE(user_achievements.unlocked_at, NOW())
-	END,
-	rule_hash = EXCLUDED.rule_hash`,
-		userID, GroupID(g.Key), newLevel, progress, e.ruleHash(g))
-	if err != nil {
-		e.logf("upsert ratchet(%s,%s): %v", userID, g.Key, err)
-	}
 }
 
 func (e *Engine) upsertExact(ctx context.Context, userID string, g *Group, newLevel, progress int) {
@@ -414,12 +370,6 @@ DELETE FROM achievements WHERE group_key NOT IN (
 		return fmt.Errorf("achievements: delete retired groups: %w", err)
 	}
 	return nil
-}
-
-func (e *Engine) isDirty(key string) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.dirtyGroups[key]
 }
 
 // RecomputeDirty recomputes every dirty group for all affected users (those

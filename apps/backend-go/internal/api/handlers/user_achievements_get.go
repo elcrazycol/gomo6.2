@@ -13,6 +13,16 @@ import (
 // handleUserAchievementsGet returns rows shaped like PostgREST embeds: nested "achievements" object
 // with multi-level support (levels JSONB, current_level, max_level).
 func (h *UniversalHandler) handleUserAchievementsGet(c *gin.Context) {
+	// Whenever a user opens their own achievements page, reconcile every group
+	// from live data. Counter groups self-heal in the engine, but a user who
+	// has an untriggered period (a thread posted through a path that didn't
+	// emit before the fix, or stale rows from the old system) would otherwise
+	// carry the mismatch forward until their next event. This makes the page
+	// always reflect reality when viewed — no rebuild/restart required.
+	if owner := strings.TrimPrefix(c.Query("user_id"), "eq."); owner != "" && owner == authenticatedUserID(c) && h.achEngine != nil {
+		h.achEngine.RecomputeUser(c.Request.Context(), owner)
+	}
+
 	query := `
 SELECT ua.id, ua.user_id, ua.achievement_id, ua.unlocked_at,
   COALESCE(ua.current_level, 0) AS level,
