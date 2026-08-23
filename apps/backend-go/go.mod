@@ -1,6 +1,6 @@
 module github.com/gomo6/backend
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -23,8 +23,8 @@ require (
 	github.com/redis/go-redis/v9 v9.6.3
 	github.com/swaggo/swag v1.16.4
 	go.n16f.net/thumbhash v1.1.0
-	golang.org/x/crypto v0.52.0
-	golang.org/x/image v0.43.0
+	golang.org/x/crypto v0.54.0
+	golang.org/x/image v0.45.0
 )
 
 require (
@@ -80,10 +80,10 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/arch v0.3.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
-	golang.org/x/tools v0.45.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
