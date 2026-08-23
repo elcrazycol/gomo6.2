@@ -92,11 +92,8 @@ const Index = () => {
           const [profileData, termsRes] = await Promise.all([
             loadProfile(session.user.id),
             api.from("user_terms_acceptance").select("*").eq("user_id", session.user.id).maybeSingle(),
-          ]);
-
-          setIsModerator(profileData.isAdmin);
+          ]);		  setIsModerator(profileData.isAdmin);
           setCurrentUserUsername(profileData.username);
-          setCurrentUserColor(profileData.color);
 
           if (!termsRes.data) {
             setShowTerms(true);

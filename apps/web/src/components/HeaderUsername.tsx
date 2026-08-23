@@ -38,26 +38,11 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
 
   if (!profileData) {
     return null;
-  }
-
-  const colorClasses: Record<string, string> = {
-    purple: 'text-purple-500',
-    gold: 'text-yellow-500',
-    orange: 'text-orange-500',
-    red: 'text-red-500',
-    blue: 'text-blue-500',
-    green: 'text-green-500',
-    yellow: 'text-yellow-400',
-    cyan: 'text-cyan-500',
-  };
-
-  const usernameStyle = profileData.customization?.username_css
+  }	const usernameStyle = profileData.customization?.username_css
     ? parseCssToStyle(profileData.customization.username_css)
     : {};
 
-  const usernameClassName = profileData.customization?.username_css
-    ? `text-sm sm:text-base drop-shadow-[0_0_1px_rgba(255,255,255,0.8)]`
-    : `text-sm sm:text-base drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${profileData.color ? colorClasses[profileData.color] : 'text-quote'}`;
+  const usernameClassName = `text-sm sm:text-base drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] text-quote`;
 
   return (
     <ProfileHoverCard userId={userId} showDrops>

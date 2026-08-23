@@ -41,31 +41,20 @@ describe("HeaderUsername", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("renders username from cached profile", async () => {
-    mockGetProfile.mockReturnValue({ username: "alice", color: "", customization: null });
+  it("renders username from cached profile", async () => {	mockGetProfile.mockReturnValue({ username: "alice", customization: null });
     render(<HeaderUsername userId="user-1" />);
     expect(screen.getByText("alice")).toBeInTheDocument();
   });
 
   it("loads profile from API when not cached", async () => {
-    mockGetProfile.mockReturnValue(null);
-    mockLoadProfile.mockResolvedValue({ username: "bob", color: "purple", customization: null });
+    mockGetProfile.mockReturnValue(null);	mockLoadProfile.mockResolvedValue({ username: "bob", customization: null });
     render(<HeaderUsername userId="user-1" />);
     await screen.findByText("bob");
     expect(mockLoadProfile).toHaveBeenCalledWith("user-1");
   });
 
-  it("applies color class", () => {
-    mockGetProfile.mockReturnValue({ username: "colored", color: "purple", customization: null });
-    render(<HeaderUsername userId="user-1" />);
-    const el = screen.getByText("colored");
-    expect(el.className).toContain("text-purple-500");
-  });
-
   it("applies custom CSS style from customization", () => {
-    mockGetProfile.mockReturnValue({
-      username: "styled",
-      color: "",
+    mockGetProfile.mockReturnValue({	    username: "styled",
       customization: { username_css: "color: red" },
     });
     render(<HeaderUsername userId="user-1" />);
@@ -73,14 +62,12 @@ describe("HeaderUsername", () => {
     expect(el.style.color).toBe("red");
   });
 
-  it("shows 'Профиль' when username is empty", () => {
-    mockGetProfile.mockReturnValue({ username: "", color: "", customization: null });
+  it("shows 'Профиль' when username is empty", () => {	mockGetProfile.mockReturnValue({ username: "", customization: null });
     render(<HeaderUsername userId="user-1" />);
     expect(screen.getByText("Профиль")).toBeInTheDocument();
   });
 
-  it("navigates to profile on click", async () => {
-    mockGetProfile.mockReturnValue({ username: "clickable", color: "", customization: null });
+  it("navigates to profile on click", async () => {	mockGetProfile.mockReturnValue({ username: "clickable", customization: null });
     const user = userEvent.setup();
     render(<HeaderUsername userId="user-1" />);
     await user.click(screen.getByText("clickable"));

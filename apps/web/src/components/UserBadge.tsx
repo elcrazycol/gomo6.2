@@ -4,7 +4,6 @@ import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { NicknameEmoji } from "./NicknameEmoji";
-import { useUserColor } from "@/hooks/useUserColor";
 
 import {
   Tooltip,
@@ -41,7 +40,6 @@ export const UserBadge = ({
   isThreadOpener,
   className,
 }: UserBadgeProps) => {
-  const { data: color = "" } = useUserColor(userId && !isAnonymous ? userId : undefined);
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
 
   useEffect(() => {
@@ -56,17 +54,6 @@ export const UserBadge = ({
     return <span className={`font-bold text-quote ${textSizeClass} ${outlineClass} ${className ?? ""}`}>Аноним</span>;
   }
 
-  const colorClasses: Record<string, string> = {
-    purple: `text-purple-500 font-bold ${textSizeClass} ${outlineClass}`,
-    gold: `text-yellow-500 font-bold ${textSizeClass} ${outlineClass}`,
-    orange: `text-orange-500 font-bold ${textSizeClass} ${outlineClass}`,
-    red: `text-red-500 font-bold ${textSizeClass} ${outlineClass}`,
-    blue: `text-blue-500 font-bold ${textSizeClass} ${outlineClass}`,
-    green: `text-green-500 font-bold ${textSizeClass} ${outlineClass}`,
-    yellow: `text-yellow-400 font-bold ${textSizeClass} ${outlineClass}`,
-    cyan: `text-cyan-500 font-bold ${textSizeClass} ${outlineClass}`,
-  };
-
   // Apply customization CSS if available
   const usernameStyle = customization?.username_css 
     ? parseCssToStyle(customization.username_css)
@@ -78,7 +65,7 @@ export const UserBadge = ({
 
   const usernameClassName = customization?.username_css
     ? `font-bold hover:underline ${textSizeClass}`
-    : `font-bold hover:underline ${textSizeClass} ${outlineClass} ${color ? colorClasses[color] : "text-quote"}`;
+    : `font-bold hover:underline ${textSizeClass} ${outlineClass} text-quote`;
 
   const usernameContent = (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden">

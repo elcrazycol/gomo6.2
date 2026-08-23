@@ -45,7 +45,7 @@ describe("notificationLink", () => {
   });
 
   it("falls back to # for notifications with no target", () => {
-    expect(notificationLink({ ...base, type: "achievement_unlock" })).toBe("#");
+    expect(notificationLink({ ...base, type: "unknown_type" })).toBe("#");
   });
 });
 
@@ -80,12 +80,11 @@ describe("notificationTitle", () => {
   });
 
   it("interpolates all notification variable names", () => {
-    expect(interpolateNotification("@{{actor}} · {{count}} · {{gift}} · {{name}}", {
+    expect(interpolateNotification("@{{actor}} · {{count}} · {{gift}}", {
       actor: "alice",
       count: 2,
       gift_name: "Rose",
-      achievement_name: "Early bird",
-    })).toBe("@alice · 2 · Rose · Early bird");
+    })).toBe("@alice · 2 · Rose");
   });
 
   const t = i18n.t.bind(i18n);

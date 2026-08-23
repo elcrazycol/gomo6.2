@@ -2,14 +2,13 @@ import { api } from "@/integrations/api/compat";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 
 /**
- * TTL-cached metadata for the current user (roles, nickname color, username,
- * avatar) and the public gift catalog.
+ * TTL-cached metadata for the current user (roles, username, avatar) and the
+ * public gift catalog.
  *
  * Every page (Profile, Thread, Index, Board...) used to fetch user_roles +
- * profiles + user_achievements on mount just to know the nickname color and
- * moderator/admin flags — one navigation fired the same 3 requests per page.
- * This collapses them into a single batched call cached for 5 minutes, so a
- * page-to-page hop costs 0 requests and a fresh session costs 3.
+ * profiles on mount just to know the moderator/admin flags — one navigation
+ * fired the same requests per page. This collapses them into a single batched
+ * call cached for 5 minutes, so a page-to-page hop costs 0 requests.
  *
  * The cache is cleared on the same 'profile-cache:invalidate' DOM event that
  * clears ProfileCacheContext, so saving a profile/avatar is reflected on the
@@ -34,11 +33,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const inFlight = new Map<string, Promise<CurrentUserMeta>>();
-
-const COLOR_PRIORITY = ["purple", "gold", "orange", "red", "blue", "green", "yellow", "cyan"];
-
-export function clearCurrentUserMetaCache() {
+const inFlight = new Map<string, Promise<CurrentUserMeta>>();export function clearCurrentUserMetaCache() {
   cache.clear();
   inFlight.clear();
 }
@@ -49,44 +44,24 @@ if (typeof window !== "undefined") {
 
 async function fetchCurrentUserMeta(userId: string): Promise<CurrentUserMeta> {
   const token = (await api.auth.getSession()).data.session?.access_token;
-  const headers: Record<string, string> | undefined = token ? { Authorization: `Bearer ${token}` } : undefined;
-
-  const [rolesRes, profileRes, achRes] = await Promise.all([
+  const headers: Record<string, string> | undefined = token ? { Authorization: `Bearer ${token}` } : undefined;	const [rolesRes, profileRes] = await Promise.all([
     fetch(`/api/v1/user_roles?user_id=eq.${userId}`, { headers }),
     fetch(`/api/v1/profiles?id=eq.${userId}`, { headers }),
-    fetch(`/api/v1/user_achievements?user_id=eq.${userId}`, { headers }),
   ]);
 
-  const [rolesJson, profileJson, achJson] = await Promise.all([
+  const [rolesJson, profileJson] = await Promise.all([
     rolesRes.json().catch(() => ({ data: [] })),
     profileRes.json().catch(() => ({ data: [] })),
-    achRes.json().catch(() => ({ data: [] })),
   ]);
 
   const roles: string[] = Array.isArray(rolesJson?.data)
     ? rolesJson.data.map((r: { role?: string }) => r.role).filter(Boolean)
-    : [];
+    : [];	const profile = profileJson?.data?.[0] ?? null;
 
-  const profile = profileJson?.data?.[0] ?? null;
-
-  // Derive nickname color from username_color achievements (same priority
-  // order used by ProfileCacheContext).
-  let color = "";
-  const achievements = Array.isArray(achJson?.data) ? achJson.data : [];
-  const colorRewards = achievements
-    .filter((a: { achievements?: { reward_type?: string; reward_value?: string } }) => a.achievements?.reward_type === "username_color")
-    .map((a: { achievements?: { reward_value?: string } }) => a.achievements?.reward_value)
-    .filter(Boolean);
-  for (const p of COLOR_PRIORITY) {
-    if (colorRewards.includes(p)) {
-      color = p;
-      break;
-    }
-  }
-
+  // username_color achievement rewards were removed — no nickname color.
   return {
     roles,
-    color,
+    color: "",
     username: profile?.username ?? "",
     avatarUrl: profile?.avatar_url ?? undefined,
     nicknameEmojiId: profile?.nickname_emoji_id ?? null,

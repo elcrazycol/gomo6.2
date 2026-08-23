@@ -18,7 +18,6 @@ import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
-import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { PublishButton } from "@/components/PublishButton";
 import { PUBLISH_BUTTON_STYLES, getPublishButtonStyle, setPublishButtonStyle, type PublishButtonStyle } from "@/lib/publishButtonStyle";
@@ -81,8 +80,6 @@ const Settings = () => {
   const { t } = useTranslation();
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentUserUsername, setCurrentUserUsername] = useState("");
-  const [currentUserColor, setCurrentUserColor] = useState("");
   const [privacySettings, setPrivacySettings] = useState<PrivacySettingsData>(defaultPrivacySettings);
 
   interface PrivacySettingsData {
@@ -146,13 +143,6 @@ const Settings = () => {
     const getUser = async () => {
       const { data: { user } } = await api.auth.getUser();
       setUser(user);
-      
-      if (user) {
-        // Username + nickname color via the TTL-cached batched helper.
-        const meta = await getCurrentUserMeta(user.id);
-        setCurrentUserUsername(meta.username);
-        setCurrentUserColor(meta.color);
-      }
       
       setLoading(false);
     };

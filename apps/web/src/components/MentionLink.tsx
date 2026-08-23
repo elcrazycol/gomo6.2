@@ -3,35 +3,19 @@ import { api } from "@/integrations/api/compat";
 import { Link } from "react-router-dom";
 import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
-import { useUserColor } from "@/hooks/useUserColor";
 
 interface MentionLinkProps {
   username: string;
 }
 
 // Global cache for user mentions
-const userCache = new Map<string, { exists: boolean; data?: unknown; color?: string; avatarUrl?: string | null }>();
-
-const getColorClass = (color: string): string => {
-  const colorClasses: Record<string, string> = {
-    purple: "text-purple-500",
-    gold: "text-yellow-500",
-    orange: "text-orange-500",
-    red: "text-red-500",
-    blue: "text-blue-500",
-    green: "text-green-500",
-    yellow: "text-yellow-400",
-    cyan: "text-cyan-500",
-  };
-  return colorClasses[color] || "text-link";
-};
+const userCache = new Map<string, { exists: boolean; data?: unknown; avatarUrl?: string | null }>();
 
 export const MentionLink = ({ username }: MentionLinkProps) => {
   const [userExists, setUserExists] = useState<boolean | null>(null);
   const [userData, setUserData] = useState<unknown>(null);
   const [userId, setUserId] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const { data: color = "" } = useUserColor(userId || undefined);
 
   useEffect(() => {
     // Check cache first
@@ -87,7 +71,6 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
   }
 
   if (userExists && userData) {
-    const colorClass = color ? getColorClass(color) : "text-link";
     return (        <Link
         to={`/profile/${(userData as { id: string }).id}`}
         className={`inline-flex items-center gap-1.5 h-6 px-2 py-0.5 text-xs font-medium bg-muted/50 hover:bg-primary/10 hover:text-primary border border-border/40 hover:border-primary/30 transition-all duration-200 cursor-pointer rounded-md group`}
@@ -112,8 +95,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           ) : (
             <User className="w-2 h-2 text-muted-foreground group-hover:text-primary transition-colors" />
           )}
-        </div>
-        <span className={`${colorClass} font-medium truncate max-w-20`}>
+        </div>		<span className={`text-link font-medium truncate max-w-20`}>
           {username}
         </span>
       </Link>

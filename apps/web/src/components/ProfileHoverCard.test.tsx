@@ -92,7 +92,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "testuser", id: "user-1", bio: "Hello", post_count: 10, created_at: "2025-01-01T00:00:00Z" },
         avatarUrl: null,
-        usernameColor: "",
         customization: null,
         placeholders: null,
       },
@@ -131,7 +130,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "testuser", id: "user-1", avatar_url: "avatar.jpg" },
         avatarUrl: "avatar.jpg",
-        usernameColor: "",
         customization: null,
         placeholders: null,
       },
@@ -156,7 +154,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "testuser", id: "user-1" },
         avatarUrl: null,
-        usernameColor: "",
         customization: null,
         placeholders: null,
       },
@@ -181,7 +178,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "admin", id: "admin-1" },
         avatarUrl: null,
-        usernameColor: "",
         customization: null,
         placeholders: null,
       },
@@ -206,7 +202,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "testuser", id: "user-1", is_online: true, last_seen: "2025-01-01T00:00:00Z" },
         avatarUrl: null,
-        usernameColor: "",
         customization: null,
         placeholders: null,
       },
@@ -231,7 +226,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "colored", id: "user-1" },
         avatarUrl: null,
-        usernameColor: "purple",
         customization: null,
         placeholders: null,
       },
@@ -256,7 +250,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "testuser", id: "user-1", post_count: 42, thread_count: 40, wall_post_count: 2 },
         avatarUrl: null,
-        usernameColor: "",
         customization: null,
         placeholders: null,
       },
@@ -282,7 +275,6 @@ describe("ProfileHoverCard", () => {
       data: {
         profile: { username: "testuser", id: "user-1", bio: "Hello", post_count: 10, created_at: "2025-01-01T00:00:00Z" },
         avatarUrl: null,
-        usernameColor: "",
         customization: null,
         placeholders: null,
       },

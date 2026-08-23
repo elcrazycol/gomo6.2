@@ -34,9 +34,6 @@ vi.mock("@/components/NicknameEmoji", () => ({
   NicknameEmoji: ({ emojiId }: any) => <span data-testid="nickname-emoji">{emojiId}</span>,
 }));
 
-vi.mock("@/hooks/useUserColor", () => ({
-  useUserColor: () => ({ data: "" }),
-}));
 
 describe("UserBadge", () => {
   beforeEach(() => {

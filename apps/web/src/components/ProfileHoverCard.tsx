@@ -23,61 +23,21 @@ interface ProfileHoverCardProps {
   showDrops?: boolean;
 }
 
-const getColorClass = (color: string): string => {
-  const colorClasses: Record<string, string> = {
-    purple: "text-purple-500",
-    gold: "text-yellow-500",
-    orange: "text-orange-500",
-    red: "text-red-500",
-    blue: "text-blue-500",
-    green: "text-green-500",
-    yellow: "text-yellow-400",
-    cyan: "text-cyan-500",
-  };
-  return colorClasses[color] || "text-foreground";
-};
-
 // Fetch profile data with caching
 const fetchProfileData = async (userId: string) => {
-  const [profileResult, achievementsResult, customization, placeholdersResult] = await Promise.all([
+  const [profileResult, customization, placeholdersResult] = await Promise.all([
     api.from("profiles").select("*").eq("id", userId).single(),
-    api.from("user_achievements").select(`
-      achievement_id,
-      achievements (
-        reward_type,
-        reward_value
-      )
-    `).eq("user_id", userId),
     getProfileCustomization(userId),
-    api.from("user_placeholders").select("*").eq("user_id", userId).maybeSingle(),
-  ]);
+    api.from("user_placeholders").select("*").eq("user_id", userId).maybeSingle(),	  ]);
 
   const profile = profileResult.data as Record<string, unknown> | null;
-  const achievements = achievementsResult.data as unknown as Array<Record<string, unknown>> | null;
   const placeholders = placeholdersResult.data as Record<string, unknown> | null;
 
   if (!profile) return null;
 
-  // Determine username color
-  let usernameColor = "";
-  if (achievements) {
-    const colorRewards = achievements
-      .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
-      .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-    const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-    for (const p of priority) {
-      if ((colorRewards as unknown[]).includes(p)) {
-        usernameColor = p as string;
-        break;
-      }
-    }
-  }
-
   return {
     profile,
     avatarUrl: storageUrl("post-images", profile.avatar_url as string | null),
-    usernameColor,
     customization,
     placeholders,
   };
@@ -246,9 +206,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
         {childrenWithHover}
       </div>
     );
-  }
-
-  const { profile, avatarUrl, usernameColor, customization, placeholders } = data;
+  }	const { profile, avatarUrl, customization, placeholders } = data;
   const p = profile as Record<string, unknown>;
 
   // Profile background (avatar + background) — shown as a small banner strip.
@@ -261,11 +219,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
 
   const badgeStyle = customization?.profile_badge_css
     ? parseCssToStyle(customization.profile_badge_css)
-    : {};
-
-  const usernameClassName = customization?.username_css
-    ? "font-semibold truncate"
-    : `font-semibold truncate ${usernameColor ? getColorClass(usernameColor) : "text-foreground"}`;
+    : {};	const usernameClassName = "font-semibold truncate text-foreground";
 
   return (
     <div ref={wrapperRef} className="relative">

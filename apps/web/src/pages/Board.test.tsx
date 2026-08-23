@@ -160,14 +160,10 @@ function setupFetchRoutes(opts: {
       if (init?.method === "POST") return rawJsonResponse({ success: true });
       if (init?.method === "DELETE") return rawJsonResponse({ success: true });
       return jsonResponse([]);
-    }
-    if (url.startsWith("/api/rpc/get_board_user_permissions")) {
-      return jsonResponse(null);
-    }
-    if (url.startsWith("/api/rpc/award_achievement")) {
-      return jsonResponse(null);
-    }
-    return jsonResponse([]);
+    }		if (url.startsWith("/api/rpc/get_board_user_permissions")) {
+			return jsonResponse(null);
+		}
+		return jsonResponse([]);
   });
 }
 
@@ -323,15 +319,10 @@ describe("Board (wall)", () => {
       expect(screen.getByTestId("age-verification")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("age-confirm"));
-
-    await waitFor(() => {
-      expect(screen.getAllByText("Adult Thread").length).toBeGreaterThan(0);
-    });
-    // Confirming awards the achievement for a logged-in user.
-    const awardCalls = mockFetch.mock.calls.filter(([url]) => url === "/api/rpc/award_achievement");
-    expect(awardCalls.length).toBeGreaterThan(0);
-  });
+    await user.click(screen.getByTestId("age-confirm"));		await waitFor(() => {
+			expect(screen.getAllByText("Adult Thread").length).toBeGreaterThan(0);
+		});
+	});
 
   it("blocks non-members from a private gomosub board", async () => {
     mockParams.slug = "private";

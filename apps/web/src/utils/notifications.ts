@@ -7,7 +7,6 @@ export interface NotificationParams {
   actor?: string;
   anonymous?: boolean;
   gift_name?: string;
-  achievement_name?: string;
   count?: number;
 }
 
@@ -86,9 +85,8 @@ export function interpolateNotification(text: string, params: NotificationParams
     actor: params.actor ?? "",
     count: params.count == null ? "" : String(params.count),
     gift: params.gift_name ?? "",
-    name: params.achievement_name ?? "",
   };
-  return text.replace(/\{\{\s*(actor|count|gift|name)\s*\}\}/g, (_, key: string) => values[key]);
+  return text.replace(/\{\{\s*(actor|count|gift)\s*\}\}/g, (_, key: string) => values[key]);
 }
 
 export function notificationTitle(notif: Notification, t: TFunction, actorName?: string): string {
@@ -145,10 +143,6 @@ export function notificationTitle(notif: Notification, t: TFunction, actorName?:
       case "gift_received":
         key = params.anonymous ? "notif.giftReceivedAnonymous" : "notif.giftReceived";
         values = { actor: params.actor, gift: params.gift_name };
-        break;
-      case "achievement_unlock":
-        key = "notif.achievementUnlock";
-        values = { name: params.achievement_name };
         break;
     }
     if (key) return interpolateNotification(t(key, values), params);

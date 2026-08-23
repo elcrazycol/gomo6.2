@@ -103,12 +103,10 @@ vi.mock("@/stores/messengerStore", () => ({
   selectSelectedConversation: () => null,
 }));
 vi.mock("@/hooks/useSessionTime", () => ({ useSessionTime: vi.fn() }));
-vi.mock("@/hooks/useUserColor", () => ({ useUserColor: () => ({ data: "" }) }));
 vi.mock("@/contexts/ProfileCacheContext", () => ({
   ProfileCacheProvider: ({ children }: { children: React.ReactNode }) => children,
   useProfileCache: () => ({
-    getProfile: vi.fn(() => null),
-    loadProfile: vi.fn(() => Promise.resolve({ username: "", color: "", isAdmin: false, customization: null })),
+    getProfile: vi.fn(() => null),	    loadProfile: vi.fn(() => Promise.resolve({ username: "", isAdmin: false, customization: null })),
     clearCache: vi.fn(),
   }),
 }));
