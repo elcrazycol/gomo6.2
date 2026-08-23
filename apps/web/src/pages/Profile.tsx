@@ -701,15 +701,15 @@ const Profile = () => {
     } as AchievementData;
   };
 
-  // Pinned achievements (max 4) render on the wall tab, but the full list is
+  // Pinned achievements (max 6) render on the wall tab, but the full list is
   // a heavy payload (every level/description/icon embedded) — so fetch only
-  // the pinned rows on mount (is_pinned sorts first, limit 4 covers them)
+  // the pinned rows on mount (is_pinned sorts first, limit 6 covers them)
   // and defer the full list to when the achievements tab is first opened.
   // Declared as a function (not an arrow const) so the mount effect above can
   // reference it without a no-use-before-define warning.
   async function loadPinnedAchievements() {
     try {
-      const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc&limit=4`);
+      const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc&limit=6`);
       const achResult = await achRes.json();
       const data = achResult.data || [];
       if (Array.isArray(data)) {
@@ -1684,7 +1684,7 @@ const Profile = () => {
                     {isEditing && (
                       <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                         <Pin className="w-4 h-4" />
-                        {t("profile.pinned")} ({pinnedAchievements.length}/4)
+                        {t("profile.pinned")} ({pinnedAchievements.length}/6)
                       </h3>
                     )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1728,7 +1728,7 @@ const Profile = () => {
                     className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors group/link"
                   >
                     <Trophy className="w-4 h-4 group-hover/link:text-amber-400 transition-colors" />
-                    Все достижения
+                    {t("achievements.allAchievements")}
                     <span className="text-xs text-muted-foreground/50">
                       ({achievements.length})
                     </span>

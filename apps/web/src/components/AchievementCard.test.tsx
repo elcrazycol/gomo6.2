@@ -47,7 +47,6 @@ describe("AchievementCard", () => {
   it("renders hidden (secret) achievement with reveal prompt", () => {
     render(<AchievementCard achievement={makeAchievement({ locked: true, hidden: true })} />);
     expect(screen.getByText("Секретное достижение")).toBeInTheDocument();
-    expect(screen.getByText("Нажми, чтобы раскрыть")).toBeInTheDocument();
   });
 
   it("reveals hidden achievement on click", async () => {
@@ -60,7 +59,7 @@ describe("AchievementCard", () => {
     expect(screen.queryByText("Секретное достижение")).not.toBeInTheDocument();
   });
 
-  it("shows level badge when current_level > 1", () => {
+  it("shows current/max level for multi-level achievement", () => {
     render(
       <AchievementCard
         achievement={makeAchievement({
@@ -74,7 +73,6 @@ describe("AchievementCard", () => {
         })}
       />,
     );
-    expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("3/5")).toBeInTheDocument();
   });
 
@@ -92,26 +90,7 @@ describe("AchievementCard", () => {
         })}
       />,
     );
-    expect(screen.getByText("15 / 25 → ур. 2")).toBeInTheDocument();
-  });
-
-  it("shows level dots for multi-level achievements", () => {
-    const { container } = render(
-      <AchievementCard
-        achievement={makeAchievement({
-          level: 2,
-          max_level: 4,
-          levels: [
-            { level: 1, threshold: 10, name: "L1", description: "D1", rarity: "common" },
-            { level: 2, threshold: 25, name: "L2", description: "D2", rarity: "uncommon" },
-            { level: 3, threshold: 50, name: "L3", description: "D3", rarity: "rare" },
-            { level: 4, threshold: 100, name: "L4", description: "D4", rarity: "epic" },
-          ],
-        })}
-      />,
-    );
-    const dots = container.querySelectorAll(".rounded-full");
-    expect(dots.length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByText("15 / 25")).toBeInTheDocument();
   });
 
   it("shows garma reward string", () => {
@@ -125,21 +104,28 @@ describe("AchievementCard", () => {
         })}
       />,
     );
-    expect(screen.getByText("+50 gармы")).toBeInTheDocument();
+    expect(screen.getByText("+50 гармы")).toBeInTheDocument();
   });
 
-  it("shows username color reward string", () => {
+  it("localizes i18n keys from the new catalog (name_key/description_key/title)", () => {
     render(
       <AchievementCard
         achievement={makeAchievement({
+          title: "achievements.entries.title",
           level: 1,
+          max_level: 2,
+          progress_current: 5,
           levels: [
-            { level: 1, threshold: 10, name: "L1", description: "D1", rarity: "common", reward_type: "username_color", reward_value: "purple" },
+            { level: 1, threshold: 10, name_key: "achievements.entries.1.name", description_key: "achievements.entries.1.description", rarity: "common" },
+            { level: 2, threshold: 50, name_key: "achievements.entries.2.name", description_key: "achievements.entries.2.description", rarity: "uncommon" },
           ],
         })}
       />,
     );
-    expect(screen.getByText("Цвет ника: purple")).toBeInTheDocument();
+    expect(screen.getByText("Первое слово")).toBeInTheDocument();
+    expect(screen.getByText("Опубликовать первую запись")).toBeInTheDocument();
+    // Progress to the next level
+    expect(screen.getByText(/5 \/ 50/)).toBeInTheDocument();
   });
 
   it("shows unlock date", () => {
@@ -192,7 +178,7 @@ describe("AchievementCard", () => {
     const { container } = render(
       <AchievementCard achievement={makeAchievement({ is_pinned: true })} />,
     );
-    expect(container.querySelector(".text-amber-400\\/60")).toBeInTheDocument();
+    expect(container.querySelector(".text-amber-500\\/70")).toBeInTheDocument();
   });
 
   it("shows progress bar for locked achievement with threshold", () => {

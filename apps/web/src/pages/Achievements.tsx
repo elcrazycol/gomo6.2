@@ -1,20 +1,22 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { storageUrl } from "@/utils/storage";
+import { useTranslation } from "react-i18next";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
-import { Search, X, Trophy, Crown, Lock, ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { getCached } from "@/integrations/api/queryCache";
+import { Search, X, Trophy, Lock, ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-const CATEGORIES: Record<string, { label: string; icon: string }> = {
-  posting: { label: "Посты", icon: "💬" },
-  threads: { label: "Записи", icon: "🧵" },
-  likes_received: { label: "Признание", icon: "❤️" },
-  likes_given: { label: "Щедрость", icon: "👍" },
-  images: { label: "Галерея", icon: "🖼️" },
-  profile: { label: "Профиль", icon: "👤" },
-  secret: { label: "Секретные", icon: "✨" },
+// Categories mirror the catalog's Category enum (backend achievements package).
+const CATEGORIES: Record<string, { key: string; icon: string }> = {
+  content: { key: "content", icon: "💬" },
+  community: { key: "community", icon: "🌐" },
+  retention: { key: "retention", icon: "📅" },
+  profile: { key: "profile", icon: "👤" },
+  integrations: { key: "integrations", icon: "🎵" },
+  gifts: { key: "gifts", icon: "🎁" },
+  secret: { key: "secret", icon: "✨" },
 };
 
 const RARITY_ORDER: Record<string, number> = {
@@ -23,14 +25,6 @@ const RARITY_ORDER: Record<string, number> = {
   rare: 3,
   uncommon: 2,
   common: 1,
-};
-
-const RARITY_LABELS: Record<string, string> = {
-  legendary: "Легендарные",
-  epic: "Эпические",
-  rare: "Редкие",
-  uncommon: "Необычные",
-  common: "Обычные",
 };
 
 interface AchievementRow {
@@ -45,12 +39,11 @@ interface AchievementRow {
   achievement_type?: string;
   hidden?: boolean;
   sort_order?: number;
-  reward_type?: string;
-  reward_value?: string;
   levels?: AchievementLevel[];
 }
 
 export default function Achievements() {
+  const { t } = useTranslation();
   const { userId } = useParams();
   const [loading, setLoading] = useState(true);
   const [allAchievements, setAllAchievements] = useState<AchievementData[]>([]);
@@ -59,63 +52,80 @@ export default function Achievements() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [showLocked, setShowLocked] = useState(true);
   const [showSecret, setShowSecret] = useState(true);
-  const [rarityFilter, setRarityFilter] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load profile
-      const profileRes = await fetch(`/api/v1/profiles?id=eq.${userId}`);
-      const profileResult = await profileRes.json();
-      setProfile(profileResult.data?.[0] || null);
+      const [profileData, unlockedRows, catalogRows] = await Promise.all([
+        getCached<{ username: string; avatar_url?: string | null; id: string } | null>(
+          `achievements-page:profile:${userId}`,
+          async () => {
+            const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
+            const json = await res.json();
+            return json.data?.[0] ?? null;
+          },
+          { ttlMs: 60_000 }
+        ),
+        getCached<Record<string, unknown>[]>(
+          `achievements-page:user:${userId}`,
+          async () => {
+            const res = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}`);
+            const json = await res.json();
+            return json.data || [];
+          },
+          // Short TTL: unlocks arrive via WS, which dispatches
+          // profile-cache:invalidate → clearQueryCache, so the page refreshes
+          // immediately on unlock even with a longer TTL.
+          { ttlMs: 30_000 }
+        ),
+        getCached<AchievementRow[]>(
+          "achievements-page:catalog",
+          async () => {
+            const res = await fetch(`/api/v1/achievements?order=sort_order.asc`);
+            const text = await res.text();
+            try {
+              const json = JSON.parse(text);
+              return json.data || [];
+            } catch {
+              console.error("Failed to parse achievements catalog:", text.slice(0, 200));
+              return [];
+            }
+          },
+          // The catalog only changes on deploy (Sync mirrors it at startup),
+          // so a long TTL is safe and saves requests.
+          { ttlMs: 5 * 60_000 }
+        ),
+      ]);
 
-      // Load user's unlocked achievements
-      const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}`);
-      const achResult = await achRes.json();
-      const unlockedRaw = achResult.data || [];
+      setProfile(profileData);
 
-      // Build map of achievement_id → user data
+      // Build map of achievement_id → user progress
       const unlockedMap = new Map<string, Record<string, unknown>>();
-      for (const ua of unlockedRaw) {
-        const a = ua.achievements || {};
-        unlockedMap.set(a.id || ua.achievement_id, {
-          ...ua,
-          achievements: a,
-        });
+      for (const ua of unlockedRows) {
+        const a = (ua.achievements as Record<string, unknown>) || {};
+        unlockedMap.set((a.id as string) || (ua.achievement_id as string), ua);
       }
 
-      // Load all available achievements
-      const allRes = await fetch(`/api/v1/achievements?order=sort_order.asc`);
-      const allText = await allRes.text();
-      let allAchs: AchievementRow[] = [];
-      try {
-        const allResult = JSON.parse(allText);
-        allAchs = allResult.data || [];
-      } catch {
-        console.error("Failed to parse achievements JSON, response:", allText.slice(0, 200));
-      }
-
-      // Merge
-      const merged: AchievementData[] = allAchs.map((a: AchievementRow) => {
+      const merged: AchievementData[] = (catalogRows || []).map((a: AchievementRow) => {
         const ua = unlockedMap.get(a.id);
         const levels = a.levels || [];
         const currentLevel = (ua?.current_level as number) ?? (ua?.level as number) ?? 0;
         const levelDef = currentLevel > 0 && levels.length >= currentLevel ? levels[currentLevel - 1] : null;
-        const isProgressive = a.achievement_type === "progressive" || levels.length > 1;
         const maxLevel = levels.length || 1;
 
         if (ua) {
           return {
             id: a.id,
             group_key: a.group_key,
-            title: a.title,
-            name: levelDef?.name || a.name || "—",
-            description: levelDef?.description || a.description || "",
+            title: a.title || a.name,
+            name: a.name || "—",
+            description: a.description || "",
             icon: a.icon || "sparkles",
             category: a.category || "",
             rarity: levelDef?.rarity || a.rarity || "common",
@@ -124,12 +134,10 @@ export default function Achievements() {
             maxLevel: maxLevel,
             max_level: maxLevel,
             is_pinned: ua.is_pinned || false,
-            pinned_order: ua.pinned_order,
-            unlocked_at: ua.unlocked_at,
-            progress_current: ua.progress_current || 0,
+            pinned_order: ua.pinned_order as number | undefined,
+            unlocked_at: ua.unlocked_at as string | undefined,
+            progress_current: ua.progress_current as number | undefined,
             achievement_type: a.achievement_type || "one_time",
-            reward_type: levelDef?.reward_type || a.reward_type || undefined,
-            reward_value: levelDef?.reward_value || a.reward_value || undefined,
             hidden: a.hidden || false,
             locked: false,
             levels: levels,
@@ -141,9 +149,9 @@ export default function Achievements() {
         return {
           id: a.id,
           group_key: a.group_key,
-          title: a.title,
-          name: firstLevel?.name || a.name || "—",
-          description: firstLevel?.description || a.description || "",
+          title: a.title || a.name,
+          name: a.name || "—",
+          description: a.description || "",
           icon: a.icon || "sparkles",
           category: a.category || "",
           rarity: firstLevel?.rarity || a.rarity || "common",
@@ -167,24 +175,39 @@ export default function Achievements() {
     }
   };
 
+  // Localized display name for search: the catalog stores i18n keys, so the
+  // raw name/description fields are keys, not text the user sees.
+  const localizeLevel = (a: AchievementData): { name: string; description: string } => {
+    const lvl = a.level && a.level > 0 && a.levels && a.levels[a.level - 1]
+      ? a.levels[a.level - 1]
+      : a.levels && a.levels.length > 0
+      ? a.levels[0]
+      : undefined;
+    const name = lvl?.name_key
+      ? t(lvl.name_key)
+      : lvl?.name || (a.title ? t(a.title) : a.name);
+    const description = lvl?.description_key
+      ? t(lvl.description_key)
+      : lvl?.description || a.description;
+    return { name, description };
+  };
+
   const filtered = useMemo(() => {
     let list = allAchievements;
 
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter(
-        (a) =>
-          a.name.toLowerCase().includes(q) ||
-          a.description.toLowerCase().includes(q)
-      );
+      list = list.filter((a) => {
+        const { name, description } = localizeLevel(a);
+        return (
+          name.toLowerCase().includes(q) ||
+          description.toLowerCase().includes(q)
+        );
+      });
     }
 
     if (categoryFilter) {
       list = list.filter((a) => a.category === categoryFilter);
-    }
-
-    if (rarityFilter) {
-      list = list.filter((a) => a.rarity === rarityFilter);
     }
 
     if (!showLocked) {
@@ -203,14 +226,12 @@ export default function Achievements() {
       if (a.locked && !b.locked) return 1;
       return (RARITY_ORDER[b.rarity || "common"] || 0) - (RARITY_ORDER[a.rarity || "common"] || 0);
     });
-  }, [allAchievements, search, categoryFilter, rarityFilter, showLocked, showSecret]);
+  }, [allAchievements, search, categoryFilter, showLocked, showSecret, t]);
 
   const stats = useMemo(() => {
     const total = allAchievements.length;
     const unlocked = allAchievements.filter((a) => !a.locked).length;
-    const legendary = allAchievements.filter((a) => !a.locked && a.rarity === "legendary").length;
-    const epic = allAchievements.filter((a) => !a.locked && a.rarity === "epic").length;
-    return { total, unlocked, legendary, epic };
+    return { total, unlocked };
   }, [allAchievements]);
 
   if (loading) {
@@ -231,33 +252,27 @@ export default function Achievements() {
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          {profile ? `Профиль ${profile.username}` : "Назад"}
+          {profile ? t("achievements.backToProfile", { username: profile.username }) : t("achievements.back")}
         </Link>
 
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-400/20">
-            <Trophy className="w-6 h-6 text-white" />
+          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground">
+            <Trophy className="w-5 h-5" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">
-              Достижения {profile && `— ${profile.username}`}
+              {t("achievements.title")} {profile && `— ${profile.username}`}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {stats.unlocked} из {stats.total} открыто
-              {stats.legendary > 0 && (
-                <span className="text-amber-400"> · {stats.legendary} легендарных</span>
-              )}
-              {stats.epic > 0 && (
-                <span className="text-purple-400"> · {stats.epic} эпических</span>
-              )}
+              {t("achievements.opened", { unlocked: stats.unlocked, total: stats.total })}
             </p>
           </div>
         </div>
 
         {/* Progress bar */}
-        <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 rounded-full transition-all duration-1000 ease-out"
+            className="h-full bg-primary rounded-full transition-all duration-500"
             style={{ width: `${(stats.unlocked / Math.max(stats.total, 1)) * 100}%` }}
           />
         </div>
@@ -269,7 +284,7 @@ export default function Achievements() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Поиск достижений..."
+            placeholder={t("achievements.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -277,7 +292,7 @@ export default function Achievements() {
           {search && (
             <button
               onClick={() => setSearch("")}
-              aria-label="Очистить поиск"
+              aria-label={t("achievements.clearSearch")}
               className="absolute right-3 top-1/2 -translate-y-1/2"
             >
               <X className="w-4 h-4 text-muted-foreground hover:text-foreground" />
@@ -296,7 +311,7 @@ export default function Achievements() {
                 : "bg-muted text-muted-foreground hover:bg-muted/80"
             )}
           >
-            Все
+            {t("achievements.all")}
           </button>
           {Object.entries(CATEGORIES).map(([key, cat]) => (
             <button
@@ -309,13 +324,13 @@ export default function Achievements() {
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               )}
             >
-              {cat.label}
+              {cat.icon} {t(`achievements.category.${cat.key}`)}
             </button>
           ))}
         </div>
 
         {/* Toggle options */}
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -323,8 +338,8 @@ export default function Achievements() {
               onChange={(e) => setShowLocked(e.target.checked)}
               className="rounded border-muted-foreground/30"
             />
-            <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="text-muted-foreground">Закрытые</span>
+            <Lock className="w-3.5 h-3.5" />
+            <span>{t("achievements.showLocked")}</span>
           </label>
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
             <input
@@ -333,14 +348,7 @@ export default function Achievements() {
               onChange={(e) => setShowSecret(e.target.checked)}
               className="rounded border-muted-foreground/30"
             />
-            {showSecret ? (
-              <Eye className="w-3.5 h-3.5 text-amber-400" />
-            ) : (
-              <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-            )}
-            <span className={showSecret ? "text-amber-400" : "text-muted-foreground"}>
-              Секретные
-            </span>
+            <span>{t("achievements.showSecrets")}</span>
           </label>
         </div>
       </div>
@@ -349,19 +357,15 @@ export default function Achievements() {
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <Trophy className="w-16 h-16 mx-auto mb-4 opacity-20" />
-          <p className="text-sm">Ничего не найдено</p>
+          <p className="text-sm">{t("achievements.nothingFound")}</p>
         </div>
       ) : (
         <>
           {/* Unlocked section */}
           {filtered.some((a) => !a.locked) && (
             <section>
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Crown className="w-5 h-5 text-amber-400" />
-                Открытые
-                <span className="text-sm font-normal text-muted-foreground">
-                  ({filtered.filter((a) => !a.locked).length})
-                </span>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+                {t("achievements.unlockedSection")} ({filtered.filter((a) => !a.locked).length})
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filtered
@@ -376,12 +380,8 @@ export default function Achievements() {
           {/* Locked section */}
           {filtered.some((a) => a.locked) && showLocked && (
             <section>
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-muted-foreground">
-                <Lock className="w-5 h-5" />
-                Закрытые
-                <span className="text-sm font-normal">
-                  ({filtered.filter((a) => a.locked).length})
-                </span>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+                {t("achievements.lockedSection")} ({filtered.filter((a) => a.locked).length})
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filtered

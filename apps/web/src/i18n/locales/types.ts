@@ -16,6 +16,9 @@ export interface LocaleResources {
   thread: Record<string, string>;
   profile: Record<string, string>;
   share: Record<string, string>;
+  // Achievements are a deep tree: group → level → {name, description} plus
+  // category/rarity maps. i18next resolves dotted keys through nested objects.
+  achievements: Record<string, unknown>;
 }
 
 export type LocaleNamespace = keyof LocaleResources;

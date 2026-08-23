@@ -23,52 +23,76 @@ vi.mock("@/components/PentagramLoader", () => ({
 
 vi.mock("@/utils/storage", () => ({ storageUrl: () => null }));
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
+// The page uses the light client (getCached) — let real fetches flow through
+// the mock, but keep queryCache state isolated per test.
+import { clearQueryCache } from "@/integrations/api/queryCache";
+
+// ─── Fixtures (new catalog: i18n keys + category enum) ──────────────────────
 
 const ACHIEVEMENTS = [
   {
     id: "a1",
-    name: "Первый пост",
-    description: "Опубликуй первый пост",
+    group_key: "entries",
+    name: "achievements.entries.title",
+    title: "achievements.entries.title",
+    description: "",
     icon: "message-square",
-    category: "posting",
+    category: "content",
     rarity: "common",
     hidden: false,
     sort_order: 1,
-    levels: [],
+    achievement_type: "progressive",
+    levels: [
+      { level: 1, threshold: 1, name_key: "achievements.entries.1.name", description_key: "achievements.entries.1.description", rarity: "common" },
+    ],
   },
   {
     id: "a2",
-    name: "Легенда форума",
-    description: "Создай 100 записей",
-    icon: "layers",
-    category: "threads",
+    group_key: "daily_streak",
+    name: "achievements.daily_streak.title",
+    title: "achievements.daily_streak.title",
+    description: "",
+    icon: "calendar-check",
+    category: "retention",
     rarity: "legendary",
     hidden: false,
     sort_order: 2,
-    levels: [],
+    achievement_type: "progressive",
+    levels: [
+      { level: 1, threshold: 3, name_key: "achievements.daily_streak.1.name", description_key: "achievements.daily_streak.1.description", rarity: "common" },
+    ],
   },
   {
     id: "a3",
-    name: "Секретка",
-    description: "Тайное достижение",
-    icon: "sparkles",
+    group_key: "secret_owl",
+    name: "achievements.secret_owl.title",
+    title: "achievements.secret_owl.title",
+    description: "",
+    icon: "moon-star",
     category: "secret",
     rarity: "rare",
     hidden: true,
     sort_order: 3,
-    levels: [],
+    achievement_type: "one_time",
+    levels: [
+      { level: 1, threshold: 10, name_key: "achievements.secret_owl.1.name", description_key: "achievements.secret_owl.1.description", rarity: "rare" },
+    ],
   },
   {
     id: "a4",
-    name: "Необычное",
-    description: "Редкое событие",
-    icon: "heart",
-    category: "profile",
+    group_key: "gift_sent",
+    name: "achievements.gift_sent.title",
+    title: "achievements.gift_sent.title",
+    description: "",
+    icon: "gift",
+    category: "gifts",
     rarity: "uncommon",
     hidden: false,
     sort_order: 4,
-    levels: [],
+    achievement_type: "one_time",
+    levels: [
+      { level: 1, threshold: 1, name_key: "achievements.gift_sent.1.name", description_key: "achievements.gift_sent.1.description", rarity: "uncommon" },
+    ],
   },
 ];
 
@@ -111,6 +135,7 @@ function setupFetch({
 }
 
 beforeEach(() => {
+  clearQueryCache();
   mockFetch.mockReset();
   vi.clearAllMocks();
 });
@@ -131,7 +156,7 @@ describe("Achievements page", () => {
     await waitFor(() => {
       expect(screen.getByText("Достижения — testuser")).toBeInTheDocument();
     });
-    expect(screen.getByText("1 из 4 открыто")).toBeInTheDocument();
+    expect(screen.getByText("Открыто 1 из 4")).toBeInTheDocument();
   });
 
   it("marks achievements as unlocked and shows rarity labels", async () => {
@@ -139,13 +164,12 @@ describe("Achievements page", () => {
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первый пост")).toBeInTheDocument();
+      expect(screen.getByText("Первое слово")).toBeInTheDocument();
     });
-    expect(screen.getByText("Открытые")).toBeInTheDocument();
-    // "Закрытые" appears both as a section heading and as a toggle label
+    // Section header now includes the count in one text node
+    expect(screen.getByText("Открытые (1)")).toBeInTheDocument();
+    // "Закрытые" appears as the locked section heading and the toggle label
     expect(screen.getAllByText("Закрытые").length).toBeGreaterThanOrEqual(1);
-    // Unlocked section header shows count
-    expect(screen.getByText(/\(1\)/)).toBeInTheDocument();
     // Unlocked card renders its rarity badge
     expect(screen.getAllByText("Обычное").length).toBeGreaterThanOrEqual(1);
   });
@@ -155,15 +179,15 @@ describe("Achievements page", () => {
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первый пост")).toBeInTheDocument();
+      expect(screen.getByText("Первое слово")).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByPlaceholderText("Поиск достижений..."), {
-      target: { value: "легенд" },
+      target: { value: "завсегд" },
     });
 
-    expect(screen.queryByText("Первый пост")).not.toBeInTheDocument();
-    expect(screen.getByText("Легенда форума")).toBeInTheDocument();
+    expect(screen.queryByText("Первое слово")).not.toBeInTheDocument();
+    expect(screen.getByText("Завсегдатай")).toBeInTheDocument();
   });
 
   it("clears the search via the X button", async () => {
@@ -171,16 +195,16 @@ describe("Achievements page", () => {
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первый пост")).toBeInTheDocument();
+      expect(screen.getByText("Первое слово")).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByPlaceholderText("Поиск достижений..."), {
-      target: { value: "легенд" },
+      target: { value: "завсегд" },
     });
-    expect(screen.queryByText("Первый пост")).not.toBeInTheDocument();
+    expect(screen.queryByText("Первое слово")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Очистить поиск" }));
-    expect(screen.getByText("Первый пост")).toBeInTheDocument();
+    expect(screen.getByText("Первое слово")).toBeInTheDocument();
   });
 
   it("filters by category chip", async () => {
@@ -188,13 +212,13 @@ describe("Achievements page", () => {
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первый пост")).toBeInTheDocument();
+      expect(screen.getByText("Первое слово")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Записи" }));
+    fireEvent.click(screen.getByRole("button", { name: /Удержание/ }));
 
-    expect(screen.queryByText("Первый пост")).not.toBeInTheDocument();
-    expect(screen.getByText("Легенда форума")).toBeInTheDocument();
+    expect(screen.queryByText("Первое слово")).not.toBeInTheDocument();
+    expect(screen.getByText("Завсегдатай")).toBeInTheDocument();
   });
 
   it("toggles category off by clicking the active chip again", async () => {
@@ -202,13 +226,13 @@ describe("Achievements page", () => {
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первый пост")).toBeInTheDocument();
+      expect(screen.getByText("Первое слово")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Записи" }));
-    fireEvent.click(screen.getByRole("button", { name: "Записи" }));
+    fireEvent.click(screen.getByRole("button", { name: /Удержание/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Удержание/ }));
 
-    expect(screen.getByText("Первый пост")).toBeInTheDocument();
+    expect(screen.getByText("Первое слово")).toBeInTheDocument();
   });
 
   it("hides locked achievements when the checkbox is off", async () => {
@@ -216,13 +240,13 @@ describe("Achievements page", () => {
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Легенда форума")).toBeInTheDocument();
+      expect(screen.getByText("Завсегдатай")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByLabelText("Закрытые"));
 
-    expect(screen.queryByText("Легенда форума")).not.toBeInTheDocument();
-    expect(screen.getByText("Первый пост")).toBeInTheDocument();
+    expect(screen.queryByText("Завсегдатай")).not.toBeInTheDocument();
+    expect(screen.getByText("Первое слово")).toBeInTheDocument();
   });
 
   it("hides secret achievements when the secret toggle is off", async () => {
@@ -237,7 +261,7 @@ describe("Achievements page", () => {
     fireEvent.click(screen.getByLabelText("Секретные"));
 
     expect(screen.queryByText("Секретное достижение")).not.toBeInTheDocument();
-    expect(screen.getByText("Первый пост")).toBeInTheDocument();
+    expect(screen.getByText("Первое слово")).toBeInTheDocument();
   });
 
   it("shows an empty state when nothing matches", async () => {
@@ -245,7 +269,7 @@ describe("Achievements page", () => {
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первый пост")).toBeInTheDocument();
+      expect(screen.getByText("Первое слово")).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByPlaceholderText("Поиск достижений..."), {
