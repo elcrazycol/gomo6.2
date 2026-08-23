@@ -134,6 +134,14 @@ describe('query-builder: from().select()', () => {
     expect(url).toContain('limit=10');
   });
 
+  it('sets cursor (keyset pagination)', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null, has_more: false, next_cursor: null });
+
+    await from('posts').select('*').cursor('2025-01-01T00:00:00Z::post-1');
+    const url = mockRawRequest.mock.calls[0][0] as string;
+    expect(url).toContain('cursor=2025-01-01T00%3A00%3A00Z%3A%3Apost-1');
+  });
+
   it('single() flattens array response', async () => {
     mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1, name: 'test' }], error: null });
 

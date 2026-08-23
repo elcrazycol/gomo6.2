@@ -102,4 +102,22 @@ describe("queryCache", () => {
 
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  it("profile-cache:invalidate clears custom profile-page keys (Profile.tsx cache)", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ id: "u1", username: "alice" });
+
+    // Prime the exact keys Profile.tsx uses for the profile row.
+    await getCached("profile-page:owner:u1", fetcher);
+    await getCached("profile-page:viewer:u1", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    // A profile save broadcasts this event (dispatchProfileCacheInvalidate);
+    // the whole cache — including non-URL custom keys — must reset so the
+    // next loadProfile() refetches instead of serving the stale row.
+    window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));
+
+    await getCached("profile-page:owner:u1", fetcher);
+    await getCached("profile-page:viewer:u1", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
 });

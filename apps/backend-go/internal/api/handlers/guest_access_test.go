@@ -18,8 +18,14 @@ import (
 func TestHandleProfileWallPostsGet_Anonymous_ReadsPublicWall(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
+	// Keyset first page: an empty pinned query + one unpinned post. Both carry
+	// the public-wall predicate and the user_id filter only (no viewer arg —
+	// the guest viewer reference is SQL NULL).
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*` +
-		`COALESCE\(ps\.private_profile, false\) = false AND COALESCE\(ps\.private_hide_wall, false\) = false.*`).
+		`COALESCE\(ps\.private_profile, false\) = false AND COALESCE\(ps\.private_hide_wall, false\) = false.*is_pinned = true.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*is_pinned = false.*`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "Hello", "World", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
@@ -67,13 +73,16 @@ func TestHandleProfileWallPostsGet_Anonymous_UUIDFilterWithOrder_No500(t *testin
 	h, mock := setupUniversalHandler(t)
 
 	// Real UUIDs + the exact profile-page order from ProfileWall.tsx. The
-	// {viewer} placeholders in the count subqueries are replaced with NULL
-	// (never an empty $n), so only the uuid filter is bound as a parameter.
-	// The {viewer} placeholders live in the SELECT list (before FROM) — check
-	// them separately from the FROM/WHERE/ORDER parts. `\.` is the escaped-dot
-	// regex for the quoted identifier "p"."is_pinned".
-	mock.ExpectQuery(`(?s)SELECT p\.id.*liked_by_viewer.*NULL.*my_repost_record_id.*NULL.*FROM profile_wall_posts p.*` +
-		`ORDER BY "p"\."is_pinned" DESC, "p"\."pinned_order" ASC, "p"\."created_at" DESC`).
+	// keyset wall list replaces the profile-page ORDER BY with the pinned/
+	// unpinned page shape, and the {viewer} placeholders in the count
+	// subqueries are replaced with NULL (never an empty $n), so only the uuid
+	// filter is bound as a parameter. The {viewer} placeholders live in the
+	// SELECT list (before FROM) — check them separately from the FROM/WHERE
+	// parts. `\.` is the escaped-dot regex for the quoted identifier.
+	mock.ExpectQuery(`(?s)SELECT p\.id.*liked_by_viewer.*NULL.*my_repost_record_id.*NULL.*FROM profile_wall_posts p.*is_pinned = true.*`).
+		WithArgs("457e56d5-4f7b-43ee-b506-09299332541a").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
+	mock.ExpectQuery(`(?s)SELECT p\.id.*liked_by_viewer.*NULL.*my_repost_record_id.*NULL.*FROM profile_wall_posts p.*is_pinned = false.*`).
 		WithArgs("457e56d5-4f7b-43ee-b506-09299332541a").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "457e56d5-4f7b-43ee-b506-09299332541a", "457e56d5-4f7b-43ee-b506-09299332541a", "Hello", "World", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))

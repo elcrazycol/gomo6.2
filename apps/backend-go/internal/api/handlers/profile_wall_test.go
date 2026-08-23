@@ -3,7 +3,9 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
@@ -290,7 +292,12 @@ func TestHandleProfileWallPostsGet_EmptyResult(t *testing.T) {
 func TestHandleProfileWallPostsGet_StrangerOnPrivateWall_GetsEmpty(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*LEFT JOIN privacy_settings ps.*COALESCE\(ps\.private_profile, false\) = false AND COALESCE\(ps\.private_hide_wall, false\) = false.*EXISTS \(SELECT 1 FROM friendships f`).
+	// Keyset wall list runs two queries (pinned page + unpinned page); both
+	// must carry the privacy predicate so a stranger gets nothing.
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*LEFT JOIN privacy_settings ps.*COALESCE\(ps\.private_profile, false\) = false AND COALESCE\(ps\.private_hide_wall, false\) = false.*EXISTS \(SELECT 1 FROM friendships f.*is_pinned = true.*`).
+		WithArgs("privateUser", "stranger").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*is_pinned = false.*`).
 		WithArgs("privateUser", "stranger").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
 
@@ -317,11 +324,16 @@ func TestHandleProfileWallPostsGet_StrangerOnPrivateWall_GetsEmpty(t *testing.T)
 func TestHandleProfileWallPostsGet_WithFilterAndLimit(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.user_id = \$1.*LIMIT 5`).
+	// Keyset first page: pinned posts first (LIMIT 100), then the unpinned
+	// batch (limit 5 → probe 6). Both carry the user_id filter + viewer arg.
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*is_pinned = true.*ORDER BY "p"\."pinned_order" ASC.*LIMIT 100`).
 		WithArgs("u1", "viewer").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
-			AddRow("post1", "u1", "u1", "Post 1", "Content 1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`).
 			AddRow("post2", "u1", "u1", "Post 2", "Content 2", "2025-01-02T00:00:00Z", "2025-01-02T00:00:00Z", true, 1, `{}`))
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*is_pinned = false.*ORDER BY "p"\."created_at" DESC, "p"\."id" DESC.*LIMIT 6`).
+		WithArgs("u1", "viewer").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
+			AddRow("post1", "u1", "u1", "Post 1", "Content 1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
 
 	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.u1&limit=5", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
@@ -331,7 +343,9 @@ func TestHandleProfileWallPostsGet_WithFilterAndLimit(t *testing.T) {
 	}
 
 	var resp struct {
-		Data []map[string]interface{} `json:"data"`
+		Data       []map[string]interface{} `json:"data"`
+		HasMore    *bool                    `json:"has_more"`
+		NextCursor *string                  `json:"next_cursor"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse: %v", err)
@@ -339,9 +353,116 @@ func TestHandleProfileWallPostsGet_WithFilterAndLimit(t *testing.T) {
 	if len(resp.Data) != 2 {
 		t.Fatalf("expected 2 posts, got %d", len(resp.Data))
 	}
-	if resp.Data[0]["title"] != "Post 1" {
-		t.Fatalf("expected 'Post 1', got %v", resp.Data[0]["title"])
+	// Pinned first, then unpinned.
+	if resp.Data[0]["title"] != "Post 2" {
+		t.Fatalf("expected 'Post 2' first (pinned), got %v", resp.Data[0]["title"])
 	}
+	if resp.Data[1]["title"] != "Post 1" {
+		t.Fatalf("expected 'Post 1' second, got %v", resp.Data[1]["title"])
+	}
+	if resp.HasMore == nil || *resp.HasMore {
+		t.Fatalf("expected has_more=false, got %v", resp.HasMore)
+	}
+	if resp.NextCursor != nil {
+		t.Fatalf("expected null next_cursor without more data, got %v", *resp.NextCursor)
+	}
+}
+
+func TestHandleProfileWallPostsGet_KeysetHasMore(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// limit=2, no pinned posts, 3 unpinned → the probe (LIMIT 3) returns 3
+	// rows, has_more=true, and next_cursor is taken from the last KEPT row
+	// (post2, index 1 after slicing).
+	mock.ExpectQuery(`(?s).*is_pinned = true.*`).
+		WithArgs("u1", "viewer").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
+	mock.ExpectQuery(`(?s).*is_pinned = false.*ORDER BY "p"\."created_at" DESC, "p"\."id" DESC.*LIMIT 3`).
+		WithArgs("u1", "viewer").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
+			AddRow("post3", "u1", "u1", "Post 3", "C", time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), false, nil, `{}`).
+			AddRow("post2", "u1", "u1", "Post 2", "C", time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), false, nil, `{}`).
+			AddRow("post1", "u1", "u1", "Post 1", "C", time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), false, nil, `{}`))
+
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.u1&limit=2", nil, &auth.Claims{UserID: "viewer"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data       []map[string]interface{} `json:"data"`
+		HasMore    *bool                    `json:"has_more"`
+		NextCursor *string                  `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("expected 2 posts on page 1, got %d", len(resp.Data))
+	}
+	if resp.HasMore == nil || !*resp.HasMore {
+		t.Fatalf("expected has_more=true, got %v", resp.HasMore)
+	}
+	if resp.NextCursor == nil || !strings.HasPrefix(*resp.NextCursor, "2025-01-02T00:00:00Z::") {
+		t.Fatalf("expected next_cursor from the last kept row (post2), got %q", derefStr(resp.NextCursor))
+	}
+}
+
+func TestHandleProfileWallPostsGet_KeysetCursorPage(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// A cursor page runs ONLY the unpinned query, with the keyset predicate
+	// bound after the user_id filter and the viewer: $1 user_id, $2 viewer,
+	// $3 created_at, $4 id.
+	mock.ExpectQuery(`(?s).*is_pinned = false AND \(p\.created_at, p\.id\) < \(\$3::timestamptz, \$4::uuid\).*`).
+		WithArgs("u1", "viewer", time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), "post2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
+			AddRow("post1", "u1", "u1", "Post 1", "C", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
+
+	c, w := newUniversalRequestContext("GET",
+		"/api/v1/profile_wall_posts?user_id=eq.u1&limit=2&cursor=2025-01-02T00:00:00Z::post2",
+		nil, &auth.Claims{UserID: "viewer"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data       []map[string]interface{} `json:"data"`
+		HasMore    *bool                    `json:"has_more"`
+		NextCursor *string                  `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 post on the cursor page, got %d", len(resp.Data))
+	}
+	if resp.HasMore == nil || *resp.HasMore {
+		t.Fatalf("expected has_more=false, got %v", resp.HasMore)
+	}
+	if resp.NextCursor != nil {
+		t.Fatalf("expected no next_cursor, got %q", derefStr(resp.NextCursor))
+	}
+}
+
+func TestHandleProfileWallPostsGet_InvalidCursor_Returns400(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.u1&cursor=not-a-valid-cursor", nil, &auth.Claims{UserID: "viewer"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for an invalid cursor, got %d", w.Code)
+	}
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
 }
 
 func TestHandleProfileWallPostsGet_WithIsPinnedFilterAndOrder(t *testing.T) {

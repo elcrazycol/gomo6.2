@@ -51,6 +51,7 @@ export interface ApiResponse<T> {
   code?: string | null;
   params?: unknown;
   has_more?: boolean;
+  next_cursor?: string | null;
 }
 
 // An Error thrown by ApiClient, augmented with the structured error code/params

@@ -145,6 +145,8 @@ function makeChain<T>(resolveValue: T): any {
   p.order = (_col?: string, _opts?: any) => p;
   p.in = (_col?: string, _vals?: any[]) => p;
   p.limit = (_n?: number) => p;
+  p.range = (_from?: number, _to?: number) => p;
+  p.cursor = (_c?: string) => p;
   p.or = (_filter?: string) => p;
   p.single = () => p;
   p.maybeSingle = () => p;
@@ -358,6 +360,55 @@ function createMockComment(overrides: any = {}) {
   };
 }
 
+// ─── IntersectionObserver stub (for infinite scroll tests) ───────────────────
+
+class MockIntersectionObserver {
+  static instances: MockIntersectionObserver[] = [];
+  private callback: IntersectionObserverCallback;
+
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+    MockIntersectionObserver.instances.push(this);
+  }
+
+  observe = vi.fn();
+  disconnect = vi.fn();
+
+  /** Fires the observer with the sentinel intersecting, as if it scrolled into view. */
+  fire() {
+    this.callback(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver
+    );
+  }
+}
+
+const lastObserver = () => MockIntersectionObserver.instances[MockIntersectionObserver.instances.length - 1];
+
+/**
+ * A chainable wall-posts mock whose resolved page is computed at await time,
+ * so tests can serve different data per cursor / per owner.
+ */
+function wallPageChain(
+  getResponse: () => { data: any[]; has_more?: boolean; next_cursor?: string | null },
+  onEq?: (col: string, val: any) => void,
+  onCursor?: (cursor: string) => void,
+) {
+  const p: any = {
+    then: (resolve: (v: any) => void) => resolve(getResponse()),
+  };
+  p.select = () => p;
+  p.eq = (col?: string, val?: any) => { onEq?.(col as string, val); return p; };
+  p.order = () => p;
+  p.limit = () => p;
+  p.cursor = (c?: string) => { onCursor?.(c as string); return p; };
+  p.in = () => p;
+  p.or = () => p;
+  p.single = () => p;
+  p.maybeSingle = () => p;
+  return p;
+}
+
 let ProfileWallComponent: any;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -384,6 +435,8 @@ describe("ProfileWall", () => {
     if ((navigator as any).clipboard !== undefined) {
       delete (navigator as any).clipboard;
     }
+    MockIntersectionObserver.instances = [];
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -416,10 +469,11 @@ describe("ProfileWall", () => {
           // Support 3 .order() calls
           order: () => ({
             ...makeChain(null),
-            order: () => ({
-              ...makeChain(null),
-              order: () => new Promise<never>(() => {}), // never resolves
-            }),
+            order: () => {
+              const never = new Promise<never>(() => {}) as any; // never resolves
+              never.range = () => never;
+              return never;
+            },
           }),
         }),
       }),
@@ -861,10 +915,12 @@ describe("ProfileWall", () => {
         ...makeChain(null),
         order: () => ({
           ...makeChain(null),
-          order: () => ({
-            ...makeChain(null),
-            order: () => Promise.reject(new Error("Network error")),
-          }),
+          order: () => {
+            const rejected = Promise.reject(new Error("Network error")) as any;
+            rejected.catch(() => {}); // mark handled; awaiting still rejects
+            rejected.range = () => rejected;
+            return rejected;
+          },
         }),
       }),
     });
@@ -1047,6 +1103,8 @@ describe("ProfileWall", () => {
     pendingChain.order = () => pendingChain;
     pendingChain.in = () => pendingChain;
     pendingChain.limit = () => pendingChain;
+    pendingChain.range = () => pendingChain;
+    pendingChain.cursor = () => pendingChain;
     pendingChain.or = () => pendingChain;
     pendingChain.single = () => pendingChain;
     pendingChain.maybeSingle = () => pendingChain;
@@ -1838,5 +1896,209 @@ describe("ProfileWall", () => {
     expect(screen.queryByTitle("Закрепить пост")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Открепить пост")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Закрепить")).not.toBeInTheDocument();
+  });
+
+  // ─── ProfileWall: infinite scroll pagination ────────────────────────────────
+
+  it("loads the next page when the sentinel enters the viewport", async () => {
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    let pageIdx = 0;
+    const cursorRequests: string[] = [];
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "profile_wall_posts") {
+        return wallPageChain(
+          () => {
+            if (pageIdx++ === 0) {
+              return {
+                data: Array.from({ length: 10 }, (_, i) =>
+                  createMockPost({ id: `post-${i}`, content: `Post ${i}` })
+                ),
+                has_more: true,
+                next_cursor: "cursor-1",
+              };
+            }
+            return {
+              data: [
+                createMockPost({ id: "post-10", content: "Post 10" }),
+                createMockPost({ id: "post-11", content: "Post 11" }),
+              ],
+              has_more: false,
+              next_cursor: null,
+            };
+          },
+          undefined,
+          (cursor) => cursorRequests.push(cursor),
+        );
+      }
+      return makeChain({ data: [], error: null });
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    // First page renders and the sentinel is present while hasMore.
+    await waitFor(() => {
+      expect(screen.getByText("Post 0")).toBeInTheDocument();
+      expect(screen.getByText("Post 9")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("wall-sentinel")).toBeInTheDocument();
+
+    // Scroll: the sentinel fires → the next cursor is requested and appended.
+    await act(async () => {
+      lastObserver().fire();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Post 10")).toBeInTheDocument();
+      expect(screen.getByText("Post 11")).toBeInTheDocument();
+    });
+    expect(cursorRequests).toContain("cursor-1");
+    // 12 posts total, no duplicates.
+    expect(screen.getAllByTestId("processed-content").length).toBe(12);
+    // The sentinel disappears once hasMore is false.
+    await waitFor(() => {
+      expect(screen.queryByTestId("wall-sentinel")).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not render the sentinel when there are no more pages", async () => {
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "profile_wall_posts") {
+        return wallPageChain(() => ({
+          data: [createMockPost({ id: "only-post", content: "Only post" })],
+          has_more: false,
+          next_cursor: null,
+        }));
+      }
+      return makeChain({ data: [], error: null });
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Only post")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("wall-sentinel")).not.toBeInTheDocument();
+  });
+
+  it("dedupes posts that overlap between pages", async () => {
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    let pageIdx = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "profile_wall_posts") {
+        return wallPageChain(() => {
+          if (pageIdx++ === 0) {
+            return {
+              data: [
+                createMockPost({ id: "post-0", content: "Post 0" }),
+                createMockPost({ id: "post-1", content: "Post 1" }),
+                createMockPost({ id: "post-2", content: "Post 2" }),
+              ],
+              has_more: true,
+              next_cursor: "cursor-1",
+            };
+          }
+          // The second page overlaps post-1 — the duplicate must not render twice.
+          return {
+            data: [
+              createMockPost({ id: "post-1", content: "Post 1" }),
+              createMockPost({ id: "post-3", content: "Post 3" }),
+            ],
+            has_more: false,
+            next_cursor: null,
+          };
+        });
+      }
+      return makeChain({ data: [], error: null });
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Post 0")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      lastObserver().fire();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Post 3")).toBeInTheDocument();
+    });
+    // post-1 appears exactly once even though both pages contained it.
+    expect(screen.getAllByText("Post 1").length).toBe(1);
+  });
+
+  it("resets the wall when the profile owner changes", async () => {
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    let wallOwner: string | null = null;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "profile_wall_posts") {
+        return wallPageChain(
+          () => ({
+            data: wallOwner === "user-b"
+              ? [createMockPost({ id: "post-b", content: "B wall" })]
+              : [createMockPost({ id: "post-a", content: "A wall" })],
+            has_more: false,
+            next_cursor: null,
+          }),
+          (col, val) => { if (col === "user_id") wallOwner = val; },
+        );
+      }
+      return makeChain({ data: [], error: null });
+    });
+
+    const { rerender } = render(
+      <ProfileWallComponent
+        profileUserId="user-a"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+    await waitFor(() => {
+      expect(screen.getByText("A wall")).toBeInTheDocument();
+    });
+
+    // Navigating to another profile keeps the instance mounted — the wall must
+    // reset and never show the previous owner's posts.
+    rerender(
+      <ProfileWallComponent
+        profileUserId="user-b"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+    await waitFor(() => {
+      expect(screen.getByText("B wall")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("A wall")).not.toBeInTheDocument();
   });
 });
