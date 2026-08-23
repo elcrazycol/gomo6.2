@@ -555,29 +555,12 @@ const en: LocaleResources = {
     opened: "Unlocked {{unlocked}} of {{total}}",
     unlockedSection: "Unlocked",
     lockedSection: "Locked",
-    searchPlaceholder: "Search achievements...",
-    clearSearch: "Clear search",
-    all: "All",
-    showLocked: "Locked",
-    showSecrets: "Secrets",
-    nothingFound: "Nothing found",
-    secretAchievement: "Secret achievement",
     pin: "Pin",
     unpin: "Unpin",
     allAchievements: "All achievements",
+    pinnedCount: "Pinned: {{count}}/6",
     reward: "+{{value}} garma",
     unlockedAt: "Unlocked",
-
-    // ── Categories ──
-    category: {
-      content: "Content",
-      community: "Communities",
-      retention: "Retention",
-      profile: "Profile",
-      integrations: "Integrations",
-      gifts: "Gifts",
-      secret: "Secrets",
-    },
 
     // ── Rarities ──
     rarity: {

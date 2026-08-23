@@ -697,6 +697,7 @@ const Profile = () => {
       reward_type: levelDef?.reward_type || a.reward_type || undefined,
       reward_value: levelDef?.reward_value || a.reward_value || undefined,
       hidden: a.hidden || false,
+      locked: currentLevel === 0,
       levels: levels,
     } as AchievementData;
   };
@@ -1687,33 +1688,14 @@ const Profile = () => {
                         {t("profile.pinned")} ({pinnedAchievements.length}/6)
                       </h3>
                     )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-6">
                       {pinnedAchievements.map((achievement) => (
-                        <Suspense key={achievement.id} fallback={<div className="h-32 animate-pulse rounded-lg bg-muted" />}>
+                        <Suspense key={achievement.id} fallback={<div className="h-12 animate-pulse rounded bg-muted" />}>
                           <AchievementCard
                             achievement={achievement}
                             onTogglePin={toggleAchievementPin}
                             isEditing={isEditing}
-                          />
-                        </Suspense>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Regular achievements */}
-                {regularAchievements.length > 0 && (
-                  <div>
-                    {isEditing && pinnedAchievements.length > 0 && (
-                      <h3 className="text-lg font-semibold mb-3">{t("profile.allAchievements")}</h3>
-                    )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {regularAchievements.slice(0, 4).map((achievement) => (
-                        <Suspense key={achievement.id} fallback={<div className="h-32 animate-pulse rounded-lg bg-muted" />}>
-                          <AchievementCard
-                            achievement={achievement}
-                            onTogglePin={toggleAchievementPin}
-                            isEditing={isEditing}
+                            compact
                           />
                         </Suspense>
                       ))}

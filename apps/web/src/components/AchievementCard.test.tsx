@@ -44,17 +44,10 @@ describe("AchievementCard", () => {
     expect(screen.getByText("Complete your first post")).toBeInTheDocument();
   });
 
-  it("renders hidden (secret) achievement with reveal prompt", () => {
+  it("renders a locked secret achievement like any locked card (page hides it)", () => {
+    // The card itself has no reveal prompt — locked secrets are filtered out
+    // by the pages, so here it just renders muted like any locked card.
     render(<AchievementCard achievement={makeAchievement({ locked: true, hidden: true })} />);
-    expect(screen.getByText("Секретное достижение")).toBeInTheDocument();
-  });
-
-  it("reveals hidden achievement on click", async () => {
-    const user = userEvent.setup();
-    render(<AchievementCard achievement={makeAchievement({ locked: true, hidden: true })} />);
-
-    await user.click(screen.getByText("Секретное достижение"));
-
     expect(screen.getByText("First Steps")).toBeInTheDocument();
     expect(screen.queryByText("Секретное достижение")).not.toBeInTheDocument();
   });
@@ -137,14 +130,32 @@ describe("AchievementCard", () => {
     expect(screen.getByText(/15.*июня.*2025/)).toBeInTheDocument();
   });
 
-  it("does not show unlock date in compact mode", () => {
+  it("renders compact mode as a square tile (icon + name, no description/date)", () => {
     render(
       <AchievementCard
-        achievement={makeAchievement({ unlocked_at: "2025-06-15T12:00:00Z" })}
+        achievement={makeAchievement({ name: "Завсегдатай", description: "Long description", unlocked_at: "2025-06-15T12:00:00Z" })}
         compact
       />,
     );
+    expect(screen.getByText("Завсегдатай")).toBeInTheDocument();
+    expect(screen.queryByText("Long description")).not.toBeInTheDocument();
     expect(screen.queryByText(/15.*июня/)).not.toBeInTheDocument();
+  });
+
+  it("shows pin/unpin button on compact tile in editing mode", async () => {
+    const onTogglePin = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AchievementCard
+        achievement={makeAchievement({ is_pinned: true })}
+        compact
+        isEditing
+        onTogglePin={onTogglePin}
+      />,
+    );
+    const unpinBtn = screen.getByTitle("Открепить");
+    await user.click(unpinBtn);
+    expect(onTogglePin).toHaveBeenCalledWith("ach-1");
   });
 
   it("shows pin button in editing mode and calls onTogglePin", async () => {
@@ -212,11 +223,14 @@ describe("AchievementCard", () => {
     expect(screen.getByText("中级描述")).toBeInTheDocument();
   });
 
-  it("applies compact classes", () => {
+  it("renders compact tile as a square card", () => {
     const { container } = render(
       <AchievementCard achievement={makeAchievement()} compact />,
     );
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("p-3");
+    expect(card.className).toContain("aspect-square");
+    expect(card.className).toContain("bg-card");
+    // No trophy badge on compact tiles.
+    expect(card.querySelector(".text-amber-500\\/70")).not.toBeInTheDocument();
   });
 });

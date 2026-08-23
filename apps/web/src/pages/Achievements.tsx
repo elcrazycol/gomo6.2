@@ -1,31 +1,13 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
-import { getCached } from "@/integrations/api/queryCache";
-import { Search, X, Trophy, Lock, ArrowLeft } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { getCached, invalidateByPrefix } from "@/integrations/api/queryCache";
+import { useAuth } from "@/hooks/useAuth";
+import { api } from "@/integrations/api/compat";
+import { Trophy, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// Categories mirror the catalog's Category enum (backend achievements package).
-const CATEGORIES: Record<string, { key: string; icon: string }> = {
-  content: { key: "content", icon: "💬" },
-  community: { key: "community", icon: "🌐" },
-  retention: { key: "retention", icon: "📅" },
-  profile: { key: "profile", icon: "👤" },
-  integrations: { key: "integrations", icon: "🎵" },
-  gifts: { key: "gifts", icon: "🎁" },
-  secret: { key: "secret", icon: "✨" },
-};
-
-const RARITY_ORDER: Record<string, number> = {
-  legendary: 5,
-  epic: 4,
-  rare: 3,
-  uncommon: 2,
-  common: 1,
-};
 
 interface AchievementRow {
   id: string;
@@ -45,13 +27,12 @@ interface AchievementRow {
 export default function Achievements() {
   const { t } = useTranslation();
   const { userId } = useParams();
+  const { user: currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [allAchievements, setAllAchievements] = useState<AchievementData[]>([]);
   const [profile, setProfile] = useState<{ username: string; avatar_url?: string | null; id: string } | null>(null);
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-  const [showLocked, setShowLocked] = useState(true);
-  const [showSecret, setShowSecret] = useState(true);
+
+  const isOwnProfile = currentUser?.id === userId;
 
   useEffect(() => {
     if (!userId) return;
@@ -59,7 +40,7 @@ export default function Achievements() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [profileData, unlockedRows, catalogRows] = await Promise.all([
@@ -173,66 +154,58 @@ export default function Achievements() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
-  // Localized display name for search: the catalog stores i18n keys, so the
-  // raw name/description fields are keys, not text the user sees.
-  const localizeLevel = (a: AchievementData): { name: string; description: string } => {
-    const lvl = a.level && a.level > 0 && a.levels && a.levels[a.level - 1]
-      ? a.levels[a.level - 1]
-      : a.levels && a.levels.length > 0
-      ? a.levels[0]
-      : undefined;
-    const name = lvl?.name_key
-      ? t(lvl.name_key)
-      : lvl?.name || (a.title ? t(a.title) : a.name);
-    const description = lvl?.description_key
-      ? t(lvl.description_key)
-      : lvl?.description || a.description;
-    return { name, description };
-  };
-
-  const filtered = useMemo(() => {
-    let list = allAchievements;
-
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter((a) => {
-        const { name, description } = localizeLevel(a);
-        return (
-          name.toLowerCase().includes(q) ||
-          description.toLowerCase().includes(q)
-        );
+  const togglePin = async (achievementId: string) => {
+    // Optimistic flip: update the local state immediately so the pin button
+    // responds without reloading the page.
+    setAllAchievements((prev) =>
+      prev.map((a) => (a.id === achievementId ? { ...a, is_pinned: !a.is_pinned } : a))
+    );
+    try {
+      const { error } = await api.rpc("toggle_achievement_pin", {
+        _user_id: userId,
+        _achievement_id: achievementId,
       });
+      if (error) throw new Error(error.message || "Failed to toggle pin");
+      // Drop the cached user rows so a later visit doesn't resurrect the
+      // stale pin state, and refresh the header counter quietly.
+      invalidateByPrefix(`achievements-page:user:${userId}`);
+      // Re-fetch silently (no loading spinner) to reconcile with the server.
+      try {
+        const res = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}`);
+        const json = await res.json();
+        const rows = (json.data || []) as Record<string, unknown>[];
+        const pinned = new Set(
+          rows.filter((ua) => ua.is_pinned).map((ua) => (ua.achievements as Record<string, unknown>)?.id as string)
+        );
+        setAllAchievements((prev) => prev.map((a) => ({ ...a, is_pinned: pinned.has(a.id) })));
+      } catch {
+        // Optimistic state already applied — ignore reconcile errors.
+      }
+    } catch (error) {
+      // Roll back the optimistic flip on failure.
+      setAllAchievements((prev) =>
+        prev.map((a) => (a.id === achievementId ? { ...a, is_pinned: !a.is_pinned } : a))
+      );
+      console.error("Error toggling achievement pin:", error);
     }
+  };
 
-    if (categoryFilter) {
-      list = list.filter((a) => a.category === categoryFilter);
-    }
-
-    if (!showLocked) {
-      list = list.filter((a) => !a.locked);
-    }
-
-    // Secret filter: when off, hide hidden achievements
-    const filteredList = list.filter((a) => {
-      if (a.hidden && !showSecret) return false;
-      return true;
-    });
-
-    // Sort: unlocked first, then by rarity (desc), then by sort_order
-    return filteredList.sort((a, b) => {
-      if (!a.locked && b.locked) return -1;
-      if (a.locked && !b.locked) return 1;
-      return (RARITY_ORDER[b.rarity || "common"] || 0) - (RARITY_ORDER[a.rarity || "common"] || 0);
-    });
-  }, [allAchievements, search, categoryFilter, showLocked, showSecret, t]);
-
-  const stats = useMemo(() => {
-    const total = allAchievements.length;
-    const unlocked = allAchievements.filter((a) => !a.locked).length;
-    return { total, unlocked };
+  // Visible achievements: locked secrets stay hidden until unlocked.
+  const visible = useMemo(() => {
+    return allAchievements
+      .filter((a) => !(a.hidden && a.locked))
+      .sort((a, b) => {
+        if (!a.locked && b.locked) return -1;
+        if (a.locked && !b.locked) return 1;
+        return 0;
+      });
   }, [allAchievements]);
+
+  const unlocked = visible.filter((a) => !a.locked);
+  const locked = visible.filter((a) => a.locked);
+  const pinnedCount = allAchievements.filter((a) => a.is_pinned).length;
 
   if (loading) {
     return (
@@ -243,10 +216,9 @@ export default function Achievements() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto p-4 space-y-6">
+    <main className="max-w-3xl mx-auto p-4 space-y-6">
       {/* Header */}
       <div className="space-y-3">
-        {/* Back link */}
         <Link
           to={`/profile/${userId}`}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -264,7 +236,7 @@ export default function Achievements() {
               {t("achievements.title")} {profile && `— ${profile.username}`}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {t("achievements.opened", { unlocked: stats.unlocked, total: stats.total })}
+              {t("achievements.opened", { unlocked: unlocked.length, total: visible.length })}
             </p>
           </div>
         </div>
@@ -273,126 +245,56 @@ export default function Achievements() {
         <div className="h-1.5 bg-muted rounded-full overflow-hidden">
           <div
             className="h-full bg-primary rounded-full transition-all duration-500"
-            style={{ width: `${(stats.unlocked / Math.max(stats.total, 1)) * 100}%` }}
+            style={{ width: `${(unlocked.length / Math.max(visible.length, 1)) * 100}%` }}
           />
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="space-y-3">
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder={t("achievements.searchPlaceholder")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              aria-label={t("achievements.clearSearch")}
-              className="absolute right-3 top-1/2 -translate-y-1/2"
-            >
-              <X className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-            </button>
-          )}
-        </div>
+      {/* Pinned hint (own profile) */}
+      {isOwnProfile && pinnedCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t("achievements.pinnedCount", { count: pinnedCount })}
+        </p>
+      )}
 
-        {/* Category chips */}
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => setCategoryFilter(null)}
-            className={cn(
-              "px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-              !categoryFilter
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            )}
-          >
-            {t("achievements.all")}
-          </button>
-          {Object.entries(CATEGORIES).map(([key, cat]) => (
-            <button
-              key={key}
-              onClick={() => setCategoryFilter(categoryFilter === key ? null : key)}
-              className={cn(
-                "px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                categoryFilter === key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              )}
-            >
-              {cat.icon} {t(`achievements.category.${cat.key}`)}
-            </button>
-          ))}
-        </div>
+      {/* Achievement grid: unlocked, then locked */}
+      {unlocked.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+            {t("achievements.unlockedSection")} ({unlocked.length})
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {unlocked.map((ach) => (
+              <AchievementCard
+                key={ach.id}
+                achievement={ach}
+                onTogglePin={isOwnProfile ? togglePin : undefined}
+                isEditing={isOwnProfile}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
-        {/* Toggle options */}
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showLocked}
-              onChange={(e) => setShowLocked(e.target.checked)}
-              className="rounded border-muted-foreground/30"
-            />
-            <Lock className="w-3.5 h-3.5" />
-            <span>{t("achievements.showLocked")}</span>
-          </label>
-          <label className="flex items-center gap-1.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showSecret}
-              onChange={(e) => setShowSecret(e.target.checked)}
-              className="rounded border-muted-foreground/30"
-            />
-            <span>{t("achievements.showSecrets")}</span>
-          </label>
-        </div>
-      </div>
-
-      {/* Achievement grid */}
-      {filtered.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <Trophy className="w-16 h-16 mx-auto mb-4 opacity-20" />
-          <p className="text-sm">{t("achievements.nothingFound")}</p>
-        </div>
-      ) : (
-        <>
-          {/* Unlocked section */}
-          {filtered.some((a) => !a.locked) && (
-            <section>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-                {t("achievements.unlockedSection")} ({filtered.filter((a) => !a.locked).length})
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filtered
-                  .filter((a) => !a.locked)
-                  .map((ach) => (
-                    <AchievementCard key={ach.id} achievement={ach} />
-                  ))}
-              </div>
-            </section>
-          )}
-
-          {/* Locked section */}
-          {filtered.some((a) => a.locked) && showLocked && (
-            <section>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-                {t("achievements.lockedSection")} ({filtered.filter((a) => a.locked).length})
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filtered
-                  .filter((a) => a.locked)
-                  .map((ach) => (
-                    <AchievementCard key={ach.id} achievement={ach} />
-                  ))}
-              </div>
-            </section>
-          )}
-        </>
+      {locked.length > 0 && (
+        <section>
+          <h2 className={cn(
+            "text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3",
+            unlocked.length > 0 && "pt-4"
+          )}>
+            {t("achievements.lockedSection")} ({locked.length})
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {locked.map((ach) => (
+              <AchievementCard
+                key={ach.id}
+                achievement={ach}
+                onTogglePin={isOwnProfile ? togglePin : undefined}
+                isEditing={isOwnProfile}
+              />
+            ))}
+          </div>
+        </section>
       )}
     </main>
   );

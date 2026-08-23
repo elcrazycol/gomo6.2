@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
-import { Pin, PinOff, Sparkles, Lock, Trophy } from "lucide-react";
+import { Pin, PinOff, Trophy } from "lucide-react";
 import { getAchievementIcon } from "@/components/AchievementIcons";
 import { getIntlLanguage } from "@/i18n/dateLocale";
 
@@ -106,10 +105,8 @@ export function AchievementCard({
   compact,
 }: AchievementCardProps) {
   const { t } = useTranslation();
-  const [isRevealing, setIsRevealing] = useState(false);
 
   const isLocked = achievement.locked === true;
-  const isHidden = achievement.hidden === true && isLocked;
   const rarity = getDisplayRarity(achievement);
   const IconComponent = getAchievementIcon(achievement.icon);
 
@@ -140,27 +137,6 @@ export function AchievementCard({
 
   const showProgress = nextThreshold > 0 && (isLocked || currentLevel < maxLevel);
 
-  // Secret achievement: user must click to reveal
-  if (isHidden && !isRevealing) {
-    return (
-      <button
-        type="button"
-        onClick={() => setIsRevealing(true)}
-        className={cn(
-          "w-full text-left p-4 bg-muted/40 border border-dashed border-border rounded-lg",
-          "hover:bg-muted/60 transition-colors cursor-pointer select-none",
-          "flex items-center justify-center gap-2 min-h-[72px]",
-          compact && "min-h-[56px] p-3"
-        )}
-      >
-        <Sparkles className="w-4 h-4 text-muted-foreground/60" />
-        <span className="text-sm text-muted-foreground">
-          {t("achievements.secretAchievement")}
-        </span>
-      </button>
-    );
-  }
-
   // Unlocked: the current level. Locked: the first (reachable) level.
   const levelDef = isLocked
     ? levels.length > 0 ? levels[0] : undefined
@@ -168,30 +144,96 @@ export function AchievementCard({
   const displayName = levelName(levelDef) || groupTitle;
   const displayDesc = levelDesc(levelDef) || achievement.description;
 
+  // Compact square tile: icon + name on a card background, used for pinned
+  // achievements on the profile. No trophy badge, no description — just the
+  // icon and the name.
+  if (compact) {
+    return (
+      <div className="relative aspect-square p-2 bg-card border border-border rounded-lg flex flex-col items-center justify-center gap-1.5 text-center">
+        {isEditing && onTogglePin && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin(achievement.id);
+            }}
+            className={cn(
+              "absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded-md",
+              "text-muted-foreground hover:text-foreground hover:bg-muted transition-colors",
+              achievement.is_pinned && "text-primary hover:text-primary"
+            )}
+            title={achievement.is_pinned ? t("achievements.unpin") : t("achievements.pin")}
+          >
+            {achievement.is_pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+          </button>
+        )}
+        <div className="flex-shrink-0 w-9 h-9 rounded-md bg-muted flex items-center justify-center text-foreground">
+          <IconComponent size={20} />
+        </div>
+        <p className="text-[11px] leading-tight text-foreground line-clamp-2">{displayName}</p>
+        {/* Level + progress to the next threshold */}
+        {maxLevel > 1 ? (
+          <div className="w-full space-y-1">
+            <p className="text-[10px] text-muted-foreground/70">
+              {isLocked ? "0" : currentLevel}/{maxLevel}
+            </p>
+            {nextThreshold > 0 && (isLocked || currentLevel < maxLevel) && (
+              <div className="flex items-center gap-1">
+                <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <span className="text-[9px] text-muted-foreground/60 whitespace-nowrap">
+                  {progressCurrent}/{nextThreshold}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Level track: one segment per level, filled up to the current one. Gives a
+  // quick read on how far through the achievement the user is.
+  const levelTrack =
+    levels.length > 1 && maxLevel > 1 ? (
+      <div className="flex items-center gap-1">
+        {levels.map((lvl) => {
+          const reached = !isLocked && lvl.level <= currentLevel;
+          return (
+            <span
+              key={lvl.level}
+              className={cn(
+                "h-1 flex-1 rounded-full transition-colors",
+                reached ? "bg-primary" : "bg-muted"
+              )}
+            />
+          );
+        })}
+      </div>
+    ) : null;
+
   return (
     <div
       className={cn(
         "p-4 bg-card border border-border rounded-lg",
         "transition-colors",
-        isLocked && "opacity-60",
-        compact && "p-3"
+        isLocked && "opacity-60"
       )}
     >
       <div className="flex items-start gap-3">
         {/* Icon */}
-        <div
-          className={cn(
-            "flex-shrink-0 w-10 h-10 rounded-md bg-muted flex items-center justify-center text-muted-foreground",
-            compact && "w-8 h-8"
-          )}
-        >
-          <IconComponent size={compact ? 18 : 20} />
+        <div className="flex-shrink-0 w-10 h-10 rounded-md bg-muted flex items-center justify-center text-muted-foreground">
+          <IconComponent size={20} />
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className={cn("font-medium text-sm text-foreground truncate", compact && "text-xs")}>
+            <p className="font-medium text-sm text-foreground truncate">
               {displayName}
             </p>
             {/* Rarity dot + label */}
@@ -205,9 +247,12 @@ export function AchievementCard({
               </span>
             )}
           </div>
-          <p className={cn("text-xs text-muted-foreground mt-0.5", compact && "text-[11px]")}>
+          <p className="text-xs text-muted-foreground mt-0.5">
             {displayDesc}
           </p>
+
+          {/* Level track (multi-level achievements) */}
+          {levelTrack && <div className="mt-2">{levelTrack}</div>}
 
           {/* Progress to next level */}
           {showProgress && (
@@ -225,7 +270,7 @@ export function AchievementCard({
           )}
 
           {/* Unlock date */}
-          {achievement.unlocked_at && !compact && (
+          {achievement.unlocked_at && (
             <p className="text-[11px] text-muted-foreground/50 mt-1.5">
               {t("achievements.unlockedAt")}: {new Date(achievement.unlocked_at).toLocaleDateString(getIntlLanguage(), {
                 day: "numeric",
@@ -259,7 +304,7 @@ export function AchievementCard({
       </div>
 
       {/* Reward indicator */}
-      {!isLocked && (levelDef?.reward_type === "garma" || achievement.reward_type === "garma") && !compact && (
+      {!isLocked && (levelDef?.reward_type === "garma" || achievement.reward_type === "garma") && (
         <div className="mt-2.5 pt-2.5 border-t border-border/60">
           <span className="text-[11px] text-muted-foreground/70">
             {t("achievements.reward", {

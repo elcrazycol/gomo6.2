@@ -580,29 +580,12 @@ const ru: LocaleResources = {
     opened: "Открыто {{unlocked}} из {{total}}",
     unlockedSection: "Открытые",
     lockedSection: "Закрытые",
-    searchPlaceholder: "Поиск достижений...",
-    clearSearch: "Очистить поиск",
-    all: "Все",
-    showLocked: "Закрытые",
-    showSecrets: "Секретные",
-    nothingFound: "Ничего не найдено",
-    secretAchievement: "Секретное достижение",
     pin: "Закрепить",
     unpin: "Открепить",
     allAchievements: "Все достижения",
+    pinnedCount: "Закреплено: {{count}}/6",
     reward: "+{{value}} гармы",
     unlockedAt: "Открыто",
-
-    // ── Категории ──
-    category: {
-      content: "Контент",
-      community: "Сообщества",
-      retention: "Удержание",
-      profile: "Профиль",
-      integrations: "Интеграции",
-      gifts: "Подарки",
-      secret: "Секретные",
-    },
 
     // ── Редкости ──
     rarity: {
