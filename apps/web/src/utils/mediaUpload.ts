@@ -1,4 +1,5 @@
 import { api } from "@/integrations/api/compat";
+import { apiClient } from "@/integrations/api/client";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { prepareMessengerImage } from "@/lib/imageProcessing";
 import { toast } from "sonner";
@@ -101,9 +102,14 @@ const extractAudioMetadata = async (file: File): Promise<{
         const formData = new FormData();
         formData.append('audio', file);
 
+        // The endpoint requires a session: the backend checks the access
+        // cookie AND the double-submit CSRF token on POST (X-CSRF-Token must
+        // echo the gomo6_csrf cookie), otherwise it 403s.
+        const csrf = apiClient.getCSRFToken();
         const response = await fetch('/api/v1/audio/metadata', {
           method: 'POST',
           body: formData,
+          headers: csrf ? { 'X-CSRF-Token': csrf } : undefined,
         });
 
         if (response.ok) {
