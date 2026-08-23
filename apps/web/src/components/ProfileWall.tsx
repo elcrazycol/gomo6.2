@@ -15,6 +15,50 @@ import {
 } from "@/utils/wallNormalizers";
 import { safeDate } from "@/utils/safeDate";
 
+const WALL_POST_SELECT = `
+          id,
+          user_id,
+          author_id,
+          title,
+          content,
+          content_json,
+          image_url,
+          attachments,
+          repost_of_post_id,
+          created_at,
+          updated_at,
+          is_pinned,
+          pinned_order,
+          author:profiles!author_id (
+            username,
+            is_anonymous,
+            avatar_url
+          )
+        `;
+
+// Keyset pagination: the server returns has_more/next_cursor keyed on
+// (created_at, id), so local inserts/deletes never shift the page window.
+// Pinned posts are only returned on the first page.
+const PAGE_SIZE = 10;
+
+// Minimum delay between auto-loads triggered by the scroll sentinel. Prevents
+// a burst of page fetches when the sentinel stays visible after an append
+// (e.g. a page of short text-only posts) — mirrors ThreadFeed's cooldown.
+const LOAD_MORE_COOLDOWN_MS = 1500;
+
+// One canonical wall order: pinned first (by pinned_order), then newest. Used
+// by both the initial load and load-more merges so the list stays in the same
+// order the server returns after any WS/local insert.
+const sortWallPosts = (list: WallPost[]): WallPost[] =>
+  [...list].sort((a, b) => {
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (!a.is_pinned && b.is_pinned) return 1;
+    if (a.is_pinned && b.is_pinned && (a.pinned_order ?? 0) !== (b.pinned_order ?? 0)) {
+      return (a.pinned_order ?? 0) - (b.pinned_order ?? 0);
+    }
+    return safeDate(b.created_at).getTime() - safeDate(a.created_at).getTime();
+  });
+
 interface ProfileWallProps {
   profileUserId: string;
   currentUserId: string | null;
@@ -90,10 +134,40 @@ export const ProfileWall = ({
 
   const [pendingPostId, setPendingPostId] = useState<string | undefined>(undefined);
   const [pendingPostTimestamp, setPendingPostTimestamp] = useState<number | undefined>(undefined);
+
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // Next server-side keyset cursor (opaque) — independent of the rendered
+  // array so local/WS inserts and deletes never shift the pagination window.
+  const nextCursorRef = useRef<string | null>(null);
+  // Latest-value refs so the long-lived scroll observer never closes over
+  // stale state (mirrors the ThreadFeed pattern).
+  const hasMoreRef = useRef(false);
+  const loadMoreRef = useRef<() => void>(() => {});
+  const nextLoadMoreAtRef = useRef(0);
+  // The wall owner the current state belongs to — resets everything when the
+  // owner changes (the route keeps the component mounted across profiles).
+  const lastOwnerRef = useRef<string | null>(null);
   const activeEditingPost = useMemo(
     () => posts.find((post) => post.id === editingPost),
     [editingPost, posts]
   );
+
+  // Reset wall state when the owner changes: /profile/A → /profile/B keeps
+  // the same mounted instance, and the loadPosts merge would otherwise keep
+  // the previous profile's posts (their ids aren't in the new page, so they
+  // would survive as "websocket posts"). Runs on mount too to seed the ref.
+  useEffect(() => {
+    if (lastOwnerRef.current === profileUserId) return;
+    lastOwnerRef.current = profileUserId;
+    setPosts(initialPost ? [initialPost] : []);
+    setHasMore(false);
+    nextCursorRef.current = null;
+    setLoading(!initialPost);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileUserId]);
 
   useEffect(() => {
     if (!initialPost) return;
@@ -101,89 +175,169 @@ export const ProfileWall = ({
     setLoading(false);
   }, [initialPost]);
 
+  // Keep the observer's snapshot of hasMore fresh.
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  // Fetch one page of wall posts (already normalized, repost originals
+  // resolved). The server returns has_more/next_cursor (keyset pagination),
+  // so the caller never has to guess whether another page exists. Pass
+  // cursor=null for the first page — pinned posts only appear there.
+  const fetchWallPage = useCallback(async (
+    cursor: string | null,
+    pageSize: number
+  ): Promise<{ posts: WallPost[]; hasMore: boolean; nextCursor: string | null }> => {
+    let query = api
+      .from("profile_wall_posts")
+      .select(WALL_POST_SELECT)
+      .eq("user_id", profileUserId);
+
+    if (focusedPostId) {
+      query = query.eq("id", focusedPostId);
+    } else {
+      query = query
+        .order("is_pinned", { ascending: false })
+        .order("pinned_order", { ascending: true })
+        .order("created_at", { ascending: false })
+        .limit(pageSize);
+      if (cursor) query = query.cursor(cursor);
+    }
+
+    const result = (await query) as {
+      data: Record<string, unknown>[] | null;
+      error: unknown;
+      has_more?: boolean;
+      next_cursor?: string | null;
+    };
+    if (result.error) throw result.error;
+
+    const rawPosts = result.data || [];
+    const repostIds = Array.from(
+      new Set(
+        rawPosts
+          .map((post) => post.repost_of_post_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      )
+    );
+
+    let originalPostsMap = new Map<string, WallPost>();
+    if (repostIds.length > 0) {
+      const { data: originalPosts, error: originalPostsError } = await api
+        .from("profile_wall_posts")
+        .select(WALL_POST_SELECT)
+        .in("id", repostIds);
+
+      if (originalPostsError) throw originalPostsError;
+
+      originalPostsMap = new Map(
+        ((originalPosts || []) as Record<string, unknown>[]).map((originalPost) => {
+          const normalized = normalizeWallPostRecord(originalPost, currentUsernameRef.current);
+          return [normalized.id, normalized];
+        })
+      );
+    }
+
+    const posts = rawPosts.map((post) =>
+      normalizeWallPostRecord({
+        ...post,
+        original_post: (post.repost_of_post_id as string | undefined) ? originalPostsMap.get(post.repost_of_post_id as string) || null : null,
+      }, currentUsernameRef.current)
+    );
+    return {
+      posts,
+      hasMore: result.has_more === true,
+      nextCursor: typeof result.next_cursor === "string" ? result.next_cursor : null,
+    };
+  }, [focusedPostId, profileUserId]);
+
   const loadPosts = useCallback(async () => {
+    const ownerAtFetch = lastOwnerRef.current;
     try {
       // A post passed by the previous screen is already renderable. Refresh it
       // in the background without replacing it with a loading skeleton.
       if (!initialPost) setLoading(true);
-      let query = api
-        .from("profile_wall_posts")
-        .select(`\n          id,\n          user_id,\n          author_id,\n          title,\n          content,\n          content_json,\n          image_url,\n          attachments,\n          repost_of_post_id,\n          created_at,\n          updated_at,\n          is_pinned,\n          pinned_order,\n          author:profiles!author_id (\n            username,\n            is_anonymous,\n            avatar_url\n          )\n        `)
-        .eq("user_id", profileUserId);
-
-      if (focusedPostId) {
-        query = query.eq("id", focusedPostId);
-      } else {
-        query = query
-          .order("is_pinned", { ascending: false })
-          .order("pinned_order", { ascending: true })
-          .order("created_at", { ascending: false });
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const rawPosts = (data || []) as Record<string, unknown>[];
-      const repostIds = Array.from(
-        new Set(
-          rawPosts
-            .map((post) => post.repost_of_post_id)
-            .filter((id): id is string => typeof id === "string" && id.length > 0)
-        )
-      );
-
-      let originalPostsMap = new Map<string, WallPost>();
-      if (repostIds.length > 0) {
-        const { data: originalPosts, error: originalPostsError } = await api
-          .from("profile_wall_posts")
-          .select(`\n            id,\n            user_id,\n            author_id,\n            title,\n            content,\n            content_json,\n            image_url,\n            attachments,\n            repost_of_post_id,\n            created_at,\n            updated_at,\n            is_pinned,\n            pinned_order,\n            author:profiles!author_id (\n              username,\n              is_anonymous,\n              avatar_url\n            )\n          `)
-          .in("id", repostIds);
-
-        if (originalPostsError) throw originalPostsError;
-
-        originalPostsMap = new Map(
-          ((originalPosts || []) as Record<string, unknown>[]).map((originalPost) => {
-            const normalized = normalizeWallPostRecord(originalPost, currentUsernameRef.current);
-            return [normalized.id, normalized];
-          })
-        );
-      }
-
-      const normalizedPosts = rawPosts.map((post) =>
-        normalizeWallPostRecord({
-          ...post,
-          original_post: (post.repost_of_post_id as string | undefined) ? originalPostsMap.get(post.repost_of_post_id as string) || null : null,
-        }, currentUsernameRef.current)
-      );
+      const { posts: fetchedPosts, hasMore: hasMoreData, nextCursor } = await fetchWallPage(null, PAGE_SIZE);
+      if (ownerAtFetch !== lastOwnerRef.current) return; // owner switched mid-flight
+      nextCursorRef.current = nextCursor;
 
       setPosts(prevPosts => {
-        const validNormalized = normalizedPosts.filter(p => p.id);
+        const validNormalized = fetchedPosts.filter(p => p.id);
         const validPrevPosts = prevPosts.filter(p => p.id);
         const apiPostIds = new Set(validNormalized.map(p => p.id));
+        // Posts the API page doesn't know (optimistic local creates / WS
+        // events that arrived mid-flight) survive the refresh.
         const websocketPosts = validPrevPosts.filter(post => !apiPostIds.has(post.id));
-
-        const combinedPosts = [...validNormalized, ...websocketPosts];
-
-        combinedPosts.sort((a, b) => {
-          if (a.is_pinned && !b.is_pinned) return -1;
-          if (!a.is_pinned && b.is_pinned) return 1;
-          if (a.is_pinned && b.is_pinned) {
-            if ((a.pinned_order ?? 0) !== (b.pinned_order ?? 0)) {
-              return (a.pinned_order ?? 0) - (b.pinned_order ?? 0);
-            }
-          }
-          return safeDate(b.created_at).getTime() - safeDate(a.created_at).getTime();
-        });
-
-        return combinedPosts;
+        return sortWallPosts([...validNormalized, ...websocketPosts]);
       });
+      setHasMore(!focusedPostId && hasMoreData);
     } catch (error) {
+      if (ownerAtFetch !== lastOwnerRef.current) return;
       console.error("Error loading wall posts:", error);
       toast.error("Ошибка загрузки постов стены");
     } finally {
-      setLoading(false);
+      if (ownerAtFetch === lastOwnerRef.current) setLoading(false);
     }
-  }, [focusedPostId, initialPost, profileUserId]);
+  }, [fetchWallPage, focusedPostId, initialPost]);
+
+  const loadMorePosts = useCallback(async () => {
+    if (loadingMoreRef.current || loading || !hasMoreRef.current) return;
+    const ownerAtFetch = lastOwnerRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const cursor = nextCursorRef.current;
+      // hasMore without a cursor means there is nothing more to fetch — stop
+      // (the server only reports has_more when it also returns a cursor).
+      if (!cursor) {
+        setHasMore(false);
+        return;
+      }
+      const { posts: fetchedPosts, hasMore: hasMoreData, nextCursor } = await fetchWallPage(cursor, PAGE_SIZE);
+      if (ownerAtFetch !== lastOwnerRef.current) return; // owner switched mid-flight
+      nextCursorRef.current = nextCursor;
+
+      if (fetchedPosts.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      setPosts(prevPosts => {
+        const existingIds = new Set(prevPosts.filter(p => p.id).map(p => p.id));
+        const appended = fetchedPosts.filter(p => p.id && !existingIds.has(p.id));
+        return sortWallPosts([...prevPosts, ...appended]);
+      });
+      setHasMore(hasMoreData);
+    } catch (error) {
+      if (ownerAtFetch !== lastOwnerRef.current) return;
+      console.error("Error loading more wall posts:", error);
+      toast.error("Ошибка загрузки постов стены");
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [fetchWallPage, loading]);
+
+  // Keep the observer's snapshot of the loader fresh — the observer is only
+  // created/destroyed when hasMore toggles, never on every posts change.
+  loadMoreRef.current = loadMorePosts;
+
+  // Infinite scroll: fetch the next page when the sentinel enters the viewport.
+  useEffect(() => {
+    if (!hasMore || focusedPostId) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some(entry => entry.isIntersecting) && Date.now() >= nextLoadMoreAtRef.current) {
+          nextLoadMoreAtRef.current = Date.now() + LOAD_MORE_COOLDOWN_MS;
+          loadMoreRef.current();
+        }
+      },
+      { rootMargin: "600px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, focusedPostId]);
 
   useEffect(() => {
     if (showWall && !wallHidden) {
@@ -207,6 +361,9 @@ export const ProfileWall = ({
 
           if (!postData.id || !postData.user_id) return;
           if (postData.user_id !== profileUserId) return;
+          // A message queued while the wall owner switched must not leak onto
+          // the new owner's wall.
+          if (lastOwnerRef.current !== profileUserId) return;
 
           const postId = String(postData.id);
           const postTimestamp = safeDate(postData.created_at).getTime();
@@ -239,7 +396,7 @@ export const ProfileWall = ({
 
             processedPostIdsRef.current.add(postId);
             const newPost = normalizeWallPostRecord(postData, currentUsernameRef.current);
-            return [newPost, ...prevPosts];
+            return sortWallPosts([newPost, ...prevPosts]);
           });
         } catch (e) {
           console.error('[ProfileWall] Error parsing wall post message:', e);
@@ -349,7 +506,7 @@ export const ProfileWall = ({
       ...normalizeWallPostRecord(newPost as unknown as Record<string, unknown>, currentUsername),
       _localAdd: true
     };
-    setPosts((prev) => [markedPost, ...prev]);
+    setPosts((prev) => sortWallPosts([markedPost, ...prev]));
     setShowCreateForm(false);
     setTimeout(() => {
       pendingPostTimestampRef.current = undefined;
@@ -460,6 +617,17 @@ export const ProfileWall = ({
                 }}
               />
             ))}
+          </div>
+        )}
+        {!focusedPostId && hasMore && (
+          <div
+            ref={sentinelRef}
+            data-testid="wall-sentinel"
+            className="flex justify-center py-4"
+          >
+            {loadingMore && (
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+            )}
           </div>
         )}
       </div>

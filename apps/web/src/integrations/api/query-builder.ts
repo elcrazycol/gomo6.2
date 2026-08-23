@@ -74,6 +74,7 @@ type QueryState = {
   order: { column: string; ascending: boolean }[];
   limit: number | null;
   offset: number | null;
+  cursor: string | null;
 };
 
 // ── Response types ────────────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ interface SelectQueryBuilder {
   order: (c: string, opts?: { ascending?: boolean }) => SelectQueryBuilder;
   limit: (n: number) => SelectQueryBuilder;
   range: (from: number, to?: number) => SelectQueryBuilder;
+  cursor: (c: string) => SelectQueryBuilder;
   single: () => Promise<SingleResponse>;
   maybeSingle: () => Promise<SingleResponse>;
   then: <TResult = SingleResponse>(cb: (value: QueryResponse) => TResult) => Promise<TResult>;
@@ -196,6 +198,7 @@ export const from = (table: string, opts?: { ttlMs?: number }): TableApi => {
     order: [],
     limit: null,
     offset: null,
+    cursor: null,
   };
 
   const buildQuery = () => {
@@ -212,6 +215,7 @@ export const from = (table: string, opts?: { ttlMs?: number }): TableApi => {
     }
     if (queryState.limit)  params.set('limit', String(queryState.limit));
     if (queryState.offset) params.set('offset', String(queryState.offset));
+    if (queryState.cursor) params.set('cursor', queryState.cursor);
 
     const qs = params.toString();
     return `/api/v1/${table}${qs ? `?${qs}` : ''}`;
@@ -376,6 +380,10 @@ export const from = (table: string, opts?: { ttlMs?: number }): TableApi => {
       range: (from, to) => {
         queryState.offset = from;
         if (to !== undefined) queryState.limit = Math.max(0, to - from + 1);
+        return b;
+      },
+      cursor: (c) => {
+        queryState.cursor = c;
         return b;
       },
       single: () => executeQuery().then(flattenSingleResponse),
