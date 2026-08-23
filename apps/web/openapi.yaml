@@ -1435,14 +1435,6 @@ paths:
         "200":
           description: Статус
 
-  /api/rpc/award_achievement:
-    post:
-      summary: Выдать достижение
-      tags: [RPC]
-      responses:
-        "200":
-          description: Выдано
-
   /api/rpc/create_gomosub:
     post:
       summary: Создать GomoSub

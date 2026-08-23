@@ -3807,38 +3807,6 @@ paths:
       summary: Update profile
       tags:
       - Profiles
-  /rpc/award_achievement:
-    post:
-      consumes:
-      - application/json
-      description: Award an achievement to a user (idempotent)
-      parameters:
-      - description: User and achievement IDs
-        in: body
-        name: request
-        required: true
-        schema:
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-      security:
-      - BearerAuth: []
-      summary: Award achievement
-      tags:
-      - RPC
   /rpc/create_gomosub:
     post:
       consumes:
