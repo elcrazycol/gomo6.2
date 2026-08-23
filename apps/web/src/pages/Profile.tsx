@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, lazy, Suspense } from "react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { getCached } from "@/integrations/api/queryCache";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { apiErrorMessage } from "@/utils/apiErrors";
 import { Button } from "@/components/ui/button";
@@ -26,23 +27,28 @@ import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 import { getProfileCustomization, parseCssToStyle, dispatchProfileCacheInvalidate, type ProfileCustomization } from "@/utils/profileCustomization";
 import { normalizeProfileBackgroundVariant, type ProfileBackgroundVariant } from "@/utils/profileBackground";
 import { isValidThemeTokens, applyProfileThemeTokens } from "@/utils/profileTheme";
-import { EmojiPicker } from "@/components/EmojiPicker";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { AdminBadge } from "@/components/AdminBadge";
 import { ProfileWall } from "@/components/ProfileWall";
-import { ThreadCard } from "@/components/ThreadCard";
-import { AvatarCropper } from "@/components/AvatarCropper";
-import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { OnlineStatus } from "@/components/OnlineStatus";
-import { AvatarGallery } from "@/components/AvatarGallery";
-import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
-import { GiftsTab } from "@/components/GiftsTab";
 import { FriendButton } from "@/components/FriendButton";
-import { FriendsList } from "@/components/FriendsList";
-import { FriendRequestsList } from "@/components/FriendRequestsList";
 import { useFriendsStore } from "@/stores/friendsStore";
 import { SpotifyNowPlaying } from "@/components/SpotifyNowPlaying";
+import type { AchievementData, AchievementLevel } from "@/components/AchievementCard";
+
+// Heavy interaction-only components — split into separate chunks so the
+// profile page's initial JS is small on mobile. Loaded on first use (edit
+// mode, dialogs, non-default tabs) instead of on every visit.
+const GomoRichEditor = lazy(() => import("@/components/GomoRichEditor").then((m) => ({ default: m.GomoRichEditor })));
+const AvatarCropper = lazy(() => import("@/components/AvatarCropper").then((m) => ({ default: m.AvatarCropper })));
+const EmojiPicker = lazy(() => import("@/components/EmojiPicker").then((m) => ({ default: m.EmojiPicker })));
+const AvatarGallery = lazy(() => import("@/components/AvatarGallery").then((m) => ({ default: m.AvatarGallery })));
+const AchievementCard = lazy(() => import("@/components/AchievementCard").then((m) => ({ default: m.AchievementCard })));
+const GiftsTab = lazy(() => import("@/components/GiftsTab").then((m) => ({ default: m.GiftsTab })));
+const FriendsList = lazy(() => import("@/components/FriendsList").then((m) => ({ default: m.FriendsList })));
+const FriendRequestsList = lazy(() => import("@/components/FriendRequestsList").then((m) => ({ default: m.FriendRequestsList })));
+const ThreadCard = lazy(() => import("@/components/ThreadCard").then((m) => ({ default: m.ThreadCard })));
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { getCurrentUserMeta, getGiftCatalog } from "@/utils/currentUserMeta";
 import { formatCompactNumber } from "@/utils/formatNumber";
@@ -73,6 +79,8 @@ interface Profile {
   account_number?: number | null;
   is_online?: boolean;
   last_seen?: string | null;
+  /** Raw API column name for the row returned by /profiles. */
+  last_seen_at?: string | null;
 }
 
 interface Achievement {
@@ -117,6 +125,27 @@ interface AvatarHistoryItem {
   is_current: boolean;
 }
 
+// Visibility flags returned by the owner's privacy endpoint. Field names match
+// the API; values may be absent for rows created before the columns existed.
+interface ProfilePrivacyData {
+  show_last_seen?: boolean;
+  show_online_status?: boolean;
+  show_profile_wall?: boolean;
+  allow_wall_posts_from_others?: boolean;
+  show_threads_tab?: boolean;
+  show_profile_stats?: boolean;
+  show_detailed_stats?: boolean;
+  stats_visibility?: Record<string, boolean>;
+  private_profile?: boolean;
+  private_hide_avatar?: boolean;
+  private_hide_wall?: boolean;
+  private_hide_threads?: boolean;
+  private_hide_stats?: boolean;
+  private_hide_friends?: boolean;
+  private_hide_gifts?: boolean;
+  private_hide_achievements?: boolean;
+}
+
 
 const formatGarmaLabel = (value: number) => {
   const abs = Math.abs(value);
@@ -133,10 +162,15 @@ const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; o
   const { profileFriends, fetchProfileFriends } = useFriendsStore();
   const { t } = useTranslation();
   const [friendCount, setFriendCount] = useState(0);
+  const [friendsLoaded, setFriendsLoaded] = useState(false);
 
+  // The friends list is only needed when the friends tab is opened — don't
+  // fetch it (with every avatar) on every profile visit just for a count.
   useEffect(() => {
+    if (activeTab !== 'friends' || friendsLoaded) return;
+    setFriendsLoaded(true);
     fetchProfileFriends(userId);
-  }, [fetchProfileFriends, userId]);
+  }, [activeTab, friendsLoaded, fetchProfileFriends, userId]);
 
   useEffect(() => {
     setFriendCount(profileFriends.length);
@@ -285,29 +319,6 @@ const Profile = () => {
     return cleanup;
   }, [profile?.theme_enabled, profile?.theme_tokens]);
 
-  // Load gift catalog (TTL-cached — public data that rarely changes)
-  useEffect(() => {
-    let cancelled = false;
-    getGiftCatalog()
-      .then((items) => {
-        if (!cancelled) setGiftCatalog(items);
-      })
-      .catch(() => { /* ignore */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Load gift count for profile
-  useEffect(() => {
-    if (!userId) return;
-    const loadCount = async () => {
-      try {
-        const res = await fetch(`/api/v1/user_gifts?recipient_id=eq.${userId}&limit=0`);
-        const result = await res.json();
-        setGiftCount(result.count ?? 0);
-      } catch { /* ignore */ }
-    };
-    loadCount();
-  }, [userId]);
 
   useEffect(() => {
     if (!profile || pageLoading) {
@@ -323,7 +334,12 @@ const Profile = () => {
       const loadAll = async () => {
         setPageLoading(true);
         try {
-          await Promise.all([loadProfile(), loadAchievements(), loadAvatarHistory()]);
+          // Only the profile row + privacy/friendship/customization are needed
+          // for the first paint. Pinned achievements (wall tab) come with a
+          // cheap limit-4 fetch; the full achievement list, avatar history,
+          // gift counts and friends lists load lazily when their tab/action
+          // is first used.
+          await Promise.all([loadProfile(), loadPinnedAchievements()]);
         } catch (error) {
           console.error('Error loading profile data:', error);
         } finally {
@@ -334,6 +350,36 @@ const Profile = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  // Achievements are a heavy payload (every level, description and icon is
+  // embedded) and the wall is the landing tab — fetch them only when the
+  // achievements tab is first opened.
+  const [achievementsLoaded, setAchievementsLoaded] = useState(false);
+  useEffect(() => {
+    if (activeTab === 'achievements' && !achievementsLoaded) {
+      loadAchievements();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, achievementsLoaded]);
+
+  // Gift catalog + count are only used by the gifts tab — load them when it
+  // is first opened instead of on every profile visit.
+  const [giftCountLoaded, setGiftCountLoaded] = useState(false);
+  useEffect(() => {
+    if (activeTab !== 'gifts' || giftCountLoaded) return;
+    setGiftCountLoaded(true);
+    getGiftCatalog()
+      .then(setGiftCatalog)
+      .catch(() => { /* ignore */ });
+    const loadCount = async () => {
+      try {
+        const res = await fetch(`/api/v1/user_gifts?recipient_id=eq.${userId}&limit=0`);
+        const result = await res.json();
+        setGiftCount(result.count ?? 0);
+      } catch { /* ignore */ }
+    };
+    loadCount();
+  }, [activeTab, giftCountLoaded, userId]);
   // Live online status via WebSocket presence — the previous 10s HTTP polling
   // fired 6 requests/min per open profile page for the same data.
   const realtimeStatus = useUserRealtimeStatus(userId);
@@ -347,10 +393,44 @@ const Profile = () => {
     const sessionAuth = await api.auth.getSession();
     const token = sessionAuth.data.session?.access_token;
     const headers: Record<string, string> | undefined = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+    const localSessionUser = sessionAuth.data.session?.user;
+    const isOwnProfileBySession = localSessionUser?.id === userId;
 
-    const profileRes = await fetch(`/api/v1/profiles?id=eq.${userId}`);
-    const profileResult = await profileRes.json();
-    const data = profileResult.data?.[0];
+    // The profile row, privacy flags, friendship status and customization are
+    // all independent reads — run them in parallel instead of one after
+    // another (previously 4 sequential round trips on a mobile network before
+    // the header could render). Only the session lookup above stays
+    // sequential, and it is local (no network round trip).
+    //
+    // The profile row is served through the TTL cache (viewer-scoped key) so
+    // back-navigation within the TTL renders the header instantly instead of
+    // re-fetching the same row.
+    const [profileData, privacyRes, friendshipRes, customization] = await Promise.all([
+      getCached<Profile | null>(
+        `profile-page:${isOwnProfileBySession ? "owner" : "viewer"}:${userId}`,
+        async () => {
+          const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
+          const json = await res.json();
+          return (json.data?.[0] as Profile | undefined) ?? null;
+        },
+        { ttlMs: 60_000 }
+      ),
+      // The generic /privacy_settings endpoint is viewer-scoped (returns only
+      // the caller's own row), so a foreign profile must use the public
+      // /users/:id/privacy endpoint — the same rules the server enforces on
+      // content (private_profile + private_hide_*).
+      isOwnProfileBySession
+        ? fetch(`/api/v1/privacy_settings?user_id=eq.${userId}`)
+        : fetch(`/api/v1/users/${userId}/privacy`),
+      // Guests cannot read a foreign user's friend status (protected endpoint)
+      // and the owner is always a friend — skip the request in both cases.
+      !isOwnProfileBySession && localSessionUser?.id
+        ? fetch(`/api/v1/friends/status/${userId}`, { headers }).catch(() => null)
+        : Promise.resolve(null),
+      getProfileCustomization(userId!),
+    ]);
+
+    const data = profileData;
 
     if (data) {
       setProfile({
@@ -372,16 +452,20 @@ const Profile = () => {
       setLastSeen(data.last_seen_at);
       setIsOnline(data.is_online || false);
 
-      // Load privacy settings for online status, wall and stats. The generic
-      // /privacy_settings endpoint is viewer-scoped (returns only the caller's
-      // own row), so for a foreign profile it would come back empty and the
-      // profile would look public. The public /users/:id/privacy endpoint
-      // returns the owner's visibility flags (private_profile + private_hide_*)
-      // — the same rules the server enforces on content.
-      const localSessionUser = sessionAuth.data.session?.user;
-      const privacyData = localSessionUser?.id === userId
-        ? (await (await fetch(`/api/v1/privacy_settings?user_id=eq.${userId}`)).json()).data?.[0]
-        : (await (await fetch(`/api/v1/users/${userId}/privacy`)).json()).data;
+      // Privacy flags for online status, wall and stats. Parsed from the two
+      // response shapes: the owner's row comes back as an array, the foreign
+      // endpoint returns an object.
+      let privacyData: ProfilePrivacyData | null = null;
+      if (privacyRes) {
+        try {
+          const privacyJson = await privacyRes.json();
+          privacyData = isOwnProfileBySession
+            ? ((privacyJson.data?.[0] ?? null) as ProfilePrivacyData | null)
+            : ((privacyJson.data ?? null) as ProfilePrivacyData | null);
+        } catch {
+          privacyData = null;
+        }
+      }
 
       if (privacyData) {
         setShowLastSeen(privacyData.show_last_seen ?? true);
@@ -411,26 +495,28 @@ const Profile = () => {
         setPrivateHideAchievements(privacyData.private_hide_achievements ?? true);
       }
 
-      // Check friendship status for private profile
-      // Use session user (localSessionUser) instead of React state currentUser
-      // to avoid race condition where currentUser is not yet set.
-      if (localSessionUser?.id && localSessionUser.id !== userId) {
+      // Friendship status for the private-profile guards. Use the session user
+      // (localSessionUser) instead of React state currentUser to avoid a race
+      // where currentUser is not yet set. The owner is always a friend; guests
+      // get "not a friend" without a doomed 401 request.
+      if (isOwnProfileBySession) {
+        setIsMutualFriend(true);
+      } else if (localSessionUser?.id && friendshipRes) {
         try {
-          const friendRes = await fetch(`/api/v1/friends/status/${userId}`, { headers });
-          const friendResult = await friendRes.json();
+          const friendResult = await friendshipRes.json();
           setIsMutualFriend(friendResult.data?.status === 'friends');
         } catch {
           setIsMutualFriend(false);
         }
       } else {
-        setIsMutualFriend(localSessionUser?.id === userId ? true : false);
+        setIsMutualFriend(false);
       }
       setPrivacyChecked(true);
 
-      // Load customization (the nickname emoji lives on the user profile, not
-      // in profile_customization — the latter is read-scoped to the viewer).
-      const custom = await getProfileCustomization(userId!);
-      setCustomization(custom);
+      // Customization is already fetched in parallel above (the nickname emoji
+      // lives on the user profile, not in profile_customization — the latter
+      // is read-scoped to the viewer).
+      setCustomization(customization);
       setNicknameEmojiId((data as { nickname_emoji_id?: string | null }).nickname_emoji_id || null);
 
     }
@@ -443,7 +529,6 @@ const Profile = () => {
   const isOwnProfile = currentUser?.id === userId;
   const isPrivate = privateProfile && privacyChecked;
   const isNonFriendOnPrivate = isPrivate && !isOwnProfile && isMutualFriend === false;
-  const friendshipLoaded = isMutualFriend !== null;
   // A wall is hidden from the viewer when they are neither the owner nor a
   // mutual friend AND (the profile is private OR the owner hid the wall).
   const wallHiddenFromViewer = !isOwnProfile && isMutualFriend === false && (privateProfile || privateHideWall);
@@ -584,6 +669,57 @@ const Profile = () => {
     }
   };
 
+  // Map a raw user_achievements row to the AchievementData the UI renders.
+  const mapUserAchievementRaw = (ua: UserAchievementRaw): AchievementData => {
+    const a = ua.achievements ?? ({} as NonNullable<UserAchievementRaw["achievements"]>);
+    const currentLevel = ua.current_level ?? ua.level ?? 0;
+    const levels = a.levels || [];
+    const levelDef = currentLevel > 0 && levels.length >= currentLevel ? levels[currentLevel - 1] : null;
+
+    return {
+      id: a.id || "",
+      group_key: a.group_key,
+      title: a.title,
+      name: levelDef?.name || a.name || "—",
+      description: levelDef?.description || a.description || "",
+      icon: a.icon || "sparkles",
+      category: a.category || "",
+      rarity: levelDef?.rarity || a.rarity || "common",
+      level: currentLevel,
+      current_level: currentLevel,
+      maxLevel: levels.length || 1,
+      max_level: levels.length || 1,
+      is_pinned: ua.is_pinned || false,
+      pinned_order: ua.pinned_order || null,
+      unlocked_at: ua.unlocked_at,
+      progress_current: ua.progress_current || 0,
+      achievement_type: a.achievement_type || "one_time",
+      reward_type: levelDef?.reward_type || a.reward_type || undefined,
+      reward_value: levelDef?.reward_value || a.reward_value || undefined,
+      hidden: a.hidden || false,
+      levels: levels,
+    } as AchievementData;
+  };
+
+  // Pinned achievements (max 4) render on the wall tab, but the full list is
+  // a heavy payload (every level/description/icon embedded) — so fetch only
+  // the pinned rows on mount (is_pinned sorts first, limit 4 covers them)
+  // and defer the full list to when the achievements tab is first opened.
+  // Declared as a function (not an arrow const) so the mount effect above can
+  // reference it without a no-use-before-define warning.
+  async function loadPinnedAchievements() {
+    try {
+      const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc&limit=4`);
+      const achResult = await achRes.json();
+      const data = achResult.data || [];
+      if (Array.isArray(data)) {
+        setPinnedAchievements(data.filter((ua: UserAchievementRaw) => ua.is_pinned).map(mapUserAchievementRaw));
+      }
+    } catch {
+      // Ignore — the wall just renders without the pinned section.
+    }
+  };
+
   const loadAchievements = async () => {
     try {
       const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc`);
@@ -591,37 +727,7 @@ const Profile = () => {
       const data = achResult.data || [];
 
       if (data) {
-        // Map to AchievementData format using DB data
-        const processedAchievements: AchievementData[] = data.map((ua: UserAchievementRaw) => {
-          const a = ua.achievements ?? ({} as NonNullable<UserAchievementRaw["achievements"]>);
-          const currentLevel = ua.current_level ?? ua.level ?? 0;
-          const levels = a.levels || [];
-          const levelDef = currentLevel > 0 && levels.length >= currentLevel ? levels[currentLevel - 1] : null;
-
-          return {
-            id: a.id || "",
-            group_key: a.group_key,
-            title: a.title,
-            name: levelDef?.name || a.name || "—",
-            description: levelDef?.description || a.description || "",
-            icon: a.icon || "sparkles",
-            category: a.category || "",
-            rarity: levelDef?.rarity || a.rarity || "common",
-            level: currentLevel,
-            current_level: currentLevel,
-            maxLevel: levels.length || 1,
-            max_level: levels.length || 1,
-            is_pinned: ua.is_pinned || false,
-            pinned_order: ua.pinned_order || null,
-            unlocked_at: ua.unlocked_at,
-            progress_current: ua.progress_current || 0,
-            achievement_type: a.achievement_type || "one_time",
-            reward_type: levelDef?.reward_type || a.reward_type || undefined,
-            reward_value: levelDef?.reward_value || a.reward_value || undefined,
-            hidden: a.hidden || false,
-            levels: levels,
-          } as AchievementData;
-        });
+        const processedAchievements: AchievementData[] = data.map(mapUserAchievementRaw);
 
         // Split into pinned and regular
         const pinned = processedAchievements.filter(a => a.is_pinned);
@@ -635,6 +741,8 @@ const Profile = () => {
       // Guests or transient failures must never surface as unhandled
       // rejections — the profile page just renders without achievements.
       console.error('Error loading achievements:', error);
+    } finally {
+      setAchievementsLoaded(true);
     }
   };
 
@@ -801,8 +909,14 @@ const Profile = () => {
     }
   };
 
-  const handleAvatarClick = () => {
-    if (avatarHistory.length > 0) {
+  const handleAvatarClick = async () => {
+    // Avatar history is only needed for the gallery — fetch it lazily on the
+    // first click instead of on every profile visit.
+    let history = avatarHistory;
+    if (history.length === 0) {
+      history = await loadAvatarHistory();
+    }
+    if (history.length > 0) {
       setAvatarGalleryIndex(0);
       setShowAvatarGallery(true);
     }
@@ -1129,6 +1243,7 @@ const Profile = () => {
                   className="text-2xl font-bold h-auto p-0 border-none bg-transparent flex-1 min-w-0"
                   placeholder={t("auth.displayName")}
                 />
+                <Suspense fallback={null}>
                 <EmojiPicker
                   closeOnSelect
                   onEmojiSelect={handleNicknameEmojiSelect}
@@ -1146,6 +1261,7 @@ const Profile = () => {
                     )}
                   </button>
                 </EmojiPicker>
+                </Suspense>
                 {nicknameEmojiId && (
                   <button
                     type="button"
@@ -1293,7 +1409,10 @@ const Profile = () => {
     );
   })() : null;
 
-  const showSkeleton = showLoadingSkeleton && (!profile || pageLoading);
+  // The skeleton hides as soon as the profile row is loaded — the remaining
+  // parallel reads (privacy, friendship, achievements, avatar history) fill
+  // the already-painted page in place instead of blocking the first paint.
+  const showSkeleton = showLoadingSkeleton && !profile;
 
   return (
     <main
@@ -1313,17 +1432,15 @@ const Profile = () => {
           </>
         )}
         {showSkeleton && <ProfileSkeleton />}
-        {!showSkeleton && (
+        {!showSkeleton && profile && (
           <div className="space-y-6 animate-in fade-in duration-300">
-          {/* Loading state while friendship check is in progress */}
-          {privacyChecked && !friendshipLoaded && (
-            <div className="flex items-center justify-center py-8">
-              <PentagramLoader size="lg" />
-            </div>
-          )}
-
-          {/* Profile content */}
-          {friendshipLoaded && (<>
+          {/* Profile content — painted as soon as the profile row is loaded.
+              The privacy/friendship flags arrive in parallel and the derived
+              guards (wallHiddenFromViewer, canViewSection) self-correct when
+              they land, so a public profile never waits on them. Private
+              content is already stripped server-side, so nothing sensitive
+              flashes for a non-friend on a private profile. */}
+          <>
           {cardVariantActive ? (
             <div className="relative overflow-hidden">
               <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url("${bgUrl}")` }} />
@@ -1407,17 +1524,19 @@ const Profile = () => {
               )}
               <div>
                 <Label>{t("profile.about")}</Label>
-                <GomoRichEditor
-                  resetKey={bioEditorResetKey}
-                  contentJson={bioJson}
-                  legacyContent={bio}
-                  onChange={({ json, text }) => {
-                    setBioJson(json);
-                    setBio(text);
-                  }}
-                  placeholder={t("profile.aboutPlaceholder")}
-                  minHeightClassName="min-h-[120px]"
-                />
+                <Suspense fallback={<div className="h-[120px] animate-pulse rounded-lg bg-muted" />}>
+                  <GomoRichEditor
+                    resetKey={bioEditorResetKey}
+                    contentJson={bioJson}
+                    legacyContent={bio}
+                    onChange={({ json, text }) => {
+                      setBioJson(json);
+                      setBio(text);
+                    }}
+                    placeholder={t("profile.aboutPlaceholder")}
+                    minHeightClassName="min-h-[120px]"
+                  />
+                </Suspense>
               </div>
 
 
@@ -1428,13 +1547,15 @@ const Profile = () => {
                     <DialogTitle>{t("profile.avatarCrop")}</DialogTitle>
                   </DialogHeader>
                   {cropImage && (
-                    <AvatarCropper
-                      imageSrc={cropImage}
-                      onCropComplete={async (croppedImage) => {
-                        await handleCropConfirm(croppedImage);
-                      }}
-                      onCancel={() => setCropImage(null)}
-                    />
+                    <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
+                      <AvatarCropper
+                        imageSrc={cropImage}
+                        onCropComplete={async (croppedImage) => {
+                          await handleCropConfirm(croppedImage);
+                        }}
+                        onCancel={() => setCropImage(null)}
+                      />
+                    </Suspense>
                   )}
                 </DialogContent>
               </Dialog>
@@ -1487,7 +1608,7 @@ const Profile = () => {
                         : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      {t("profile.achievements")} ({achievements.length})
+                      {t("profile.achievements")}{achievementsLoaded && ` (${achievements.length})`}
                     </button>
                   )}
                     {showThreadsTab && canViewSection(privateHideThreads) && (
@@ -1513,7 +1634,7 @@ const Profile = () => {
                   >
                     <span className="flex items-center gap-1">
                       <Gift className="w-3.5 h-3.5" />
-                      {t("profile.gifts")} ({giftCount})
+                      {t("profile.gifts")}{giftCountLoaded && ` (${giftCount})`}
                     </span>
                   </button>
                   )}
@@ -1568,12 +1689,13 @@ const Profile = () => {
                     )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {pinnedAchievements.map((achievement) => (
-                        <AchievementCard
-                    key={achievement.id}
-                          achievement={achievement}
-                          onTogglePin={toggleAchievementPin}
-                          isEditing={isEditing}
-                        />
+                        <Suspense key={achievement.id} fallback={<div className="h-32 animate-pulse rounded-lg bg-muted" />}>
+                          <AchievementCard
+                            achievement={achievement}
+                            onTogglePin={toggleAchievementPin}
+                            isEditing={isEditing}
+                          />
+                        </Suspense>
                       ))}
                     </div>
                   </div>
@@ -1587,12 +1709,13 @@ const Profile = () => {
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {regularAchievements.slice(0, 4).map((achievement) => (
-                        <AchievementCard
-                          key={achievement.id}
-                          achievement={achievement}
-                          onTogglePin={toggleAchievementPin}
-                          isEditing={isEditing}
-                        />
+                        <Suspense key={achievement.id} fallback={<div className="h-32 animate-pulse rounded-lg bg-muted" />}>
+                          <AchievementCard
+                            achievement={achievement}
+                            onTogglePin={toggleAchievementPin}
+                            isEditing={isEditing}
+                          />
+                        </Suspense>
                       ))}
                     </div>
                   </div>
@@ -1631,16 +1754,17 @@ const Profile = () => {
                   {userThreads.map((thread) => {
                     const likes = profileLikesMap.get(thread.id);
                     return (
-                      <ThreadCard
-                        key={thread.id}
-                        thread={thread}
-                        currentUserId={currentUser?.id || null}
-                        currentUsername={currentUserUsername}
-                        currentUserColor={currentUserColor}
-                        showPreview={true}
-                        initialLikesCount={likes?.count ?? 0}
-                        initialUserLiked={likes?.isLiked ?? false}
-                      />
+                      <Suspense key={thread.id} fallback={<div className="h-32 animate-pulse rounded-lg bg-muted" />}>
+                        <ThreadCard
+                          thread={thread}
+                          currentUserId={currentUser?.id || null}
+                          currentUsername={currentUserUsername}
+                          currentUserColor={currentUserColor}
+                          showPreview={true}
+                          initialLikesCount={likes?.count ?? 0}
+                          initialUserLiked={likes?.isLiked ?? false}
+                        />
+                      </Suspense>
                     );
                   })}
                 </div>
@@ -1650,43 +1774,49 @@ const Profile = () => {
 
           {activeTab === 'gifts' && canViewSection(privateHideGifts) && (
             <div>
-              <GiftsTab
-                userId={userId!}
-                isOwnProfile={isOwnProfile}
-                giftCatalog={giftCatalog}
-                recipientUsername={profile.username}
-                onGiftSent={() => {
-                  setGiftCount((c) => c + 1);
-                  loadProfile();
-                }}
-              />
+              <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
+                <GiftsTab
+                  userId={userId!}
+                  isOwnProfile={isOwnProfile}
+                  giftCatalog={giftCatalog}
+                  recipientUsername={profile.username}
+                  onGiftSent={() => {
+                    setGiftCount((c) => c + 1);
+                    loadProfile();
+                  }}
+                />
+              </Suspense>
             </div>
           )}
 
           {activeTab === 'friends' && canViewSection(privateHideFriends) && (
             <div>
-              {isOwnProfile && <FriendRequestsList />}
-              <FriendsList userId={userId} />
+              <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
+                {isOwnProfile && <FriendRequestsList />}
+                <FriendsList userId={userId} />
+              </Suspense>
             </div>
           )}
           </>
-          </>)}
+          </>
         </div>
         )}
 
         {/* Avatar Gallery */}
         {showAvatarGallery && avatarHistory.length > 0 && (
-          <AvatarGallery
-            avatars={avatarHistory.map(ah => ({
-              id: ah.id,
-              url: storageUrl("post-images", ah.avatar_url) || ah.avatar_url,
-              is_current: ah.is_current
-            }))}
-            initialIndex={avatarGalleryIndex}
-            onClose={() => setShowAvatarGallery(false)}
-            onDelete={isOwnProfile ? handleDeleteAvatar : undefined}
-            canDelete={isOwnProfile}
-          />
+          <Suspense fallback={null}>
+            <AvatarGallery
+              avatars={avatarHistory.map(ah => ({
+                id: ah.id,
+                url: storageUrl("post-images", ah.avatar_url) || ah.avatar_url,
+                is_current: ah.is_current
+              }))}
+              initialIndex={avatarGalleryIndex}
+              onClose={() => setShowAvatarGallery(false)}
+              onDelete={isOwnProfile ? handleDeleteAvatar : undefined}
+              canDelete={isOwnProfile}
+            />
+          </Suspense>
         )}
 
         {/* Username Change Dialog */}
