@@ -317,7 +317,6 @@ const en: LocaleResources = {
     friendAccepted: "@{{actor}} accepted your friend request",
     giftReceived: "🎁 @{{actor}} sent you {{gift}}",
     giftReceivedAnonymous: "🎁 Someone sent you {{gift}}",
-    achievementUnlock: "🏆 {{name}}",
     showPosts_one: "Show {{count}} post",
     showPosts_other: "Show {{count}} posts",
     markAllRead: "Mark all as read",
@@ -547,6 +546,137 @@ const en: LocaleResources = {
     wallPost: "Wall post",
     unavailable: "Post unavailable",
     sharedPost: "Shared a post",
+  },
+  achievements: {
+    // ── Page ──
+    title: "Achievements",
+    backToProfile: "Profile {{username}}",
+    back: "Back",
+    opened: "Unlocked {{unlocked}} of {{total}}",
+    unlockedSection: "Unlocked",
+    lockedSection: "Locked",
+    pin: "Pin",
+    unpin: "Unpin",
+    allAchievements: "All achievements",
+    pinnedCount: "Pinned: {{count}}/6",
+    reward: "+{{value}} garma",
+    unlockedAt: "Unlocked",
+
+    // ── Rarities ──
+    rarity: {
+      legendary: "Legendary",
+      epic: "Epic",
+      rare: "Rare",
+      uncommon: "Uncommon",
+      common: "Common",
+    },
+
+    // ── Groups ──
+    entries: {
+      title: "Entries",
+      "1": { name: "First words", description: "Publish your first entry" },
+      "2": { name: "Writer", description: "Publish 50 entries" },
+      "3": { name: "Novelist", description: "Publish 500 entries" },
+      "4": { name: "Classic", description: "Publish 2500 entries" },
+      "5": { name: "Graphomaniac", description: "Publish 10000 entries" },
+    },
+    comments: {
+      title: "Comments",
+      "1": { name: "First opinion", description: "Leave your first comment" },
+      "2": { name: "Commentator", description: "Leave 100 comments" },
+      "3": { name: "Expert", description: "Leave 1000 comments" },
+      "4": { name: "Oracle", description: "Leave 5000 comments" },
+    },
+    likes_received: {
+      title: "Recognition",
+      "1": { name: "Noticed", description: "Get your first like" },
+      "2": { name: "Popular", description: "Get 100 likes" },
+      "3": { name: "Star", description: "Get 1000 likes" },
+      "4": { name: "Legend", description: "Get 10000 likes" },
+    },
+    likes_given: {
+      title: "Generosity",
+      "1": { name: "Kind", description: "Give your first like" },
+      "2": { name: "Generous", description: "Give 100 likes" },
+      "3": { name: "Patron", description: "Give 1000 likes" },
+    },
+    images: {
+      title: "Gallery",
+      "1": { name: "Photographer", description: "Publish an entry with an image" },
+      "2": { name: "Gallerist", description: "Publish 100 entries with images" },
+      "3": { name: "Photo artist", description: "Publish 1000 entries with images" },
+    },
+    reposts: {
+      title: "Reposts",
+      "1": { name: "Promoter", description: "Make your first repost" },
+    },
+    sub_join: {
+      title: "Communities",
+      "1": { name: "One of us", description: "Join a g-sub" },
+    },
+    sub_rules: {
+      title: "Communities",
+      "1": { name: "Law-abiding", description: "Accept g-sub rules" },
+    },
+    sub_create: {
+      title: "Communities",
+      "1": { name: "Founder", description: "Create your own g-sub" },
+    },
+    daily_streak: {
+      title: "Visits",
+      "1": { name: "Regular", description: "Visit 3 days in a row" },
+      "2": { name: "Steady", description: "Visit 7 days in a row" },
+      "3": { name: "Devoted", description: "Visit 30 days in a row" },
+      "4": { name: "Inseparable", description: "Visit 100 days in a row" },
+      "5": { name: "Veteran", description: "Visit 365 days in a row" },
+    },
+    session_time: {
+      title: "Time on site",
+      "1": { name: "Hanging around", description: "Spend 1 hour on the site" },
+      "2": { name: "Homebody", description: "Spend 10 hours on the site" },
+      "3": { name: "Resident", description: "Spend 100 hours on the site" },
+      "4": { name: "Soul of the site", description: "Spend 500 hours on the site" },
+    },
+    avatar: {
+      title: "Profile",
+      "1": { name: "Face", description: "Upload an avatar" },
+    },
+    bio: {
+      title: "Profile",
+      "1": { name: "About me", description: "Fill in your bio" },
+    },
+    profile_style: {
+      title: "Profile",
+      "1": { name: "Style", description: "Customize your profile" },
+    },
+    spotify: {
+      title: "Integrations",
+      "1": { name: "Music lover", description: "Connect Spotify" },
+    },
+    gift_sent: {
+      title: "Gifts",
+      "1": { name: "Generous giver", description: "Send your first gift" },
+    },
+    gift_received: {
+      title: "Gifts",
+      "1": { name: "Favorite", description: "Receive your first gift" },
+    },
+    secret_owl: {
+      title: "Secrets",
+      "1": { name: "Owl", description: "Publish 10 entries at night (3:00–6:00)" },
+    },
+    secret_shower: {
+      title: "Secrets",
+      "1": { name: "Go take a shower", description: "Spend 12+ hours on the site in one day" },
+    },
+    secret_lurk: {
+      title: "Secrets",
+      "1": { name: "Ghost", description: "Visit 30 days in a row without publishing an entry" },
+    },
+    secret_allrounder: {
+      title: "Secrets",
+      "1": { name: "All-rounder", description: "Reach level 2 in 5 different groups" },
+    },
   },
 };
 

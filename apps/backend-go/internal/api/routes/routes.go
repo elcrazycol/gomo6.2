@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
@@ -93,27 +95,31 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	threadsHandler.SetAuthService(authService)
 	postsHandler := handlers.NewPostsHandler(db)
 	postsHandler.SetRedis(redis)
-	// Initialize achievement checker (must be before handlers that use it)
-	achChecker := handlers.NewAchievementChecker(db)
-	achChecker.SetRedis(redis)
-	achChecker.SetWebSocketHub(wsHub)
+	// Initialize the achievements engine (must be before handlers that use it).
+	// The catalog lives in Go code; the DB table is only a synced mirror.
+	achCatalog, err := achievements.Default()
+	if err != nil {
+		log.Fatalf("achievements: invalid catalog: %v", err)
+	}
+	achEngine := achievements.New(db, achCatalog)
+	achEngine.RecomputeStats = func(userID string) { handlers.RecomputeUserProfileStats(db, userID) }
 
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
-	profilesHandler.SetAchievementChecker(achChecker)
+	profilesHandler.SetAchievementEngine(achEngine)
 	likesHandler := handlers.NewLikesHandler(db, redis)
 	likesHandler.SetWebSocketHub(wsHub)
-	likesHandler.SetAchievementChecker(achChecker)
+	likesHandler.SetAchievementEngine(achEngine)
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	notificationsHandler.SetRedis(redis)
 	notificationsHandler.SetWebSocketHub(wsHub)
 	rpcHandler := handlers.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)
-	rpcHandler.SetAchievementChecker(achChecker)
+	rpcHandler.SetAchievementEngine(achEngine)
 	universalHandler := handlers.NewUniversalHandler(db, wsHub)
 	universalHandler.SetRedis(redis)
-	universalHandler.SetAchievementChecker(achChecker)
+	universalHandler.SetAchievementEngine(achEngine)
 	searchHandler := handlers.NewSearchHandler(db)
 	feedHandler := handlers.NewFeedHandler(db)
 	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
@@ -746,7 +752,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/toggle_wall_post_pin", rpcHandler.ToggleWallPostPin)
 			protected.POST("/delete_avatar_from_history", rpcHandler.DeleteAvatarFromHistory)
 			protected.POST("/toggle_achievement_pin", rpcHandler.ToggleAchievementPin)
-			protected.POST("/award_achievement", rpcHandler.AwardAchievement)
 
 			// GomoSub RPC functions
 			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
@@ -951,7 +956,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	integrationsHandler := handlers.NewIntegrationsHandler(db)
 	integrationsHandler.SetWebSocketHub(wsHub)
 	integrationsHandler.SetRedis(redis)
-	integrationsHandler.SetAchievementChecker(achChecker)
+	integrationsHandler.SetAchievementEngine(achEngine)
 
 	integrationsGroup := api.Group("/integrations")
 	{
@@ -1032,6 +1037,31 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		storageHandler.ServeObject(c)
 	})
 
+	// Achievements: mirror the catalog into the DB and recompute groups whose
+	// definitions changed since the last boot (change detection by hash).
+	// Sync is fast (a few upserts) and runs before serving; the recompute of
+	// dirty groups is heavier, so it happens in the background.
+	if _, err := achEngine.Sync(context.Background()); err != nil {
+		log.Printf("[Achievements] catalog sync failed: %v", err)
+	} else {
+		go achEngine.RecomputeDirty(context.Background())
+	}
+
+	// One-time full backfill: after a catalog rework (or a fresh DB) everyone's
+	// progress is recomputed from live data — old rows that don't match the new
+	// catalog are dropped and counters are seeded from the real source tables,
+	// so unlocks appear immediately instead of after the next action. Guarded by
+	// a Redis marker so it only runs once per Redis lifetime; on a fresh DB the
+	// backfill also populates the user_achievement_counters table.
+	if redis != nil {
+		backfillKey := "achievements:backfill:v1"
+		claimed, err := redis.SetNX(context.Background(), backfillKey, "1", 0).Result()
+		if err == nil && claimed {
+			go achEngine.RecomputeAll(context.Background())
+		} else if err != nil {
+			log.Printf("[Achievements] backfill marker check failed: %v", err)
+		}
+	}
 }
 
 // adminOnlyMiddleware rejects the request unless the authenticated user holds

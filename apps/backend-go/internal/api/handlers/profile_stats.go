@@ -106,10 +106,13 @@ FROM (
         0
       )::numeric +
       COALESCE(
-        (SELECT SUM(CAST(COALESCE(a.reward_value, '0') AS integer))
+        (SELECT SUM(CAST((l.value->>'reward_value') AS integer))
          FROM user_achievements ua
          JOIN achievements a ON a.id = ua.achievement_id
-         WHERE ua.user_id = $1 AND a.reward_type = 'garma'),
+         CROSS JOIN LATERAL jsonb_array_elements(a.levels) l
+         WHERE ua.user_id = $1
+           AND (l.value->>'reward_type') = 'garma'
+           AND (l.value->>'level')::int <= ua.current_level),
         0
       )::numeric
     )::int)) AS g

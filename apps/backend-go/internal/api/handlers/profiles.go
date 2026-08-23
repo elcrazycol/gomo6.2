@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/middleware"
@@ -17,17 +18,17 @@ import (
 )
 
 type ProfilesHandler struct {
-	db                 *sql.DB
-	redis              *redis.Client
-	achievementChecker *AchievementChecker
+	db        *sql.DB
+	redis     *redis.Client
+	achEngine *achievements.Engine
 }
 
 func NewProfilesHandler(db *sql.DB) *ProfilesHandler {
 	return &ProfilesHandler{db: db}
 }
 
-func (h *ProfilesHandler) SetAchievementChecker(ac *AchievementChecker) {
-	h.achievementChecker = ac
+func (h *ProfilesHandler) SetAchievementEngine(e *achievements.Engine) {
+	h.achEngine = e
 }
 
 // SetRedis sets the Redis client for cache invalidation
@@ -664,14 +665,12 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 		h.invalidateAuthorContentCache(c, id)
 	}
 
-	// Check profile achievements (avatar, bio)
-	if h.achievementChecker != nil {
-		if updates.AvatarURL != nil && *updates.AvatarURL != "" {
-			go h.achievementChecker.AwardOneTime(id, "avatar")
-		}
-		if updates.Bio != nil && *updates.Bio != "" {
-			go h.achievementChecker.AwardOneTime(id, "bio")
-		}
+	// Achievements: avatar / bio set → unlock events.
+	if updates.AvatarURL != nil && *updates.AvatarURL != "" {
+		emitAchievement(h.achEngine, id, achievements.EventAvatarUpdated)
+	}
+	if updates.Bio != nil && *updates.Bio != "" {
+		emitAchievement(h.achEngine, id, achievements.EventBioUpdated)
 	}
 
 	// Return updated profile

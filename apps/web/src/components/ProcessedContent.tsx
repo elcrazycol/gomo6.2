@@ -5,7 +5,6 @@ import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibili
 import { MentionLink } from "./MentionLink";
 import { renderBbCode } from "@/utils/bbcodePlugins";
 import { RichContentRenderer } from "./RichContentRenderer";
-import { useUserColor } from "@/hooks/useUserColor";
 
 interface ProcessedContentProps {
   content: string;
@@ -30,7 +29,6 @@ export const ProcessedContent = ({
   authorUsername,
   showHiddenIndicators = true
 }: ProcessedContentProps) => {
-  const { data: authorColor = "" } = useUserColor(postAuthorId || undefined);
   const [visibilityResult, setVisibilityResult] = useState<VisibilityResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(true);
   const [visibleUsernames, setVisibleUsernames] = useState<string[]>([]);
@@ -160,22 +158,11 @@ export const ProcessedContent = ({
         const meMatch = marker.match(/^__ME_LINK__(.*?)__$/);
         if (meMatch) {
           const text = meMatch[1];
-          const colorClasses: Record<string, string> = {
-            purple: 'text-purple-500 font-bold',
-            gold: 'text-yellow-500 font-bold',
-            orange: 'text-orange-500 font-bold',
-            red: 'text-red-500 font-bold',
-            blue: 'text-blue-500 font-bold',
-            green: 'text-green-500 font-bold',
-            yellow: 'text-yellow-400 font-bold',
-            cyan: 'text-cyan-500 font-bold',
-          };
-
           elements.push(
             <Link
               key={`me-${key++}`}
               to={`/profile/${postAuthorId || ''}`}
-              className={`font-bold hover:underline ${authorColor ? colorClasses[authorColor] : "text-quote"}`}
+              className="font-bold hover:underline text-quote"
             >
               {text || (authorUsername || 'Автор')}
             </Link>
@@ -239,7 +226,6 @@ export const ProcessedContent = ({
           currentUserColor,
           postAuthorId,
           authorUsername,
-          authorColor,
           keyPrefix: `bb-${key++}`
         });
         

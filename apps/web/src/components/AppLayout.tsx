@@ -12,7 +12,6 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { GuestSignupBanner } from "@/components/GuestSignupBanner";
-import { AchievementToastListener } from "@/components/AchievementToastListener";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
@@ -46,8 +45,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const { user } = useAuth(); // Use cached auth hook instead of local state
   const { loadProfile } = useProfileCache();
   const [isModerator, setIsModerator] = useState(false);
-  const [currentUserUsername, setCurrentUserUsername] = useState("");
-  const [currentUserColor, setCurrentUserColor] = useState("");
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [nowPlaying, setNowPlaying] = useState<NowPlayingState | null>(null);
   const [nowPlayingHidden, setNowPlayingHidden] = useState(false);
@@ -879,15 +876,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     if (!user?.id) {
       setIsModerator(false);
-      setCurrentUserUsername("");
-      setCurrentUserColor("");
       return;
     }
-
     loadProfile(user.id).then((data) => {
       setIsModerator(data.isAdmin);
-      setCurrentUserUsername(data.username);
-      setCurrentUserColor(data.color);
     });
   }, [user?.id, loadProfile]);
 
@@ -1042,7 +1034,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       >
         {t('nav.skipToContent')}
       </a>
-      <AchievementToastListener />
       {!hideChrome ? (
       <motion.header
         ref={headerRef}

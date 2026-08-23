@@ -30,8 +30,6 @@ SELECT ua.id, ua.user_id, ua.achievement_id, ua.unlocked_at,
       'category', a.category,
       'rarity', COALESCE(a.rarity, 'common'),
       'achievement_type', COALESCE(a.achievement_type, 'one_time'),
-      'reward_type', a.reward_type,
-      'reward_value', a.reward_value,
       'hidden', COALESCE(a.hidden, false),
       'levels', COALESCE(a.levels::text, '[]')::json
     ),

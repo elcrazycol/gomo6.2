@@ -1242,6 +1242,10 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			}
 		}
 
+		// Achievements: fires for writes that map to events (daily visit,
+		// wall likes, rules acceptance, profile customization, …).
+		h.emitUniversalAchievementEvents(tableName, result)
+
 		c.JSON(http.StatusOK, models.SuccessResponse(result))
 		return
 	}
@@ -1380,6 +1384,10 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			h.recomputeStatsForWallCommentLike(c, commentID, rowUserID(result["user_id"]))
 		}
 	}
+
+	// Achievements: fires for wall posts/comments/reposts/likes, sub joins,
+	// rules acceptance, customization — before the enriched early-return below.
+	h.emitUniversalAchievementEvents(tableName, result)
 
 	if h.tryRespondProfileWallEnriched(c, tableName, result) {
 		return

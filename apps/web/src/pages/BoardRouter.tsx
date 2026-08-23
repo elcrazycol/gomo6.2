@@ -135,20 +135,10 @@ const Board = () => {
           if (!verified) {
             setShowAgeVerification(true);
             setPageLoading(false);
-          } else {
-            setAgeVerified(true);
-            await loadThreads(boardData.id);
-            setPageLoading(false);
-            
-            // Award incel achievement
-            if (user) {
-              fetch('/api/rpc/award_achievement', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
-              }).catch(() => {});
-            }
-          }
+          } else {					setAgeVerified(true);
+					await loadThreads(boardData.id);
+					setPageLoading(false);
+				}
         } else {
           await loadThreads(boardData.id);
           setPageLoading(false);
@@ -310,19 +300,9 @@ const Board = () => {
   const handleAgeConfirm = async () => {
     sessionStorage.setItem('age_verified_d', 'true');
     setShowAgeVerification(false);
-    setAgeVerified(true);
-    if (board) {
-      loadThreads(board.id);
-      
-      // Award incel achievement
-      if (user) {
-        fetch('/api/rpc/award_achievement', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
-        }).catch(() => {});
-      }
-    }
+    setAgeVerified(true);		if (board) {
+			loadThreads(board.id);
+		}
   };
 
   const handleAgeDecline = () => {

@@ -68,44 +68,6 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
     loadRecentLikers();
   }, [tooltipOpen, postId, likesCount, isThread]);
 
-  const checkAchievements = async (userId: string, achievementType: string) => {
-    try {
-      let count = 0;
-
-      if (achievementType === 'likes_given') {
-        const countFunction = isThread ? 'get_user_thread_likes_given_count' : 'get_user_likes_given_count';
-        const { data } = await api.rpc(countFunction, { user_uuid: userId });
-        count = (data as number) || 0;
-      } else if (achievementType === 'likes_received') {
-        const countFunction = isThread ? 'get_user_thread_likes_received_count' : 'get_user_likes_received_count';
-        const { data } = await api.rpc(countFunction, { user_uuid: userId });
-        count = (data as number) || 0;
-      }
-
-      // Determine achievement level based on count
-      let level = 0;
-      if (count >= 1000) level = 8;
-      else if (count >= 500) level = 7;
-      else if (count >= 250) level = 6;
-      else if (count >= 100) level = 5;
-      else if (count >= 75) level = 4;
-      else if (count >= 50) level = 3;
-      else if (count >= 25) level = 2;
-      else if (count >= 10) level = 1;
-
-      if (level > 0) {
-        // Award achievement using the RPC function
-        await api.rpc('award_achievement_with_level', {
-          _user_id: userId,
-          _achievement_type: achievementType,
-          _level: level
-        });
-      }
-    } catch (error) {
-      console.error('Error checking achievements:', error);
-    }
-  };
-
   const handleLikeToggle = async () => {
     if (!currentUserId || isLoading) return;
 
@@ -133,11 +95,6 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
           .eq('user_id', currentUserId);
 
         if (error) throw error;
-
-        await checkAchievements(currentUserId, 'likes_given');
-        if (postAuthorId && postAuthorId !== currentUserId) {
-          await checkAchievements(postAuthorId, 'likes_received');
-        }
       } else {
         const { error } = await api
           .from(isThread ? 'thread_likes' : 'post_likes')
@@ -147,11 +104,6 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
           });
 
         if (error) throw error;
-
-        await checkAchievements(currentUserId, 'likes_given');
-        if (postAuthorId && postAuthorId !== currentUserId) {
-          await checkAchievements(postAuthorId, 'likes_received');
-        }
       }
     } catch (error) {
       // Revert on error

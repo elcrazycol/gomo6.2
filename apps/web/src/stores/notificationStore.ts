@@ -3,20 +3,6 @@ import { apiClient, type Notification } from "@/integrations/api/client";
 import type { WebSocketMessage } from "@/services/websocket";
 import { eventManager } from "@/services/eventManager";
 
-export interface AchievementData {
-  notification_id: string;
-  id: string;
-  group_key: string;
-  name: string;
-  description: string;
-  icon: string;
-  rarity: string;
-  level: number;
-  max_level: number;
-  is_first_time: boolean;
-  prev_level: number;
-}
-
 type NotificationStore = {
   notifications: Notification[];
   unreadCount: number;
@@ -26,7 +12,6 @@ type NotificationStore = {
   isLoadingMore: boolean;
   initialized: boolean;
   activeFilter: string | undefined;
-  lastUnlockedAchievement: AchievementData | null;
 
   init: (userId: string) => void;
   fetchInitial: (isRead?: string) => Promise<void>;
@@ -35,7 +20,6 @@ type NotificationStore = {
   fetchUnreadCount: () => Promise<void>;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
-  clearAchievement: () => void;
   cleanup: () => void;
 };
 
@@ -50,7 +34,6 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   isLoadingMore: false,
   initialized: false,
   activeFilter: undefined,
-  lastUnlockedAchievement: null,
 
   init: (userId: string) => {
     if (get().initialized) return;
@@ -62,7 +45,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
 
     // Register WS handler for new notifications
     eventManager.on("new_notification", (message: WebSocketMessage) => {
-      const notif = message.data as Notification & { achievement?: AchievementData };
+      const notif = message.data as Notification;
       if (!notif || !notif.id) return;
 
       set((state) => {
@@ -84,27 +67,6 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
           }
         } else if (!notif.is_read) {
           update.unreadCount = state.unreadCount + 1;
-        }
-
-        if (notif.type === "achievement_unlock" && notif.achievement) {
-          // Achievements are unlocked server-side (WS event), so the client
-          // queryCache never sees the INSERT — broadcast the standard profile
-          // invalidation so hover cards / color hook refresh immediately
-          // instead of waiting out the user_achievements TTL.
-          window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));
-          update.lastUnlockedAchievement = {
-            notification_id: notif.id,
-            id: notif.achievement.id || "",
-            group_key: notif.achievement.group_key || "",
-            name: notif.achievement.name,
-            description: notif.achievement.description || "",
-            icon: notif.achievement.icon || "sparkles",
-            rarity: notif.achievement.rarity || "common",
-            level: notif.achievement.level || 1,
-            max_level: notif.achievement.max_level || 1,
-            is_first_time: notif.achievement.is_first_time || false,
-            prev_level: notif.achievement.prev_level || 0,
-          };
         }
 
         return update;
@@ -232,10 +194,6 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     });
   },
 
-  clearAchievement: () => {
-    set({ lastUnlockedAchievement: null });
-  },
-
   cleanup: () => {
     set({
       notifications: [],
@@ -244,7 +202,6 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       hasMore: true,
       initialized: false,
       activeFilter: undefined,
-      lastUnlockedAchievement: null,
     });
   },
 }));

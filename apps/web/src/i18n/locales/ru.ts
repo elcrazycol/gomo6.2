@@ -334,7 +334,6 @@ const ru: LocaleResources = {
     friendAccepted: "@{{actor}} принял(а) вашу заявку в друзья",
     giftReceived: "🎁 @{{actor}} подарил(а) вам {{gift}}",
     giftReceivedAnonymous: "🎁 Аноним подарил(а) вам {{gift}}",
-    achievementUnlock: "🏆 {{name}}",
     showPosts_one: "Показать {{count}} запись",
     showPosts_few: "Показать {{count}} записи",
     showPosts_many: "Показать {{count}} записей",
@@ -572,6 +571,137 @@ const ru: LocaleResources = {
     wallPost: "Запись со стены",
     unavailable: "Запись недоступна",
     sharedPost: "Поделился записью",
+  },
+  achievements: {
+    // ── Страница ──
+    title: "Достижения",
+    backToProfile: "Профиль {{username}}",
+    back: "Назад",
+    opened: "Открыто {{unlocked}} из {{total}}",
+    unlockedSection: "Открытые",
+    lockedSection: "Закрытые",
+    pin: "Закрепить",
+    unpin: "Открепить",
+    allAchievements: "Все достижения",
+    pinnedCount: "Закреплено: {{count}}/6",
+    reward: "+{{value}} гармы",
+    unlockedAt: "Открыто",
+
+    // ── Редкости ──
+    rarity: {
+      legendary: "Легендарное",
+      epic: "Эпическое",
+      rare: "Редкое",
+      uncommon: "Необычное",
+      common: "Обычное",
+    },
+
+    // ── Группы ──
+    entries: {
+      title: "Записи",
+      "1": { name: "Первое слово", description: "Опубликовать первую запись" },
+      "2": { name: "Писатель", description: "Опубликовать 50 записей" },
+      "3": { name: "Романист", description: "Опубликовать 500 записей" },
+      "4": { name: "Классик", description: "Опубликовать 2500 записей" },
+      "5": { name: "Графоман", description: "Опубликовать 10000 записей" },
+    },
+    comments: {
+      title: "Комментарии",
+      "1": { name: "Первое мнение", description: "Оставить первый комментарий" },
+      "2": { name: "Комментатор", description: "Оставить 100 комментариев" },
+      "3": { name: "Эксперт", description: "Оставить 1000 комментариев" },
+      "4": { name: "Оракул", description: "Оставить 5000 комментариев" },
+    },
+    likes_received: {
+      title: "Признание",
+      "1": { name: "Замеченный", description: "Получить первый лайк" },
+      "2": { name: "Популярный", description: "Получить 100 лайков" },
+      "3": { name: "Звезда", description: "Получить 1000 лайков" },
+      "4": { name: "Легенда", description: "Получить 10000 лайков" },
+    },
+    likes_given: {
+      title: "Щедрость",
+      "1": { name: "Добрый", description: "Поставить первый лайк" },
+      "2": { name: "Щедрый", description: "Поставить 100 лайков" },
+      "3": { name: "Меценат", description: "Поставить 1000 лайков" },
+    },
+    images: {
+      title: "Галерея",
+      "1": { name: "Фотограф", description: "Опубликовать запись с картинкой" },
+      "2": { name: "Галерист", description: "Опубликовать 100 записей с картинками" },
+      "3": { name: "Фотохудожник", description: "Опубликовать 1000 записей с картинками" },
+    },
+    reposts: {
+      title: "Репосты",
+      "1": { name: "Распространитель", description: "Сделать первый репост" },
+    },
+    sub_join: {
+      title: "Сообщества",
+      "1": { name: "Свой человек", description: "Вступить в g-саб" },
+    },
+    sub_rules: {
+      title: "Сообщества",
+      "1": { name: "Законопослушный", description: "Принять правила g-саба" },
+    },
+    sub_create: {
+      title: "Сообщества",
+      "1": { name: "Основатель", description: "Создать свой g-саб" },
+    },
+    daily_streak: {
+      title: "Визиты",
+      "1": { name: "Завсегдатай", description: "Заходить 3 дня подряд" },
+      "2": { name: "Постоянный", description: "Заходить 7 дней подряд" },
+      "3": { name: "Неотъемлемый", description: "Заходить 30 дней подряд" },
+      "4": { name: "Неразлучный", description: "Заходить 100 дней подряд" },
+      "5": { name: "Ветеран", description: "Заходить 365 дней подряд" },
+    },
+    session_time: {
+      title: "Время на сайте",
+      "1": { name: "Задержавшийся", description: "Провести 1 час на сайте" },
+      "2": { name: "Домосед", description: "Провести 10 часов на сайте" },
+      "3": { name: "Житель", description: "Провести 100 часов на сайте" },
+      "4": { name: "Душа сайта", description: "Провести 500 часов на сайте" },
+    },
+    avatar: {
+      title: "Профиль",
+      "1": { name: "Лицо", description: "Загрузить аватар" },
+    },
+    bio: {
+      title: "Профиль",
+      "1": { name: "О себе", description: "Заполнить био" },
+    },
+    profile_style: {
+      title: "Профиль",
+      "1": { name: "Стиль", description: "Оформить профиль" },
+    },
+    spotify: {
+      title: "Интеграции",
+      "1": { name: "Меломан", description: "Подключить Spotify" },
+    },
+    gift_sent: {
+      title: "Подарки",
+      "1": { name: "Щедрый даритель", description: "Отправить первый подарок" },
+    },
+    gift_received: {
+      title: "Подарки",
+      "1": { name: "Любимчик", description: "Получить первый подарок" },
+    },
+    secret_owl: {
+      title: "Секретные",
+      "1": { name: "Сова", description: "Опубликовать 10 записей ночью (3:00–6:00)" },
+    },
+    secret_shower: {
+      title: "Секретные",
+      "1": { name: "Сходи прими душ", description: "Провести 12+ часов на сайте за один день" },
+    },
+    secret_lurk: {
+      title: "Секретные",
+      "1": { name: "Призрак", description: "Заходить 30 дней подряд, не написав ни одной записи" },
+    },
+    secret_allrounder: {
+      title: "Секретные",
+      "1": { name: "Универсал", description: "Достичь 2 уровня в 5 разных группах" },
+    },
   },
 };
 

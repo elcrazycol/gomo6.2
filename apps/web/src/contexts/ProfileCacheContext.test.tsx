@@ -88,8 +88,7 @@ describe("ProfileCacheContext", () => {
 
     const cached = result.current.getProfile("user-1");
     expect(cached).not.toBeNull();
-    expect(cached!.username).toBe("alice");
-    expect(mockFrom).toHaveBeenCalledTimes(4); // 4 parallel API calls
+    expect(cached!.username).toBe("alice");	    expect(mockFrom).toHaveBeenCalledTimes(3); // 3 parallel API calls (profiles, roles, customization)
   });
 
   it("returns cached data on second load", async () => {
@@ -180,12 +179,10 @@ describe("ProfileCacheContext", () => {
     let data: any;
     await act(async () => {
       data = await result.current.loadProfile("user-1");
-    });
-
-    // profiles + user_achievements + profile_customization — NO user_roles.
+    });	    // profiles + profile_customization — NO user_roles.
     const calledTables = mockFrom.mock.calls.map((c) => c[0]);
     expect(calledTables).not.toContain("user_roles");
-    expect(calledTables).toHaveLength(3);
+    expect(calledTables).toHaveLength(2);
     expect(data.isAdmin).toBe(false);
   });
 
@@ -206,31 +203,7 @@ describe("ProfileCacheContext", () => {
     });
 
     expect(data.isAdmin).toBe(true);
-  });
-
-  it("extracts color from achievements", async () => {
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "profiles") return makeChain({ data: { username: "colored" }, error: null });
-      if (table === "user_achievements") return makeChain({
-        data: [{ achievements: { reward_type: "username_color", reward_value: "purple" } }],
-        error: null,
-      });
-      if (table === "user_roles") return makeChain({ data: [], error: null });
-      if (table === "profile_customization") return makeChain({ data: null, error: null });
-      return makeChain({ data: null, error: null });
-    });
-
-    const { result } = renderHook(() => useProfileCache(), { wrapper });
-
-    let data: any;
-    await act(async () => {
-      data = await result.current.loadProfile("user-1");
-    });
-
-    expect(data.color).toBe("purple");
-  });
-
-  it("deduplicates concurrent requests", async () => {
+  });	  it("deduplicates concurrent requests", async () => {
     const { result } = renderHook(() => useProfileCache(), { wrapper });
 
     const p1 = result.current.loadProfile("user-1");

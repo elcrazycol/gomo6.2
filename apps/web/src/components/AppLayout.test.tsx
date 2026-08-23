@@ -120,9 +120,6 @@ vi.mock("@/components/Footer", () => ({
 vi.mock("@/components/CookieBanner", () => ({
   CookieBanner: () => <div data-testid="cookie-banner">Cookies</div>,
 }));
-vi.mock("@/components/AchievementToastListener", () => ({
-  AchievementToastListener: () => <div data-testid="achievement-listener" />,
-}));
 vi.mock("@/components/DropsShop", () => ({
   DropsShop: ({ open }: any) => (open ? <div data-testid="drops-shop">Shop</div> : null),
 }));
@@ -173,7 +170,6 @@ describe("AppLayout", () => {
     expect(screen.getByTestId("motion-header")).toBeInTheDocument();
     expect(screen.getByTestId("footer")).toBeInTheDocument();
     expect(screen.getByTestId("cookie-banner")).toBeInTheDocument();
-    expect(screen.getByTestId("achievement-listener")).toBeInTheDocument();
   });
 
   it("renders gomo6 logo link", () => {

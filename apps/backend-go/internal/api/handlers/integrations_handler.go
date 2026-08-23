@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/integrations"
 	"github.com/gomo6/backend/internal/websocket"
@@ -20,11 +21,11 @@ import (
 
 // IntegrationsHandler handles third-party service integrations (Spotify, etc.)
 type IntegrationsHandler struct {
-	db                 *sql.DB
-	spotify            *integrations.SpotifyService
-	hub                *websocket.Hub
-	redis              *redis.Client
-	achievementChecker *AchievementChecker
+	db        *sql.DB
+	spotify   *integrations.SpotifyService
+	hub       *websocket.Hub
+	redis     *redis.Client
+	achEngine *achievements.Engine
 }
 
 // SetWebSocketHub sets the WebSocket hub for real-time publishing
@@ -37,9 +38,9 @@ func (h *IntegrationsHandler) SetRedis(r *redis.Client) {
 	h.redis = r
 }
 
-// SetAchievementChecker sets the achievement checker for auto-unlock
-func (h *IntegrationsHandler) SetAchievementChecker(ac *AchievementChecker) {
-	h.achievementChecker = ac
+// SetAchievementEngine wires the achievements engine for auto-unlock events.
+func (h *IntegrationsHandler) SetAchievementEngine(e *achievements.Engine) {
+	h.achEngine = e
 }
 
 // NewIntegrationsHandler creates a new integrations handler
@@ -212,10 +213,7 @@ func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 
 	h.redirectToSettings(c, "success", "Spotify подключён!")
 
-	// Award Spotify integration achievement
-	if h.achievementChecker != nil {
-		go h.achievementChecker.AwardOneTime(userID, "spotify")
-	}
+	emitAchievement(h.achEngine, userID, achievements.EventIntegrationConnected)
 }
 
 // DisconnectSpotify removes the Spotify integration for the authenticated user

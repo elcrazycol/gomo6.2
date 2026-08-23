@@ -7,7 +7,6 @@ const INVALIDATE_EVENT = 'profile-cache:invalidate';
 
 interface ProfileData {
   username: string;
-  color: string;
   customization: unknown;
   isAdmin: boolean;
   avatarUrl?: string;
@@ -70,9 +69,8 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return entry.data;
   }, [cache]);
 
-  const loadProfile = useCallback(async (userId: string | undefined): Promise<ProfileData> => {
-    if (!userId) {
-      return { username: '', color: '', customization: null, isAdmin: false, avatarUrl: undefined };
+  const loadProfile = useCallback(async (userId: string | undefined): Promise<ProfileData> => {	    if (!userId) {
+      return { username: '', customization: null, isAdmin: false, avatarUrl: undefined };
     }
 
     const uid = userId;
@@ -117,22 +115,10 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
           : toFallback(
               () => api.from('user_roles').select('role').eq('user_id', uid),
               { data: [], error: null }
-            );
-
-        const [profileRes, achievementsRes, rolesRes, customizationRes] = await Promise.all([
+            );		const [profileRes, rolesRes, customizationRes] = await Promise.all([
           toFallback(
             () => api.from('profiles').select('username, avatar_url, nickname_emoji_id').eq('id', uid).single(),
             { data: null, error: null }
-          ),
-          toFallback(
-            () => api.from('user_achievements').select(`
-              achievement_id,
-              achievements (
-                reward_type,
-                reward_value
-              )
-            `).eq('user_id', uid),
-            { data: [], error: null }
           ),
           rolesResPromise,
           toFallback(
@@ -141,28 +127,9 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
           ),
         ]);
 
-        // Process color from achievements
-        let color = '';
-        if (achievementsRes.data) {
-          const colorRewards = achievementsRes.data
-            .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === 'username_color')
-            .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              color = p;
-              break;
-            }
-          }
-        }
-
         // Check if admin
-        const isAdmin = rolesRes.data?.some((r: Record<string, unknown>) => r.role === 'admin') || false;
-
-        const profileData: ProfileData = {
+        const isAdmin = rolesRes.data?.some((r: Record<string, unknown>) => r.role === 'admin') || false;		const profileData: ProfileData = {
           username: profileRes.data?.username || '',
-          color,
           customization: customizationRes.data || null,
           isAdmin,
           avatarUrl: profileRes.data?.avatar_url || undefined,

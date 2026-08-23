@@ -1,9 +1,23 @@
 import { cn } from "@/lib/utils";
 import { useId } from "react";
+import {
+  MessageCircle,
+  Repeat,
+  Users,
+  ScrollText,
+  Flag,
+  CalendarCheck,
+  Clock,
+  Gift,
+  PackageOpen,
+  MoonStar,
+  ShowerHead,
+  Ghost,
+} from "lucide-react";
 
 interface IconProps {
   className?: string;
-  size?: number;
+  size?: number | string;
 }
 
 /**
@@ -346,20 +360,34 @@ export function IconZap({ className, size = 24 }: IconProps) {
 }
 
 /**
- * Map icon name string to component
+ * Map icon name string to component. Newer catalog icons are plain
+ * lucide-react glyphs (they inherit the accent color via currentColor); the
+ * hand-drawn gradient icons above remain for the legacy names.
  */
 export const ACHIEVEMENT_ICONS: Record<string, React.FC<IconProps>> = {
   "message-square": IconMessageSquare,
+  "message-circle": MessageCircle,
   layers: IconLayers,
   heart: IconHeart,
   "thumbs-up": IconThumbsUp,
   image: IconImageIcon,
+  repeat: Repeat,
+  users: Users,
+  "scroll-text": ScrollText,
+  flag: Flag,
+  "calendar-check": CalendarCheck,
+  clock: Clock,
   camera: IconCamera,
   "file-text": IconFileText,
   palette: IconPalette,
   sparkles: IconSparkles,
   zap: IconZap,
   music: IconMusic,
+  gift: Gift,
+  "package-open": PackageOpen,
+  "moon-star": MoonStar,
+  "shower-head": ShowerHead,
+  ghost: Ghost,
 };
 
 /**

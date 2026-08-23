@@ -675,7 +675,7 @@ func TestToggleAchievementPin_MaxPinned(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\).*FROM user_achievements.*WHERE user_id = \$1 AND is_pinned = TRUE`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(6))
 
 	c, w := newRPCPostContext(map[string]string{
 		"_user_id":        userID,

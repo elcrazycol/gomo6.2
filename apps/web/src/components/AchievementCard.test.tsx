@@ -44,23 +44,15 @@ describe("AchievementCard", () => {
     expect(screen.getByText("Complete your first post")).toBeInTheDocument();
   });
 
-  it("renders hidden (secret) achievement with reveal prompt", () => {
+  it("renders a locked secret achievement like any locked card (page hides it)", () => {
+    // The card itself has no reveal prompt — locked secrets are filtered out
+    // by the pages, so here it just renders muted like any locked card.
     render(<AchievementCard achievement={makeAchievement({ locked: true, hidden: true })} />);
-    expect(screen.getByText("Секретное достижение")).toBeInTheDocument();
-    expect(screen.getByText("Нажми, чтобы раскрыть")).toBeInTheDocument();
-  });
-
-  it("reveals hidden achievement on click", async () => {
-    const user = userEvent.setup();
-    render(<AchievementCard achievement={makeAchievement({ locked: true, hidden: true })} />);
-
-    await user.click(screen.getByText("Секретное достижение"));
-
     expect(screen.getByText("First Steps")).toBeInTheDocument();
     expect(screen.queryByText("Секретное достижение")).not.toBeInTheDocument();
   });
 
-  it("shows level badge when current_level > 1", () => {
+  it("shows current/max level for multi-level achievement", () => {
     render(
       <AchievementCard
         achievement={makeAchievement({
@@ -74,7 +66,6 @@ describe("AchievementCard", () => {
         })}
       />,
     );
-    expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("3/5")).toBeInTheDocument();
   });
 
@@ -92,26 +83,7 @@ describe("AchievementCard", () => {
         })}
       />,
     );
-    expect(screen.getByText("15 / 25 → ур. 2")).toBeInTheDocument();
-  });
-
-  it("shows level dots for multi-level achievements", () => {
-    const { container } = render(
-      <AchievementCard
-        achievement={makeAchievement({
-          level: 2,
-          max_level: 4,
-          levels: [
-            { level: 1, threshold: 10, name: "L1", description: "D1", rarity: "common" },
-            { level: 2, threshold: 25, name: "L2", description: "D2", rarity: "uncommon" },
-            { level: 3, threshold: 50, name: "L3", description: "D3", rarity: "rare" },
-            { level: 4, threshold: 100, name: "L4", description: "D4", rarity: "epic" },
-          ],
-        })}
-      />,
-    );
-    const dots = container.querySelectorAll(".rounded-full");
-    expect(dots.length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByText("15 / 25")).toBeInTheDocument();
   });
 
   it("shows garma reward string", () => {
@@ -125,21 +97,28 @@ describe("AchievementCard", () => {
         })}
       />,
     );
-    expect(screen.getByText("+50 gармы")).toBeInTheDocument();
+    expect(screen.getByText("+50 гармы")).toBeInTheDocument();
   });
 
-  it("shows username color reward string", () => {
+  it("localizes i18n keys from the new catalog (name_key/description_key/title)", () => {
     render(
       <AchievementCard
         achievement={makeAchievement({
+          title: "achievements.entries.title",
           level: 1,
+          max_level: 2,
+          progress_current: 5,
           levels: [
-            { level: 1, threshold: 10, name: "L1", description: "D1", rarity: "common", reward_type: "username_color", reward_value: "purple" },
+            { level: 1, threshold: 10, name_key: "achievements.entries.1.name", description_key: "achievements.entries.1.description", rarity: "common" },
+            { level: 2, threshold: 50, name_key: "achievements.entries.2.name", description_key: "achievements.entries.2.description", rarity: "uncommon" },
           ],
         })}
       />,
     );
-    expect(screen.getByText("Цвет ника: purple")).toBeInTheDocument();
+    expect(screen.getByText("Первое слово")).toBeInTheDocument();
+    expect(screen.getByText("Опубликовать первую запись")).toBeInTheDocument();
+    // Progress to the next level
+    expect(screen.getByText(/5 \/ 50/)).toBeInTheDocument();
   });
 
   it("shows unlock date", () => {
@@ -151,14 +130,32 @@ describe("AchievementCard", () => {
     expect(screen.getByText(/15.*июня.*2025/)).toBeInTheDocument();
   });
 
-  it("does not show unlock date in compact mode", () => {
+  it("renders compact mode as a square tile (icon + name, no description/date)", () => {
     render(
       <AchievementCard
-        achievement={makeAchievement({ unlocked_at: "2025-06-15T12:00:00Z" })}
+        achievement={makeAchievement({ name: "Завсегдатай", description: "Long description", unlocked_at: "2025-06-15T12:00:00Z" })}
         compact
       />,
     );
+    expect(screen.getByText("Завсегдатай")).toBeInTheDocument();
+    expect(screen.queryByText("Long description")).not.toBeInTheDocument();
     expect(screen.queryByText(/15.*июня/)).not.toBeInTheDocument();
+  });
+
+  it("shows pin/unpin button on compact tile in editing mode", async () => {
+    const onTogglePin = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AchievementCard
+        achievement={makeAchievement({ is_pinned: true })}
+        compact
+        isEditing
+        onTogglePin={onTogglePin}
+      />,
+    );
+    const unpinBtn = screen.getByTitle("Открепить");
+    await user.click(unpinBtn);
+    expect(onTogglePin).toHaveBeenCalledWith("ach-1");
   });
 
   it("shows pin button in editing mode and calls onTogglePin", async () => {
@@ -192,7 +189,7 @@ describe("AchievementCard", () => {
     const { container } = render(
       <AchievementCard achievement={makeAchievement({ is_pinned: true })} />,
     );
-    expect(container.querySelector(".text-amber-400\\/60")).toBeInTheDocument();
+    expect(container.querySelector(".text-amber-500\\/70")).toBeInTheDocument();
   });
 
   it("shows progress bar for locked achievement with threshold", () => {
@@ -226,11 +223,14 @@ describe("AchievementCard", () => {
     expect(screen.getByText("中级描述")).toBeInTheDocument();
   });
 
-  it("applies compact classes", () => {
+  it("renders compact tile as a square card", () => {
     const { container } = render(
       <AchievementCard achievement={makeAchievement()} compact />,
     );
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("p-3");
+    expect(card.className).toContain("aspect-square");
+    expect(card.className).toContain("bg-card");
+    // No trophy badge on compact tiles.
+    expect(card.querySelector(".text-amber-500\\/70")).not.toBeInTheDocument();
   });
 });

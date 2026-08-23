@@ -3,8 +3,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { GomoRichEditor } from "./GomoRichEditor";
 
 // jsdom may not provide requestAnimationFrame, and ProseMirror schedules its
-// DOM updates on it — shim it with a timer-based fallback (same pattern as
-// AchievementUnlockToast.test.tsx).
+// DOM updates on it — shim it with a timer-based fallback.
 const origRAF = window.requestAnimationFrame;
 const origCAF = window.cancelAnimationFrame;
 

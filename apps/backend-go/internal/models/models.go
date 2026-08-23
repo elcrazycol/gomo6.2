@@ -242,15 +242,13 @@ type Notification struct {
 // baking Russian text into the DB.
 type NotificationParams struct {
 	// Actor is the username of the acting user (the leading @handle). Empty for
-	// system-generated notifications (achievements) and set to the anonymous
-	// marker for anonymous gifts (see Anonymous).
+	// system-generated notifications and set to the anonymous marker for
+	// anonymous gifts (see Anonymous).
 	Actor string `json:"actor,omitempty"`
 	// Anonymous marks the actor as anonymous (used for gift_received).
 	Anonymous bool `json:"anonymous,omitempty"`
 	// GiftName is the localized-in-DB gift catalog name for gift_received.
 	GiftName string `json:"gift_name,omitempty"`
-	// AchievementName is the achievement name for achievement_unlock.
-	AchievementName string `json:"achievement_name,omitempty"`
 	// Count is the number of liked wall posts in a wall_post_like burst group.
 	Count int `json:"count,omitempty"`
 }
@@ -270,8 +268,6 @@ type Achievement struct {
 	AchievementType *string          `json:"achievement_type" db:"achievement_type"`
 	Hidden          bool             `json:"hidden" db:"hidden"`
 	SortOrder       *int             `json:"sort_order" db:"sort_order"`
-	RewardType      *string          `json:"reward_type" db:"reward_type"`
-	RewardValue     *string          `json:"reward_value" db:"reward_value"`
 	Levels          *json.RawMessage `json:"levels" db:"levels"`
 	CreatedAt       *time.Time       `json:"created_at" db:"created_at"`
 }

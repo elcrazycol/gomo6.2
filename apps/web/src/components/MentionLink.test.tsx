@@ -11,9 +11,6 @@ vi.mock("react-router-dom", () => ({
   ),
 }));
 
-vi.mock("@/hooks/useUserColor", () => ({
-  useUserColor: () => ({ data: "" }),
-}));
 
 const mockFrom = vi.fn();
 vi.mock("@/integrations/api/compat", () => ({

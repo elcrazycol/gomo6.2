@@ -32,20 +32,7 @@ function mockMetaResponses() {
             data: [{ id: "user-1", username: "alice", avatar_url: "/a.png", nickname_emoji_id: "emoji-1" }],
           }),
       });
-    }
-    if (url.includes("/api/v1/user_achievements")) {
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: [
-              { achievements: { reward_type: "username_color", reward_value: "gold" } },
-              { achievements: { reward_type: "username_color", reward_value: "purple" } },
-            ],
-          }),
-      });
-    }
-    if (url.includes("/api/v1/gift_catalog")) {
+    }	  if (url.includes("/api/v1/gift_catalog")) {
       return Promise.resolve({
         ok: true,
         json: () =>
@@ -68,17 +55,15 @@ describe("getCurrentUserMeta", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it("returns roles, color, username, avatar and nickname emoji in one batched call", async () => {
+  });	  it("returns roles, username, avatar and nickname emoji in one batched call", async () => {
     const meta = await getCurrentUserMeta("user-1");
 
     expect(meta.roles).toEqual(["admin"]);
-    expect(meta.color).toBe("purple"); // priority order starts with purple, then gold
+    expect(meta.color).toBe(""); // username_color rewards were removed
     expect(meta.username).toBe("alice");
     expect(meta.avatarUrl).toBe("/a.png");
     expect(meta.nicknameEmojiId).toBe("emoji-1");
-    expect(mocks.mockFetch).toHaveBeenCalledTimes(3);
+    expect(mocks.mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it("caches the result — a second call fires zero requests", async () => {
@@ -87,12 +72,10 @@ describe("getCurrentUserMeta", () => {
 
     await getCurrentUserMeta("user-1");
     expect(mocks.mockFetch.mock.calls.length).toBe(callsAfterFirst);
-  });
-
-  it("deduplicates concurrent calls", async () => {
+  });	  it("deduplicates concurrent calls", async () => {
     await Promise.all([getCurrentUserMeta("user-1"), getCurrentUserMeta("user-1"), getCurrentUserMeta("user-1")]);
-    // 3 parallel calls → only 3 fetches total (one roles + one profiles + one achievements)
-    expect(mocks.mockFetch.mock.calls.length).toBe(3);
+    // 3 parallel calls → only 2 fetches total (one roles + one profiles)
+    expect(mocks.mockFetch.mock.calls.length).toBe(2);
   });
 
   it("returns empty meta without a userId", async () => {
@@ -108,10 +91,8 @@ describe("getCurrentUserMeta", () => {
 
     // Simulate a profile mutation (username/avatar/emoji change): all listeners
     // must reset their caches so the next read refetches.
-    window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));
-
-    await getCurrentUserMeta("user-1");
-    expect(mocks.mockFetch.mock.calls.length).toBe(callsAfterFirst + 3);
+    window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));	    await getCurrentUserMeta("user-1");
+    expect(mocks.mockFetch.mock.calls.length).toBe(callsAfterFirst + 2);
   });
 });
 

@@ -32,7 +32,6 @@ describe('notificationStore', () => {
     expect(state.hasMore).toBe(true);
     expect(state.offset).toBe(0);
     expect(state.initialized).toBe(false);
-    expect(state.lastUnlockedAchievement).toBeNull();
   });
 
   it('markAsRead updates notification and decrements count', () => {
@@ -87,31 +86,6 @@ describe('notificationStore', () => {
     const state = store.getState();
     expect(state.notifications.every((n) => n.is_read)).toBe(true);
     expect(state.unreadCount).toBe(0);
-  });
-
-  it('clearAchievement resets lastUnlockedAchievement', () => {
-    const store = useNotificationStore;
-    store.setState({
-      lastUnlockedAchievement: {
-        notification_id: 'n1',
-        id: 'a1',
-        group_key: 'test',
-        name: 'Test Achievement',
-        description: 'Test desc',
-        icon: 'sparkles',
-        rarity: 'common',
-        level: 1,
-        max_level: 1,
-        is_first_time: true,
-        prev_level: 0,
-      },
-    });
-
-    act(() => {
-      store.getState().clearAchievement();
-    });
-
-    expect(store.getState().lastUnlockedAchievement).toBeNull();
   });
 
   it('cleanup resets all state', () => {

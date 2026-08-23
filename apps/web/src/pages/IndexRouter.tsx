@@ -43,9 +43,7 @@ interface PopularThread {
 
 const Index = () => {
   const [user, setUser] = useState<any>(null);
-  const [isModerator, setIsModerator] = useState(false);
-  const [currentUserUsername, setCurrentUserUsername] = useState("");
-  const [currentUserColor, setCurrentUserColor] = useState("");
+  const [isModerator, setIsModerator] = useState(false);	const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [randomThread, setRandomThread] = useState<RandomThread | null>(null);
   const [popularThreads, setPopularThreads] = useState<PopularThread[]>([]);
   const [showTerms, setShowTerms] = useState(false);
@@ -74,38 +72,10 @@ const Index = () => {
             .from("profiles")
             .select("username")
             .eq("id", session.user.id)
-            .single();
-
-          if (profile) {
+            .single();		  if (profile) {
             setCurrentUserUsername((profile as Record<string, unknown>).username as string);
           }
 
-          // Load current user color
-          const { data: achievements } = await api
-            .from("user_achievements")
-            .select(`
-              achievement_id,
-              achievements (
-                reward_type,
-                reward_value
-              )
-            `)
-            .eq("user_id", session.user.id);
-
-          if (achievements) {
-            const colorRewards = achievements
-              .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
-              .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-            const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-            for (const p of priority) {
-              if (colorRewards.includes(p)) {
-                setCurrentUserColor(p);
-                break;
-              }
-            }
-          }
-          
           // Check if user has accepted terms
           const { data: termsData } = await api
             .from("user_terms_acceptance")

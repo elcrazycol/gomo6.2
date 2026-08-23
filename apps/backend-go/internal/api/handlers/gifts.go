@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crypto"
@@ -21,9 +22,10 @@ import (
 )
 
 type GiftsHandler struct {
-	db    *sql.DB
-	redis *redis.Client
-	hub   *websocket.Hub
+	db        *sql.DB
+	redis     *redis.Client
+	hub       *websocket.Hub
+	achEngine *achievements.Engine
 }
 
 func NewGiftsHandler(db *sql.DB) *GiftsHandler {
@@ -33,6 +35,11 @@ func NewGiftsHandler(db *sql.DB) *GiftsHandler {
 func (h *GiftsHandler) SetRedis(redis *redis.Client) { h.redis = redis }
 
 func (h *GiftsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
+
+// SetAchievementEngine wires the achievements engine for auto-unlock events.
+func (h *GiftsHandler) SetAchievementEngine(e *achievements.Engine) {
+	h.achEngine = e
+}
 
 // SendGift — POST /api/v1/gifts/send (protected)
 //
@@ -161,6 +168,10 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to complete transaction"))
 		return
 	}
+
+	// Achievements: the sender sent a gift; the recipient received one.
+	emitAchievement(h.achEngine, senderID, achievements.EventGiftSent)
+	emitAchievement(h.achEngine, recipientID.String(), achievements.EventGiftReceived)
 
 	// Send notification to recipient
 	go h.sendGiftNotification(recipientID.String(), senderID, giftID.String(), giftRecordID, req.IsAnonymous)
