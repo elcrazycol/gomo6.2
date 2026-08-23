@@ -615,17 +615,11 @@ func TestToggleAchievementPin_Pin(t *testing.T) {
 		WithArgs(userID, achievementID).
 		WillReturnRows(sqlmock.NewRows([]string{"is_pinned"}).AddRow(false))
 
-	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\).*FROM user_achievements.*WHERE user_id = \$1 AND is_pinned = TRUE`).
-		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-	mock.ExpectQuery(`(?s).*SELECT MAX\(pinned_order\).*FROM user_achievements.*WHERE user_id = \$1 AND is_pinned = TRUE`).
-		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"max"}).AddRow(nil))
-
-	mock.ExpectExec(`(?s).*UPDATE user_achievements.*SET is_pinned = TRUE, pinned_order = \$1.*WHERE user_id = \$2 AND achievement_id = \$3`).
-		WithArgs(1, userID, achievementID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Atomic pin: the 6-slot cap and pinned_order are computed inside the
+	// UPDATE; a success returns a row (RETURNING id).
+	mock.ExpectQuery(`(?s).*UPDATE user_achievements.*SET is_pinned = TRUE.*pinned_order.*WHERE user_id = \$2 AND achievement_id = \$3.*< 6.*RETURNING id`).
+		WithArgs(userID, userID, achievementID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ua1"))
 
 	c, w := newRPCPostContext(map[string]string{
 		"_user_id":        userID,
@@ -673,9 +667,11 @@ func TestToggleAchievementPin_MaxPinned(t *testing.T) {
 		WithArgs(userID, achievementID).
 		WillReturnRows(sqlmock.NewRows([]string{"is_pinned"}).AddRow(false))
 
-	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\).*FROM user_achievements.*WHERE user_id = \$1 AND is_pinned = TRUE`).
-		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(6))
+	// Already at 6 pinned: the atomic UPDATE matches zero rows (no RETURNING
+	// row) → the handler reports the limit.
+	mock.ExpectQuery(`(?s).*UPDATE user_achievements.*SET is_pinned = TRUE.*< 6.*RETURNING id`).
+		WithArgs(userID, userID, achievementID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"})) // no rows
 
 	c, w := newRPCPostContext(map[string]string{
 		"_user_id":        userID,

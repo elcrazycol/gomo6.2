@@ -632,45 +632,36 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 
 	newPinned := !currentPinned
 
+	var updatedID string
 	if newPinned {
-		var pinnedCount int
+		// Atomic pin vs. the 6-slot limit (M-01, TOCTOU fix): the cap is
+		// enforced INSIDE the UPDATE via a row-lock-safe subquery, so two
+		// concurrent requests cannot both read pinned_count = 5 and both
+		// pass a separate COUNT check. If the user already has 6 pinned, the
+		// UPDATE matches 0 rows and we report the limit instead of silently
+		// over-pinning. pinned_order is computed in the same statement so it
+		// stays consistent under concurrency.
 		err = h.db.QueryRow(`
-			SELECT COUNT(*)
-			FROM user_achievements
-			WHERE user_id = $1 AND is_pinned = TRUE
-		`, req.UserID).Scan(&pinnedCount)
+			UPDATE user_achievements
+			SET is_pinned = TRUE,
+			    pinned_order = COALESCE((
+			        SELECT MAX(pinned_order) FROM user_achievements
+			        WHERE user_id = $1 AND is_pinned = TRUE
+			    ), 0) + 1
+			WHERE user_id = $2 AND achievement_id = $3
+			  AND (SELECT COUNT(*) FROM user_achievements
+			       WHERE user_id = $2 AND is_pinned = TRUE) < 6
+			RETURNING id
+		`, req.UserID, req.UserID, req.AchievementID).Scan(&updatedID)
 
 		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 6 achievements can be pinned"))
+				return
+			}
 			serverError(c, "handler error", err)
 			return
 		}
-
-		if pinnedCount >= 6 {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 6 achievements can be pinned"))
-			return
-		}
-
-		var maxOrder sql.NullInt32
-		err = h.db.QueryRow(`
-			SELECT MAX(pinned_order)
-			FROM user_achievements
-			WHERE user_id = $1 AND is_pinned = TRUE
-		`, req.UserID).Scan(&maxOrder)
-
-		if err != nil {
-			maxOrder = sql.NullInt32{Valid: false}
-		}
-
-		newOrder := 1
-		if maxOrder.Valid {
-			newOrder = int(maxOrder.Int32) + 1
-		}
-
-		_, err = h.db.Exec(`
-			UPDATE user_achievements
-			SET is_pinned = TRUE, pinned_order = $1
-			WHERE user_id = $2 AND achievement_id = $3
-		`, newOrder, req.UserID, req.AchievementID)
 	} else {
 		_, err = h.db.Exec(`
 			UPDATE user_achievements

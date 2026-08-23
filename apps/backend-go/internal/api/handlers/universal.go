@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
@@ -26,10 +28,22 @@ type UniversalHandler struct {
 	hub       *websocket.Hub
 	redis     *redis.Client
 	achEngine *achievements.Engine
+
+	// achievementRecomputeAt debounces per-user achievement reconciliation
+	// (M-02/M-03): reconciling on EVERY page open would run 20+ source-count
+	// queries synchronously per request. We run it in the background and at
+	// most once per achievementRecomputeWindow per user, so frequent visits
+	// cost nothing extra while a user's own page still catches up quickly.
+	achievementRecomputeMu sync.Mutex
+	achievementRecomputeAt map[string]time.Time
 }
 
 func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
-	return &UniversalHandler{db: db, hub: hub}
+	return &UniversalHandler{
+		db:                     db,
+		hub:                    hub,
+		achievementRecomputeAt: make(map[string]time.Time),
+	}
 }
 
 // SetRedis sets the Redis client for cache invalidation
