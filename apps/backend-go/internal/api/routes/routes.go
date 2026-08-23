@@ -66,6 +66,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	registerRateLimiter := middleware.NewAuthRateLimiter(redis, 5, time.Minute)   // 5/min per IP for register (anti abuse)
 	verify2FARateLimiter := middleware.NewAuthRateLimiter(redis, 20, time.Minute) // 20/min per IP for the 2FA step
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)       // 20/min token, 10/min revoke
+	// Audio metadata extraction is a disk-touching parse (multipart spool + temp
+	// file), so it gets its own per-user budget on top of auth — the frontend
+	// calls it once per audio attachment only when client-side parsing fails.
+	// Tunable via AUDIO_RATE_LIMIT_PER_MIN (default 30) without a rebuild.
+	audioRateLimiter := middleware.NewAuthRateLimiterWithPrefix("audio", redis, ogEnvLimit("AUDIO_RATE_LIMIT_PER_MIN", 30), time.Minute)
 	// Generic REST rate limiting: authenticated requests get a per-user budget
 	// (900/min by default), anonymous requests share a per-IP bucket (300/min).
 	// Both are tunable via RATE_LIMIT_PER_USER / RATE_LIMIT_PER_IP env vars.
@@ -170,8 +175,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// API routes
 	api := router.Group("/api/v1")
 	{
-		// Audio metadata endpoint
-		api.POST("/audio/metadata", audioHandler.ExtractAudioMetadata)
+		// Audio metadata endpoint. Authenticated + per-user rate limited: guests
+		// have no reason to parse server-side metadata, and the multipart parse
+		// touches disk, so anonymous unlimited access was a disk-exhaustion DoS
+		// (the endpoint used to write any-size uploads to /tmp).
+		api.POST("/audio/metadata",
+			middleware.AuthMiddleware(authService),
+			middleware.AuthRateLimitMiddleware(audioRateLimiter),
+			audioHandler.ExtractAudioMetadata)
 
 		// Test endpoint to verify AuthMiddleware works
 		api.GET("/test-auth", middleware.AuthMiddleware(authService), func(c *gin.Context) {

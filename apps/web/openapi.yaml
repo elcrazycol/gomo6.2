@@ -1676,19 +1676,28 @@ paths:
   /api/v1/audio/metadata:
     post:
       summary: Извлечь метаданные аудиофайла
+      description: Требует авторизации (Bearer JWT или HttpOnly cookie) и лимитирован 30 запросами/мин на пользователя. Максимальный размер файла — 50MB.
       tags: [Audio]
-      security: []
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
+              required: [audio]
               properties:
-                url:
+                audio:
                   type: string
+                  format: binary
+                  description: Аудиофайл (до 50MB)
       responses:
         "200":
           description: Метаданные (title, artist, duration и т.д.)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Файл слишком большой (максимум 50MB)
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   # ════════════════════════════════════════════════════════════════════════════
   # OAuth 2.0 / OpenID Connect

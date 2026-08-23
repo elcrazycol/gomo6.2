@@ -515,6 +515,52 @@ func TestSetupRoutes_PublicRPCRateLimitedForGuests(t *testing.T) {
 	}
 }
 
+// /api/v1/audio/metadata is a disk-touching parse (multipart spool + temp
+// file), so it must be authenticated AND carry its own per-user rate limiter.
+// Regression guards: an anonymous POST gets 401, and once the (env-tuned)
+// per-user budget is exhausted an authenticated caller gets 429. Locking this
+// in protects against someone accidentally dropping the auth or limiter
+// middleware from the route.
+func TestSetupRoutes_AudioMetadataAuthenticatedAndRateLimited(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	t.Setenv("AUDIO_RATE_LIMIT_PER_MIN", "1")
+
+	router := newTestRouterWithRedis(t, false, rdb)
+
+	// Anonymous request → auth middleware rejects before the handler.
+	anonReq := httptest.NewRequest(http.MethodPost, "/api/v1/audio/metadata", nil)
+	anonRec := httptest.NewRecorder()
+	router.ServeHTTP(anonRec, anonReq)
+	if anonRec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous POST /audio/metadata: expected 401, got %d", anonRec.Code)
+	}
+
+	// Authenticated request passes the limiter (the handler itself 400s on an
+	// empty body — but crucially not with 401 or 429).
+	token, err := auth.NewAuthService().GenerateToken("user-1", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/audio/metadata", nil)
+	req1.Header.Set("Authorization", "Bearer "+token)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+	if rec1.Code == http.StatusUnauthorized || rec1.Code == http.StatusTooManyRequests {
+		t.Fatalf("first authenticated request must pass auth+limiter, got %d (body: %s)", rec1.Code, rec1.Body.String())
+	}
+
+	// Second request from the same user exhausts the budget → 429.
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/audio/metadata", nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after the audio budget is exhausted, got %d", rec2.Code)
+	}
+}
+
 func TestSetupRoutes_NoWebSocketWithoutHub(t *testing.T) {
 	router := newTestRouter(t, false)
 	for _, path := range []string{"/ws", "/ws/stats"} {
@@ -562,6 +608,7 @@ func TestSetupRoutes_SmokeRequests(t *testing.T) {
 		{name: "jwks", method: http.MethodGet, path: "/.well-known/jwks.json", wantCode: http.StatusOK},
 		{name: "dev dashboard config", method: http.MethodGet, path: "/api/v1/dev-dashboard/config", wantCode: http.StatusOK},
 		{name: "test-auth requires auth", method: http.MethodGet, path: "/api/v1/test-auth", wantCode: http.StatusUnauthorized},
+		{name: "audio metadata requires auth", method: http.MethodPost, path: "/api/v1/audio/metadata", wantCode: http.StatusUnauthorized},
 		{name: "me requires auth", method: http.MethodGet, path: "/api/v1/auth/me", wantCode: http.StatusUnauthorized},
 		{name: "sessions requires auth", method: http.MethodGet, path: "/api/v1/auth/sessions", wantCode: http.StatusUnauthorized},
 		{name: "bots requires auth", method: http.MethodGet, path: "/api/v1/bots", wantCode: http.StatusUnauthorized},
