@@ -8,6 +8,16 @@ import { EmojiInline } from '@/components/EmojiInline';
 import { MentionLink } from '@/components/MentionLink';
 import { LinkButton } from '@/components/LinkButton';
 
+/** https://…, mailto:…, tel:… only — never javascript:/data:/vbscript:.
+ * Mirrors sanitizeMessengerHref in messengerRichTextUtils.ts; kept local so the
+ * wall/feed render path does not pull the ProseMirror converters into the
+ * bundle. Without this, [url=javascript:alert(1)]…[/url] would produce an
+ * executable <a href> (stored XSS — currently only mitigated by the site CSP). */
+const sanitizeBbUrl = (url: string): string => {
+  const trimmed = (url || '').trim();
+  return /^(https?|mailto|tel):/i.test(trimmed) ? trimmed : '';
+};
+
 // Process text for emojis, mentions, URLs, and markdown
 const processTextContent = (text: string, keyPrefix: string = 'bb'): React.ReactNode[] => {
   if (!text) return [];
@@ -267,6 +277,25 @@ export const createCustomBbPreset = (options?: {
     br: () => ({
       tag: 'br'
     }),
+    // [url] links — sanitize the scheme exactly like the messenger does
+    // (https/mailto/tel only). A dropped href (javascript:/data:/vbscript:…) is
+    // never rendered as a link: the label falls back to plain content so
+    // nothing clickable is emitted. Handles both [url=…]label[/url] (attribute
+    // form, getUniqAttr returns the single value) and [url]https://…[/url]
+    // (content form, rendered through param.render like the default preset).
+    url: (node, param) => {
+      const attrHref = String(getUniqAttr(node.attrs) ?? '').trim();
+      const contentHref = attrHref || (param?.render ? String(param.render(node.content ?? [])) : '');
+      const safe = sanitizeBbUrl(contentHref);
+      if (!safe) {
+        return { tag: 'span', content: node.content };
+      }
+      return {
+        tag: 'a',
+        attrs: { href: safe, rel: 'nofollow noopener noreferrer' },
+        content: node.content,
+      };
+    },
     // [me] tag - highlight for post author
     me: (node) => {
       const colorClasses: Record<string, string> = {

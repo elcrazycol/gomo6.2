@@ -230,4 +230,71 @@ describe("renderBbCode", () => {
       expect(screen.getByText("note").tagName).toBe("EM");
     });
   });
+
+  describe("[url] scheme sanitization (stored-XSS guard)", () => {
+    it("renders https URLs as anchors", () => {
+      const { container } = renderBb("[url=https://example.com]example[/url]");
+      const a = container.querySelector("a");
+      expect(a).not.toBeNull();
+      expect(a?.getAttribute("href")).toBe("https://example.com");
+      expect(a?.textContent).toBe("example");
+    });
+
+    it("supports the content form [url]https://…[/url]", () => {
+      const { container } = renderBb("[url]https://example.com[/url]");
+      const a = container.querySelector("a");
+      expect(a?.getAttribute("href")).toBe("https://example.com");
+    });
+
+    it("trims whitespace around the URL", () => {
+      const { container } = renderBb("[url=   https://example.com   ]x[/url]");
+      expect(container.querySelector("a")?.getAttribute("href")).toBe("https://example.com");
+    });
+
+    it("allows mailto and tel links (same allow-list as the messenger)", () => {
+      const { container } = renderBb("[url=mailto:a@b.c]mail[/url] [url=tel:+123]call[/url]");
+      const anchors = container.querySelectorAll("a");
+      expect(anchors).toHaveLength(2);
+      expect(anchors[0].getAttribute("href")).toBe("mailto:a@b.c");
+      expect(anchors[1].getAttribute("href")).toBe("tel:+123");
+    });
+
+    it("never emits a javascript: href from [url=…]", () => {
+      const { container } = renderBb("[url=javascript:alert(1)]click[/url]");
+      expect(container.querySelector("a[href^=\"javascript\"]")).toBeNull();
+      // The label still renders as plain content — the payload is not dropped.
+      expect(screen.getByText("click")).toBeInTheDocument();
+    });
+
+    it("drops javascript: hrefs case-insensitively", () => {
+      const { container } = renderBb("[url=JaVaScRiPt:alert(1)]x[/url]");
+      expect(container.querySelector("a[href^=\"javascript\" i]")).toBeNull();
+      expect(container.querySelector("a")).toBeNull();
+    });
+
+    it("drops vbscript: and data: hrefs", () => {
+      const { container } = renderBb("[url=vbscript:msgbox(1)]a[/url] [url=data:text/html,<b>x</b>]b[/url]");
+      expect(container.querySelectorAll("a")).toHaveLength(0);
+    });
+
+    it("drops javascript: from the content form too", () => {
+      const { container } = renderBb("[url]javascript:alert(1)[/url]");
+      expect(container.querySelector("a")).toBeNull();
+      expect(screen.getByText("javascript:alert(1)")).toBeInTheDocument();
+    });
+
+    it("adds rel=nofollow noopener noreferrer to rendered links", () => {
+      const { container } = renderBb("[url=https://example.com]x[/url]");
+      expect(container.querySelector("a")?.getAttribute("rel")).toBe("nofollow noopener noreferrer");
+    });
+
+    it("does not emit an anchor from uppercase [URL=javascript:…]", () => {
+      // bbob's caseFreeTags keeps the input case, so [URL] never reaches the
+      // sanitizing preset — it renders as an inert unknown element, never an
+      // <a href>. Guard it anyway so a future parser change cannot regress.
+      const { container } = renderBb("[URL=javascript:alert(1)]x[/URL]");
+      expect(container.querySelector("a[href]")).toBeNull();
+      expect(screen.getByText("x")).toBeInTheDocument();
+    });
+  });
 });
