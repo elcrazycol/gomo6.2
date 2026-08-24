@@ -22,6 +22,10 @@ type Config struct {
 	// Spotify integration
 	SpotifyClientID     string
 	SpotifyClientSecret string
+	// Web Push (PWA) — VAPID keys. See internal/push.
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string
 }
 
 func LoadConfig() *Config {
@@ -44,6 +48,9 @@ func LoadConfig() *Config {
 		TLSRedirectHTTP:     getEnvBool("TLS_REDIRECT_HTTP", false),
 		SpotifyClientID:     os.Getenv("SPOTIFY_CLIENT_ID"),
 		SpotifyClientSecret: os.Getenv("SPOTIFY_CLIENT_SECRET"),
+		VAPIDPublicKey:      os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey:     os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:        os.Getenv("VAPID_SUBJECT"),
 	}
 }
 

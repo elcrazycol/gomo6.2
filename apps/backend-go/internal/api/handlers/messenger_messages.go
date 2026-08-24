@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
 )
@@ -486,9 +488,82 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		if h.hub != nil {
 			go h.broadcastNewMessage(conversationID, msg, claims, isNotes)
 		}
+		// Web Push (PWA): deliver to the other conversation members. Notes
+		// (self-chat) have no other members, so nothing is sent — and the notes
+		// payload is client-side E2E ciphertext we cannot (and must not) read.
+		if !isNotes {
+			body := messagePushBody(cleanContent, len(req.Attachments) > 0)
+			go h.deliverMessagePush(context.Background(), conversationID, claims.UserID, claims.Username, body)
+		}
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(msg))
+}
+
+// messagePushBody builds the short human-readable push body for a message:
+// the plaintext when present, otherwise a placeholder for an attachment-only
+// message. Truncated so a long message never floods the OS notification.
+func messagePushBody(content string, hasAttachments bool) string {
+	const max = 140
+	trimmed := strings.TrimSpace(content)
+	runes := []rune(trimmed)
+	if len(runes) > max {
+		trimmed = string(runes[:max]) + "…"
+	}
+	if trimmed == "" && hasAttachments {
+		return "📎 Вложение"
+	}
+	if trimmed == "" {
+		return "Новое сообщение"
+	}
+	return trimmed
+}
+
+// deliverMessagePush sends a Web Push to every conversation member except the
+// sender and muted members. pushService.SendToUser additionally honors the
+// recipient's per-type push preferences (notifType "message"), so a user who
+// turned off message pushes receives nothing here even though they still get
+// the in-app unread badge. Best-effort: failures are logged, never propagated
+// (the message is already committed and delivered over WebSocket).
+func (h *MessengerHandler) deliverMessagePush(ctx context.Context, conversationID, senderID, senderUsername, body string) {
+	if pushService == nil {
+		return
+	}
+
+	// Other, non-muted members only. The sender gets nothing (they already see
+	// the message); muted conversations stay quiet for the recipient.
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT user_id FROM chat_members
+		WHERE conversation_id = $1 AND user_id != $2 AND COALESCE(is_muted, false) = false
+	`, conversationID, senderID)
+	if err != nil {
+		log.Printf("[Messenger] list push recipients %s: %v", conversationID, err)
+		return
+	}
+	defer rows.Close()
+
+	var recipients []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			log.Printf("[Messenger] scan push recipient: %v", err)
+			return
+		}
+		recipients = append(recipients, uid)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[Messenger] push recipients rows error: %v", err)
+		return
+	}
+
+	for _, recipientID := range recipients {
+		pushService.SendToUser(ctx, recipientID, "message", push.Notification{
+			Title: "@" + senderUsername,
+			Body:  body,
+			URL:   "/messages",
+			Icon:  "/pwa-192x192.png",
+		})
+	}
 }
 
 func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageResponse, claims *auth.Claims, isNotes bool) {
