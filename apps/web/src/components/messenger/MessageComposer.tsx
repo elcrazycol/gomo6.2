@@ -136,6 +136,7 @@ export const MessageComposer = memo(function MessageComposer({
   const emojiGlideActiveRef = useRef(false);
   const emojiGlideStartRef = useRef(0);
   const emojiGlideFromRef = useRef(0);
+  const emojiGlideToRef = useRef(0);
   // The keyboard's FULL visual slot, captured once when a sheet opens: on iOS
   // the generic keyboard inset subtracts the expanded URL bar, but a bottom
   // sheet (fixed to the LAYOUT bottom) must fill the whole slot the keyboard
@@ -486,14 +487,43 @@ export const MessageComposer = memo(function MessageComposer({
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
     if (swap.open) {
-      stopEmojiGlide();
       if (sheetSlotRef.current === 0) {
         const delta = Math.round((typeof window !== "undefined" ? window.innerHeight : 0) - viewportHeight);
         sheetSlotRef.current = Math.max(swap.height, keyboardInset, delta);
       }
       const slot = sheetSlotRef.current;
       if (sheetSlot !== slot) setSheetSlot(slot);
-      chatPanel.style.setProperty("--kb-inset", `${slot}px`);
+      // The keyboard is still dismissing (and the URL bar still expanded)
+      // when the sheet first opens — slapping the FULL slot on the composer
+      // in one frame makes it jump (teleport) above its previous keyboard-top
+      // seat, then settle when the bar collapses. Glide from the keyboard
+      // position up to the slot in sync with the sheet's rise instead.
+      stopEmojiGlide();
+      const current = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
+      const from = current > 0 ? current : Math.max(swap.height, keyboardInset);
+      if (from !== slot) {
+        emojiGlideActiveRef.current = true;
+        emojiGlideFromRef.current = from;
+        emojiGlideToRef.current = slot;
+        emojiGlideStartRef.current = Date.now();
+        const step = () => {
+          emojiGlideRafRef.current = null;
+          if (!emojiGlideActiveRef.current) return;
+          const t = Math.min(1, (Date.now() - emojiGlideStartRef.current) / EMOJI_EXIT_MS);
+          const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+          const inset = Math.round(emojiGlideFromRef.current + (emojiGlideToRef.current - emojiGlideFromRef.current) * eased);
+          if (t >= 1) {
+            emojiGlideActiveRef.current = false;
+            chatPanel.style.setProperty("--kb-inset", `${emojiGlideToRef.current}px`);
+            return;
+          }
+          chatPanel.style.setProperty("--kb-inset", `${inset}px`);
+          emojiGlideRafRef.current = requestAnimationFrame(step);
+        };
+        emojiGlideRafRef.current = requestAnimationFrame(step);
+      } else {
+        chatPanel.style.setProperty("--kb-inset", `${slot}px`);
+      }
       return;
     }
     // Sheet closed. Reset the captured slot so the next open re-measures it.
@@ -531,14 +561,15 @@ export const MessageComposer = memo(function MessageComposer({
     stopEmojiGlide();
     emojiGlideActiveRef.current = true;
     emojiGlideFromRef.current = from;
+    emojiGlideToRef.current = 0;
     emojiGlideStartRef.current = Date.now();
     const step = () => {
       emojiGlideRafRef.current = null;
       if (!emojiGlideActiveRef.current) return;
       const t = Math.min(1, (Date.now() - emojiGlideStartRef.current) / EMOJI_EXIT_MS);
       const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
-      const inset = Math.round(emojiGlideFromRef.current * (1 - eased));
-      if (inset <= 0) {
+      const inset = Math.round(emojiGlideFromRef.current + (emojiGlideToRef.current - emojiGlideFromRef.current) * eased);
+      if (t >= 1 || inset <= 0) {
         emojiGlideActiveRef.current = false;
         chatPanel.style.removeProperty("--kb-inset");
         return;

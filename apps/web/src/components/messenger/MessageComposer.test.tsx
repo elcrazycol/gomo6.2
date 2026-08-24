@@ -347,7 +347,7 @@ describe("MessageComposer", () => {
     expect(screen.getByTestId("emoji-picker")).toHaveAttribute("data-swap-open", "false");
   });
 
-  it("keyboard slot: lifts by the full visual slot (URL bar included) and holds the lift while the keyboard returns", () => {
+  it("keyboard slot: lifts by the full visual slot (URL bar included) and holds the lift while the keyboard returns", async () => {
     mockEmojiSwap.height = 300;
     mockMobileKeyboard.keyboardInset = 0;
     // The keyboard was up with the iOS URL bar expanded: the full slot delta
@@ -373,12 +373,13 @@ describe("MessageComposer", () => {
       const collapse = screen.queryByRole("button", { name: "Свернуть компоузер" });
       fireEvent.click((expand ?? collapse)!);
     };
-    // Open the sheet: the lift equals the FULL slot (360), not the keyboard
-    // height (300) — otherwise the panel would get less space than the
-    // keyboard and the composer would sit a hair low.
+    // Open the sheet: the lift glides up to the FULL slot (360), not the
+    // keyboard height (300) — otherwise the panel would get less space than
+    // the keyboard and the composer would sit a hair low. The glide (instead
+    // of an instant jump) is what stops the "composer teleports" jerk on open.
     mockEmojiSwap.open = true;
     poke();
-    expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
+    await waitFor(() => expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px"));
     // Close with the keyboard returning (tap on the editor): the global
     // --kb-inset still reports 0, so releasing would drop the composer to the
     // bottom for a frame before the keyboard rises — the lift is held.
