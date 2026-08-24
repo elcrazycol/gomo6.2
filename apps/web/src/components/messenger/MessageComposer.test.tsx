@@ -150,6 +150,13 @@ vi.mock("@/hooks/useMobileKeyboard", () => ({
   useMobileKeyboard: () => mockMobileKeyboard,
 }));
 
+// The composer reads the keyboard state directly (sheet-lift anchor at the
+// trigger tap) via getMobileKeyboardState — point it at the same mock.
+vi.mock("@/lib/mobileKeyboard", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/lib/mobileKeyboard")>();
+  return { ...mod, getMobileKeyboardState: () => mockMobileKeyboard };
+});
+
 // CSS.supports is not available in jsdom
 beforeAll(() => {
   if (typeof CSS === "undefined") {
@@ -774,6 +781,114 @@ describe("MessageComposer", () => {
         </div>,
       );
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+    });
+
+    it("ignores transient keyboard reports ABOVE the sheet height on the return (Firefox overshoot — no yank)", async () => {
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      // The keyboard is up at the panel height when the swap opens (realistic).
+      mockMobileKeyboard.keyboardInset = 340;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Keyboard return begins (tap on the editor): global still 0 → hold.
+      (container.querySelector("input") as HTMLInputElement).focus();
+      mockEmojiSwap.open = false;
+      mockMobileKeyboard.keyboardInset = 0;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Firefox transiently reports the keyboard HIGHER than it really is
+      // (350 > held 340): the composer must NOT ride up and teleport back —
+      // it stays at the sheet's height.
+      mockMobileKeyboard.keyboardInset = 350;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // The overshoot settles at its (wrong, higher) value — two equal
+      // reports: the composer glides to it and hands off (no snap).
+      mockMobileKeyboard.keyboardInset = 350;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 349;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
+    });
+
+    it("touch: opening a sheet over a real keyboard anchors the lift before the engine reports it gone (no drop under the keyboard)", () => {
+      mockMobileKeyboard.isTouch = true;
+      mockMobileKeyboard.keyboardInset = 340; // the keyboard is really up
+      const { container } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      // The paperclip only lives in the expanded (full) composer.
+      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+      // The tap pins the lift synchronously in the handler — before the swap
+      // blurs the editor and any engine reports the keyboard as gone.
+      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+      // The engine then reports the keyboard closed early (Firefox), with the
+      // keyboard still visually collapsing; the sheet opens — the composer
+      // must NOT fall to the bottom and ride back up with the sheet.
+      mockMobileKeyboard.keyboardInset = 0;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
+      mockEmojiSwap.open = true;
+      fireEvent.click(screen.getByRole("button", { name: "Свернуть компоузер" }));
+      fireEvent.mouseDown(screen.getByRole("button", { name: "Камера" }));
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
     });
   });
 

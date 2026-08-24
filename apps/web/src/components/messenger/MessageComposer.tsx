@@ -6,7 +6,7 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
-import { isEditableElement } from "@/lib/mobileKeyboard";
+import { getMobileKeyboardState, isEditableElement } from "@/lib/mobileKeyboard";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import {
   prosemirrorToMessengerText,
@@ -364,6 +364,24 @@ export const MessageComposer = memo(function MessageComposer({
     input.click();
   }, [endAttachSession]);
 
+  // Before a sheet opens over a REAL keyboard, pin the composer's lift to the
+  // keyboard's height SYNCHRONOUSLY IN THE TAP HANDLER — before openPanel's
+  // blur, hence before any engine reports the keyboard as gone. Firefox iOS
+  // reports the dismissal early (inset → 0 while the keyboard is still
+  // visibly collapsing); without this anchor the composer would drop under the
+  // departing keyboard and then ride back up with the sheet. The local
+  // --kb-inset also tells mobileKeyboard's focus-out guard to skip its
+  // descent. No-op when the keyboard wasn't really up (sheet→sheet switch or
+  // a closed keyboard — the desktop/stale cases keep the current lift).
+  const anchorSheetLift = useCallback(() => {
+    const inset = getMobileKeyboardState().keyboardInset;
+    if (inset < 60) return; // no real keyboard above the composer
+    const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
+    if (!panel) return;
+    const current = parseFloat(panel.style.getPropertyValue("--kb-inset")) || 0;
+    if (inset > current) panel.style.setProperty("--kb-inset", `${inset}px`);
+  }, []);
+
   // Trigger semantics for the shared keyboard slot: re-tap on the open
   // sheet's own trigger closes it (keyboard returns); tapping the OTHER
   // trigger while a sheet is up switches the slot's content without
@@ -371,6 +389,7 @@ export const MessageComposer = memo(function MessageComposer({
   const handleEmojiTrigger = useCallback(() => {
     // A closing attach sheet must not linger over the emoji panel.
     setAttachClosing(false);
+    anchorSheetLift();
     if (swap.open && activeSheet === "emoji") {
       setActiveSheet(null);
       swap.closePanel(true);
@@ -382,10 +401,11 @@ export const MessageComposer = memo(function MessageComposer({
     }
     setActiveSheet("emoji");
     if (!swap.open) swap.toggle();
-  }, [activeSheet, swap]);
+  }, [activeSheet, swap, anchorSheetLift]);
 
   const handleAttachTrigger = useCallback(() => {
     setAttachClosing(false);
+    anchorSheetLift();
     if (swap.open && activeSheet === "attach") {
       setActiveSheet(null);
       swap.closePanel(true);
@@ -397,7 +417,7 @@ export const MessageComposer = memo(function MessageComposer({
     }
     setActiveSheet("attach");
     if (!swap.open) swap.toggle();
-  }, [activeSheet, swap]);
+  }, [activeSheet, swap, anchorSheetLift]);
 
   const handleEditorPaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     const files = getPastedFiles(e);
@@ -551,17 +571,15 @@ export const MessageComposer = memo(function MessageComposer({
     // Sheet closed. The captured slot stays as a floor for the next session
     // (see the open branch — a fresh open never shrinks it).
     // An editable holding focus means the keyboard is coming back (tap on the
-    // editor, trigger → refocus). ONE continuous rule, no phase timers other
-    // than the never-returning safety net: the composer stays at
-    // max(slot, live inset) — it holds still while the keyboard slides up to
-    // the sheet's height, and RIDES the keyboard if the live inset rises above
-    // it (engines that report the return in coarse steps/transients — Firefox
-    // iOS). When the live inset has been reported TWICE unchanged, the
-    // keyboard has settled at its final height: if that height matches the
-    // held lift the override is dropped (the global equals the local — nothing
-    // moves and no stale override can block a later descent); if the keyboard
-    // settled SHORTER than the sheet (a genuinely different height), the
-    // composer glides down to it.
+    // editor, trigger → refocus). ONE continuous rule: the composer stays AT
+    // the sheet's height while the keyboard slides up to it, and does NOT ride
+    // transient reports that rise above it (engines like Firefox iOS report
+    // the return higher than the keyboard really is — riding would yank the
+    // composer up and back down). When the live inset has been reported TWICE
+    // unchanged, the keyboard has settled at its final height: if that height
+    // is within a pixel of the held lift the override is dropped (the global
+    // equals the local — nothing moves and no stale override can block a later
+    // descent); otherwise the composer glides to the true height (up or down).
     if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
       stopEmojiGlide();
       const held = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
@@ -634,17 +652,19 @@ export const MessageComposer = memo(function MessageComposer({
         }
         return;
       }
-      // The keyboard is above the held height and still moving — ride it so
-      // the composer stays glued to its top. If NO second confirmation report
-      // ever arrives (some engines emit a single coarse report per return),
-      // remove the override after a short window anyway — by then the local
-      // equals the global, nothing moves, and no stale override can block a
-      // later keyboard dismissal.
+      // The keyboard is at or above the held height, still moving (not settled
+      // yet). The composer stays AT the sheet's height — engines like Firefox
+      // iOS transiently report the return HIGHER than the keyboard really is,
+      // and riding those reports would yank the composer up, then back down
+      // ("teleport" once the keyboard finishes). The settled branch above
+      // aligns the composer to the TRUE final height (gliding if it differs).
+      // Arm a bounded confirmation so a return that is reported only once
+      // still clears the override shortly after (nothing moves then: the local
+      // equals the global — and no stale override can block a later dismissal).
       if (liftHoldTimerRef.current !== null) {
         clearTimeout(liftHoldTimerRef.current);
         liftHoldTimerRef.current = null;
       }
-      chatPanel.style.setProperty("--kb-inset", `${keyboardInset}px`);
       if (settleConfirmTimerRef.current === null) {
         settleConfirmTimerRef.current = setTimeout(() => {
           settleConfirmTimerRef.current = null;
