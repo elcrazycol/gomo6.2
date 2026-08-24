@@ -206,6 +206,13 @@ export const MessageComposer = memo(function MessageComposer({
   const [attachClosing, setAttachClosing] = useState(false);
   const attachCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevActiveSheetRef = useRef(activeSheet);
+  // Live mirror of the swap's open state for the sheet-lift machinery that
+  // runs OUTSIDE React's render cycle (the window-resize handler and the rAF
+  // window-follow): while a sheet session is up, the session owns the
+  // composer's lift, and that ownership must be visible to those paths
+  // without re-subscribing them to re-renders.
+  const swapOpenRef = useRef(swap.open);
+  swapOpenRef.current = swap.open;
 
   const [fullMode, setFullMode] = useState(false);
   // While the formatting panel is closing it stays mounted (with the exit
@@ -573,6 +580,15 @@ export const MessageComposer = memo(function MessageComposer({
       windowFollowRafRef.current = null;
       const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
       if (!panel) return;
+      // A live sheet session owns the lift — the swap-open effect branch plus
+      // the synchronous resize handler keep it exact. The follow is a
+      // keyboard-RETURN ride only; its deadline-based release must never fire
+      // while a sheet is still up, or it drops the composer under the open
+      // panel ~LIFT_HOLD_FALLBACK_MS after any resize armed it (the Firefox
+      // attach↔emoji "composer falls to the bottom": Firefox collapses
+      // innerHeight with the keyboard, so the dismissal resizes while the
+      // sheet is open armed the release).
+      if (swapOpenRef.current) return;
       if (Date.now() > windowFollowDeadlineRef.current) {
         // The window never collapsed — the keyboard isn't coming (focus
         // without a keyboard). Release the override and stop.
@@ -931,7 +947,13 @@ export const MessageComposer = memo(function MessageComposer({
       const lift = Math.max(0, Math.round(winH) - sheetTopRef.current);
       if (lift > 0) {
         panel.style.setProperty("--kb-inset", `${lift}px`);
-        startWindowFollow();
+        // A sheet session keeps its own lift (the swap-open effect branch +
+        // this synchronous write): arming the window-follow here would fire
+        // its deadline-based release ~LIFT_HOLD_FALLBACK_MS later and drop
+        // the composer under the still-open sheet on the window-collapse
+        // engine (the Firefox attach↔emoji drop). The follow belongs to the
+        // keyboard-RETURN ride only — the swap-closed branch owns it.
+        if (!swapOpenRef.current) startWindowFollow();
       } else {
         panel.style.removeProperty("--kb-inset");
       }
