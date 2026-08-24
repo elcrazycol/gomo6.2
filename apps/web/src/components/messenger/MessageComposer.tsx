@@ -5,6 +5,7 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
+import { isEditableElement } from "@/lib/mobileKeyboard";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import {
   prosemirrorToMessengerText,
@@ -17,6 +18,9 @@ import type { Attachment, MessageView, UploadingFile } from "./types";
 
 const MAX_LENGTH = 4000;
 const TYPING_DEBOUNCE_MS = 1000;
+// Duration of the emoji sheet's own exit slide (EmojiPicker: emoji-sheet-down
+// 240ms). On a no-refocus close the composer glides down in sync with it.
+const EMOJI_EXIT_MS = 240;
 
 interface Props {
   draft: string;
@@ -115,6 +119,13 @@ export const MessageComposer = memo(function MessageComposer({
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Eased descent of the local --kb-inset override when the emoji panel closes
+  // without the keyboard returning (outside tap / Escape). Kept in refs so the
+  // rAF loop can run without re-rendering the composer.
+  const emojiGlideRafRef = useRef<number | null>(null);
+  const emojiGlideActiveRef = useRef(false);
+  const emojiGlideStartRef = useRef(0);
+  const emojiGlideFromRef = useRef(0);
   const emojiSwap = useEmojiKeyboardSwap(editorRef);
   const { keyboardInset } = useMobileKeyboard();
 
@@ -276,6 +287,14 @@ export const MessageComposer = memo(function MessageComposer({
     panelExitTimerRef.current = setTimeout(() => setPanelExiting(false), 220);
   }, []);
 
+  const stopEmojiGlide = useCallback(() => {
+    if (emojiGlideRafRef.current !== null) {
+      cancelAnimationFrame(emojiGlideRafRef.current);
+      emojiGlideRafRef.current = null;
+    }
+    emojiGlideActiveRef.current = false;
+  }, []);
+
   // ── Emoji panel ↔ keyboard: the panel occupies the keyboard's space ──────
   // The chat panel is bottom-anchored at --kb-inset (see messenger.css), so
   // the composer — always in flow at the panel's bottom — floats above the
@@ -283,27 +302,64 @@ export const MessageComposer = memo(function MessageComposer({
   // up the keyboard is gone and --kb-inset drops to 0, which would let the
   // panel cover the composer; instead the chat panel's LOCAL --kb-inset is
   // overridden with the panel height (matching the keyboard that just
-  // dismissed — the composer does not move). On close the override is simply
-  // removed: the global --kb-inset (updated synchronously by
-  // lib/mobileKeyboard on every visual-viewport event) takes over, so a
-  // returning keyboard rides the composer back up with no React-driven copy
-  // lagging behind. The only trade-off is the no-refocus close (outside tap):
-  // the composer drops with the panel's own exit slide instead of gliding.
+  // dismissed — the composer does not move). On close:
+  //   • keyboard returning (tap on the editor / toggle → refocus): the
+  //     override is removed instantly and the global --kb-inset (updated
+  //     synchronously by lib/mobileKeyboard on every visual-viewport event)
+  //     rides the composer back up with no React-driven copy lagging behind;
+  //   • no-refocus close (outside tap / Escape): the keyboard stays gone, so
+  //     instead of teleporting the composer to the bottom in one frame it
+  //     glides down with the panel's own exit slide (EMOJI_EXIT_MS).
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
-    if (!emojiSwap.open) {
+    if (emojiSwap.open) {
+      stopEmojiGlide();
+      const lift = Math.max(emojiSwap.height, keyboardInset);
+      chatPanel.style.setProperty("--kb-inset", `${lift}px`);
+      return;
+    }
+    // Panel closed. An editable holding focus means the keyboard is coming
+    // back (tap on the editor, toggle → refocus) — release the lift right
+    // away so the live per-frame global --kb-inset takes over.
+    if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
+      stopEmojiGlide();
       chatPanel.style.removeProperty("--kb-inset");
       return;
     }
-    const lift = Math.max(emojiSwap.height, keyboardInset);
-    chatPanel.style.setProperty("--kb-inset", `${lift}px`);
-  }, [emojiSwap.open, emojiSwap.height, keyboardInset]);
+    // Outside-tap / Escape close: glide the composer down in sync with the
+    // panel's exit instead of dropping it in one frame.
+    const from = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
+    if (from <= 0) {
+      chatPanel.style.removeProperty("--kb-inset");
+      return;
+    }
+    stopEmojiGlide();
+    emojiGlideActiveRef.current = true;
+    emojiGlideFromRef.current = from;
+    emojiGlideStartRef.current = Date.now();
+    const step = () => {
+      emojiGlideRafRef.current = null;
+      if (!emojiGlideActiveRef.current) return;
+      const t = Math.min(1, (Date.now() - emojiGlideStartRef.current) / EMOJI_EXIT_MS);
+      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      const inset = Math.round(emojiGlideFromRef.current * (1 - eased));
+      if (inset <= 0) {
+        emojiGlideActiveRef.current = false;
+        chatPanel.style.removeProperty("--kb-inset");
+        return;
+      }
+      chatPanel.style.setProperty("--kb-inset", `${inset}px`);
+      emojiGlideRafRef.current = requestAnimationFrame(step);
+    };
+    emojiGlideRafRef.current = requestAnimationFrame(step);
+  }, [emojiSwap.open, emojiSwap.height, keyboardInset, stopEmojiGlide]);
 
-  // Clean up the local override on unmount.
+  // Clean up the local override and any in-flight glide on unmount.
   useEffect(() => () => {
+    stopEmojiGlide();
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
-  }, []);
+  }, [stopEmojiGlide]);
 
   // The formatting panel's Toolbar needs the live tiptap instance. The pill
   // editor is always mounted, so the ref is populated before the panel can

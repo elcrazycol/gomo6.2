@@ -436,7 +436,7 @@ describe("MessageComposer", () => {
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
     });
 
-    it("releases the local lift on close — the global --kb-inset takes over", async () => {
+    it("glides the composer down with the panel's exit on a no-refocus close", async () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
       const { container, rerender } = render(
@@ -453,9 +453,9 @@ describe("MessageComposer", () => {
       const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
 
-      // Panel closes: the override is removed so the synchronous global
-      // --kb-inset (updated per-frame by lib/mobileKeyboard) takes over and
-      // rides the composer with the returning keyboard.
+      // Panel closes via outside tap / Escape: no editable is focused and the
+      // keyboard stays gone. The composer must NOT teleport to the bottom —
+      // it is still lifted right after the close...
       mockEmojiSwap.open = false;
       mockEmojiSwap.height = 340;
       rerender(
@@ -469,7 +469,49 @@ describe("MessageComposer", () => {
           />
         </div>,
       );
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // ...and glides down, releasing the lift once the exit slide finishes.
       await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
+    });
+
+    it("releases the lift instantly when the keyboard returns (editable refocused)", () => {
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // The keyboard returns: the user taps the editor — an editable grabs
+      // focus. The lift is released at once so the live per-frame global
+      // --kb-inset rides the composer back up.
+      (container.querySelector("input") as HTMLInputElement).focus();
+      mockEmojiSwap.open = false;
+      mockEmojiSwap.height = 340;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
     });
   });
 
