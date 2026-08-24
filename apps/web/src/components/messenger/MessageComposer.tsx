@@ -749,21 +749,73 @@ export const MessageComposer = memo(function MessageComposer({
     emojiGlideRafRef.current = requestAnimationFrame(step);
   }, [swap.open, swap.height, keyboardInset, viewportHeight, sheetSlot, stopEmojiGlide]);
 
-  // While a keyboard-slot sheet is up the soft keyboard is closed, so the
-  // mobileKeyboard document-pan pin (active only while its state reports the
-  // keyboard OPEN) stops — yet iOS still pans the fixed shell around the
-  // sheet transition (header drifting, composer diving under the top bar).
-  // Re-pin the document scroll for the whole sheet session.
+  // iOS pans the document when the soft keyboard opens/closes and an input is
+  // focused: the visual viewport shrinks/grows, the browser scrolls the layout
+  // viewport to "reveal" the input, and the whole `position: fixed` messenger
+  // shell (fixed to the LAYOUT viewport) rides the pan — header drifting, the
+  // composer and the sheet "flying up" then teleporting back. mobileKeyboard's
+  // own pin runs only while ITS state reports the keyboard open — Firefox iOS
+  // reports isOpen false at exactly the wrong moments (inset zeroed
+  // synchronously on blur; coarse/late reports on return), so the sheet
+  // session must pin independently: while a sheet is up OR while the sheet
+  // machinery owns the lift (local --kb-inset > 0 — set by the anchor BEFORE
+  // the blur, kept through the hold/handoff, removed only once the keyboard
+  // has settled back). Cost: one scrollY read per frame; the write only when
+  // the browser actually pans.
   useEffect(() => {
-    if (!(swap.open && isTouch)) return;
+    if (!isTouch) return;
     let raf = 0;
     const step = () => {
-      if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+      const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
+      const localLift = panel ? parseFloat(panel.style.getPropertyValue("--kb-inset")) || 0 : 0;
+      if ((swap.open || localLift > 0) && (window.scrollY !== 0 || window.scrollX !== 0)) {
+        window.scrollTo(0, 0);
+      }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [swap.open, isTouch]);
+  }, [isTouch, swap.open]);
+
+  // DEV-only diagnostics strip: live keyboard-geometry numbers pinned to the
+  // screen (visualViewport vs state vs the composer's local lift). The whole
+  // sheet↔keyboard choreography depends on values that cannot be reproduced in
+  // jsdom — on-device recordings with these numbers show exactly what the
+  // engine reports at the moment of a jump. Rendered only in dev builds.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const strip = document.createElement("div");
+    strip.id = "kb-diag";
+    strip.style.cssText =
+      "position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:99999;" +
+      "background:rgba(10,10,10,.82);color:#7dfc9b;font:11px/1.5 ui-monospace,Menlo,monospace;" +
+      "padding:4px 8px;border-radius:6px;pointer-events:none;white-space:pre;" +
+      "max-width:96vw;overflow:hidden;text-align:left;";
+    document.body.appendChild(strip);
+    let raf = 0;
+    const render = () => {
+      const vv = typeof window !== "undefined" ? window.visualViewport : null;
+      const kb = getMobileKeyboardState();
+      const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
+      const local = panel ? panel.style.getPropertyValue("--kb-inset") || "''" : "—";
+      const active =
+        typeof document !== "undefined" && document.activeElement
+          ? document.activeElement.tagName
+          : "—";
+      const lines = [
+        `open:${String(swap.open)} sheet:${String(activeSheet)} slot:${sheetSlot} h:${swap.height}`,
+        `kbInset:${kb.keyboardInset} vv:${vv ? Math.round(vv.height) : "—"} / ${typeof window !== "undefined" ? window.innerHeight : "—"} offT:${vv ? Math.round(vv.offsetTop) : "—"}`,
+        `local:${local} focus:${active} scroll:${typeof window !== "undefined" ? window.scrollY : "—"}`,
+      ].join("\n");
+      if (strip.textContent !== lines) strip.textContent = lines;
+      raf = requestAnimationFrame(render);
+    };
+    raf = requestAnimationFrame(render);
+    return () => {
+      cancelAnimationFrame(raf);
+      strip.remove();
+    };
+  }, [swap.open, activeSheet, sheetSlot, swap.height]);
 
   // Clean up the local override, the held-lift timer and any in-flight glide on
   // unmount.

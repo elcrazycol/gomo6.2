@@ -859,6 +859,70 @@ describe("MessageComposer", () => {
       await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
     });
 
+    it("touch: pins the document scroll through the sheet→keyboard handoff (while the sheet lift is held)", async () => {
+      mockMobileKeyboard.isTouch = true;
+      // The browser "panned" the document (iOS keyboard-open reveal).
+      Object.defineProperty(window, "scrollY", { value: 40, configurable: true });
+      Object.defineProperty(window, "scrollX", { value: 0, configurable: true });
+      const scrollSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+      mockMobileKeyboard.isTouch = true;
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      mockMobileKeyboard.keyboardInset = 340;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      const rerenderPanel = () =>
+        rerender(
+          <div className="chat-panel">
+            <MessageComposer
+              draft=""
+              setDraft={vi.fn()}
+              isSending={false}
+              onSend={vi.fn()}
+              composerRef={{ current: null }}
+            />
+            <input data-testid="kb-return" />
+          </div>,
+        );
+      // Sheet up → the pin runs.
+      await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+      scrollSpy.mockClear();
+
+      // The sheet closes with the keyboard returning (swap.open flips false,
+      // editor focused, global still 0 — Firefox-y): the lift is HELD, so the
+      // pin must keep running through the whole handoff.
+      (container.querySelector("input") as HTMLInputElement).focus();
+      mockEmojiSwap.open = false;
+      mockMobileKeyboard.keyboardInset = 0;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+      await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+      scrollSpy.mockClear();
+
+      // The keyboard settles back (two equal reports) → the override is
+      // dropped and the composer's pin stops (mobileKeyboard's own pin owns
+      // the open-keyboard window).
+      mockMobileKeyboard.keyboardInset = 340;
+      rerenderPanel();
+      mockMobileKeyboard.keyboardInset = 340;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 341;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+      await waitFor(() => expect(scrollSpy).not.toHaveBeenCalled());
+    });
+
     it("touch: opening a sheet over a real keyboard anchors the lift before the engine reports it gone (no drop under the keyboard)", () => {
       mockMobileKeyboard.isTouch = true;
       mockMobileKeyboard.keyboardInset = 340; // the keyboard is really up
