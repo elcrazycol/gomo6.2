@@ -98,6 +98,13 @@ TURNSTILE_HOSTNAMES=gomo6.wtf
 # Публичный sitekey — для локальной сборки web (в CI передаётся секретом
 # VITE_TURNSTILE_SITEKEY в .forgejo/workflows/deploy.yml).
 VITE_TURNSTILE_SITEKEY=0x4AAAAAAEMbiZqJKU7PLzRG
+# Web Push (PWA): сгенерировать `cd apps/backend-go && go run ./cmd/vapidgen` и
+# вставить пару ключей. БЕЗ них push просто отключён (логируем предупреждение),
+# остальное работает. Ключи должны быть стабильны — существующие подписки
+# привязаны к публичному ключу, с которым были созданы.
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@gomo6.wtf
 ALLOWED_ORIGINS=https://gomo6.wtf,http://gomo6.wtf,https://docs.gomo6.wtf,http://docs.gomo6.wtf,https://dev.gomo6.wtf,http://dev.gomo6.wtf
 EOF
 chmod 600 .env

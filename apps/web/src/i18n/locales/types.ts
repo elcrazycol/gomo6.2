@@ -10,6 +10,7 @@ export interface LocaleResources {
   settings: Record<string, string>;
   time: Record<string, string>;
   notif: Record<string, string>;
+  notifTypes: Record<string, string>;
   error: Record<string, string>;
   tags: Record<string, string>;
   board: Record<string, string>;

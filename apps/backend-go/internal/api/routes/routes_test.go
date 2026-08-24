@@ -106,6 +106,9 @@ var expectedRoutes = []string{
 	"POST /api/v1/drops/config",
 	"POST /api/v1/drops/callback",
 
+	// Push (PWA) — public VAPID key; subscribe/preferences are protected below
+	"GET /api/v1/push/vapid-public-key",
+
 	// Universal CRUD tables (static + wildcard, all methods)
 	"GET /api/v1/user_roles",
 	"GET /api/v1/user_roles/*path",
@@ -282,6 +285,10 @@ var expectedRoutes = []string{
 	"PUT /api/v1/notifications/:id/read",
 	"PUT /api/v1/notifications/read-all",
 	"GET /api/v1/notifications/unread-count",
+	"POST /api/v1/push/subscribe",
+	"DELETE /api/v1/push/subscribe",
+	"GET /api/v1/push/preferences",
+	"PUT /api/v1/push/preferences",
 	"POST /api/v1/gifts/send",
 	"POST /api/v1/translations",
 	"POST /api/v1/translations/:id/vote",

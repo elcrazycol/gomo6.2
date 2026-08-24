@@ -17,6 +17,7 @@ import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, Send } from "luc
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
+import NotificationsSettings from "@/components/NotificationsSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { PublishButton } from "@/components/PublishButton";
@@ -133,7 +134,7 @@ const Settings = () => {
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as 'classic' | 'modern' | null) || 'classic';
   });
-  const settingsTabs = useMemo(() => ["appearance", "profile", "account", "privacy", "integrations"] as const, []);
+  const settingsTabs = useMemo(() => ["appearance", "profile", "account", "privacy", "notifications", "integrations"] as const, []);
   const currentTab = useMemo(() => {
     const pathPart = location.pathname.split("/")[2] || "appearance";
     return settingsTabs.includes(pathPart as (typeof settingsTabs)[number]) ? pathPart : "appearance";
@@ -535,11 +536,12 @@ const Settings = () => {
             </div>
 
             <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 h-auto p-1">
+              <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 h-auto p-1">
                 <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 py-2">{t("settings.appearance")}</TabsTrigger>
                 <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 py-2">{t("settings.profile")}</TabsTrigger>
                 <TabsTrigger value="account" className="text-xs sm:text-sm px-2 py-2">{t("settings.account")}</TabsTrigger>
                 <TabsTrigger value="privacy" className="text-xs sm:text-sm px-2 py-2">{t("settings.privacy")}</TabsTrigger>
+                <TabsTrigger value="notifications" className="text-xs sm:text-sm px-2 py-2">{t("settings.notifications")}</TabsTrigger>
                 <TabsTrigger value="integrations" className="text-xs sm:text-sm px-2 py-2">{t("settings.integrations")}</TabsTrigger>
               </TabsList>
 
@@ -923,6 +925,10 @@ const Settings = () => {
                     </div>
                   </div>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="notifications" className="space-y-4">
+                <NotificationsSettings />
               </TabsContent>
 
               <TabsContent value="integrations" className="space-y-4">

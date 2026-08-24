@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,10 +14,21 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
+
+// pushService is the optional Web Push sender wired by routes.setupRoutes.
+// Nil when VAPID keys are not configured (push disabled). afterNotificationCreated
+// uses it to deliver every notification as a push unless the user muted that type.
+var pushService *push.Service
+
+// SetPushService wires the push sender (nil-safe). Called from routes.setupRoutes.
+func SetPushService(s *push.Service) {
+	pushService = s
+}
 
 // notificationPayload is the data sent over WebSocket for a new notification
 type notificationPayload struct {
@@ -353,6 +365,25 @@ func afterNotificationCreated(redisClient *redis.Client, hub *websocket.Hub, n *
 			log.Printf("[Notifications] Error publishing WS event: %v", err)
 		}
 	}
+
+	// Deliver as a Web Push (PWA) unless disabled or the type is muted by the
+	// user. Runs in a goroutine so a slow push service never blocks the request
+	// that created the notification. Best-effort — failures are logged, not
+	// propagated, mirroring the WebSocket delivery above.
+	if pushService != nil {
+		pn := push.Notification{
+			Title: pushTitleFor(n),
+			Body:  pushBodyFor(n),
+			URL:   "/notify",
+			Icon:  "/pwa-192x192.png",
+		}
+		if len(n.Params) > 0 {
+			// Carry the structured params so the service worker can deep-link or
+			// enrich later; the UI already renders the in-app list from them.
+			pn.Data = n.Params
+		}
+		go pushService.SendToUser(context.Background(), n.UserID, n.Type, pn)
+	}
 }
 
 // nullableString returns nil if s is nil, otherwise returns *s as string
@@ -637,4 +668,120 @@ func (h *NotificationsHandler) GetUnreadCount(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"unread_count": count}))
+}
+
+// ── Push notification display text ─────────────────────────────────────────
+// The in-app notification list is rendered client-side in the viewer's language
+// from type + structured params. A push, however, is displayed by the OS based
+// entirely on the payload the service worker receives, so the backend produces
+// a small Russian title/body here (the platform's primary language) from the
+// same params. Messages/chat pushes are deliberately out of scope for now.
+
+func pushTitleFor(n *models.Notification) string {
+	switch n.Type {
+	case "like":
+		return "Новая оценка"
+	case "reply":
+		return "Новый ответ"
+	case "thread_reply":
+		return "Новый ответ в теме"
+	case "wall_post":
+		return "Новая запись на стене"
+	case "wall_post_like":
+		return "Новые оценки"
+	case "wall_comment":
+		return "Новый комментарий на стене"
+	case "wall_comment_reply":
+		return "Новый ответ на комментарий"
+	case "wall_repost":
+		return "Новый репост"
+	case "friend_request":
+		return "Заявка в друзья"
+	case "friend_accepted":
+		return "Заявка в друзья принята"
+	case "gift_received":
+		return "Вам подарили подарок"
+	default:
+		return "gomo6"
+	}
+}
+
+func pushBodyFor(n *models.Notification) string {
+	params := unmarshalNotificationParams(n.Params)
+	actor := params.Actor
+
+	// Prefer stored Russian message when present (legacy rows), else the
+	// message carries a user-content snippet but not the full sentence.
+	if msg := n.Message; msg != "" {
+		if actor != "" {
+			return "@" + actor + ": " + msg
+		}
+		return msg
+	}
+
+	switch n.Type {
+	case "like":
+		if actor != "" {
+			return "@" + actor + " оценил(а) ваш контент"
+		}
+		return "Ваш контент оценили"
+	case "reply":
+		if actor != "" {
+			return "@" + actor + " ответил(а) вам"
+		}
+		return "Кто-то ответил вам"
+	case "thread_reply":
+		if actor != "" {
+			return "@" + actor + " ответил(а) в теме"
+		}
+		return "Новый ответ в теме"
+	case "wall_post":
+		if actor != "" {
+			return "@" + actor + " написал(а) на вашей стене"
+		}
+		return "Новая запись на вашей стене"
+	case "wall_post_like":
+		if params.Count > 1 {
+			if actor != "" {
+				return "@" + actor + " и другие оценили ваши записи"
+			}
+			return "Ваши записи оценили"
+		}
+		if actor != "" {
+			return "@" + actor + " оценил(а) вашу запись"
+		}
+		return "Вашу запись оценили"
+	case "wall_comment":
+		if actor != "" {
+			return "@" + actor + " прокомментировал(а) вашу запись"
+		}
+		return "Вашу запись прокомментировали"
+	case "wall_comment_reply":
+		if actor != "" {
+			return "@" + actor + " ответил(а) на ваш комментарий"
+		}
+		return "Ответ на ваш комментарий"
+	case "wall_repost":
+		if actor != "" {
+			return "@" + actor + " сделал(а) репост вашей записи"
+		}
+		return "Репост вашей записи"
+	case "friend_request":
+		if actor != "" {
+			return "@" + actor + " хочет добавить вас в друзья"
+		}
+		return "Новая заявка в друзья"
+	case "friend_accepted":
+		if actor != "" {
+			return "@" + actor + " принял(а) вашу заявку"
+		}
+		return "Заявка в друзья принята"
+	case "gift_received":
+		if params.GiftName != "" {
+			return "Подарок: " + params.GiftName
+		}
+		return "Вам отправили подарок"
+	default:
+		return "Новое уведомление в gomo6"
+	}
 }

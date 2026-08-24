@@ -16,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/oauth"
+	"github.com/gomo6/backend/internal/push"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
 	"github.com/gomo6/backend/internal/websocket"
@@ -118,6 +119,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	notificationsHandler.SetRedis(redis)
 	notificationsHandler.SetWebSocketHub(wsHub)
+
+	// Web Push (PWA): VAPID-keyed push sender + subscription/preferences handler.
+	// push.New returns nil when VAPID keys are not configured, disabling push
+	// cleanly (no-op delivery + ServiceUnavailable on the management endpoints).
+	pushService := push.New(db)
+	handlers.SetPushService(pushService)
+	pushHandler := handlers.NewPushHandler(pushService)
 	rpcHandler := handlers.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)
@@ -316,6 +324,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// them leaks nothing that was hidden.
 		privacyHandler := handlers.NewPrivacyHandler(db)
 		rest.GET("/users/:id/privacy", privacyHandler.GetUserPrivacy)
+
+		// Push VAPID public key (public) — needed by the frontend before it can
+		// call PushManager.subscribe / show the permission prompt.
+		rest.GET("/push/vapid-public-key", pushHandler.GetVAPIDPublicKey)
 
 		// Gift catalog (public)
 		rest.GET("/gift_catalog", giftsHandler.GetGiftCatalog)
@@ -609,6 +621,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.PUT("/notifications/:id/read", notificationsHandler.MarkAsRead)
 			protected.PUT("/notifications/read-all", notificationsHandler.MarkAllAsRead)
 			protected.GET("/notifications/unread-count", notificationsHandler.GetUnreadCount)
+
+			// Push (PWA) — subscription management + per-type preferences. The
+			// VAPID public key endpoint is registered separately on the public
+			// rest group (GetVAPIDPublicKey), since the frontend needs it before
+			// the browser will show the permission prompt.
+			protected.POST("/push/subscribe", pushHandler.Subscribe)
+			protected.DELETE("/push/subscribe", pushHandler.Unsubscribe)
+			protected.GET("/push/preferences", pushHandler.GetPreferences)
+			protected.PUT("/push/preferences", pushHandler.UpdatePreferences)
 
 			// Gifts
 			protected.POST("/gifts/send", giftsHandler.SendGift)
