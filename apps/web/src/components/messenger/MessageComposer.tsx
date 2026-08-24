@@ -174,6 +174,18 @@ export const MessageComposer = memo(function MessageComposer({
   // refocus branch): fires only when the settlement wasn't confirmed by a
   // second, equal report.
   const settleConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Frame-level window follow for the window-collapse engine (Firefox iOS):
+  // the effect's own runs depend on viewport-event delivery, which can be
+  // sparse or absent during the keyboard rise — the stale local then drifts
+  // the composer off the sheet top and the first collapsed event snaps it
+  // back. The rAF follow reads innerHeight every frame, so the composer stays
+  // EXACTLY at the sheet top for every frame of the ride (see
+  // windowFollowStart in the close branch).
+  const windowFollowRafRef = useRef<number | null>(null);
+  // Deadline for the follow: if the window has not collapsed to the sheet top
+  // within LIFT_HOLD_FALLBACK_MS, the keyboard is not coming (focus without a
+  // keyboard) — release the override.
+  const windowFollowDeadlineRef = useRef(0);
   // The emoji panel and the touch attach sheet share ONE keyboard-slot swap
   // (useEmojiKeyboardSwap): only one of them can occupy the keyboard's space
   // at a time. `activeSheet` tells which one is up.
@@ -547,6 +559,40 @@ export const MessageComposer = memo(function MessageComposer({
     emojiGlideActiveRef.current = false;
   }, []);
 
+  const stopWindowFollow = useCallback(() => {
+    if (windowFollowRafRef.current !== null) {
+      cancelAnimationFrame(windowFollowRafRef.current);
+      windowFollowRafRef.current = null;
+    }
+  }, []);
+
+  const startWindowFollow = useCallback(() => {
+    if (windowFollowRafRef.current !== null) return; // already following
+    windowFollowDeadlineRef.current = Date.now() + LIFT_HOLD_FALLBACK_MS;
+    const step = () => {
+      windowFollowRafRef.current = null;
+      const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
+      if (!panel) return;
+      if (Date.now() > windowFollowDeadlineRef.current) {
+        // The window never collapsed — the keyboard isn't coming (focus
+        // without a keyboard). Release the override and stop.
+        panel.style.removeProperty("--kb-inset");
+        return;
+      }
+      const winH = typeof window !== "undefined" ? window.innerHeight : 0;
+      const lift = Math.max(0, Math.round(winH) - sheetTopRef.current);
+      if (lift > 0) {
+        panel.style.setProperty("--kb-inset", `${lift}px`);
+        windowFollowRafRef.current = requestAnimationFrame(step);
+      } else {
+        // Collapsed to the sheet top — the composer is seated on the risen
+        // keyboard; nothing left to hold.
+        panel.style.removeProperty("--kb-inset");
+      }
+    };
+    windowFollowRafRef.current = requestAnimationFrame(step);
+  }, []);
+
   // ── Keyboard-slot sheet (emoji / touch attach) ↔ keyboard ─────────────────
   // The chat panel is bottom-anchored at --kb-inset (see messenger.css), so
   // the composer — always in flow at the panel's bottom — floats above the
@@ -697,28 +743,23 @@ export const MessageComposer = memo(function MessageComposer({
     // composer is glued to the sheet's top edge, so its lift is
     // max(0, innerHeight − sheetTop): it eases from the slot down to 0 as the
     // window collapses, holding the composer in place for the whole ride —
-    // no stale hold, no abrupt drop ("composer disappears under the keyboard,
-    // then catches up"). On constant-window engines the shrink stays 0 and
-    // this branch never fires — the vv-based tracking below owns that path.
-    if (
-      keyboardInset === 0 &&
-      windowShrink > 0 &&
-      parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) > 0
-    ) {
-      if (liftHoldTimerRef.current !== null) {
-        clearTimeout(liftHoldTimerRef.current);
-        liftHoldTimerRef.current = null;
-      }
-      if (settleConfirmTimerRef.current !== null) {
-        clearTimeout(settleConfirmTimerRef.current);
-        settleConfirmTimerRef.current = null;
-      }
-      prevInsetRef.current = null;
-      const lift = Math.max(0, Math.round(winH) - sheetTopRef.current);
-      if (lift > 0) {
-        chatPanel.style.setProperty("--kb-inset", `${lift}px`);
-      } else {
-        chatPanel.style.removeProperty("--kb-inset");
+    // no stale hold, no abrupt drop.
+    //
+    // The effect, however, only runs on viewport-event ticks (keyboardInset /
+    // viewportHeight state updates), and Firefox can deliver the keyboard
+    // rise with few or ZERO such events: the local then goes stale at the old
+    // lift, the composer drifts off the sheet top as the window collapses,
+    // and the first (full-collapse) event computes lift 0 and SNAPS it back —
+    // the "composer teleports to the bottom, then the keyboard catches up".
+    // A rAF follow reads innerHeight every frame instead: the composer stays
+    // EXACTLY at the sheet top for every frame, regardless of event delivery,
+    // and releases the override the moment the window bottoms out there.
+    // On constant-window engines the shrink stays 0, sessionShrinkRef stays
+    // false and this branch never fires — the vv-based tracking below owns
+    // that path.
+    if (sessionShrinkRef.current && typeof document !== "undefined" && isEditableElement(document.activeElement)) {
+      if (parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) > 0) {
+        startWindowFollow();
       }
       return;
     }
@@ -866,7 +907,7 @@ export const MessageComposer = memo(function MessageComposer({
       emojiGlideRafRef.current = requestAnimationFrame(step);
     };
     emojiGlideRafRef.current = requestAnimationFrame(step);
-  }, [swap.open, swap.height, keyboardInset, viewportHeight, sheetSlot, stopEmojiGlide]);
+  }, [swap.open, swap.height, keyboardInset, viewportHeight, sheetSlot, stopEmojiGlide, startWindowFollow]);
 
   // iOS pans the document when the soft keyboard opens/closes and an input is
   // focused: the visual viewport shrinks/grows, the browser scrolls the layout
@@ -946,6 +987,7 @@ export const MessageComposer = memo(function MessageComposer({
   // unmount.
   useEffect(() => () => {
     stopEmojiGlide();
+    stopWindowFollow();
     if (liftHoldTimerRef.current !== null) {
       clearTimeout(liftHoldTimerRef.current);
       liftHoldTimerRef.current = null;
@@ -955,7 +997,7 @@ export const MessageComposer = memo(function MessageComposer({
       settleConfirmTimerRef.current = null;
     }
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
-  }, [stopEmojiGlide]);
+  }, [stopEmojiGlide, stopWindowFollow]);
 
   // The attach sheet exits with a slide whenever the swap closes from ANY
 // path — trigger re-tap, outside tap/Escape, or the hook's own focusin when
