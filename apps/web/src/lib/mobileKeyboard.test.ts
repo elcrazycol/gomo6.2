@@ -555,6 +555,78 @@ describe("keyboard-open scroll corrections", () => {
   });
 });
 
+describe("keyboard close animation (composer glides down)", () => {
+  let dispose: (() => void) | null = null;
+
+  afterEach(() => {
+    dispose?.();
+    dispose = null;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete (window as any).visualViewport;
+    delete (window as any).innerHeight;
+    document.body.innerHTML = "";
+  });
+
+  const stubTouchViewport = () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+    );
+    const vv: { height: number; offsetTop: number; addEventListener: () => void; removeEventListener: () => void } = {
+      height: 800,
+      offsetTop: 0,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    };
+    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    return vv;
+  };
+
+  const inset = () => document.documentElement.style.getPropertyValue("--kb-inset");
+
+  it("glides the composer down over time instead of teleporting to 0 on close", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    dispose = initMobileKeyboard();
+
+    // Open the keyboard.
+    input.focus();
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    expect(inset()).toBe("300px");
+
+    // Close: the keyboard collapses. The inset must NOT jump to 0 instantly.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    expect(inset()).toBe("300px"); // still lifted right after the close event
+
+    // Mid-animation: partially descended.
+    vi.advanceTimersByTime(140);
+    const mid = parseInt(inset(), 10);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(300);
+
+    // Fully descended.
+    vi.advanceTimersByTime(300);
+    expect(inset()).toBe("0px");
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+  });
+});
+
 describe("getScrollContext", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
