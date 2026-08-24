@@ -622,6 +622,11 @@ function applyState(next: MobileKeyboardState) {
   if (next.isOpen) {
     stopInsetAnimation();
     writeGeometryVars(next);
+  } else if (insetAnimActive) {
+    // A descent animation already owns the CSS vars — a closed→closed
+    // re-entry (URL-bar collapse changing innerHeight) must neither restart
+    // it (stretching the total time) nor overwrite the intermediate values
+    // with the closed geometry (which would teleport the composer to 0).
   } else if (lastInset > 0) {
     runInsetAnimation(0, typeof window !== "undefined" ? window.innerHeight : lastVh);
   } else {

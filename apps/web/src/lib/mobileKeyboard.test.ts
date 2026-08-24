@@ -625,6 +625,43 @@ describe("keyboard close animation (composer glides down)", () => {
     expect(inset()).toBe("0px");
     expect(document.documentElement.classList.contains("kb-open")).toBe(false);
   });
+
+  it("does not restart or skip the descent on a closed→closed re-entry (URL-bar collapse)", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    dispose = initMobileKeyboard();
+
+    // Open the keyboard.
+    input.focus();
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    expect(inset()).toBe("300px");
+
+    // Close → the eased descent starts.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    expect(inset()).toBe("300px");
+
+    // Mid-descent: partially descended.
+    vi.advanceTimersByTime(140);
+    const mid = parseInt(inset(), 10);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(300);
+
+    // A closed→closed re-entry (visual viewport shrinks a little, still under
+    // the open threshold — URL-bar noise) must neither restart the animation
+    // nor write the closed geometry over it (which would teleport to 0).
+    vv.height = 780;
+    window.dispatchEvent(new Event("resize"));
+    expect(parseInt(inset(), 10)).toBe(mid);
+
+    // The original descent still completes within its own 280ms budget.
+    vi.advanceTimersByTime(300);
+    expect(inset()).toBe("0px");
+  });
 });
 
 describe("getScrollContext", () => {
