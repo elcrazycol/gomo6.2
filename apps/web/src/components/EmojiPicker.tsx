@@ -31,6 +31,15 @@ interface EmojiPickerProps {
   swapOpen?: boolean;
   /** Panel height in px — the captured keyboard height (keyboardSwap mode). */
   swapHeight?: number;
+  /**
+   * Pin the panel's TOP edge (px from the top of the window) instead of the
+   * bottom. Engines that collapse the window itself when the keyboard opens
+   * (Firefox iOS: innerHeight shrinks with it) would otherwise carry a
+   * bottom-anchored panel up and down with the window resize; the top edge of
+   * the keyboard's slot is stable in screen space, so top-pinning keeps the
+   * panel glued to it. Only used in keyboardSwap mode.
+   */
+  swapTop?: number;
   /** Trigger toggled while in keyboardSwap mode. */
   onSwapToggle?: () => void;
   /** Close requested without returning the keyboard (outside tap / Escape). */
@@ -57,6 +66,7 @@ export const EmojiPicker = ({
   keyboardSwap = false,
   swapOpen = false,
   swapHeight = 0,
+  swapTop = 0,
   onSwapToggle,
   onSwapClose,
 }: EmojiPickerProps) => {
@@ -486,6 +496,7 @@ export const EmojiPicker = ({
             data-testid="emoji-keyboard-panel"
             className="fixed inset-x-0 bottom-0 z-[100] flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-background/95 backdrop-blur-xl shadow-2xl"
             style={{
+              ...(swapTop ? { top: swapTop } : {}),
               height: swapHeight || 300,
               animation: swapClosing
                 ? 'emoji-sheet-down 240ms cubic-bezier(0.4, 0, 0.2, 1) both'

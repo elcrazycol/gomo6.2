@@ -999,9 +999,14 @@ describe("MessageComposer", () => {
       // The swap's open flip lands after the tap (the mock's toggle is a
       // no-op — flip it like the real hook does, then let the open branch run).
       mockEmojiSwap.open = true;
-      mockEmojiSwap.height = 340;
+      mockEmojiSwap.height = 400; // provisional guess must NOT win over the real 340 measurement
       rerenderPanel();
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+      // The sheet is sized to the REAL keyboard (340) and pinned by its TOP
+      // edge (baseline 768 − 340 = 428) — the collapsing window can't carry it
+      // over the messages or fly it up on return.
+      const sheet = screen.getByTestId("attach-sheet");
+      expect(sheet).toHaveStyle({ height: "340px", top: "428px" });
 
       // Return to the input: the keyboard reappears by SHRINKING the window
       // (still no vv-delta). The held lift must release as soon as the window

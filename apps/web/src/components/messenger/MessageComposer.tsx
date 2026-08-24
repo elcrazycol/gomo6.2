@@ -173,6 +173,11 @@ export const MessageComposer = memo(function MessageComposer({
   // lifted composer sits at the full visual slot (URL bar included) — the
   // panels must match it so no gap shows between the composer and the sheet.
   const [sheetSlot, setSheetSlot] = useState(0);
+  // TOP edge (window coords) the sheet/panel is pinned to — the keyboard's top
+  // in the full window. Bottom-anchoring lets a collapsing window (Firefox
+  // iOS) carry the panel up, so panels are top-pinned instead (see the open
+  // branch).
+  const [sheetTop, setSheetTop] = useState(0);
   // While the attach sheet is closing it stays mounted (with the exit slide)
   // and unmounts after a short delay — so closing reads as one smooth motion.
   const [attachClosing, setAttachClosing] = useState(false);
@@ -572,15 +577,36 @@ export const MessageComposer = memo(function MessageComposer({
         settleConfirmTimerRef.current = null;
       }
       const delta = Math.round(winH - viewportHeight);
-      const candidate = Math.max(swap.height, keyboardInset, delta, windowShrink);
-      // The slot NEVER shrinks across sessions: a second open can capture the
-      // keyboard mid-rise (a fragment of its height, e.g. right after a
-      // refocus-close), which would shrink the panel; the previous slot is
-      // the stable floor. The keyboard height is device-stable, so the floor
-      // is safe — it only yields to a genuinely taller keyboard.
-      if (candidate > sheetSlotRef.current) sheetSlotRef.current = candidate;
-      const slot = sheetSlotRef.current;
+      let slot: number;
+      if (windowShrink > 0) {
+        // The window-collapse engine (Firefox iOS) reports the FULL keyboard
+        // height directly — a stable real measurement, so it wins over the
+        // hook's provisional guess (swap.height) and the never-shrink floor
+        // (which exists only to absorb the vv engines' mid-rise fragments).
+        slot = Math.max(windowShrink, keyboardInset, delta);
+      } else {
+        // Constant-window engine: keyboardInset/delta are the real captures;
+        // swap.height is the real pre-blur snapshot. The slot NEVER shrinks
+        // across sessions: a second open can capture the keyboard mid-rise (a
+        // fragment of its height, e.g. right after a refocus-close), which
+        // would shrink the panel; the previous slot is the stable floor. The
+        // keyboard height is device-stable, so the floor only yields to a
+        // genuinely taller keyboard.
+        const candidate = Math.max(swap.height, keyboardInset, delta);
+        if (candidate > sheetSlotRef.current) sheetSlotRef.current = candidate;
+        slot = sheetSlotRef.current;
+      }
       if (sheetSlot !== slot) setSheetSlot(slot);
+      // Pin the PANEL by its TOP edge instead of bottom: at open the keyboard
+      // is still dismissing and the window still collapsed (or the window is
+      // constant) — the keyboard's top edge is stable in screen space, so a
+      // top-pinned panel stays glued there while the window grows/shrinks
+      // around it, instead of riding the resize (grey gap over the messages,
+      // "panel flies up" on return).
+      const topSource = windowShrink > 0 ? baselineHeightRef.current ?? winH : winH;
+      // React bails out of the re-render when the value is unchanged, so no
+      // dom guard or dependency is needed.
+      setSheetTop(Math.max(0, Math.round(topSource) - slot));
       // The keyboard is still dismissing (and the URL bar still expanded)
       // when the sheet first opens — slapping the FULL slot on the composer
       // in one frame makes it jump (teleport) above its previous keyboard-top
@@ -863,7 +889,7 @@ export const MessageComposer = memo(function MessageComposer({
           ? document.activeElement.tagName
           : "—";
       const lines = [
-        `open:${String(swap.open)} sheet:${String(activeSheet)} slot:${sheetSlot} h:${swap.height}`,
+        `open:${String(swap.open)} sheet:${String(activeSheet)} slot:${sheetSlot} top:${sheetTop} h:${swap.height}`,
         `kbInset:${kb.keyboardInset} vv:${vv ? Math.round(vv.height) : "—"} / ${typeof window !== "undefined" ? window.innerHeight : "—"} offT:${vv ? Math.round(vv.offsetTop) : "—"}`,
         `local:${local} base:${baselineHeightRef.current ?? "—"} shrink:${baselineHeightRef.current !== null && typeof window !== "undefined" ? Math.max(0, baselineHeightRef.current - window.innerHeight) : 0}`,
         `focus:${active} scroll:${typeof window !== "undefined" ? window.scrollY : "—"}`,
@@ -876,7 +902,7 @@ export const MessageComposer = memo(function MessageComposer({
       cancelAnimationFrame(raf);
       strip.remove();
     };
-  }, [swap.open, activeSheet, sheetSlot, swap.height]);
+  }, [swap.open, activeSheet, sheetSlot, sheetTop, swap.height]);
 
   // Clean up the local override, the held-lift timer and any in-flight glide on
   // unmount.
@@ -1113,6 +1139,7 @@ useEffect(() => {
             keyboardSwap
             swapOpen={swap.open && activeSheet === "emoji"}
             swapHeight={sheetSlot || swap.height}
+            swapTop={sheetTop}
             onSwapToggle={handleEmojiTrigger}
             onSwapClose={handleSheetClose}
           >
@@ -1154,7 +1181,7 @@ useEffect(() => {
           <div
             className={`composer-attach-sheet${attachClosing ? " is-closing" : ""}`}
             data-testid="attach-sheet"
-            style={{ height: sheetSlot || swap.height || 300 }}
+            style={{ ...(sheetTop > 0 ? { top: sheetTop } : {}), height: sheetSlot || swap.height || 300 }}
           >
             <button
               type="button"
