@@ -420,10 +420,12 @@ describe("MessageComposer", () => {
     poke();
     expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
     // The keyboard is back at its full height — the live global caught up with
-    // the held lift; releasing moves nothing.
+    // the held lift; the composer TRACKS it (transients can't yank it), then
+    // the override is removed once the keyboard settles.
     mockMobileKeyboard.keyboardInset = 360;
     poke();
-    expect(panel.style.getPropertyValue("--kb-inset")).toBe("");
+    expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
+    await waitFor(() => expect(panel.style.getPropertyValue("--kb-inset")).toBe(""));
   });
 
   it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
@@ -577,6 +579,8 @@ describe("MessageComposer", () => {
     it("keeps the chat panel's bottom at the emoji panel height while it is open", () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
+      // The keyboard is up at the panel height when the swap opens (realistic).
+      mockMobileKeyboard.keyboardInset = 340;
       // No URL bar: the keyboard occupied the full delta (innerHeight − vv).
       mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       const { container } = render(
@@ -654,6 +658,8 @@ describe("MessageComposer", () => {
     it("glides the composer down with the panel's exit on a no-refocus close", async () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
+      // The keyboard is up at the panel height when the swap opens (realistic).
+      mockMobileKeyboard.keyboardInset = 340;
       mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       const { container, rerender } = render(
         <div className="chat-panel">
@@ -691,9 +697,11 @@ describe("MessageComposer", () => {
       await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
     });
 
-    it("holds the lift until the keyboard has fully returned (editable refocused), then releases seamlessly", () => {
+    it("holds the lift until the keyboard has fully returned (editable refocused), then releases seamlessly", async () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
+      // The keyboard is up at the panel height when the swap opens (realistic).
+      mockMobileKeyboard.keyboardInset = 340;
       mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       const { container, rerender } = render(
         <div className="chat-panel">
@@ -732,7 +740,10 @@ describe("MessageComposer", () => {
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
 
       // The keyboard is back at its full height — the live global has caught
-      // up with the held lift; releasing now moves nothing.
+      // up with the held lift. The composer TRACKS it for a short window (so
+      // transient overshoots on coarse-reported engines can't yank it), then
+      // the override is removed: by then the global equals the tracked value,
+      // so releasing moves nothing.
       mockMobileKeyboard.keyboardInset = 340;
       rerender(
         <div className="chat-panel">
@@ -746,7 +757,8 @@ describe("MessageComposer", () => {
           <input data-testid="kb-return" />
         </div>,
       );
-      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+      await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
     });
   });
 
