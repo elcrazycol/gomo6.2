@@ -148,6 +148,12 @@ export const MessageComposer = memo(function MessageComposer({
   // rendered — delta INCLUDING the bar. The bar collapses after the keyboard
   // hides, so the slot cannot be re-derived live; capture it at open.
   const sheetSlotRef = useRef(0);
+  // The window's FULL height with the keyboard dismissed — the max innerHeight
+  // seen since mount. On Firefox iOS the keyboard collapses innerHeight itself,
+  // so baseline − innerHeight IS the keyboard's height (the vv-delta is 0
+  // there). On constant-window engines the shrink is 0 and the vv-based
+  // keyboardInset owns the geometry.
+  const baselineHeightRef = useRef<number | null>(null);
   // Fallback release for a held lift on a refocus-close whose keyboard never
   // returns (focus without keyboard), and the settlement tracker for the
   // keyboard-return handoff (see the lift effect).
@@ -375,7 +381,7 @@ export const MessageComposer = memo(function MessageComposer({
   // a closed keyboard — the desktop/stale cases keep the current lift).
   const anchorSheetLift = useCallback((forcedInset?: number) => {
     let inset = forcedInset ?? getMobileKeyboardState().keyboardInset;
-    // Firefox iOS can zero keyboardInset synchronously on blur, before the
+    // Firefox iOS zeroes keyboardInset synchronously on blur, before the
     // panel even starts rising. Fallback: if inset is already 0 but the visual
     // viewport hasn't grown back yet, compute the delta directly — the keyboard
     // is still physically covering the screen.
@@ -387,6 +393,17 @@ export const MessageComposer = memo(function MessageComposer({
         if (import.meta.env.DEV) {
           console.log("[anchorSheetLift] fallback via visualViewport", { delta, offsetTop: vv.offsetTop, computed: inset });
         }
+      }
+    }
+    // Second Firefox-specific source: there the keyboard collapses innerHeight
+    // itself (vv moves together, the vv-delta stays 0 and the fallback above
+    // computes 0). The keyboard's height is exactly baseline − innerHeight —
+    // a real measured value, not the provisional guess. On constant-window
+    // engines the shrink is 0 and keyboardInset (or the vv fallback) wins.
+    if (inset < 60 && typeof window !== "undefined" && baselineHeightRef.current !== null) {
+      const shrink = Math.max(0, baselineHeightRef.current - window.innerHeight);
+      if (shrink >= 60) {
+        inset = Math.max(inset, shrink);
       }
     }
     if (inset < 60) return; // no real keyboard above the composer
@@ -537,6 +554,16 @@ export const MessageComposer = memo(function MessageComposer({
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
+    const winH = typeof window !== "undefined" ? window.innerHeight : 0;
+    // The window's FULL height (keyboard dismissed). Engines differ in HOW the
+    // keyboard occupies the screen: Safari/Chrome keep innerHeight constant and
+    // the keyboard shows as the visual-viewport delta; Firefox iOS collapses
+    // innerHeight WITH the keyboard (the vv moves together, delta stays 0) —
+    // there the keyboard's height is exactly baseline − innerHeight.
+    if (baselineHeightRef.current === null || winH > baselineHeightRef.current) {
+      baselineHeightRef.current = winH;
+    }
+    const windowShrink = winH > 0 && baselineHeightRef.current !== null ? baselineHeightRef.current - winH : 0;
     if (swap.open) {
       // Fresh session: the keyboard-return settlement tracking starts clean.
       prevInsetRef.current = null;
@@ -544,8 +571,8 @@ export const MessageComposer = memo(function MessageComposer({
         clearTimeout(settleConfirmTimerRef.current);
         settleConfirmTimerRef.current = null;
       }
-      const delta = Math.round((typeof window !== "undefined" ? window.innerHeight : 0) - viewportHeight);
-      const candidate = Math.max(swap.height, keyboardInset, delta);
+      const delta = Math.round(winH - viewportHeight);
+      const candidate = Math.max(swap.height, keyboardInset, delta, windowShrink);
       // The slot NEVER shrinks across sessions: a second open can capture the
       // keyboard mid-rise (a fragment of its height, e.g. right after a
       // refocus-close), which would shrink the panel; the previous slot is
@@ -603,6 +630,34 @@ export const MessageComposer = memo(function MessageComposer({
     // is within a pixel of the held lift the override is dropped (the global
     // equals the local — nothing moves and no stale override can block a later
     // descent); otherwise the composer glides to the true height (up or down).
+    // Firefox-style return: the WINDOW itself collapses as the keyboard opens
+    // (innerHeight shrinks together with the visual viewport, the vv-delta
+    // stays 0 and the keyboard is invisible to the mobileKeyboard). The
+    // window's bottom edge then IS the keyboard top, so the held lift — set
+    // while the window was still full — double-lifts the composer (the
+    // "flies up, then teleports back" yank). The moment the window shrinks by
+    // a keyboard-sized amount, hand the composer over to the window: remove
+    // the override and ride the resize down. On constant-window engines
+    // (Safari/Chrome) the shrink stays 0 and this branch never fires — the
+    // vv-based tracking below owns that path. The >= 60 gate also keeps
+    // sub-pixel jitter from cancelling a no-refocus glide.
+    if (
+      keyboardInset === 0 &&
+      windowShrink >= 60 &&
+      parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) > 0
+    ) {
+      if (liftHoldTimerRef.current !== null) {
+        clearTimeout(liftHoldTimerRef.current);
+        liftHoldTimerRef.current = null;
+      }
+      if (settleConfirmTimerRef.current !== null) {
+        clearTimeout(settleConfirmTimerRef.current);
+        settleConfirmTimerRef.current = null;
+      }
+      prevInsetRef.current = null;
+      chatPanel.style.removeProperty("--kb-inset");
+      return;
+    }
     if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
       stopEmojiGlide();
       const held = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
@@ -810,7 +865,8 @@ export const MessageComposer = memo(function MessageComposer({
       const lines = [
         `open:${String(swap.open)} sheet:${String(activeSheet)} slot:${sheetSlot} h:${swap.height}`,
         `kbInset:${kb.keyboardInset} vv:${vv ? Math.round(vv.height) : "—"} / ${typeof window !== "undefined" ? window.innerHeight : "—"} offT:${vv ? Math.round(vv.offsetTop) : "—"}`,
-        `local:${local} focus:${active} scroll:${typeof window !== "undefined" ? window.scrollY : "—"}`,
+        `local:${local} base:${baselineHeightRef.current ?? "—"} shrink:${baselineHeightRef.current !== null && typeof window !== "undefined" ? Math.max(0, baselineHeightRef.current - window.innerHeight) : 0}`,
+        `focus:${active} scroll:${typeof window !== "undefined" ? window.scrollY : "—"}`,
       ].join("\n");
       if (strip.textContent !== lines) strip.textContent = lines;
       raf = requestAnimationFrame(render);

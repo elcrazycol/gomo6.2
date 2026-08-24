@@ -954,6 +954,65 @@ describe("MessageComposer", () => {
       fireEvent.mouseDown(screen.getByRole("button", { name: "Камера" }));
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
     });
+
+    it("firefox-style: the window itself collapses with the keyboard (vv-delta 0) — the anchor measures the shrink and the return releases the lift", () => {
+      mockMobileKeyboard.isTouch = true;
+      mockMobileKeyboard.keyboardInset = 0; // Firefox: vv moves with innerHeight, delta stays 0
+      mockMobileKeyboard.viewportHeight = window.innerHeight; // vv === innerHeight, always
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      const rerenderPanel = () =>
+        rerender(
+          <div className="chat-panel">
+            <MessageComposer
+              draft=""
+              setDraft={vi.fn()}
+              isSending={false}
+              onSend={vi.fn()}
+              composerRef={{ current: null }}
+            />
+            <input data-testid="kb-return" />
+          </div>,
+        );
+      // The keyboard is up: the window has collapsed by the keyboard's height
+      // (baseline was captured at the full 768 during the mount render, the
+      // effect's max-tracker never shrinks back).
+      Object.defineProperty(window, "innerHeight", { value: window.innerHeight - 340, configurable: true });
+      mockMobileKeyboard.viewportHeight = window.innerHeight; // still vv === innerHeight
+      // Tap the attach trigger: the anchor must measure the 340 shrink (the
+      // vv-delta and the visualViewport fallback both read 0 in this engine)
+      // and pin the composer pre-blur — no drop under the departing keyboard.
+      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+      // The swap's open flip lands after the tap (the mock's toggle is a
+      // no-op — flip it like the real hook does, then let the open branch run).
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Return to the input: the keyboard reappears by SHRINKING the window
+      // (still no vv-delta). The held lift must release as soon as the window
+      // collapses — the composer rides the window's bottom edge down instead of
+      // double-lifting ("flies up then teleports back").
+      (container.querySelector("input") as HTMLInputElement).focus();
+      mockEmojiSwap.open = false;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+      Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+    });
   });
 
   describe("emoji picker", () => {
