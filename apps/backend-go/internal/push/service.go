@@ -156,9 +156,13 @@ func (s *Service) Preferences(ctx context.Context, userID string) (map[string]bo
 	if s == nil || s.db == nil {
 		return map[string]bool{}, nil
 	}
+	// The column is JSONB; the pq driver returns it as raw JSON bytes, so no
+	// cast is needed (and jsonb::bytea is an invalid cast in PostgreSQL — it
+	// broke preferences lookups in production with "cannot cast type jsonb to
+	// bytea").
 	var raw []byte
 	err := s.db.QueryRowContext(ctx,
-		`SELECT type_map::bytea FROM push_preferences WHERE user_id = $1`, userID).Scan(&raw)
+		`SELECT type_map FROM push_preferences WHERE user_id = $1`, userID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return map[string]bool{}, nil
 	}
