@@ -1187,6 +1187,159 @@ describe("MessageComposer", () => {
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
       Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
     });
+
+    it("constant-window: the hold fallback does NOT release while the keyboard is visibly rising (late reports — no blink)", async () => {
+      mockMobileKeyboard.isTouch = true;
+      // The sheet opens over the (constant-window) keyboard at the sheet height.
+      mockMobileKeyboard.keyboardInset = 340;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
+      vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      const rerenderPanel = () =>
+        rerender(
+          <div className="chat-panel">
+            <MessageComposer
+              draft=""
+              setDraft={vi.fn()}
+              isSending={false}
+              onSend={vi.fn()}
+              composerRef={{ current: null }}
+            />
+            <input data-testid="kb-return" />
+          </div>,
+        );
+      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 340;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Return to typing: the editor grabs focus, the swap closes, and — on
+      // Firefox — the keyboard rises WITHOUT delivering its keyboardInset
+      // events in time (the event-fed state still reads 0, the global is 0).
+      (container.querySelector("input") as HTMLInputElement).focus();
+      mockEmojiSwap.open = false;
+      mockMobileKeyboard.keyboardInset = 0;
+      mockMobileKeyboard.viewportHeight = window.innerHeight;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // The REAL keyboard is already up: the live visual viewport shows the
+      // shrink even though no event has been delivered. Past the 800ms
+      // fallback deadline, the lift must NOT be released — a blind release
+      // would drop the composer to the bottom under the keyboard, and the
+      // late report would snap it back up (the return blink).
+      Object.defineProperty(window, "visualViewport", {
+        value: { height: window.innerHeight - 340, offsetTop: 0 },
+        configurable: true,
+      });
+      try {
+        await new Promise((r) => setTimeout(r, 950));
+        rerenderPanel();
+        expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+        // The late reports finally land at the keyboard height: the
+        // two-equal-reports handoff releases the override seamlessly.
+        mockMobileKeyboard.keyboardInset = 340;
+        rerenderPanel();
+        expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+        mockMobileKeyboard.viewportHeight = window.innerHeight - 341;
+        rerenderPanel();
+        expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+      } finally {
+        delete (window as any).visualViewport;
+      }
+    });
+
+    it("firefox-style: the hold-follow keeps riding past its deadline while the window is still collapsing (no mid-rise drop)", async () => {
+      mockMobileKeyboard.isTouch = true;
+      mockMobileKeyboard.keyboardInset = 0; // Firefox: vv moves with innerHeight, delta stays 0
+      mockMobileKeyboard.viewportHeight = window.innerHeight;
+      vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      const rerenderPanel = () =>
+        rerender(
+          <div className="chat-panel">
+            <MessageComposer
+              draft=""
+              setDraft={vi.fn()}
+              isSending={false}
+              onSend={vi.fn()}
+              composerRef={{ current: null }}
+            />
+            <input data-testid="kb-return" />
+          </div>,
+        );
+      // Sheet opens over the (window-collapse) keyboard: window collapsed by 340.
+      Object.defineProperty(window, "innerHeight", { value: window.innerHeight - 340, configurable: true });
+      mockMobileKeyboard.viewportHeight = window.innerHeight;
+      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 400;
+      rerenderPanel();
+      // Keyboard dismissed, window grown back — composer held at the sheet top.
+      Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+      mockMobileKeyboard.viewportHeight = 768;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Return: editor focused, swap closed, keyboard starts rising by
+      // collapsing the window. The keyboard rises PARTIALLY and stalls
+      // (Firefox stages its rise) — the follow rides the collapse.
+      (container.querySelector("input") as HTMLInputElement).focus();
+      mockEmojiSwap.open = false;
+      Object.defineProperty(window, "innerHeight", { value: 500, configurable: true });
+      mockMobileKeyboard.viewportHeight = 500;
+      rerenderPanel();
+      fireEvent(window, new Event("resize"));
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("72px"); // 500 − sheetTop 428
+
+      // Past the follow's 800ms deadline the window is STILL collapsed —
+      // releasing now would sink the composer off the sheet top and snap it
+      // back when the collapse completes. The follow must keep riding.
+      try {
+        await new Promise((r) => setTimeout(r, 950));
+        rerenderPanel();
+        expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("72px");
+
+        // The collapse completes (window bottom = the risen keyboard's top):
+        // the seat is reached — seamless release.
+        Object.defineProperty(window, "innerHeight", { value: 428, configurable: true });
+        mockMobileKeyboard.viewportHeight = 428;
+        fireEvent(window, new Event("resize"));
+        expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+      } finally {
+        // Restore even if an assertion above fails, so a mid-test failure
+        // can't pollute the tests that run after this one.
+        Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+        mockMobileKeyboard.viewportHeight = 768;
+      }
+    });
   });
 
   describe("emoji picker", () => {

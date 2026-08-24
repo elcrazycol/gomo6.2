@@ -27,6 +27,12 @@ const EMOJI_EXIT_MS = 240;
  *  software keyboard, a shorter returning keyboard), release anyway so the
  *  composer settles at the live global --kb-inset instead of floating. */
 const LIFT_HOLD_FALLBACK_MS = 800;
+/** Minimum height a visible soft keyboard covers. Below this a layout change
+ *  is URL-bar / viewport noise, not a keyboard — the release decisions on the
+ *  keyboard-return read the LIVE geometry and use this to tell a (still)
+ *  rising keyboard from "no keyboard came" (mirrors mobileKeyboard's
+ *  OPEN_THRESHOLD_PX). */
+const KB_VISIBLE_PX = 60;
 /** If the keyboard's return is reported only once (no second, equal report to
  *  confirm the settlement), remove the lift override this long after the last
  *  at-or-above report — bounded, so no stale override can ever block a later
@@ -573,6 +579,23 @@ export const MessageComposer = memo(function MessageComposer({
     }
   }, []);
 
+  // The keyboard's live footprint, read DIRECTLY from the platform instead of
+  // the event-fed mobileKeyboard state: Firefox can raise (or dismiss) the
+  // keyboard with few or no visual-viewport events at all — the release
+  // decisions below must never wait on reports that may arrive late or never.
+  // Returns both engines' signals: the visual-viewport inset (constant-window
+  // engines: innerHeight stays put, the keyboard shows as a vv shrink) and
+  // the window's collapse below its peak (window-collapse engines — Firefox:
+  // innerHeight itself shrinks WITH the keyboard, the vv-delta stays 0).
+  const readLiveKeyboardEvidence = () => {
+    const winH = typeof window !== "undefined" ? window.innerHeight : 0;
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const vvInset = vv ? Math.max(0, Math.round(winH - vv.height) - (vv.offsetTop || 0)) : 0;
+    const windowShrink =
+      baselineHeightRef.current !== null ? Math.max(0, baselineHeightRef.current - winH) : 0;
+    return { vvInset, windowShrink };
+  };
+
   const startWindowFollow = useCallback(() => {
     if (windowFollowRafRef.current !== null) return; // already following
     windowFollowDeadlineRef.current = Date.now() + LIFT_HOLD_FALLBACK_MS;
@@ -590,10 +613,17 @@ export const MessageComposer = memo(function MessageComposer({
       // sheet is open armed the release).
       if (swapOpenRef.current) return;
       if (Date.now() > windowFollowDeadlineRef.current) {
-        // The window never collapsed — the keyboard isn't coming (focus
-        // without a keyboard). Release the override and stop.
-        panel.style.removeProperty("--kb-inset");
-        return;
+        // The deadline is only a "focus got no keyboard" fallback. If the
+        // window is STILL collapsed below its peak, the keyboard is (still)
+        // rising — keep riding to the bottom-out instead of dropping the lift
+        // mid-raise (which sinks the composer off the sheet top and snaps it
+        // back once the collapse completes — the return blink). Only a window
+        // that never collapsed means no keyboard is coming: release.
+        const { windowShrink } = readLiveKeyboardEvidence();
+        if (windowShrink < KB_VISIBLE_PX) {
+          panel.style.removeProperty("--kb-inset");
+          return;
+        }
       }
       const winH = typeof window !== "undefined" ? window.innerHeight : 0;
       const lift = Math.max(0, Math.round(winH) - sheetTopRef.current);
@@ -843,7 +873,44 @@ export const MessageComposer = memo(function MessageComposer({
         if (keyboardInset <= 0 && liftHoldTimerRef.current === null) {
           liftHoldTimerRef.current = setTimeout(() => {
             liftHoldTimerRef.current = null;
-            rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
+            const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
+            if (!panel) return;
+            if ((parseFloat(panel.style.getPropertyValue("--kb-inset")) || 0) <= 0) return;
+            // The 800ms deadline is only a "focus got no keyboard" fallback.
+            // Firefox can raise the keyboard WITHOUT delivering its inset
+            // reports to this effect in time (one late event, or none until it
+            // settles) — a blind release here drops the composer to the bottom
+            // under the still-rising keyboard and the late report snaps it back
+            // up (the "composer falls under the keyboard, then jumps back"
+            // blink). Read the LIVE geometry instead: if the keyboard is
+            // visibly up — as a visual-viewport inset (constant-window engines)
+            // or as a window collapse (window-engine, where the vv-delta stays
+            // 0 and the inset is invisible to this state) — keep the hold and
+            // pin the composer to its live seat; the report path then hands off
+            // seamlessly the moment it catches up.
+            const { vvInset, windowShrink } = readLiveKeyboardEvidence();
+            if (windowShrink >= KB_VISIBLE_PX) {
+              // Window-engine return: the seat is innerHeight − sheetTop,
+              // riding the collapse down to 0. Hand it to the per-frame follow
+              // so the ride stays frame-smooth, not an 800ms-staircase.
+              const seat = Math.max(0, Math.round(window.innerHeight) - sheetTopRef.current);
+              if (seat > 0) {
+                panel.style.setProperty("--kb-inset", `${seat}px`);
+                startWindowFollow();
+              } else {
+                panel.style.removeProperty("--kb-inset");
+              }
+              return;
+            }
+            if (vvInset >= KB_VISIBLE_PX) {
+              // Constant-window return: hold the composer at the sheet's top
+              // while the keyboard rises to it. The two-equal-reports handoff
+              // releases it without movement once the reports catch up.
+              return;
+            }
+            // No keyboard anywhere — plain focus (hardware keyboard / desktop
+            // narrow window): the lift was never going to be replaced.
+            panel.style.removeProperty("--kb-inset");
           }, LIFT_HOLD_FALLBACK_MS);
         } else if (keyboardInset > 0 && liftHoldTimerRef.current !== null) {
           clearTimeout(liftHoldTimerRef.current);
