@@ -214,6 +214,33 @@ describe("MessageComposer", () => {
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
   });
 
+  it("keeps the editor focused when pressing the composer chrome (pill padding, empty row space)", () => {
+    const { container, textarea } = setup();
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
+    const blurSpy = vi.fn();
+    textarea.addEventListener("blur", blurSpy);
+    const press = (el: Element, button = 0) => {
+      const ev = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button });
+      el.dispatchEvent(ev);
+      return ev;
+    };
+    // A press on non-interactive composer chrome is preventDefault'ed — the
+    // browser's default focus move (blur → mobile keyboard dismiss) is
+    // cancelled, so the editor keeps focus.
+    const root = container.querySelector(".composer") as HTMLElement;
+    const pill = container.querySelector(".composer-input-pill") as HTMLElement;
+    expect(press(pill).defaultPrevented).toBe(true);
+    expect(press(root).defaultPrevented).toBe(true);
+    expect(blurSpy).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(textarea);
+    // Interactive controls keep their native behaviour — the emoji trigger
+    // must still be pressable, its own handlers own the focus.
+    expect(press(screen.getByLabelText("Добавить эмодзи")).defaultPrevented).toBe(false);
+    // Non-primary buttons are left alone too (middle-click paste, etc.).
+    expect(press(pill, 1).defaultPrevented).toBe(false);
+  });
+
   it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);

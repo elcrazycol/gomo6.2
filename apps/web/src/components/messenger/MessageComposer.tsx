@@ -260,6 +260,28 @@ export const MessageComposer = memo(function MessageComposer({
     }
   }, [pendingAttachments, onAttachmentsChange]);
 
+  // ── Focus retention on the composer chrome ────────────────────────────────
+  // A press on the composer's non-interactive parts (pill padding, empty row
+  // space, banners…) must not move focus: the browser would blur the editor
+  // and on mobile the soft keyboard flies away as a result (mobileKeyboard's
+  // handleFocusOut starts the eased composer descent on blur). preventDefault
+  // on mousedown cancels the browser's default focus move; interactive
+  // targets — the editor itself, buttons, links, form fields — fall through
+  // and keep their native behaviour.
+  const handleComposerMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (
+      target.closest(
+        "button, a[href], input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='button'], label",
+      )
+    ) {
+      return;
+    }
+    e.preventDefault();
+  }, []);
+
   // ── Emoji (wall-post behaviour: keyboard swap on touch, popover on desktop) ─
   const handleEmojiSelect = useCallback((data: { emojiId: string; packId: string; url: string; name: string }) => {
     if (emojiSwap.open) {
@@ -369,6 +391,7 @@ export const MessageComposer = memo(function MessageComposer({
   return (
     <div
       ref={rootRef}
+      onMouseDown={handleComposerMouseDown}
       className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${emojiSwap.open ? " is-emoji-open" : ""}`}
     >
       {replyToMessage && (
