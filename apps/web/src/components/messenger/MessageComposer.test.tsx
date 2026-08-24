@@ -1036,6 +1036,79 @@ describe("MessageComposer", () => {
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
       Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
     });
+
+    it("switch attach↔emoji keeps the composer lift (no drop to the bottom)", async () => {
+      mockMobileKeyboard.isTouch = true;
+      mockMobileKeyboard.keyboardInset = 0;
+      mockMobileKeyboard.viewportHeight = window.innerHeight;
+      const { container, rerender } = render(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      const chatPanel = container.querySelector(".chat-panel") as HTMLElement;
+      const rerenderPanel = () =>
+        rerender(
+          <div className="chat-panel">
+            <MessageComposer
+              draft=""
+              setDraft={vi.fn()}
+              isSending={false}
+              onSend={vi.fn()}
+              composerRef={{ current: null }}
+            />
+            <input data-testid="kb-return" />
+          </div>,
+        );
+      // Keyboard up: window collapsed by 340.
+      Object.defineProperty(window, "innerHeight", { value: window.innerHeight - 340, configurable: true });
+      mockMobileKeyboard.viewportHeight = window.innerHeight;
+      fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+      mockEmojiSwap.open = true;
+      mockEmojiSwap.height = 400;
+      rerenderPanel();
+      // Window grows back (keyboard dismissed) — composer held at the sheet top.
+      Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+      mockMobileKeyboard.viewportHeight = 768;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Switch attach → emoji (same slot machinery, no keyboard): the lift
+      // must stay put — the composer never drops to the bottom. The switch
+      // tap reaches the attach sheet's document-level mousedown close as an
+      // "outside tap" (the emoji trigger lives in the composer chrome, not in
+      // the sheet) — fire the REAL mousedown first, exactly like on the
+      // device, then the click.
+      fireEvent.mouseDown(screen.getByTestId("swap-toggle"));
+      fireEvent.click(screen.getByTestId("swap-toggle"));
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+      // No glide may have been armed by the (now skipped) close — let any
+      // pending rAF finish and re-check.
+      await new Promise((r) => setTimeout(r, 320));
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // Switch emoji → attach — same: a real mousedown on the paperclip must
+      // not close the swap either.
+      fireEvent.mouseDown(screen.getByRole("button", { name: "Прикрепить файл" }));
+      fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+      await new Promise((r) => setTimeout(r, 320));
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+    });
   });
 
   describe("emoji picker", () => {

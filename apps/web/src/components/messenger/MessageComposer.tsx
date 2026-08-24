@@ -996,6 +996,12 @@ useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (target?.closest(".composer-attach-sheet")) return;
+      // A tap on the composer chrome (pill / toolbar — where BOTH panel
+      // triggers live) while a sheet is up is a SWITCH or the trigger's own
+      // re-tap business, not an outside tap: closing here would glide the
+      // composer down to the bottom while the other panel opens (the
+      // "composer drops on attach↔emoji switch").
+      if (target?.closest(".composer")) return;
       // A tap on an editable (the composer's editor) must NOT close the sheet
       // here: the tap's own focus closes the swap through the hook's focusin,
       // and the lift is held + the keyboard returns smoothly (refocus path).

@@ -193,6 +193,13 @@ export const EmojiPicker = ({
       // keyboard rises (the visible blink on switching back to typing).
       const target = e.target as Element | null;
       if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
+      // A tap on the composer chrome (pill / toolbar — where the OTHER panel
+      // trigger lives) is a switch, not an outside tap: closing here would
+      // glide the composer down to the bottom while the other panel opens
+      // (the "composer drops on attach↔emoji switch"). Touch-swap only: the
+      // desktop popover keeps closing on any outside tap (including the
+      // composer's own chrome).
+      if (keyboardMode && target?.closest(".composer")) return;
       const inPanel =
         (pickerRef.current && pickerRef.current.contains(e.target as Node)) ||
         (panelRef.current && panelRef.current.contains(e.target as Node));
