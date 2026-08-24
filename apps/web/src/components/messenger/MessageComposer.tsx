@@ -781,9 +781,14 @@ export const MessageComposer = memo(function MessageComposer({
   // screen (visualViewport vs state vs the composer's local lift). The whole
   // sheet↔keyboard choreography depends on values that cannot be reproduced in
   // jsdom — on-device recordings with these numbers show exactly what the
-  // engine reports at the moment of a jump. Rendered only in dev builds.
+  // engine reports at the moment of a jump. Visible in dev builds, and on any
+  // build when localStorage "kb-diag" === "1" (set it from the console, or via
+  // Safari → Develop → device → Firefox, then reload).
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    const enabled =
+      import.meta.env.DEV ||
+      (typeof localStorage !== "undefined" && localStorage.getItem("kb-diag") === "1");
+    if (!enabled) return;
     const strip = document.createElement("div");
     strip.id = "kb-diag";
     strip.style.cssText =
