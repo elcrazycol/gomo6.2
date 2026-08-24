@@ -31,6 +31,27 @@ func mustNilService(t *testing.T) *Service {
 	return &Service{db: nil, opts: nil}
 }
 
+func TestNormalizeSubject(t *testing.T) {
+	// A value already carrying a mailto: prefix must be stripped so webpush-go's
+	// own prepend doesn't yield a double "mailto:mailto:..." (Apple rejects that
+	// as BadJwtToken).
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"admin@gomo6.wtf", "admin@gomo6.wtf"},
+		{"mailto:admin@gomo6.wtf", "admin@gomo6.wtf"},
+		{"MAILTO:admin@gomo6.wtf", "admin@gomo6.wtf"},
+		{" https://example.com/contact ", "https://example.com/contact"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := normalizeSubject(c.in); got != c.want {
+			t.Errorf("normalizeSubject(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestUpsertSubscription(t *testing.T) {
 	s, mock := setupPush(t)
 	mock.ExpectExec(`INSERT INTO push_subscriptions .*ON CONFLICT .*DO UPDATE`).

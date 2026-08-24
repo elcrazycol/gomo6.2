@@ -34,7 +34,7 @@ type Service struct {
 func New(db *sql.DB) *Service {
 	publicKey := os.Getenv("VAPID_PUBLIC_KEY")
 	privateKey := os.Getenv("VAPID_PRIVATE_KEY")
-	subject := os.Getenv("VAPID_SUBJECT")
+	subject := normalizeSubject(os.Getenv("VAPID_SUBJECT"))
 	if publicKey == "" || privateKey == "" || subject == "" {
 		log.Println("[push] VAPID keys not configured (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT) — push notifications disabled")
 		return nil
@@ -51,6 +51,20 @@ func New(db *sql.DB) *Service {
 			},
 		},
 	}
+}
+
+// normalizeSubject returns the VAPID "sub" claim value in the form webpush-go
+// expects. webpush-go prepends "mailto:" to any subject that does not start with
+// "https:", so a configured value that already carries a mailto: prefix (a very
+// common convention, e.g. "mailto:admin@example.com") must be stripped first —
+// otherwise the JWT "sub" ends up double-prefixed ("mailto:mailto:..."), which
+// Apple/Web Push reject as BadJwtToken.
+func normalizeSubject(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(strings.ToLower(s), "mailto:") {
+		s = s[len("mailto:"):]
+	}
+	return s
 }
 
 // PublicKey returns the VAPID public key the frontend must pass to

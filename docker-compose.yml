@@ -189,10 +189,12 @@ services:
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
       # Web Push (PWA) — VAPID keys (generate with:
       #   cd apps/backend-go && go run ./cmd/vapidgen
-      # ). VAPID_SUBJECT is a mailto: or https: contact.
+      # ). VAPID_SUBJECT is a contact email or https: URL — WITHOUT a mailto:
+      # prefix (webpush-go prepends it itself; "mailto:mailto:..." is rejected
+      # by Apple as BadJwtToken).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@gomo6.wtf}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-admin@gomo6.wtf}
       # Cloudflare Turnstile (CAPTCHA) — server-side siteverify secret + the
       # frontend hostname allowlist (comma-separated). Production must NOT
       # include localhost/127.0.0.1.

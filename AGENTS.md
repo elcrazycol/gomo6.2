@@ -104,7 +104,9 @@ VITE_TURNSTILE_SITEKEY=0x4AAAAAAEMbiZqJKU7PLzRG
 # привязаны к публичному ключу, с которым были созданы.
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
-VAPID_SUBJECT=mailto:admin@gomo6.wtf
+# Контакт для VAPID — почта БЕЗ префикса mailto: (webpush-go добавляет его сам,
+# иначе Apple отклоняет «mailto:mailto:...» как BadJwtToken).
+VAPID_SUBJECT=admin@gomo6.wtf
 ALLOWED_ORIGINS=https://gomo6.wtf,http://gomo6.wtf,https://docs.gomo6.wtf,http://docs.gomo6.wtf,https://dev.gomo6.wtf,http://dev.gomo6.wtf
 EOF
 chmod 600 .env

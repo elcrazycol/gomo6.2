@@ -19,7 +19,10 @@ func main() {
 	fmt.Println("Add these to the backend .env:")
 	fmt.Println("VAPID_PUBLIC_KEY=" + publicKey)
 	fmt.Println("VAPID_PRIVATE_KEY=" + privateKey)
-	fmt.Println("VAPID_SUBJECT=mailto:admin@gomo6.wtf")
+	// VAPID_SUBJECT is a contact email, WITHOUT a mailto: prefix — webpush-go
+	// prepends "mailto:" itself, and a double prefix is rejected by Apple as
+	// BadJwtToken.
+	fmt.Println("VAPID_SUBJECT=admin@gomo6.wtf")
 	fmt.Println("")
 	fmt.Println("The frontend pulls the public key at runtime from /api/v1/push/vapid-public-key,")
 	fmt.Println("so only the backend needs these values.")
