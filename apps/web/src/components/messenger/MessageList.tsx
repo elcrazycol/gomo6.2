@@ -12,7 +12,6 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown } from "lucide-react";
 import { useMessengerStore, queueMarkRead } from "@/stores/messengerStore";
-import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
 import { getAttachmentAspectRatio } from "./attachmentMedia";
@@ -214,12 +213,22 @@ export const MessageList = memo(
     const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
     const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
     const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
-    // The mobile keyboard resizes the scroller via --app-vh; subscribing here
-    // (and using the inset as a layout-effect dep) re-applies the correct
-    // position when the viewport shrinks/grows — no scroll "jump" while the
-    // keyboard slides in or out.
-    const { keyboardInset } = useMobileKeyboard();
-
+    // Keeping the composer visible over the soft keyboard is the shell's job
+    // (messenger.css): two platforms, two mechanisms —
+    //  • iOS (Safari)     — the layout never resizes; the message area +
+    //    composer are lifted by a compositor-only `translate` (--kb-inset), so
+    //    clientHeight stays put and the bottom pin below is a no-op.
+    //  • Layout-resizing (Chrome/Firefox Android with interactive-widget=
+    //    resizes-content, Firefox on iOS) — the layout viewport really shrinks
+    //    with the keyboard: the fixed panel rises natively (composer clears
+    //    the keyboard without any translate), but the scroller's clientHeight
+    //    drops while scrollTop is left untouched (the scroll range grew, so
+    //    there is no browser clamp) — the newest messages fall below the
+    //    composer. The bottom pin re-runs on the SCROLLER'S real resize:
+    //    the virtualizer's ResizeObserver updates `scrollRect` (reactive,
+    //    `maybeNotify()` → re-render), so `scrollRect.height` is the dep that
+    //    re-pins the list to the new bottom. It fires from the layout itself —
+    //    no visual-viewport heuristics, no platform sniffing.
     const scrollerRef = useRef<HTMLDivElement | null>(null);
 
     const [isAtBottom, setIsAtBottom] = useState(true);
@@ -357,7 +366,8 @@ export const MessageList = memo(
     // ── Bottom pin / anchor stabilization ────────────────────────────────
     // Re-runs whenever the list content or the viewport actually changes:
     // prepends/appends (messages), measurement corrections (totalSize), and
-    // keyboard/URL-bar resizes (keyboardInset). Three mutually exclusive modes:
+    // keyboard/URL-bar resizes (keyboardInset, viewportHeight). Three mutually
+    // exclusive modes:
     //   1. session restore (jump to the saved anchor, then hand off),
     //   2. bottom pin (at the bottom → clamp to the real bottom),
     //   3. anchor re-align (scrolled up → keep the anchor message frozen).
@@ -407,14 +417,16 @@ export const MessageList = memo(
       if (Math.abs(el.scrollTop - target) > ANCHOR_REALIGN_EPSILON) el.scrollTop = target;
       // virtualizer.isScrolling is a dep too: a correction skipped mid-gesture
       // (the guard above) must be applied the moment the gesture settles.
-    }, [totalSize, messages, keyboardInset, virtualizer, virtualizer.isScrolling]);
+      // scrollRect.height fires when a keyboard-resized shell shrinks/grows
+      // the scroller — the honest "the layout changed" signal for the pin.
+    }, [totalSize, messages, virtualizer, virtualizer.isScrolling, virtualizer.scrollRect?.height]);
 
     // ── Report read receipts after the scroll position has settled ───────
     // Runs after the pin/anchor effect above so the viewport is final when the
     // visible items are computed. handleScroll also reports on scroll events.
     useLayoutEffect(() => {
       reportVisibleReads();
-    }, [totalSize, messages, keyboardInset, reportVisibleReads]);
+    }, [totalSize, messages, virtualizer.scrollRect?.height, reportVisibleReads]);
 
     // ── Auto-load history until the saved anchor message is present ──────
     // Returning to a chat deep in history: keep prepending older pages until

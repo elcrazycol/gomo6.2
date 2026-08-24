@@ -11,6 +11,12 @@ const h = vi.hoisted(() => ({
   scrollToIndexSpy: vi.fn(),
   queueMarkReadMock: vi.fn(),
   isScrolling: false,
+  // Simulates the virtualizer's ResizeObserver output: the real one updates
+  // `scrollRect` (and re-renders) whenever the scroller is resized — e.g. when
+  // an interactive-widget=resizes-content keyboard shrinks the message shell.
+  // The MessageList pin effect listens to `scrollRect.height` for exactly this
+  // signal, so tests drive the re-pin by mutating this value + rerendering.
+  mockScrollRectHeight: 400,
   storeState: {
     selectedConversationId: "c1",
     conversations: [] as Array<{ id: string; is_group?: boolean }>,
@@ -58,6 +64,11 @@ vi.mock("@tanstack/react-virtual", () => {
           scrollToIndex: h.scrollToIndexSpy,
           get isScrolling() {
             return h.isScrolling;
+          },
+          // Mirror the real instance's reactive `scrollRect` (updated by its
+          // ResizeObserver on the scroller and surfaced via maybeNotify()).
+          get scrollRect() {
+            return { height: h.mockScrollRectHeight, top: 0, left: 0, width: 0 };
           },
         };
         instances.set(key, instance);
@@ -159,6 +170,7 @@ afterEach(() => {
   h.queueMarkReadMock.mockClear();
   h.virtualizerOpts = {};
   h.isScrolling = false;
+  h.mockScrollRectHeight = 400;
   clearAllScrollPositions();
 });
 
@@ -424,6 +436,46 @@ describe("MessageList virtualization", () => {
       ref.current?.scrollToBottom();
     });
     expect(getScrollPosition("c1")).toBeUndefined();
+  });
+});
+
+describe("MessageList keyboard viewport resizes", () => {
+  it("re-pins to the bottom when the keyboard shrinks the scroller (Firefox on iOS / Android)", () => {
+    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
+    h.storeState.messages = base;
+    const { scroller, rerender } = mountList();
+    // 34 (header) + 10*72 + 12 (gap) = 766 content; viewport 400 → bottom = 366.
+    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
+    h.mockScrollRectHeight = 400;
+
+    // Browsers that RESIZE the layout viewport with the keyboard (Firefox on
+    // iOS, Chrome/Firefox Android with interactive-widget=resizes-content):
+    // the fixed panel rises natively (no --kb-inset translate — the delta
+    // channel stays 0) and the scroller's clientHeight drops while the browser
+    // leaves scrollTop untouched (the scroll range grew, so there is no clamp).
+    // The virtualizer's ResizeObserver reports the new size as `scrollRect`,
+    // which is the dep that re-runs the pin.
+    metrics.clientHeight = 100;
+    h.mockScrollRectHeight = 100;
+    rerender(<MessageList renderMessage={renderMessage} />);
+
+    // The bottom pin re-applies and clamps to the new bottom: 766 - 100.
+    expect(metrics.scrollTop).toBe(666);
+  });
+
+  it("does not move the pin when the keyboard lifts via translate (iOS, no layout change)", () => {
+    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
+    h.storeState.messages = base;
+    const { scroller, rerender } = mountList();
+    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
+    h.mockScrollRectHeight = 400;
+
+    // iOS: the layout never resizes — the composer-only `translate` (--kb-inset)
+    // lifts the list, so the scroller stays 400 tall. A re-render with no
+    // `scrollRect` change must not retrigger the pin and move the view.
+    rerender(<MessageList renderMessage={renderMessage} />);
+
+    expect(metrics.scrollTop).toBe(366);
   });
 });
 

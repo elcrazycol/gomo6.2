@@ -2884,27 +2884,55 @@ main.is-messenger-page {
 
   .chat-panel {
     position: fixed;
-    /* The panel's bottom edge rides --kb-inset (the soft-keyboard height, or
-       the emoji-swap panel height mirrored into the chat panel's local
-       --kb-inset by MessageComposer). The composer stays in flow as the
-       panel's last grid row, so it always floats exactly above whatever is up
-       — no pinning, no fixed/flow switching, nothing to flicker or land under
-       the keyboard. */
+    /* Full-screen surface: the LAYOUT never changes while the keyboard opens
+       and closes — the header stays pinned, and the message area + composer
+       (below) are lifted above the keyboard purely via the compositor-only
+       `translate` property. That keeps 60–120fps without relaying-out the
+       virtual message list every frame (which the old `bottom:` offset caused).
+       `translate` is independent of `transform`, so the is-open slide (below)
+       and the keyboard lift never fight. */
     top: 0;
     left: 0;
     right: 0;
-    bottom: var(--kb-inset, 0px);
+    bottom: 0;
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
     transform: translateX(100%);
     transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     pointer-events: none;
+    will-change: transform;
   }
 
   .chat-panel.is-open {
     transform: translateX(0);
     pointer-events: auto;
+  }
+
+  /* Lift the message list and composer above the soft keyboard with a GPU-only
+     transform (no layout). The header (first grid row) is left untouched, so
+     it stays pinned while the chat body rides up/down with the keyboard.
+     The inset is the classic visual-viewport delta (innerHeight − vv.height)
+     published by lib/mobileKeyboard.ts: the real keyboard height on iOS
+     Safari, where the layout viewport never resizes. Browsers that DO resize
+     the layout viewport with the keyboard (Chrome/Firefox Android with
+     interactive-widget=resizes-content, Firefox on iOS) already move the fixed
+     panel so the composer clears the keyboard natively — there the delta is 0
+     and no translate is applied; the message list then re-pins to its new
+     bottom in MessageList. */
+  .chat-panel.is-open .chat-messages-area,
+  .chat-panel.is-open .composer {
+    translate: 0 calc(-1 * var(--kb-inset, 0px));
+    will-change: translate;
+  }
+
+  /* Browsers without the standalone `translate` property (Safari < 14.1) fall
+     back to the previous bottom-offset approach so the composer still clears
+     the keyboard. */
+  @supports not (translate: 0px) {
+    .chat-panel {
+      bottom: var(--kb-inset, 0px);
+    }
   }
 
   .conversation-list {
