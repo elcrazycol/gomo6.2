@@ -27,12 +27,6 @@ const EMOJI_EXIT_MS = 240;
  *  software keyboard, a shorter returning keyboard), release anyway so the
  *  composer settles at the live global --kb-inset instead of floating. */
 const LIFT_HOLD_FALLBACK_MS = 800;
-/** How long to keep TRACKING the live global --kb-inset after the keyboard
- *  caught up with a released sheet-lift before removing the override — long
- *  enough for the returning keyboard to settle (Firefox iOS reports the rise
- *  in coarse steps / transients), short enough that no stale override ever
- *  blocks a later descent. */
-const LIFT_TRACK_MS = 300;
 
 interface Props {
   draft: string;
@@ -149,10 +143,11 @@ export const MessageComposer = memo(function MessageComposer({
   // rendered — delta INCLUDING the bar. The bar collapses after the keyboard
   // hides, so the slot cannot be re-derived live; capture it at open.
   const sheetSlotRef = useRef(0);
-  // Fallback release for the held lift on a refocus-close (see the effect).
+  // Fallback release for a held lift on a refocus-close whose keyboard never
+  // returns (focus without keyboard), and the settlement tracker for the
+  // keyboard-return handoff (see the lift effect).
   const liftHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Release of the post-handoff tracking window (see the refocus branch).
-  const trackReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevInsetRef = useRef<number | null>(null);
   // The emoji panel and the touch attach sheet share ONE keyboard-slot swap
   // (useEmojiKeyboardSwap): only one of them can occupy the keyboard's space
   // at a time. `activeSheet` tells which one is up.
@@ -491,6 +486,8 @@ export const MessageComposer = memo(function MessageComposer({
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
     if (swap.open) {
+      // Fresh session: the keyboard-return settlement tracking starts clean.
+      prevInsetRef.current = null;
       const delta = Math.round((typeof window !== "undefined" ? window.innerHeight : 0) - viewportHeight);
       const candidate = Math.max(swap.height, keyboardInset, delta);
       // The slot NEVER shrinks across sessions: a second open can capture the
@@ -541,46 +538,91 @@ export const MessageComposer = memo(function MessageComposer({
     // Sheet closed. The captured slot stays as a floor for the next session
     // (see the open branch — a fresh open never shrinks it).
     // An editable holding focus means the keyboard is coming back (tap on the
-    // editor, trigger → refocus). Hold the lift while the live global
-    // --kb-inset is below the HELD height (the composer stays in place while
-    // the keyboard slides up to it); once it catches up, TRACK the global for
-    // a short window (the keyboard can transiently overshoot on some engines —
-    // Firefox iOS reports the return in coarse steps) so the composer rides it
-    // exactly instead of being yanked; then remove the override — by then the
-    // global equals the tracked value, so nothing moves and no stale override
-    // can later block the descent.
+    // editor, trigger → refocus). ONE continuous rule, no phase timers other
+    // than the never-returning safety net: the composer stays at
+    // max(slot, live inset) — it holds still while the keyboard slides up to
+    // the sheet's height, and RIDES the keyboard if the live inset rises above
+    // it (engines that report the return in coarse steps/transients — Firefox
+    // iOS). When the live inset has been reported TWICE unchanged, the
+    // keyboard has settled at its final height: if that height matches the
+    // held lift the override is dropped (the global equals the local — nothing
+    // moves and no stale override can block a later descent); if the keyboard
+    // settled SHORTER than the sheet (a genuinely different height), the
+    // composer glides down to it.
     if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
       stopEmojiGlide();
       const held = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
-      if (held > 0 && keyboardInset < held) {
-        if (liftHoldTimerRef.current === null) {
+      if (held <= 0) {
+        prevInsetRef.current = null;
+        chatPanel.style.removeProperty("--kb-inset");
+        return;
+      }
+      const prevInset = prevInsetRef.current;
+      prevInsetRef.current = keyboardInset;
+      const settled =
+        keyboardInset > 0 &&
+        prevInset !== null &&
+        keyboardInset === prevInset;
+      if (settled) {
+        if (liftHoldTimerRef.current !== null) {
+          clearTimeout(liftHoldTimerRef.current);
+          liftHoldTimerRef.current = null;
+        }
+        prevInsetRef.current = null;
+        const currentLift = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
+        if (Math.abs(currentLift - keyboardInset) > 1) {
+          // The keyboard settled lower than the sheet's height — glide the
+          // composer down to its real top.
+          emojiGlideActiveRef.current = true;
+          emojiGlideFromRef.current = currentLift;
+          emojiGlideToRef.current = keyboardInset;
+          emojiGlideStartRef.current = Date.now();
+          const step = () => {
+            emojiGlideRafRef.current = null;
+            if (!emojiGlideActiveRef.current) return;
+            const t = Math.min(1, (Date.now() - emojiGlideStartRef.current) / EMOJI_EXIT_MS);
+            const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+            const inset = Math.round(emojiGlideFromRef.current + (emojiGlideToRef.current - emojiGlideFromRef.current) * eased);
+            if (t >= 1) {
+              emojiGlideActiveRef.current = false;
+              chatPanel.style.removeProperty("--kb-inset");
+              return;
+            }
+            chatPanel.style.setProperty("--kb-inset", `${inset}px`);
+            emojiGlideRafRef.current = requestAnimationFrame(step);
+          };
+          emojiGlideRafRef.current = requestAnimationFrame(step);
+        } else {
+          // Equal — hand off with no movement.
+          chatPanel.style.removeProperty("--kb-inset");
+        }
+        return;
+      }
+      if (keyboardInset < held) {
+        // Keyboard still below the sheet's height: hold the lift in place.
+        // If it never returns at all (focus without keyboard), release after
+        // a short delay; the moment it starts rising, cancel that release.
+        if (keyboardInset <= 0 && liftHoldTimerRef.current === null) {
           liftHoldTimerRef.current = setTimeout(() => {
             liftHoldTimerRef.current = null;
             rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
           }, LIFT_HOLD_FALLBACK_MS);
+        } else if (keyboardInset > 0 && liftHoldTimerRef.current !== null) {
+          clearTimeout(liftHoldTimerRef.current);
+          liftHoldTimerRef.current = null;
         }
         return;
       }
+      // The keyboard is above the held height and still moving — ride it so
+      // the composer stays glued to its top.
       if (liftHoldTimerRef.current !== null) {
         clearTimeout(liftHoldTimerRef.current);
         liftHoldTimerRef.current = null;
       }
-      if (held > 0) {
-        chatPanel.style.setProperty("--kb-inset", `${keyboardInset}px`);
-        // Handoff: the keyboard is at (or above) the held height — track it
-        // until it settles, then remove the override.
-        if (trackReleaseTimerRef.current !== null) {
-          clearTimeout(trackReleaseTimerRef.current);
-        }
-        trackReleaseTimerRef.current = setTimeout(() => {
-          trackReleaseTimerRef.current = null;
-          rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
-        }, LIFT_TRACK_MS);
-        return;
-      }
-      chatPanel.style.removeProperty("--kb-inset");
+      chatPanel.style.setProperty("--kb-inset", `${keyboardInset}px`);
       return;
     }
+    prevInsetRef.current = null;
     // Outside-tap / Escape close: glide the composer down in sync with the
     // sheet's exit instead of dropping it in one frame.
     const from = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
@@ -626,17 +668,13 @@ export const MessageComposer = memo(function MessageComposer({
     return () => cancelAnimationFrame(raf);
   }, [swap.open, isTouch]);
 
-  // Clean up the local override, the held-lift timer, the tracking window and
-  // any in-flight glide on unmount.
+  // Clean up the local override, the held-lift timer and any in-flight glide on
+  // unmount.
   useEffect(() => () => {
     stopEmojiGlide();
     if (liftHoldTimerRef.current !== null) {
       clearTimeout(liftHoldTimerRef.current);
       liftHoldTimerRef.current = null;
-    }
-    if (trackReleaseTimerRef.current !== null) {
-      clearTimeout(trackReleaseTimerRef.current);
-      trackReleaseTimerRef.current = null;
     }
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
   }, [stopEmojiGlide]);

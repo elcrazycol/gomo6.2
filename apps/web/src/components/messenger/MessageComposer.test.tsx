@@ -420,12 +420,15 @@ describe("MessageComposer", () => {
     poke();
     expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
     // The keyboard is back at its full height — the live global caught up with
-    // the held lift; the composer TRACKS it (transients can't yank it), then
-    // the override is removed once the keyboard settles.
+    // the held lift. First report: the composer rides it (no snap). A second
+    // report at the same inset means the keyboard settled — the override is
+    // dropped (the global equals the local, nothing moves).
     mockMobileKeyboard.keyboardInset = 360;
     poke();
     expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
-    await waitFor(() => expect(panel.style.getPropertyValue("--kb-inset")).toBe(""));
+    mockMobileKeyboard.viewportHeight = window.innerHeight - 359;
+    poke();
+    expect(panel.style.getPropertyValue("--kb-inset")).toBe("");
   });
 
   it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
@@ -697,7 +700,7 @@ describe("MessageComposer", () => {
       await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
     });
 
-    it("holds the lift until the keyboard has fully returned (editable refocused), then releases seamlessly", async () => {
+    it("holds the lift until the keyboard has fully returned (editable refocused), then releases seamlessly", () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
       // The keyboard is up at the panel height when the swap opens (realistic).
@@ -740,10 +743,9 @@ describe("MessageComposer", () => {
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
 
       // The keyboard is back at its full height — the live global has caught
-      // up with the held lift. The composer TRACKS it for a short window (so
-      // transient overshoots on coarse-reported engines can't yank it), then
-      // the override is removed: by then the global equals the tracked value,
-      // so releasing moves nothing.
+      // up with the held lift. First report: the composer rides it (no snap).
+      // A second report at the same inset means the keyboard settled — the
+      // override is dropped (the global equals the local, nothing moves).
       mockMobileKeyboard.keyboardInset = 340;
       rerender(
         <div className="chat-panel">
@@ -758,7 +760,20 @@ describe("MessageComposer", () => {
         </div>,
       );
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
-      await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 341;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
     });
   });
 
