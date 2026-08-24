@@ -1880,6 +1880,11 @@ main.is-messenger-page {
   cursor: not-allowed;
   background: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
+  /* An inert disabled control would swallow the tap and browsers treat it as
+     a tap outside → the editor blurs and the soft keyboard dismisses. Let
+     the press fall through to the composer chrome, whose mousedown guard
+     keeps the editor focused. */
+  pointer-events: none;
 }
 
 /* Edit mode send button (checkmark) */

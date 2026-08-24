@@ -241,6 +241,31 @@ describe("MessageComposer", () => {
     expect(press(pill, 1).defaultPrevented).toBe(false);
   });
 
+  it("keeps the editor focused when pressing the disabled send button (empty composer)", () => {
+    const { sendButton } = setup();
+    expect(sendButton).toBeDisabled();
+    // A tap on the inert disabled button must not move focus (on iOS it would
+    // dismiss the keyboard): the guard covers disabled buttons as chrome.
+    const ev = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+    sendButton.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("restores editor focus when the file sheet closes, but not on unrelated window refocus", () => {
+    setup();
+    const before = editorSpies.focusCalls.length;
+    // An app-return without a live file-sheet session must not refocus.
+    window.dispatchEvent(new Event("focus"));
+    expect(editorSpies.focusCalls.length).toBe(before);
+    // Open the full composer so the paperclip takes the left slot.
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    // The native file sheet closed → the page regains focus → the caret is
+    // put back, which brings the soft keyboard up again.
+    window.dispatchEvent(new Event("focus"));
+    expect(editorSpies.focusCalls.length).toBe(before + 1);
+  });
+
   it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);

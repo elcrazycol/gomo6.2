@@ -119,6 +119,10 @@ export const MessageComposer = memo(function MessageComposer({
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Native file-sheet session: pending window-focus restore of the editor
+  // caret (see openFilePicker). Kept in refs so the session survives renders.
+  const fileSheetFocusRef = useRef<(() => void) | null>(null);
+  const fileSheetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Eased descent of the local --kb-inset override when the emoji panel closes
   // without the keyboard returning (outside tap / Escape). Kept in refs so the
   // rAF loop can run without re-rendering the composer.
@@ -138,6 +142,18 @@ export const MessageComposer = memo(function MessageComposer({
 
   useEffect(() => () => {
     if (panelExitTimerRef.current) clearTimeout(panelExitTimerRef.current);
+  }, []);
+
+  // Drop a pending file-sheet focus restore on unmount (chat closed mid-sheet).
+  useEffect(() => () => {
+    if (fileSheetFocusRef.current) {
+      window.removeEventListener("focus", fileSheetFocusRef.current);
+      fileSheetFocusRef.current = null;
+    }
+    if (fileSheetTimerRef.current) {
+      clearTimeout(fileSheetTimerRef.current);
+      fileSheetTimerRef.current = null;
+    }
   }, []);
   // Bumped when the editor content must be re-seeded from `draft` (edit start,
   // external clear after send) — never on the editor's own keystrokes.
@@ -247,6 +263,47 @@ export const MessageComposer = memo(function MessageComposer({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [onAttachFiles]);
 
+  // The native file sheet steals page focus; when it closes (file picked or
+  // cancelled) iOS/Android do not hand it back to the contenteditable editor,
+  // so the keyboard drops as if blurred by itself. Track the session and put
+  // the caret back — which brings the keyboard up again — the moment the page
+  // regains focus.
+  const openFilePicker = useCallback(() => {
+    if (fileSheetFocusRef.current) {
+      window.removeEventListener("focus", fileSheetFocusRef.current);
+      fileSheetFocusRef.current = null;
+    }
+    if (fileSheetTimerRef.current) {
+      clearTimeout(fileSheetTimerRef.current);
+      fileSheetTimerRef.current = null;
+    }
+    const onWindowFocus = () => {
+      window.removeEventListener("focus", onWindowFocus);
+      fileSheetFocusRef.current = null;
+      if (fileSheetTimerRef.current) {
+        clearTimeout(fileSheetTimerRef.current);
+        fileSheetTimerRef.current = null;
+      }
+      // While the emoji keyboard-swap panel is up, the editor is deliberately
+      // blurred (the panel replaced the keyboard) — restoring focus would
+      // close the panel; let it stay.
+      if (emojiSwap.open) return;
+      editorRef.current?.focus();
+    };
+    fileSheetFocusRef.current = onWindowFocus;
+    window.addEventListener("focus", onWindowFocus);
+    // Safety net: if the sheet never opens (or the session already ended),
+    // a later app-return must not refocus the editor unsolicited.
+    fileSheetTimerRef.current = setTimeout(() => {
+      if (fileSheetFocusRef.current === onWindowFocus) {
+        window.removeEventListener("focus", onWindowFocus);
+        fileSheetFocusRef.current = null;
+      }
+      fileSheetTimerRef.current = null;
+    }, 2000);
+    fileInputRef.current?.click();
+  }, [emojiSwap.open]);
+
   const handleEditorPaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     const files = getPastedFiles(e);
     if (files.length === 0) return; // plain text — let the editor handle it
@@ -266,15 +323,17 @@ export const MessageComposer = memo(function MessageComposer({
   // and on mobile the soft keyboard flies away as a result (mobileKeyboard's
   // handleFocusOut starts the eased composer descent on blur). preventDefault
   // on mousedown cancels the browser's default focus move; interactive
-  // targets — the editor itself, buttons, links, form fields — fall through
-  // and keep their native behaviour.
+  // targets — the editor itself, enabled buttons, links, form fields — fall
+  // through and keep their native behaviour. Disabled buttons are covered
+  // here as well: on iOS a tap on an inert control dismisses the keyboard
+  // with no event to intercept on the button itself.
   const handleComposerMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target;
     if (!(target instanceof Element)) return;
     if (
       target.closest(
-        "button, a[href], input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='button'], label",
+        "button:not(:disabled), a[href], input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='button'], label",
       )
     ) {
       return;
@@ -488,7 +547,7 @@ export const MessageComposer = memo(function MessageComposer({
             <button
               type="button"
               className="composer-attach-btn"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={openFilePicker}
               onMouseDown={(e) => e.preventDefault()}
               aria-label="Прикрепить файл"
             >
