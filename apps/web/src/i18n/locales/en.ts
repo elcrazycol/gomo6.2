@@ -326,6 +326,7 @@ const en: LocaleResources = {
     friendRequest: "Friend requests",
     friendAccepted: "Accepted friend requests",
     giftReceived: "Gifts",
+    message: "Messages",
   },
   notif: {
     likeThread: "@{{actor}} liked your post",

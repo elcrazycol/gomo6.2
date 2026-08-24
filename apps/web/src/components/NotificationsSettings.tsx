@@ -26,6 +26,7 @@ const TYPE_LABELS: Record<string, { key: string; icon: string }> = {
   friend_request: { key: "notifTypes.friendRequest", icon: "👥" },
   friend_accepted: { key: "notifTypes.friendAccepted", icon: "👥" },
   gift_received: { key: "notifTypes.giftReceived", icon: "🎁" },
+  message: { key: "notifTypes.message", icon: "💬" },
 };
 
 const NotificationsSettings = () => {

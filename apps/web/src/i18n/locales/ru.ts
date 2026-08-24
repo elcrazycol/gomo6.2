@@ -343,6 +343,7 @@ const ru: LocaleResources = {
     friendRequest: "Заявки в друзья",
     friendAccepted: "Принятые заявки в друзья",
     giftReceived: "Подарки",
+    message: "Сообщения",
   },
   notif: {
     likeThread: "@{{actor}} оценил(а) вашу запись",
