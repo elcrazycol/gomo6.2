@@ -389,6 +389,9 @@ export const MessageComposer = memo(function MessageComposer({
   const toolbarEditor = editorRef.current?.getEditor() ?? null;
 
   return (
+    // The mousedown guard is not an interaction — it only cancels the
+    // browser's default focus move on the chrome (see handleComposerMouseDown).
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       ref={rootRef}
       onMouseDown={handleComposerMouseDown}
