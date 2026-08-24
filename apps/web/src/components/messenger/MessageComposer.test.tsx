@@ -303,6 +303,37 @@ describe("MessageComposer", () => {
     expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(true);
   });
 
+  it("touch: tapping outside the attach sheet closes it WITHOUT the keyboard", () => {
+    mockMobileKeyboard.isTouch = true;
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    mockEmojiSwap.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    const sheet = screen.getByTestId("attach-sheet");
+    // A tap inside the sheet (on an option) must NOT close it.
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Камера" }));
+    expect(sheet).toBeInTheDocument();
+    expect(mockEmojiSwap.closePanel).not.toHaveBeenCalled();
+    // A tap outside (on the message list / page) closes it: the panel exits
+    // with a glide (is-closing) and the keyboard does NOT return — the editor
+    // was deliberately blurred by the swap, so the composer slides down with
+    // the departing sheet instead.
+    fireEvent.mouseDown(document.body);
+    expect(sheet).toHaveClass("is-closing");
+    expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(false);
+  });
+
+  it("touch: Escape closes the attach sheet WITHOUT the keyboard", () => {
+    mockMobileKeyboard.isTouch = true;
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    mockEmojiSwap.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByTestId("attach-sheet")).toHaveClass("is-closing");
+    expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(false);
+  });
+
   it("touch: the paperclip switches the open slot from the emoji panel to the attach sheet", () => {
     mockMobileKeyboard.isTouch = true;
     setup();

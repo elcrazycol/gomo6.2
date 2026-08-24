@@ -511,6 +511,27 @@ export const MessageComposer = memo(function MessageComposer({
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
   }, [stopEmojiGlide]);
 
+  // Outside tap / Escape closes the attach sheet WITHOUT the keyboard (the
+  // composer glides down in sync) — same semantics as the emoji panel. The
+  // sheet is a body portal, so the composer's own mousedown guard cannot
+  // cover it; listen at the document level instead.
+  useEffect(() => {
+    if (!(swap.open && activeSheet === "attach")) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if ((e.target as Element | null)?.closest(".composer-attach-sheet")) return;
+      handleSheetClose();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleSheetClose();
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [swap.open, activeSheet, handleSheetClose]);
+
   // The formatting panel's Toolbar needs the live tiptap instance. The pill
   // editor is always mounted, so the ref is populated before the panel can
   // render — read it at render time (the instance is stable across renders).
