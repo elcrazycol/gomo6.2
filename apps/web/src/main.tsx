@@ -5,16 +5,36 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import { toast } from "@/components/ui/sonner";
 import { setupGlobalErrorHandlers } from "@/lib/logging";
+import { isNativePlatform, initCapacitor } from "@/lib/capacitor";
 import { initMobileKeyboard } from "@/lib/mobileKeyboard";
+import { registerSW } from "virtual:pwa-register";
 import "./index.css";
 import "@/components/Lightbox.css";
 
+const nativePlatform = isNativePlatform();
+
+// Inside the Capacitor native shell the keyboard plugin owns the geometry
+// (lib/capacitor.ts publishes --app-vh / --kb-inset from native events); the
+// visualViewport-based browser layer would fight it, so it is skipped there.
 // Mobile virtual keyboard: tracks the visual viewport, publishes --app-vh /
 // --kb-inset CSS variables and keeps the focused input above the keyboard.
-const disposeMobileKeyboard = initMobileKeyboard();
+const disposeMobileKeyboard = nativePlatform ? undefined : initMobileKeyboard();
+
+// Native shell bootstrap (keyboard, status bar, app state) — no-op on web.
+const disposeCapacitor = initCapacitor();
 
 // Capture uncaught errors and unhandled promise rejections.
 const disposeGlobalErrorHandlers = setupGlobalErrorHandlers();
+
+// The service worker is registered manually (injectRegister: false in
+// vite.config.ts) so it is never registered inside the Capacitor native shell
+// — the native app needs no SW (push will go through APNs/FCM, not Web Push),
+// and a precache inside the WebView would only waste storage. The reload-on-
+// update flow below is driven by the controllerchange listener, so the
+// plugin's own auto-reload is suppressed (onNeedReload: no-op).
+if (!nativePlatform) {
+  registerSW({ onNeedReload: () => undefined });
+}
 
 // When a new build is deployed, the updated service worker takes control and
 // deletes the old precached chunks (cleanupOutdatedCaches). An open tab still
@@ -58,6 +78,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     disposeGlobalErrorHandlers();
     disposeServiceWorkerReload();
-    disposeMobileKeyboard();
+    disposeMobileKeyboard?.();
+    disposeCapacitor();
   });
 }

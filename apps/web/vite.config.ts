@@ -62,6 +62,9 @@ export default defineConfig(() => ({
       srcDir: "src",
       filename: "sw.ts",
       registerType: "autoUpdate",
+      // The service worker is registered manually in src/main.tsx (guarded on
+      // Capacitor.isNativePlatform()), so the native shell never registers it.
+      injectRegister: false,
       includeAssets: ["favicon.ico", "gomo6.png", "apple-touch-icon.png"],
       manifest: {
         name: "gomo6",

@@ -13,6 +13,7 @@
 // the `push` and `notificationclick` events that display the banner.
 
 import { apiClient } from "@/integrations/api/client";
+import { isNativePlatform } from "@/lib/capacitor";
 
 export interface PushPreferences {
   type_map: Record<string, boolean>;
@@ -34,6 +35,11 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
 }
 
 export function isPushSupported(): boolean {
+  // Web Push (VAPID + service worker) is browser-only: inside the Capacitor
+  // native shell the WebView would happily report PushManager support but the
+  // subscription could never deliver — native push (APNs/FCM) is a separate
+  // backend flow, so the toggle stays hidden there.
+  if (isNativePlatform()) return false;
   return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
