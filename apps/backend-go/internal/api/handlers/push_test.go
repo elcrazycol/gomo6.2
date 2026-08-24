@@ -92,7 +92,7 @@ func TestPushHandler_GetPreferences(t *testing.T) {
 	handler, mock := setupPushHandler(t)
 	c, w := newGETContextWithClaims("/api/v1/push/preferences", nil, &auth.Claims{UserID: "u1"})
 
-	mock.ExpectQuery(`SELECT type_map::bytea FROM push_preferences WHERE user_id = \$1`).
+	mock.ExpectQuery(`SELECT type_map FROM push_preferences WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"type_map"}).AddRow([]byte(`{"like":false}`)))
 

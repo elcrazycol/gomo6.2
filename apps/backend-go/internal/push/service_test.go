@@ -62,7 +62,7 @@ func TestSetAndGetPreferences(t *testing.T) {
 
 	// Reading the same prefs back.
 	s2, mock2 := setupPush(t)
-	mock2.ExpectQuery(`SELECT type_map::bytea FROM push_preferences WHERE user_id = \$1`).
+	mock2.ExpectQuery(`SELECT type_map FROM push_preferences WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"type_map"}).AddRow([]byte(`{"like":false,"reply":true}`)))
 
@@ -77,7 +77,7 @@ func TestSetAndGetPreferences(t *testing.T) {
 
 func TestPreferencesNoRow_DefaultsToEmpty(t *testing.T) {
 	s, mock := setupPush(t)
-	mock.ExpectQuery(`SELECT type_map::bytea FROM push_preferences WHERE user_id = \$1`).
+	mock.ExpectQuery(`SELECT type_map FROM push_preferences WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnError(sql.ErrNoRows)
 
@@ -92,7 +92,7 @@ func TestPreferencesNoRow_DefaultsToEmpty(t *testing.T) {
 
 func TestEnabledForType_DefaultsEnabled(t *testing.T) {
 	s, mock := setupPush(t)
-	mock.ExpectQuery(`SELECT type_map::bytea FROM push_preferences WHERE user_id = \$1`).
+	mock.ExpectQuery(`SELECT type_map FROM push_preferences WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnError(sql.ErrNoRows)
 
@@ -103,7 +103,7 @@ func TestEnabledForType_DefaultsEnabled(t *testing.T) {
 
 func TestEnabledForType_RespectsMute(t *testing.T) {
 	s, mock := setupPush(t)
-	mock.ExpectQuery(`SELECT type_map::bytea FROM push_preferences WHERE user_id = \$1`).
+	mock.ExpectQuery(`SELECT type_map FROM push_preferences WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"type_map"}).AddRow([]byte(`{"like":false}`)))
 
@@ -125,7 +125,7 @@ func TestSendToUser_MutedTypeNoSend(t *testing.T) {
 	// Nothing to assert beyond no crash when the type is muted and there are no
 	// subscriptions — the preferences check returns early.
 	s, mock := setupPush(t)
-	mock.ExpectQuery(`SELECT type_map::bytea FROM push_preferences WHERE user_id = \$1`).
+	mock.ExpectQuery(`SELECT type_map FROM push_preferences WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"type_map"}).AddRow([]byte(`{"like":false}`)))
 
