@@ -27,6 +27,11 @@ const EMOJI_EXIT_MS = 240;
  *  software keyboard, a shorter returning keyboard), release anyway so the
  *  composer settles at the live global --kb-inset instead of floating. */
 const LIFT_HOLD_FALLBACK_MS = 800;
+/** If the keyboard's return is reported only once (no second, equal report to
+ *  confirm the settlement), remove the lift override this long after the last
+ *  at-or-above report — bounded, so no stale override can ever block a later
+ *  keyboard dismissal. */
+const SETTLE_CONFIRM_MS = 250;
 
 interface Props {
   draft: string;
@@ -148,6 +153,10 @@ export const MessageComposer = memo(function MessageComposer({
   // keyboard-return handoff (see the lift effect).
   const liftHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevInsetRef = useRef<number | null>(null);
+  // Bounded confirmation timer for the keyboard-return handoff (see the
+  // refocus branch): fires only when the settlement wasn't confirmed by a
+  // second, equal report.
+  const settleConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The emoji panel and the touch attach sheet share ONE keyboard-slot swap
   // (useEmojiKeyboardSwap): only one of them can occupy the keyboard's space
   // at a time. `activeSheet` tells which one is up.
@@ -488,6 +497,10 @@ export const MessageComposer = memo(function MessageComposer({
     if (swap.open) {
       // Fresh session: the keyboard-return settlement tracking starts clean.
       prevInsetRef.current = null;
+      if (settleConfirmTimerRef.current !== null) {
+        clearTimeout(settleConfirmTimerRef.current);
+        settleConfirmTimerRef.current = null;
+      }
       const delta = Math.round((typeof window !== "undefined" ? window.innerHeight : 0) - viewportHeight);
       const candidate = Math.max(swap.height, keyboardInset, delta);
       // The slot NEVER shrinks across sessions: a second open can capture the
@@ -568,6 +581,10 @@ export const MessageComposer = memo(function MessageComposer({
           clearTimeout(liftHoldTimerRef.current);
           liftHoldTimerRef.current = null;
         }
+        if (settleConfirmTimerRef.current !== null) {
+          clearTimeout(settleConfirmTimerRef.current);
+          settleConfirmTimerRef.current = null;
+        }
         prevInsetRef.current = null;
         const currentLift = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
         if (Math.abs(currentLift - keyboardInset) > 1) {
@@ -602,6 +619,10 @@ export const MessageComposer = memo(function MessageComposer({
         // Keyboard still below the sheet's height: hold the lift in place.
         // If it never returns at all (focus without keyboard), release after
         // a short delay; the moment it starts rising, cancel that release.
+        if (settleConfirmTimerRef.current !== null) {
+          clearTimeout(settleConfirmTimerRef.current);
+          settleConfirmTimerRef.current = null;
+        }
         if (keyboardInset <= 0 && liftHoldTimerRef.current === null) {
           liftHoldTimerRef.current = setTimeout(() => {
             liftHoldTimerRef.current = null;
@@ -614,12 +635,22 @@ export const MessageComposer = memo(function MessageComposer({
         return;
       }
       // The keyboard is above the held height and still moving — ride it so
-      // the composer stays glued to its top.
+      // the composer stays glued to its top. If NO second confirmation report
+      // ever arrives (some engines emit a single coarse report per return),
+      // remove the override after a short window anyway — by then the local
+      // equals the global, nothing moves, and no stale override can block a
+      // later keyboard dismissal.
       if (liftHoldTimerRef.current !== null) {
         clearTimeout(liftHoldTimerRef.current);
         liftHoldTimerRef.current = null;
       }
       chatPanel.style.setProperty("--kb-inset", `${keyboardInset}px`);
+      if (settleConfirmTimerRef.current === null) {
+        settleConfirmTimerRef.current = setTimeout(() => {
+          settleConfirmTimerRef.current = null;
+          rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
+        }, SETTLE_CONFIRM_MS);
+      }
       return;
     }
     prevInsetRef.current = null;
@@ -675,6 +706,10 @@ export const MessageComposer = memo(function MessageComposer({
     if (liftHoldTimerRef.current !== null) {
       clearTimeout(liftHoldTimerRef.current);
       liftHoldTimerRef.current = null;
+    }
+    if (settleConfirmTimerRef.current !== null) {
+      clearTimeout(settleConfirmTimerRef.current);
+      settleConfirmTimerRef.current = null;
     }
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
   }, [stopEmojiGlide]);
