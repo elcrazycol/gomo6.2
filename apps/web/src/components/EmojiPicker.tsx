@@ -88,6 +88,15 @@ export const EmojiPicker = ({
   // Keep open pickers in sync when another one records an emoji.
   useEffect(() => subscribeRecentEmojis(() => setRecent(getRecentEmojis())), []);
 
+  // When the swap closes while the panel was up, keep it mounted for its exit
+  // slide. This must be a RENDER-PHASE adjustment (React re-renders the
+  // component immediately BEFORE committing): firing it from an effect would
+  // unmount the panel for a frame and re-mount it to play the animation —
+  // the visible "panel flies up then slides down" pop on close.
+  if (keyboardMode && !swapOpen && prevSwapOpen.current && !swapClosing) {
+    setSwapClosing(true);
+  }
+
   useEffect(() => {
     if (!keyboardMode) return;
     const wasOpen = prevSwapOpen.current;
@@ -106,18 +115,14 @@ export const EmojiPicker = ({
       }
       return;
     }
-    // Only animate the exit when the panel was actually open — a fresh mount
-    // with swapOpen=false must not flash an invisible closing panel.
-    if (wasOpen) {
-      setSwapClosing(true);
-      if (swapCloseTimer.current === null) {
-        // Safety net: if the panel's exit animation never fires (reduced
-        // motion / odd browser), force the unmount shortly after.
-        swapCloseTimer.current = window.setTimeout(() => {
-          setSwapClosing(false);
-          swapCloseTimer.current = null;
-        }, 300);
-      }
+    // The close transition itself is driven by the render phase above; here
+    // only the safety net: if the panel's exit animation never fires (reduced
+    // motion / odd browser), unmount it shortly after.
+    if (wasOpen && swapCloseTimer.current === null) {
+      swapCloseTimer.current = window.setTimeout(() => {
+        setSwapClosing(false);
+        swapCloseTimer.current = null;
+      }, 300);
     }
     return () => {
       if (swapCloseTimer.current !== null) {
@@ -171,6 +176,13 @@ export const EmojiPicker = ({
     const active = keyboardMode ? swapOpen || swapClosing : open;
     if (!active) return;
     const handler = (e: MouseEvent) => {
+      // A tap on an editable (the composer's editor) must NOT close via this
+      // outside handler: the tap's own focus lets useEmojiKeyboardSwap's
+      // focusin close the swap, and the composer keeps its lift while the
+      // keyboard returns. Closing here would glide the composer down as the
+      // keyboard rises (the visible blink on switching back to typing).
+      const target = e.target as Element | null;
+      if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
       const inPanel =
         (pickerRef.current && pickerRef.current.contains(e.target as Node)) ||
         (panelRef.current && panelRef.current.contains(e.target as Node));

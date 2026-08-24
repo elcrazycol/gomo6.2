@@ -159,6 +159,7 @@ export const MessageComposer = memo(function MessageComposer({
   // and unmounts after a short delay — so closing reads as one smooth motion.
   const [attachClosing, setAttachClosing] = useState(false);
   const attachCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevActiveSheetRef = useRef(activeSheet);
 
   const [fullMode, setFullMode] = useState(false);
   // While the formatting panel is closing it stays mounted (with the exit
@@ -303,14 +304,9 @@ export const MessageComposer = memo(function MessageComposer({
   const handleSheetClose = useCallback(() => {
     // Outside-tap / Escape: close WITHOUT the keyboard returning — the
     // composer glides down in sync with the sheet's exit slide.
-    if (activeSheet === "attach") {
-      setAttachClosing(true);
-      if (attachCloseTimerRef.current) clearTimeout(attachCloseTimerRef.current);
-      attachCloseTimerRef.current = setTimeout(() => setAttachClosing(false), EMOJI_EXIT_MS);
-    }
     setActiveSheet(null);
     swap.closePanel(false);
-  }, [activeSheet, swap]);
+  }, [swap]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -487,10 +483,14 @@ export const MessageComposer = memo(function MessageComposer({
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
     if (swap.open) {
-      if (sheetSlotRef.current === 0) {
-        const delta = Math.round((typeof window !== "undefined" ? window.innerHeight : 0) - viewportHeight);
-        sheetSlotRef.current = Math.max(swap.height, keyboardInset, delta);
-      }
+      const delta = Math.round((typeof window !== "undefined" ? window.innerHeight : 0) - viewportHeight);
+      const candidate = Math.max(swap.height, keyboardInset, delta);
+      // The slot NEVER shrinks across sessions: a second open can capture the
+      // keyboard mid-rise (a fragment of its height, e.g. right after a
+      // refocus-close), which would shrink the panel; the previous slot is
+      // the stable floor. The keyboard height is device-stable, so the floor
+      // is safe — it only yields to a genuinely taller keyboard.
+      if (candidate > sheetSlotRef.current) sheetSlotRef.current = candidate;
       const slot = sheetSlotRef.current;
       if (sheetSlot !== slot) setSheetSlot(slot);
       // The keyboard is still dismissing (and the URL bar still expanded)
@@ -526,16 +526,16 @@ export const MessageComposer = memo(function MessageComposer({
       }
       return;
     }
-    // Sheet closed. Reset the captured slot so the next open re-measures it.
-    sheetSlotRef.current = 0;
+    // Sheet closed. The captured slot stays as a floor for the next session
+    // (see the open branch — a fresh open never shrinks it).
     // An editable holding focus means the keyboard is coming back (tap on the
     // editor, trigger → refocus). Hold the lift until the live global
-    // --kb-inset reaches the keyboard height captured at open — that is the
-    // first moment both geometries coincide, so releasing moves nothing.
+    // --kb-inset reaches the HELD height — the first moment both geometries
+    // coincide, so releasing moves nothing.
     if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
       stopEmojiGlide();
       const held = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
-      if (held > 0 && keyboardInset < swap.height) {
+      if (held > 0 && keyboardInset < held) {
         if (liftHoldTimerRef.current === null) {
           liftHoldTimerRef.current = setTimeout(() => {
             liftHoldTimerRef.current = null;
@@ -607,6 +607,36 @@ export const MessageComposer = memo(function MessageComposer({
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
   }, [stopEmojiGlide]);
 
+  // The attach sheet exits with a slide whenever the swap closes from ANY
+// path — trigger re-tap, outside tap/Escape, or the hook's own focusin when
+// the user taps back into the editor (keyboard returning). Done as a
+// RENDER-PHASE adjustment (React re-renders immediately, BEFORE committing):
+// an effect-driven version would unmount the sheet for a frame and re-mount
+// it to play the exit animation — the visible "panel flies up then slides
+// down" pop. Mirrors EmojiPicker's swapClosing.
+if (!swap.open && prevActiveSheetRef.current === "attach" && !attachClosing) {
+  setAttachClosing(true);
+}
+useEffect(() => {
+  prevActiveSheetRef.current = activeSheet;
+}, [activeSheet]);
+useEffect(() => {
+  if (swap.open) {
+    if (attachCloseTimerRef.current !== null) {
+      clearTimeout(attachCloseTimerRef.current);
+      attachCloseTimerRef.current = null;
+    }
+    return;
+  }
+  if (!attachClosing) return;
+  if (attachCloseTimerRef.current === null) {
+    attachCloseTimerRef.current = setTimeout(() => {
+      attachCloseTimerRef.current = null;
+      setAttachClosing(false);
+    }, EMOJI_EXIT_MS);
+  }
+}, [swap.open, attachClosing]);
+
   // Outside tap / Escape closes the attach sheet WITHOUT the keyboard (the
   // composer glides down in sync) — same semantics as the emoji panel. The
   // sheet is a body portal, so the composer's own mousedown guard cannot
@@ -614,7 +644,14 @@ export const MessageComposer = memo(function MessageComposer({
   useEffect(() => {
     if (!(swap.open && activeSheet === "attach")) return;
     const onMouseDown = (e: MouseEvent) => {
-      if ((e.target as Element | null)?.closest(".composer-attach-sheet")) return;
+      const target = e.target as Element | null;
+      if (target?.closest(".composer-attach-sheet")) return;
+      // A tap on an editable (the composer's editor) must NOT close the sheet
+      // here: the tap's own focus closes the swap through the hook's focusin,
+      // and the lift is held + the keyboard returns smoothly (refocus path).
+      // Closing here would glide the composer DOWN while the keyboard rises —
+      // the "blink" on switching back to typing.
+      if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
       handleSheetClose();
     };
     const onKeyDown = (e: KeyboardEvent) => {

@@ -128,7 +128,13 @@ const { mockEmojiSwap } = vi.hoisted(() => ({
     open: false,
     height: 0,
     toggle: vi.fn(),
-    closePanel: vi.fn(),
+    // Faithful to the real hook's closePanel: it flips the swap closed in
+    // the same batch (so the sheet's exit slide and the composer's lift
+    // handoff see the closed swap on the very next render, like on device).
+    closePanel: vi.fn((refocus: boolean) => {
+      mockEmojiSwap.open = false;
+      void refocus;
+    }),
   } as any,
 }));
 
@@ -286,9 +292,10 @@ describe("MessageComposer", () => {
     expect(input.getAttribute("accept")).toBe("image/*");
     expect(input.getAttribute("capture")).toBe("environment");
     // The native sheet closed (page regained focus): the attach session ends,
-    // the sheet closes and the keyboard returns via the swap's closePanel.
+    // the keyboard returns via the swap's closePanel, and the attach sheet
+    // exits with its slide (it unmounts after the exit animation).
     fireEvent.focus(window);
-    expect(screen.queryByTestId("attach-sheet")).not.toBeInTheDocument();
+    expect(screen.getByTestId("attach-sheet")).toHaveClass("is-closing");
     expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(true);
   });
 
@@ -300,7 +307,9 @@ describe("MessageComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
     expect(screen.getByTestId("attach-sheet")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
-    expect(screen.queryByTestId("attach-sheet")).not.toBeInTheDocument();
+    // The swap closes with the keyboard returning; the sheet exits with its
+    // slide (it unmounts after the exit animation).
+    expect(screen.getByTestId("attach-sheet")).toHaveClass("is-closing");
     expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(true);
   });
 
@@ -315,13 +324,35 @@ describe("MessageComposer", () => {
     fireEvent.mouseDown(screen.getByRole("button", { name: "Камера" }));
     expect(sheet).toBeInTheDocument();
     expect(mockEmojiSwap.closePanel).not.toHaveBeenCalled();
-    // A tap outside (on the message list / page) closes it: the panel exits
-    // with a glide (is-closing) and the keyboard does NOT return — the editor
-    // was deliberately blurred by the swap, so the composer slides down with
-    // the departing sheet instead.
+    // A tap outside (on the message list / page) closes it: the swap flips
+    // closed inside closePanel (same batch), the panel exits with a glide
+    // (is-closing) and the keyboard does NOT return — the editor was
+    // deliberately blurred by the swap, so the composer slides down with the
+    // departing sheet instead.
+    fireEvent.mouseDown(document.body);
+    expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(false);
+    expect(sheet).toHaveClass("is-closing");
+  });
+
+  it("touch: tapping the editor does NOT close the attach sheet via the outside handler (the tap's own focus owns it)", () => {
+    mockMobileKeyboard.isTouch = true;
+    const { textarea } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    mockEmojiSwap.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    const sheet = screen.getByTestId("attach-sheet");
+    // A tap on the editor must not close the sheet here: the focus lands on an
+    // editable, the hook's focusin flips the swap closed, and the composer
+    // keeps its lift while the keyboard returns (no glide-down blink).
+    fireEvent.mouseDown(textarea);
+    expect(sheet).toBeInTheDocument();
+    expect(mockEmojiSwap.closePanel).not.toHaveBeenCalled();
+    // Emulate the focusin close: the swap flips closed with the editor
+    // focused — the sheet exits with its slide, keyboard returning.
+    fireEvent.focus(textarea);
+    mockEmojiSwap.open = false;
     fireEvent.mouseDown(document.body);
     expect(sheet).toHaveClass("is-closing");
-    expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(false);
   });
 
   it("touch: Escape closes the attach sheet WITHOUT the keyboard", () => {
@@ -390,7 +421,7 @@ describe("MessageComposer", () => {
     expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
     // The keyboard is back at its full height — the live global caught up with
     // the held lift; releasing moves nothing.
-    mockMobileKeyboard.keyboardInset = 300;
+    mockMobileKeyboard.keyboardInset = 360;
     poke();
     expect(panel.style.getPropertyValue("--kb-inset")).toBe("");
   });
