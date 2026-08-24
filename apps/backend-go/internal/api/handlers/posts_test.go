@@ -512,6 +512,11 @@ func TestDeletePost_Success(t *testing.T) {
 		WithArgs("p1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "thread_id"}).AddRow("u1", "t1"))
 
+	// Reply-subtree authors (for counter recompute) — none here.
+	mock.ExpectQuery(`WITH RECURSIVE sub AS.*`).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
+
 	// Delete
 	mock.ExpectExec(`DELETE FROM posts WHERE id = \$1`).
 		WithArgs("p1").
@@ -604,6 +609,10 @@ func TestDeletePost_ModeratorAllowed(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectQuery(`WITH RECURSIVE sub AS.*`).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
 
 	mock.ExpectExec(`DELETE FROM posts WHERE id = \$1`).
 		WithArgs("p1").

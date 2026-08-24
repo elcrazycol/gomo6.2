@@ -554,8 +554,12 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var ownerID string
-	err := h.db.QueryRow(`SELECT user_id FROM threads WHERE id = $1`, id).Scan(&ownerID)
+	// user_id is nullable (anonymous threads) — scanning it into a plain string
+	// would make a NULL fail the whole request with a scan error. board_id is
+	// needed to invalidate the board's thread-list cache afterwards.
+	var ownerID sql.NullString
+	var boardID string
+	err := h.db.QueryRow(`SELECT user_id, board_id FROM threads WHERE id = $1`, id).Scan(&ownerID, &boardID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
@@ -566,10 +570,11 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	}
 
 	// H1 (security audit): deleting a thread is restricted to its author or
-	// platform staff. The moderation UI (ModerationPosts, ModeratorMenu) deletes
-	// foreign threads through this same endpoint, so moderator/admin roles must
-	// be allowed; anyone else gets 403.
-	if ownerID != userClaims.UserID {
+	// platform staff. Anonymous threads (user_id IS NULL) have no author, so
+	// only staff may delete them. The moderation UI (ModerationPosts,
+	// ModeratorMenu) deletes foreign threads through this same endpoint, so
+	// moderator/admin roles must be allowed; anyone else gets 403.
+	if !ownerID.Valid || ownerID.String != userClaims.UserID {
 		isStaff, staffErr := isModeratorOrAdmin(h.db, userClaims.UserID)
 		if staffErr != nil {
 			serverError(c, "check moderation role", staffErr)
@@ -579,6 +584,21 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("Only the author or a moderator can delete this thread"))
 			return
 		}
+	}
+
+	// The thread's posts cascade-delete with it (migration 107) — recompute the
+	// counters of every author whose posts disappear. Best-effort: a failure
+	// here must never fail the delete.
+	var postAuthors []string
+	authorRows, authorErr := h.db.Query(`SELECT DISTINCT user_id FROM posts WHERE thread_id = $1 AND user_id IS NOT NULL`, id)
+	if authorErr == nil {
+		for authorRows.Next() {
+			var aid string
+			if err := authorRows.Scan(&aid); err == nil && aid != "" {
+				postAuthors = append(postAuthors, aid)
+			}
+		}
+		authorRows.Close()
 	}
 
 	result, err := h.db.Exec("DELETE FROM threads WHERE id = $1", id)
@@ -593,10 +613,22 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		return
 	}
 
-	RecomputeUserProfileStats(h.db, ownerID)
+	if ownerID.Valid {
+		RecomputeUserProfileStats(h.db, ownerID.String)
+	}
+	for _, aid := range postAuthors {
+		if aid != ownerID.String {
+			RecomputeUserProfileStats(h.db, aid)
+		}
+	}
 
 	if h.redis != nil {
 		middleware.InvalidateCacheForThread(h.redis, id)
+		// The board's thread list embeds per-thread post_count and the unified
+		// feed contains the thread — both would keep serving the deleted row
+		// until the data-cache TTL expires.
+		middleware.InvalidateCacheForBoard(h.redis, boardID)
+		middleware.InvalidateCacheForFeed(h.redis)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))

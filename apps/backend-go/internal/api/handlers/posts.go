@@ -478,7 +478,10 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var authorID, threadID string
+	// user_id is nullable (anonymous posts) — scanning it into a plain string
+	// would make a NULL fail the whole request with a scan error.
+	var authorID sql.NullString
+	var threadID string
 	err := h.db.QueryRow(`SELECT user_id, thread_id FROM posts WHERE id = $1`, id).Scan(&authorID, &threadID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -490,10 +493,11 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	}
 
 	// H1 (security audit): deleting a post is restricted to its author or
-	// platform staff. The moderation UI (ModerationPosts, ModeratorMenu) deletes
-	// foreign posts through this same endpoint, so moderator/admin roles must be
-	// allowed; anyone else gets 403.
-	if authorID != userClaims.UserID {
+	// platform staff. Anonymous posts (user_id IS NULL) have no author, so only
+	// staff may delete them. The moderation UI (ModerationPosts,
+	// ModeratorMenu) deletes foreign posts through this same endpoint, so
+	// moderator/admin roles must be allowed; anyone else gets 403.
+	if !authorID.Valid || authorID.String != userClaims.UserID {
 		isStaff, staffErr := isModeratorOrAdmin(h.db, userClaims.UserID)
 		if staffErr != nil {
 			serverError(c, "check moderation role", staffErr)
@@ -503,6 +507,21 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("Only the author or a moderator can delete this post"))
 			return
 		}
+	}
+
+	// The post's likes and reply subtree cascade-delete with it (migration
+	// 107) — recompute the counters of every author whose replies disappear.
+	// Best-effort: a failure here must never fail the delete.
+	var replyAuthors []string
+	authorRows, authorErr := h.db.Query(`WITH RECURSIVE sub AS (SELECT id FROM posts WHERE id = $1 UNION ALL SELECT p.id FROM posts p JOIN sub s ON p.reply_to = s.id) SELECT DISTINCT user_id FROM posts WHERE id IN (SELECT id FROM sub) AND user_id IS NOT NULL`, id)
+	if authorErr == nil {
+		for authorRows.Next() {
+			var aid string
+			if err := authorRows.Scan(&aid); err == nil && aid != "" {
+				replyAuthors = append(replyAuthors, aid)
+			}
+		}
+		authorRows.Close()
 	}
 
 	query := `DELETE FROM posts WHERE id = $1`
@@ -522,11 +541,25 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	_, _ = h.db.Exec(`
 		UPDATE threads SET post_count = GREATEST(0, post_count - 1), updated_at = NOW() WHERE id = $1
 	`, threadID)
-	RecomputeUserProfileStats(h.db, authorID)
+	if authorID.Valid {
+		RecomputeUserProfileStats(h.db, authorID.String)
+	}
+	for _, aid := range replyAuthors {
+		if aid != authorID.String {
+			RecomputeUserProfileStats(h.db, aid)
+		}
+	}
 
 	// Invalidate cache for this thread's posts
 	if h.redis != nil {
 		middleware.InvalidateCacheForThread(h.redis, threadID)
+		// The board's thread list embeds per-thread post_count — refresh it.
+		var boardID string
+		if err := h.db.QueryRow(`SELECT board_id FROM threads WHERE id = $1`, threadID).Scan(&boardID); err == nil && boardID != "" {
+			middleware.InvalidateCacheForBoard(h.redis, boardID)
+		}
+		// Posts bump threads in the unified feed — deletion does the opposite.
+		middleware.InvalidateCacheForFeed(h.redis)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))

@@ -315,10 +315,15 @@ func TestDeleteThread_Success(t *testing.T) {
 	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u1", Username: "author"})
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
-	// Get owner
-	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+	// Get owner + board (user_id is nullable → NULL-safe scan)
+	mock.ExpectQuery(`SELECT user_id, board_id FROM threads WHERE id = \$1`).
 		WithArgs("t1").
-		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "board_id"}).AddRow("u1", "b1"))
+
+	// Authors of the thread's posts (for counter recompute) — none here.
+	mock.ExpectQuery(`SELECT DISTINCT user_id FROM posts WHERE thread_id = \$1.*`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
 
 	// Delete thread
 	mock.ExpectExec(`DELETE FROM threads WHERE id = \$1`).
@@ -345,7 +350,7 @@ func TestDeleteThread_NotFound(t *testing.T) {
 	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u1"})
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
-	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT user_id, board_id FROM threads WHERE id = \$1`).
 		WithArgs("t1").
 		WillReturnError(sql.ErrNoRows)
 
@@ -380,9 +385,9 @@ func TestDeleteThread_ForeignAuthor_Forbidden(t *testing.T) {
 	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u2", Username: "attacker"})
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
-	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT user_id, board_id FROM threads WHERE id = \$1`).
 		WithArgs("t1").
-		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "board_id"}).AddRow("u1", "b1"))
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
 		WithArgs("u2").
@@ -403,13 +408,17 @@ func TestDeleteThread_ModeratorAllowed(t *testing.T) {
 	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u2", Username: "mod"})
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
-	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT user_id, board_id FROM threads WHERE id = \$1`).
 		WithArgs("t1").
-		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "board_id"}).AddRow("u1", "b1"))
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectQuery(`SELECT DISTINCT user_id FROM posts WHERE thread_id = \$1.*`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
 
 	mock.ExpectExec(`DELETE FROM threads WHERE id = \$1`).
 		WithArgs("t1").
