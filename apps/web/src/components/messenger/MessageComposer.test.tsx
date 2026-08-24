@@ -1001,6 +1001,14 @@ describe("MessageComposer", () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 400; // provisional guess must NOT win over the real 340 measurement
       rerenderPanel();
+      // The window is still collapsed at the flip — the composer sits at its
+      // keyboard-up seat (window bottom = keyboard top), no lift needed yet.
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+      // The window grows back as the keyboard dismisses: the lift compensates
+      // exactly (lift = innerHeight − sheetTop), the composer never moves.
+      Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+      mockMobileKeyboard.viewportHeight = 768; // vv === innerHeight, always
+      rerenderPanel();
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
       // The sheet is sized to the REAL keyboard (340) and pinned by its TOP
       // edge (baseline 768 − 340 = 428) — the collapsing window can't carry it
@@ -1009,11 +1017,21 @@ describe("MessageComposer", () => {
       expect(sheet).toHaveStyle({ height: "340px", top: "428px" });
 
       // Return to the input: the keyboard reappears by SHRINKING the window
-      // (still no vv-delta). The held lift must release as soon as the window
-      // collapses — the composer rides the window's bottom edge down instead of
-      // double-lifting ("flies up then teleports back").
+      // (still no vv-delta). The lift tracks the collapse — lift =
+      // innerHeight − sheetTop — easing 340 → 0 while holding the composer at
+      // the sheet's top; no stale hold, no abrupt drop under the keyboard.
       (container.querySelector("input") as HTMLInputElement).focus();
       mockEmojiSwap.open = false;
+      mockMobileKeyboard.keyboardInset = 0;
+      // Mid-rise: the window half-collapsed — the composer is still held at
+      // the sheet's top edge (768−428 = 340 → now 591−428 = 163px of lift).
+      Object.defineProperty(window, "innerHeight", { value: 591, configurable: true });
+      mockMobileKeyboard.viewportHeight = 591;
+      rerenderPanel();
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("163px");
+      // Fully collapsed: the window bottom IS the keyboard top — no lift.
+      Object.defineProperty(window, "innerHeight", { value: 428, configurable: true });
+      mockMobileKeyboard.viewportHeight = 428;
       rerenderPanel();
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
       Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });

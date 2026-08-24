@@ -148,6 +148,17 @@ export const MessageComposer = memo(function MessageComposer({
   // rendered — delta INCLUDING the bar. The bar collapses after the keyboard
   // hides, so the slot cannot be re-derived live; capture it at open.
   const sheetSlotRef = useRef(0);
+  // True once the window-collapse engine (Firefox iOS) has been observed for
+  // this composer mount: in such a session the hook can never MEASURE the
+  // keyboard (the vv-delta stays 0) — swap.height is always a provisional
+  // guess and must never enter the slot floor. The shrink, measured at the
+  // open moment, is the real height and becomes the floor. The flag survives
+  // across sessions (the device's engine doesn't change).
+  const sessionShrinkRef = useRef(false);
+  // The TOP edge (window coords) the sheet/panel is pinned to — the keyboard's
+  // top in the full window. Mirrors the sheetTop state for use inside the lift
+  // effect without re-running it (the effect writes the state).
+  const sheetTopRef = useRef(0);
   // The window's FULL height with the keyboard dismissed — the max innerHeight
   // seen since mount. On Firefox iOS the keyboard collapses innerHeight itself,
   // so baseline − innerHeight IS the keyboard's height (the vv-delta is 0
@@ -578,12 +589,17 @@ export const MessageComposer = memo(function MessageComposer({
       }
       const delta = Math.round(winH - viewportHeight);
       let slot: number;
-      if (windowShrink > 0) {
-        // The window-collapse engine (Firefox iOS) reports the FULL keyboard
-        // height directly — a stable real measurement, so it wins over the
-        // hook's provisional guess (swap.height) and the never-shrink floor
-        // (which exists only to absorb the vv engines' mid-rise fragments).
-        slot = Math.max(windowShrink, keyboardInset, delta);
+      if (sessionShrinkRef.current || windowShrink > 0) {
+        // Window-collapse engine (Firefox iOS): the shrink is the ONLY real
+        // measurement of the keyboard (the vv-delta stays 0), so the floor is
+        // fed from it — measured at the open, it's the full keyboard height,
+        // stable across sessions, and the provisional guess never enters.
+        // Re-runs while the window has grown back measure 0 and leave the
+        // floor untouched (the sheet keeps the open moment's height).
+        if (windowShrink > 0) sessionShrinkRef.current = true;
+        const measured = Math.max(windowShrink, keyboardInset, delta);
+        if (measured > sheetSlotRef.current) sheetSlotRef.current = measured;
+        slot = sheetSlotRef.current;
       } else {
         // Constant-window engine: keyboardInset/delta are the real captures;
         // swap.height is the real pre-blur snapshot. The slot NEVER shrinks
@@ -602,16 +618,34 @@ export const MessageComposer = memo(function MessageComposer({
       // constant) — the keyboard's top edge is stable in screen space, so a
       // top-pinned panel stays glued there while the window grows/shrinks
       // around it, instead of riding the resize (grey gap over the messages,
-      // "panel flies up" on return).
-      const topSource = windowShrink > 0 ? baselineHeightRef.current ?? winH : winH;
+      // "panel flies up" on return). The baseline (the full window height) is
+      // stable, so the top does not change across effect re-runs.
+      const topVal = Math.max(0, Math.round(baselineHeightRef.current ?? winH) - slot);
+      sheetTopRef.current = topVal;
       // React bails out of the re-render when the value is unchanged, so no
       // dom guard or dependency is needed.
-      setSheetTop(Math.max(0, Math.round(topSource) - slot));
-      // The keyboard is still dismissing (and the URL bar still expanded)
-      // when the sheet first opens — slapping the FULL slot on the composer
-      // in one frame makes it jump (teleport) above its previous keyboard-top
-      // seat, then settle when the bar collapses. Glide from the keyboard
-      // position up to the slot in sync with the sheet's rise instead.
+      setSheetTop(topVal);
+      if (windowShrink > 0 || sessionShrinkRef.current) {
+        // Window-engine (Firefox iOS): the composer already sits at its seat —
+        // the keyboard's top (innerHeight when the keyboard is up = sheetTop
+        // when it isn't). The lift only has to compensate the window's
+        // growth/collapse: lift = max(0, innerHeight − sheetTop). The composer
+        // therefore NEVER moves: no anchor fragment to mis-measure (the "1 in
+        // 3-4" drop under the panel), no glide, no stale hold.
+        const lift = Math.max(0, Math.round(winH) - topVal);
+        if (lift > 0) {
+          chatPanel.style.setProperty("--kb-inset", `${lift}px`);
+        } else {
+          chatPanel.style.removeProperty("--kb-inset");
+        }
+        return;
+      }
+      // Constant-window engine: the keyboard is still dismissing (and the URL
+      // bar still expanded) when the sheet first opens — slapping the FULL slot
+      // on the composer in one frame makes it jump (teleport) above its
+      // previous keyboard-top seat, then settle when the bar collapses. Glide
+      // from the keyboard position up to the slot in sync with the sheet's
+      // rise instead.
       stopEmojiGlide();
       const current = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
       // Start from the LIVE inset, not the captured swap.height: the composer
@@ -659,17 +693,16 @@ export const MessageComposer = memo(function MessageComposer({
     // Firefox-style return: the WINDOW itself collapses as the keyboard opens
     // (innerHeight shrinks together with the visual viewport, the vv-delta
     // stays 0 and the keyboard is invisible to the mobileKeyboard). The
-    // window's bottom edge then IS the keyboard top, so the held lift — set
-    // while the window was still full — double-lifts the composer (the
-    // "flies up, then teleports back" yank). The moment the window shrinks by
-    // a keyboard-sized amount, hand the composer over to the window: remove
-    // the override and ride the resize down. On constant-window engines
-    // (Safari/Chrome) the shrink stays 0 and this branch never fires — the
-    // vv-based tracking below owns that path. The >= 60 gate also keeps
-    // sub-pixel jitter from cancelling a no-refocus glide.
+    // keyboard's top = the window's bottom = sheetTop when collapsed. The
+    // composer is glued to the sheet's top edge, so its lift is
+    // max(0, innerHeight − sheetTop): it eases from the slot down to 0 as the
+    // window collapses, holding the composer in place for the whole ride —
+    // no stale hold, no abrupt drop ("composer disappears under the keyboard,
+    // then catches up"). On constant-window engines the shrink stays 0 and
+    // this branch never fires — the vv-based tracking below owns that path.
     if (
       keyboardInset === 0 &&
-      windowShrink >= 60 &&
+      windowShrink > 0 &&
       parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) > 0
     ) {
       if (liftHoldTimerRef.current !== null) {
@@ -681,7 +714,12 @@ export const MessageComposer = memo(function MessageComposer({
         settleConfirmTimerRef.current = null;
       }
       prevInsetRef.current = null;
-      chatPanel.style.removeProperty("--kb-inset");
+      const lift = Math.max(0, Math.round(winH) - sheetTopRef.current);
+      if (lift > 0) {
+        chatPanel.style.setProperty("--kb-inset", `${lift}px`);
+      } else {
+        chatPanel.style.removeProperty("--kb-inset");
+      }
       return;
     }
     if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
