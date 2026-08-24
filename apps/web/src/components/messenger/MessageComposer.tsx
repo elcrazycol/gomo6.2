@@ -373,12 +373,29 @@ export const MessageComposer = memo(function MessageComposer({
   // --kb-inset also tells mobileKeyboard's focus-out guard to skip its
   // descent. No-op when the keyboard wasn't really up (sheet→sheet switch or
   // a closed keyboard — the desktop/stale cases keep the current lift).
-  const anchorSheetLift = useCallback(() => {
-    const inset = getMobileKeyboardState().keyboardInset;
+  const anchorSheetLift = useCallback((forcedInset?: number) => {
+    let inset = forcedInset ?? getMobileKeyboardState().keyboardInset;
+    // Firefox iOS can zero keyboardInset synchronously on blur, before the
+    // panel even starts rising. Fallback: if inset is already 0 but the visual
+    // viewport hasn't grown back yet, compute the delta directly — the keyboard
+    // is still physically covering the screen.
+    if (inset < 60 && typeof window !== "undefined" && window.visualViewport) {
+      const vv = window.visualViewport;
+      const delta = window.innerHeight - vv.height;
+      if (delta >= 60) {
+        inset = Math.round(delta - (vv.offsetTop || 0));
+        if (import.meta.env.DEV) {
+          console.log("[anchorSheetLift] fallback via visualViewport", { delta, offsetTop: vv.offsetTop, computed: inset });
+        }
+      }
+    }
     if (inset < 60) return; // no real keyboard above the composer
     const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!panel) return;
     const current = parseFloat(panel.style.getPropertyValue("--kb-inset")) || 0;
+    if (import.meta.env.DEV) {
+      console.log("[anchorSheetLift]", { inset, current, willSet: inset > current });
+    }
     if (inset > current) panel.style.setProperty("--kb-inset", `${inset}px`);
   }, []);
 
@@ -389,7 +406,10 @@ export const MessageComposer = memo(function MessageComposer({
   const handleEmojiTrigger = useCallback(() => {
     // A closing attach sheet must not linger over the emoji panel.
     setAttachClosing(false);
-    anchorSheetLift();
+    // Snapshot the keyboard inset BEFORE any blur can happen — Firefox iOS may
+    // zero it synchronously in the blur, before anchorSheetLift reads it.
+    const liveInset = getMobileKeyboardState().keyboardInset;
+    anchorSheetLift(liveInset);
     if (swap.open && activeSheet === "emoji") {
       setActiveSheet(null);
       swap.closePanel(true);
@@ -405,7 +425,10 @@ export const MessageComposer = memo(function MessageComposer({
 
   const handleAttachTrigger = useCallback(() => {
     setAttachClosing(false);
-    anchorSheetLift();
+    // Snapshot the keyboard inset BEFORE any blur can happen — Firefox iOS may
+    // zero it synchronously in the blur, before anchorSheetLift reads it.
+    const liveInset = getMobileKeyboardState().keyboardInset;
+    anchorSheetLift(liveInset);
     if (swap.open && activeSheet === "attach") {
       setActiveSheet(null);
       swap.closePanel(true);
@@ -661,6 +684,29 @@ export const MessageComposer = memo(function MessageComposer({
       // Arm a bounded confirmation so a return that is reported only once
       // still clears the override shortly after (nothing moves then: the local
       // equals the global — and no stale override can block a later dismissal).
+      //
+      // Ceiling: never hold the composer above the maximum known keyboard slot
+      // (sheetSlotRef) — Firefox iOS can spike transiently ABOVE the real
+      // keyboard height; capping at the slot prevents the composer from flying
+      // up on those spikes.
+      const ceiling = sheetSlotRef.current > 0 ? sheetSlotRef.current : held;
+      if (keyboardInset > ceiling) {
+        if (import.meta.env.DEV) {
+          console.log("[refocus] ceiling applied", { keyboardInset, ceiling, held });
+        }
+        chatPanel.style.setProperty("--kb-inset", `${ceiling}px`);
+        if (liftHoldTimerRef.current !== null) {
+          clearTimeout(liftHoldTimerRef.current);
+          liftHoldTimerRef.current = null;
+        }
+        if (settleConfirmTimerRef.current === null) {
+          settleConfirmTimerRef.current = setTimeout(() => {
+            settleConfirmTimerRef.current = null;
+            rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
+          }, SETTLE_CONFIRM_MS);
+        }
+        return;
+      }
       if (liftHoldTimerRef.current !== null) {
         clearTimeout(liftHoldTimerRef.current);
         liftHoldTimerRef.current = null;
