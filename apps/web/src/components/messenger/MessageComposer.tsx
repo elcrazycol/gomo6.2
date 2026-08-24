@@ -22,6 +22,11 @@ const TYPING_DEBOUNCE_MS = 1000;
 // Duration of the emoji sheet's own exit slide (EmojiPicker: emoji-sheet-down
 // 240ms). On a no-refocus close the composer glides down in sync with it.
 const EMOJI_EXIT_MS = 240;
+/** How long to keep the composer's sheet-lift after a sheet closes with the
+ *  keyboard returning: if the keyboard never actually rises (focus without a
+ *  software keyboard, a shorter returning keyboard), release anyway so the
+ *  composer settles at the live global --kb-inset instead of floating. */
+const LIFT_HOLD_FALLBACK_MS = 800;
 
 interface Props {
   draft: string;
@@ -131,12 +136,24 @@ export const MessageComposer = memo(function MessageComposer({
   const emojiGlideActiveRef = useRef(false);
   const emojiGlideStartRef = useRef(0);
   const emojiGlideFromRef = useRef(0);
+  // The keyboard's FULL visual slot, captured once when a sheet opens: on iOS
+  // the generic keyboard inset subtracts the expanded URL bar, but a bottom
+  // sheet (fixed to the LAYOUT bottom) must fill the whole slot the keyboard
+  // rendered — delta INCLUDING the bar. The bar collapses after the keyboard
+  // hides, so the slot cannot be re-derived live; capture it at open.
+  const sheetSlotRef = useRef(0);
+  // Fallback release for the held lift on a refocus-close (see the effect).
+  const liftHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The emoji panel and the touch attach sheet share ONE keyboard-slot swap
   // (useEmojiKeyboardSwap): only one of them can occupy the keyboard's space
   // at a time. `activeSheet` tells which one is up.
   const swap = useEmojiKeyboardSwap(editorRef);
-  const { keyboardInset, isTouch } = useMobileKeyboard();
+  const { keyboardInset, viewportHeight, isTouch } = useMobileKeyboard();
   const [activeSheet, setActiveSheet] = useState<"emoji" | "attach" | null>(null);
+  // The sheet/panel height: swap.height is the *keyboard height*, but the
+  // lifted composer sits at the full visual slot (URL bar included) — the
+  // panels must match it so no gap shows between the composer and the sheet.
+  const [sheetSlot, setSheetSlot] = useState(0);
   // While the attach sheet is closing it stays mounted (with the exit slide)
   // and unmounts after a short delay — so closing reads as one smooth motion.
   const [attachClosing, setAttachClosing] = useState(false);
@@ -451,12 +468,17 @@ export const MessageComposer = memo(function MessageComposer({
   // keyboard with no pinning at all. While a keyboard-swap sheet is up the
   // keyboard is gone and --kb-inset drops to 0, which would let the sheet
   // cover the composer; instead the chat panel's LOCAL --kb-inset is
-  // overridden with the sheet height (matching the keyboard that just
-  // dismissed — the composer does not move). On close:
-  //   • keyboard returning (tap on the editor / trigger → refocus): the
-  //     override is removed instantly and the global --kb-inset (updated
-  //     synchronously by lib/mobileKeyboard on every visual-viewport event)
-  //     rides the composer back up with no React-driven copy lagging behind;
+  // overridden with the sheet slot (the keyboard's full visual slot — the
+  // generic inset minus the iOS URL bar, plus the collapsed-bar allowance, see
+  // sheetSlotRef — matching where the keyboard was, so the composer does not
+  // move). On close:
+  //   • keyboard returning (tap on the editor / trigger → refocus): the global
+  //     --kb-inset lags a couple of frames behind the rising keyboard (visual
+  //     viewport events), so releasing the override instantly drops the
+  //     composer to the bottom for a frame, then pops it back — the
+  //     "composer disappears" jerk. Instead the lift is HELD until the live
+  //     global catches up with the real keyboard height (then both coincide —
+  //     releasing is seamless), with a timed fallback release;
   //   • no-refocus close (outside tap / Escape): the keyboard stays gone, so
   //     instead of teleporting the composer to the bottom in one frame it
   //     glides down with the sheet's own exit slide (EMOJI_EXIT_MS).
@@ -465,15 +487,37 @@ export const MessageComposer = memo(function MessageComposer({
     if (!chatPanel) return;
     if (swap.open) {
       stopEmojiGlide();
-      const lift = Math.max(swap.height, keyboardInset);
-      chatPanel.style.setProperty("--kb-inset", `${lift}px`);
+      if (sheetSlotRef.current === 0) {
+        const delta = Math.round((typeof window !== "undefined" ? window.innerHeight : 0) - viewportHeight);
+        sheetSlotRef.current = Math.max(swap.height, keyboardInset, delta);
+      }
+      const slot = sheetSlotRef.current;
+      if (sheetSlot !== slot) setSheetSlot(slot);
+      chatPanel.style.setProperty("--kb-inset", `${slot}px`);
       return;
     }
-    // Sheet closed. An editable holding focus means the keyboard is coming
-    // back (tap on the editor, trigger → refocus) — release the lift right
-    // away so the live per-frame global --kb-inset takes over.
+    // Sheet closed. Reset the captured slot so the next open re-measures it.
+    sheetSlotRef.current = 0;
+    // An editable holding focus means the keyboard is coming back (tap on the
+    // editor, trigger → refocus). Hold the lift until the live global
+    // --kb-inset reaches the keyboard height captured at open — that is the
+    // first moment both geometries coincide, so releasing moves nothing.
     if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
       stopEmojiGlide();
+      const held = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
+      if (held > 0 && keyboardInset < swap.height) {
+        if (liftHoldTimerRef.current === null) {
+          liftHoldTimerRef.current = setTimeout(() => {
+            liftHoldTimerRef.current = null;
+            rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
+          }, LIFT_HOLD_FALLBACK_MS);
+        }
+        return;
+      }
+      if (liftHoldTimerRef.current !== null) {
+        clearTimeout(liftHoldTimerRef.current);
+        liftHoldTimerRef.current = null;
+      }
       chatPanel.style.removeProperty("--kb-inset");
       return;
     }
@@ -503,11 +547,32 @@ export const MessageComposer = memo(function MessageComposer({
       emojiGlideRafRef.current = requestAnimationFrame(step);
     };
     emojiGlideRafRef.current = requestAnimationFrame(step);
-  }, [swap.open, swap.height, keyboardInset, stopEmojiGlide]);
+  }, [swap.open, swap.height, keyboardInset, viewportHeight, sheetSlot, stopEmojiGlide]);
 
-  // Clean up the local override and any in-flight glide on unmount.
+  // While a keyboard-slot sheet is up the soft keyboard is closed, so the
+  // mobileKeyboard document-pan pin (active only while its state reports the
+  // keyboard OPEN) stops — yet iOS still pans the fixed shell around the
+  // sheet transition (header drifting, composer diving under the top bar).
+  // Re-pin the document scroll for the whole sheet session.
+  useEffect(() => {
+    if (!(swap.open && isTouch)) return;
+    let raf = 0;
+    const step = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [swap.open, isTouch]);
+
+  // Clean up the local override, the held-lift timer and any in-flight glide
+  // on unmount.
   useEffect(() => () => {
     stopEmojiGlide();
+    if (liftHoldTimerRef.current !== null) {
+      clearTimeout(liftHoldTimerRef.current);
+      liftHoldTimerRef.current = null;
+    }
     rootRef.current?.closest<HTMLElement>(".chat-panel")?.style.removeProperty("--kb-inset");
   }, [stopEmojiGlide]);
 
@@ -693,7 +758,7 @@ export const MessageComposer = memo(function MessageComposer({
             triggerRef={emojiButtonRef}
             keyboardSwap
             swapOpen={swap.open && activeSheet === "emoji"}
-            swapHeight={swap.height}
+            swapHeight={sheetSlot || swap.height}
             onSwapToggle={handleEmojiTrigger}
             onSwapClose={handleSheetClose}
           >
@@ -735,7 +800,7 @@ export const MessageComposer = memo(function MessageComposer({
           <div
             className={`composer-attach-sheet${attachClosing ? " is-closing" : ""}`}
             data-testid="attach-sheet"
-            style={{ height: swap.height || 300 }}
+            style={{ height: sheetSlot || swap.height || 300 }}
           >
             <button
               type="button"

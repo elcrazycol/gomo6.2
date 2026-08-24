@@ -137,7 +137,7 @@ vi.mock("@/hooks/useEmojiKeyboardSwap", () => ({
 }));
 
 const { mockMobileKeyboard } = vi.hoisted(() => ({
-  mockMobileKeyboard: { keyboardInset: 0 } as any,
+  mockMobileKeyboard: { keyboardInset: 0, viewportHeight: 0 } as any,
 }));
 
 vi.mock("@/hooks/useMobileKeyboard", () => ({
@@ -194,6 +194,7 @@ describe("MessageComposer", () => {
     mockEmojiSwap.open = false;
     mockEmojiSwap.isTouch = false;
     mockMobileKeyboard.keyboardInset = 0;
+    mockMobileKeyboard.viewportHeight = 0;
     mockMobileKeyboard.isTouch = false;
     delete editorSpies.mockEditor.state;
     delete editorSpies.mockEditor.view;
@@ -344,6 +345,53 @@ describe("MessageComposer", () => {
     // The emoji picker is no longer the active sheet — the swap stays up,
     // only the slot's content switched.
     expect(screen.getByTestId("emoji-picker")).toHaveAttribute("data-swap-open", "false");
+  });
+
+  it("keyboard slot: lifts by the full visual slot (URL bar included) and holds the lift while the keyboard returns", () => {
+    mockEmojiSwap.height = 300;
+    mockMobileKeyboard.keyboardInset = 0;
+    // The keyboard was up with the iOS URL bar expanded: the full slot delta
+    // (innerHeight − visualViewport.height) exceeds the keyboard's own height.
+    mockMobileKeyboard.viewportHeight = window.innerHeight - 360; // delta = 360
+    const { container } = render(
+      <div className="chat-panel">
+        <MessageComposer
+          draft=""
+          setDraft={vi.fn()}
+          isSending={false}
+          onSend={vi.fn()}
+          composerRef={{ current: null }}
+        />
+      </div>,
+    );
+    const panel = container.querySelector(".chat-panel") as HTMLElement;
+    const textarea = screen.getByPlaceholderText("Напиши сообщение...") as HTMLTextAreaElement;
+    // A state-changing poke forces a re-render so the lift effect re-runs with
+    // the mutated mock values (each fireEvent flushes effects).
+    const poke = () => {
+      const expand = screen.queryByRole("button", { name: "Развернуть компоузер" });
+      const collapse = screen.queryByRole("button", { name: "Свернуть компоузер" });
+      fireEvent.click((expand ?? collapse)!);
+    };
+    // Open the sheet: the lift equals the FULL slot (360), not the keyboard
+    // height (300) — otherwise the panel would get less space than the
+    // keyboard and the composer would sit a hair low.
+    mockEmojiSwap.open = true;
+    poke();
+    expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
+    // Close with the keyboard returning (tap on the editor): the global
+    // --kb-inset still reports 0, so releasing would drop the composer to the
+    // bottom for a frame before the keyboard rises — the lift is held.
+    textarea.focus();
+    mockEmojiSwap.open = false;
+    mockMobileKeyboard.keyboardInset = 0;
+    poke();
+    expect(panel.style.getPropertyValue("--kb-inset")).toBe("360px");
+    // The keyboard is back at its full height — the live global caught up with
+    // the held lift; releasing moves nothing.
+    mockMobileKeyboard.keyboardInset = 300;
+    poke();
+    expect(panel.style.getPropertyValue("--kb-inset")).toBe("");
   });
 
   it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
@@ -497,6 +545,8 @@ describe("MessageComposer", () => {
     it("keeps the chat panel's bottom at the emoji panel height while it is open", () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
+      // No URL bar: the keyboard occupied the full delta (innerHeight − vv).
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       const { container } = render(
         <div className="chat-panel">
           <MessageComposer
@@ -537,6 +587,7 @@ describe("MessageComposer", () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
       mockMobileKeyboard.keyboardInset = 340;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       const { container, rerender } = render(
         <div className="chat-panel">
           <MessageComposer
@@ -571,6 +622,7 @@ describe("MessageComposer", () => {
     it("glides the composer down with the panel's exit on a no-refocus close", async () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       const { container, rerender } = render(
         <div className="chat-panel">
           <MessageComposer
@@ -607,9 +659,10 @@ describe("MessageComposer", () => {
       await waitFor(() => expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe(""));
     });
 
-    it("releases the lift instantly when the keyboard returns (editable refocused)", () => {
+    it("holds the lift until the keyboard has fully returned (editable refocused), then releases seamlessly", () => {
       mockEmojiSwap.open = true;
       mockEmojiSwap.height = 340;
+      mockMobileKeyboard.viewportHeight = window.innerHeight - 340;
       const { container, rerender } = render(
         <div className="chat-panel">
           <MessageComposer
@@ -626,11 +679,29 @@ describe("MessageComposer", () => {
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
 
       // The keyboard returns: the user taps the editor — an editable grabs
-      // focus. The lift is released at once so the live per-frame global
-      // --kb-inset rides the composer back up.
+      // focus. The live global --kb-inset still reports 0 (visual-viewport
+      // events lag the rising keyboard by a couple of frames) — releasing now
+      // would drop the composer to the bottom for a frame, then pop it back.
+      // The lift is HELD: the composer stays put while the keyboard slides up.
       (container.querySelector("input") as HTMLInputElement).focus();
       mockEmojiSwap.open = false;
-      mockEmojiSwap.height = 340;
+      rerender(
+        <div className="chat-panel">
+          <MessageComposer
+            draft=""
+            setDraft={vi.fn()}
+            isSending={false}
+            onSend={vi.fn()}
+            composerRef={{ current: null }}
+          />
+          <input data-testid="kb-return" />
+        </div>,
+      );
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("340px");
+
+      // The keyboard is back at its full height — the live global has caught
+      // up with the held lift; releasing now moves nothing.
+      mockMobileKeyboard.keyboardInset = 340;
       rerender(
         <div className="chat-panel">
           <MessageComposer
