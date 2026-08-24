@@ -17,6 +17,10 @@
     "@bbob/core": "^4.3.1",
     "@bbob/preset-react": "^4.3.1",
     "@bbob/react": "^4.3.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/status-bar": "^8.0.3",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",
@@ -95,6 +99,9 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
     "@eslint/js": "^9.32.0",
     "@swc/core": "^1.12.11",
     "@tailwindcss/typography": "^0.5.16",

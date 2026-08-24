@@ -6,7 +6,7 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "src/components/ui/**", "src/test/**", "tailwind.config.ts", "vite.config.ts", "vitest.config.ts"] },
+  { ignores: ["dist", "src/components/ui/**", "src/test/**", "tailwind.config.ts", "vite.config.ts", "vitest.config.ts", "capacitor.config.ts"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
