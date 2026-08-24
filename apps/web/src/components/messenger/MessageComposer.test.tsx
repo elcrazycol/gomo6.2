@@ -194,6 +194,7 @@ describe("MessageComposer", () => {
     mockEmojiSwap.open = false;
     mockEmojiSwap.isTouch = false;
     mockMobileKeyboard.keyboardInset = 0;
+    mockMobileKeyboard.isTouch = false;
     delete editorSpies.mockEditor.state;
     delete editorSpies.mockEditor.view;
     delete editorSpies.mockEditor.on;
@@ -251,19 +252,67 @@ describe("MessageComposer", () => {
     expect(ev.defaultPrevented).toBe(true);
   });
 
-  it("restores editor focus when the file sheet closes, but not on unrelated window refocus", () => {
-    setup();
-    const before = editorSpies.focusCalls.length;
-    // An app-return without a live file-sheet session must not refocus.
-    window.dispatchEvent(new Event("focus"));
-    expect(editorSpies.focusCalls.length).toBe(before);
-    // Open the full composer so the paperclip takes the left slot.
+  it("desktop: the paperclip opens the native picker directly, no attach sheet", () => {
+    const { container } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {});
     fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
-    // The native file sheet closed → the page regains focus → the caret is
-    // put back, which brings the soft keyboard up again.
-    window.dispatchEvent(new Event("focus"));
-    expect(editorSpies.focusCalls.length).toBe(before + 1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("attach-sheet")).not.toBeInTheDocument();
+  });
+
+  it("touch: the paperclip opens the attach sheet in the keyboard slot (no native picker)", () => {
+    mockMobileKeyboard.isTouch = true;
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    mockEmojiSwap.open = true; // the shared keyboard slot came up
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    expect(screen.getByTestId("attach-sheet")).toBeInTheDocument();
+    // The slot was already open — the trigger only switched its content, no
+    // toggle (and no keyboard summoned).
+    expect(mockEmojiSwap.toggle).not.toHaveBeenCalled();
+  });
+
+  it("touch: an attach option reconfigures the hidden input; window focus ends the session and returns the keyboard", () => {
+    mockMobileKeyboard.isTouch = true;
+    const { container } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    mockEmojiSwap.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.click(screen.getByRole("button", { name: "Камера" }));
+    expect(input.getAttribute("accept")).toBe("image/*");
+    expect(input.getAttribute("capture")).toBe("environment");
+    // The native sheet closed (page regained focus): the attach session ends,
+    // the sheet closes and the keyboard returns via the swap's closePanel.
+    fireEvent.focus(window);
+    expect(screen.queryByTestId("attach-sheet")).not.toBeInTheDocument();
+    expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(true);
+  });
+
+  it("touch: re-tapping the paperclip closes the sheet and returns the keyboard", () => {
+    mockMobileKeyboard.isTouch = true;
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    mockEmojiSwap.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    expect(screen.getByTestId("attach-sheet")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    expect(screen.queryByTestId("attach-sheet")).not.toBeInTheDocument();
+    expect(mockEmojiSwap.closePanel).toHaveBeenCalledWith(true);
+  });
+
+  it("touch: the paperclip switches the open slot from the emoji panel to the attach sheet", () => {
+    mockMobileKeyboard.isTouch = true;
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    mockEmojiSwap.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить файл" }));
+    expect(screen.getByTestId("attach-sheet")).toBeInTheDocument();
+    // The emoji picker is no longer the active sheet — the swap stays up,
+    // only the slot's content switched.
+    expect(screen.getByTestId("emoji-picker")).toHaveAttribute("data-swap-open", "false");
   });
 
   it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {

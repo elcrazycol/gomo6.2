@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic, Smile, Maximize2, Minimize2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic, Smile, Maximize2, Minimize2, Camera } from "lucide-react";
 import { GomoRichEditor, Toolbar, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { EmojiPicker } from "@/components/EmojiPicker";
 
@@ -119,19 +120,27 @@ export const MessageComposer = memo(function MessageComposer({
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  // Native file-sheet session: pending window-focus restore of the editor
-  // caret (see openFilePicker). Kept in refs so the session survives renders.
+  // Pending native-picker session (launched from the touch attach sheet):
+  // while it is up the app has visibly handed the screen to iOS; the close
+  // signal (window focus) ends the attach session deterministically.
   const fileSheetFocusRef = useRef<(() => void) | null>(null);
-  const fileSheetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Eased descent of the local --kb-inset override when the emoji panel closes
-  // without the keyboard returning (outside tap / Escape). Kept in refs so the
-  // rAF loop can run without re-rendering the composer.
+  // Eased descent of the local --kb-inset override when a keyboard-slot sheet
+  // closes without the keyboard returning (outside tap / Escape). Kept in
+  // refs so the rAF loop can run without re-rendering the composer.
   const emojiGlideRafRef = useRef<number | null>(null);
   const emojiGlideActiveRef = useRef(false);
   const emojiGlideStartRef = useRef(0);
   const emojiGlideFromRef = useRef(0);
-  const emojiSwap = useEmojiKeyboardSwap(editorRef);
-  const { keyboardInset } = useMobileKeyboard();
+  // The emoji panel and the touch attach sheet share ONE keyboard-slot swap
+  // (useEmojiKeyboardSwap): only one of them can occupy the keyboard's space
+  // at a time. `activeSheet` tells which one is up.
+  const swap = useEmojiKeyboardSwap(editorRef);
+  const { keyboardInset, isTouch } = useMobileKeyboard();
+  const [activeSheet, setActiveSheet] = useState<"emoji" | "attach" | null>(null);
+  // While the attach sheet is closing it stays mounted (with the exit slide)
+  // and unmounts after a short delay — so closing reads as one smooth motion.
+  const [attachClosing, setAttachClosing] = useState(false);
+  const attachCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [fullMode, setFullMode] = useState(false);
   // While the formatting panel is closing it stays mounted (with the exit
@@ -142,17 +151,15 @@ export const MessageComposer = memo(function MessageComposer({
 
   useEffect(() => () => {
     if (panelExitTimerRef.current) clearTimeout(panelExitTimerRef.current);
+    if (attachCloseTimerRef.current) clearTimeout(attachCloseTimerRef.current);
   }, []);
 
-  // Drop a pending file-sheet focus restore on unmount (chat closed mid-sheet).
+  // Drop a pending native-picker session listener on unmount (chat closed
+  // while the picker is up).
   useEffect(() => () => {
     if (fileSheetFocusRef.current) {
       window.removeEventListener("focus", fileSheetFocusRef.current);
       fileSheetFocusRef.current = null;
-    }
-    if (fileSheetTimerRef.current) {
-      clearTimeout(fileSheetTimerRef.current);
-      fileSheetTimerRef.current = null;
     }
   }, []);
   // Bumped when the editor content must be re-seeded from `draft` (edit start,
@@ -255,54 +262,116 @@ export const MessageComposer = memo(function MessageComposer({
     }
   }, [isEditing, draft, editingContent, editingMessageId, onSaveEdit, onCancelEdit, isSending, uploadingFiles, hasContent, pendingAttachments, stopTyping, onSend]);
 
-  // ── Files: paperclip, Ctrl+V ───────────────────────────────────────────────
+  // ── Touch attach sheet (paperclip) ────────────────────────────────────────
+  // On touch the paperclip does NOT open the native picker directly — iOS
+  // steals the keyboard for the sheet and never hands it back (the 2026-08
+  // attach bug: the keyboard "уезжает" ~2s after the tap, and the header
+  // janks on the next open). Instead an in-app sheet takes the keyboard's
+  // slot through the same swap machinery as the emoji panel: the editor blurs
+  // deliberately, the composer stays lifted, nothing is left to chance. The
+  // native picker only opens AFTER an explicit source choice, and the session
+  // ends deterministically (window focus / files picked / any sheet close
+  // path) — with the keyboard returning, since the editor is blurred by the
+  // swap, so focus() reliably reopens it.
+  const endAttachSession = useCallback(() => {
+    if (fileSheetFocusRef.current) {
+      window.removeEventListener("focus", fileSheetFocusRef.current);
+      fileSheetFocusRef.current = null;
+    }
+    setActiveSheet(null);
+    if (swap.open) swap.closePanel(true); // keyboard returns
+  }, [swap]);
+
+  const handleSheetClose = useCallback(() => {
+    // Outside-tap / Escape: close WITHOUT the keyboard returning — the
+    // composer glides down in sync with the sheet's exit slide.
+    if (activeSheet === "attach") {
+      setAttachClosing(true);
+      if (attachCloseTimerRef.current) clearTimeout(attachCloseTimerRef.current);
+      attachCloseTimerRef.current = setTimeout(() => setAttachClosing(false), EMOJI_EXIT_MS);
+    }
+    setActiveSheet(null);
+    swap.closePanel(false);
+  }, [activeSheet, swap]);
+
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     onAttachFiles?.(Array.from(files));
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [onAttachFiles]);
+    // A picker session produced files — end the attach session (keyboard back).
+    endAttachSession();
+  }, [onAttachFiles, endAttachSession]);
 
-  // The native file sheet steals page focus; when it closes (file picked or
-  // cancelled) iOS/Android do not hand it back to the contenteditable editor,
-  // so the keyboard drops as if blurred by itself. Track the session and put
-  // the caret back — which brings the keyboard up again — the moment the page
-  // regains focus.
+  // Desktop keeps the plain native dialog — no keyboard to protect there.
   const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleAttachOption = useCallback((option: "camera" | "photo" | "file") => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    // One hidden input serves all three sources — reconfigure it per pick.
+    if (option === "camera") {
+      input.setAttribute("accept", "image/*");
+      input.setAttribute("capture", "environment");
+    } else if (option === "photo") {
+      input.setAttribute("accept", "image/*");
+      input.removeAttribute("capture");
+    } else {
+      input.setAttribute("accept", "image/*,video/*,audio/*,.pdf,.txt,.md");
+      input.removeAttribute("capture");
+    }
+    // The native picker takes over; regaining window focus ends the attach
+    // session and returns the keyboard (see endAttachSession).
     if (fileSheetFocusRef.current) {
       window.removeEventListener("focus", fileSheetFocusRef.current);
       fileSheetFocusRef.current = null;
     }
-    if (fileSheetTimerRef.current) {
-      clearTimeout(fileSheetTimerRef.current);
-      fileSheetTimerRef.current = null;
-    }
     const onWindowFocus = () => {
       window.removeEventListener("focus", onWindowFocus);
       fileSheetFocusRef.current = null;
-      if (fileSheetTimerRef.current) {
-        clearTimeout(fileSheetTimerRef.current);
-        fileSheetTimerRef.current = null;
-      }
-      // While the emoji keyboard-swap panel is up, the editor is deliberately
-      // blurred (the panel replaced the keyboard) — restoring focus would
-      // close the panel; let it stay.
-      if (emojiSwap.open) return;
-      editorRef.current?.focus();
+      endAttachSession();
     };
     fileSheetFocusRef.current = onWindowFocus;
     window.addEventListener("focus", onWindowFocus);
-    // Safety net: if the sheet never opens (or the session already ended),
-    // a later app-return must not refocus the editor unsolicited.
-    fileSheetTimerRef.current = setTimeout(() => {
-      if (fileSheetFocusRef.current === onWindowFocus) {
-        window.removeEventListener("focus", onWindowFocus);
-        fileSheetFocusRef.current = null;
-      }
-      fileSheetTimerRef.current = null;
-    }, 2000);
-    fileInputRef.current?.click();
-  }, [emojiSwap.open]);
+    input.click();
+  }, [endAttachSession]);
+
+  // Trigger semantics for the shared keyboard slot: re-tap on the open
+  // sheet's own trigger closes it (keyboard returns); tapping the OTHER
+  // trigger while a sheet is up switches the slot's content without
+  // summoning the keyboard.
+  const handleEmojiTrigger = useCallback(() => {
+    // A closing attach sheet must not linger over the emoji panel.
+    setAttachClosing(false);
+    if (swap.open && activeSheet === "emoji") {
+      setActiveSheet(null);
+      swap.closePanel(true);
+      return;
+    }
+    if (swap.open && activeSheet === "attach") {
+      setActiveSheet("emoji");
+      return;
+    }
+    setActiveSheet("emoji");
+    if (!swap.open) swap.toggle();
+  }, [activeSheet, swap]);
+
+  const handleAttachTrigger = useCallback(() => {
+    setAttachClosing(false);
+    if (swap.open && activeSheet === "attach") {
+      setActiveSheet(null);
+      swap.closePanel(true);
+      return;
+    }
+    if (swap.open && activeSheet === "emoji") {
+      setActiveSheet("attach");
+      return;
+    }
+    setActiveSheet("attach");
+    if (!swap.open) swap.toggle();
+  }, [activeSheet, swap]);
 
   const handleEditorPaste = useCallback((e: React.ClipboardEvent<HTMLElement>) => {
     const files = getPastedFiles(e);
@@ -343,7 +412,7 @@ export const MessageComposer = memo(function MessageComposer({
 
   // ── Emoji (wall-post behaviour: keyboard swap on touch, popover on desktop) ─
   const handleEmojiSelect = useCallback((data: { emojiId: string; packId: string; url: string; name: string }) => {
-    if (emojiSwap.open) {
+    if (swap.open) {
       // Panel replaced the keyboard: insert at the saved caret WITHOUT
       // refocusing, so the keyboard stays hidden and the user can keep
       // adding emojis.
@@ -352,7 +421,7 @@ export const MessageComposer = memo(function MessageComposer({
       editorRef.current?.focus();
       editorRef.current?.insertEmoji(data);
     }
-  }, [emojiSwap.open]);
+  }, [swap.open]);
 
   // ── Full composer: the ▢ opens a full-width formatting panel above the
   // input pill and relocates to its left edge; the bottom slot it vacated
@@ -376,32 +445,32 @@ export const MessageComposer = memo(function MessageComposer({
     emojiGlideActiveRef.current = false;
   }, []);
 
-  // ── Emoji panel ↔ keyboard: the panel occupies the keyboard's space ──────
+  // ── Keyboard-slot sheet (emoji / touch attach) ↔ keyboard ─────────────────
   // The chat panel is bottom-anchored at --kb-inset (see messenger.css), so
   // the composer — always in flow at the panel's bottom — floats above the
-  // keyboard with no pinning at all. While the keyboard-swap emoji panel is
-  // up the keyboard is gone and --kb-inset drops to 0, which would let the
-  // panel cover the composer; instead the chat panel's LOCAL --kb-inset is
-  // overridden with the panel height (matching the keyboard that just
+  // keyboard with no pinning at all. While a keyboard-swap sheet is up the
+  // keyboard is gone and --kb-inset drops to 0, which would let the sheet
+  // cover the composer; instead the chat panel's LOCAL --kb-inset is
+  // overridden with the sheet height (matching the keyboard that just
   // dismissed — the composer does not move). On close:
-  //   • keyboard returning (tap on the editor / toggle → refocus): the
+  //   • keyboard returning (tap on the editor / trigger → refocus): the
   //     override is removed instantly and the global --kb-inset (updated
   //     synchronously by lib/mobileKeyboard on every visual-viewport event)
   //     rides the composer back up with no React-driven copy lagging behind;
   //   • no-refocus close (outside tap / Escape): the keyboard stays gone, so
   //     instead of teleporting the composer to the bottom in one frame it
-  //     glides down with the panel's own exit slide (EMOJI_EXIT_MS).
+  //     glides down with the sheet's own exit slide (EMOJI_EXIT_MS).
   useEffect(() => {
     const chatPanel = rootRef.current?.closest<HTMLElement>(".chat-panel");
     if (!chatPanel) return;
-    if (emojiSwap.open) {
+    if (swap.open) {
       stopEmojiGlide();
-      const lift = Math.max(emojiSwap.height, keyboardInset);
+      const lift = Math.max(swap.height, keyboardInset);
       chatPanel.style.setProperty("--kb-inset", `${lift}px`);
       return;
     }
-    // Panel closed. An editable holding focus means the keyboard is coming
-    // back (tap on the editor, toggle → refocus) — release the lift right
+    // Sheet closed. An editable holding focus means the keyboard is coming
+    // back (tap on the editor, trigger → refocus) — release the lift right
     // away so the live per-frame global --kb-inset takes over.
     if (typeof document !== "undefined" && isEditableElement(document.activeElement)) {
       stopEmojiGlide();
@@ -409,7 +478,7 @@ export const MessageComposer = memo(function MessageComposer({
       return;
     }
     // Outside-tap / Escape close: glide the composer down in sync with the
-    // panel's exit instead of dropping it in one frame.
+    // sheet's exit instead of dropping it in one frame.
     const from = parseFloat(chatPanel.style.getPropertyValue("--kb-inset")) || 0;
     if (from <= 0) {
       chatPanel.style.removeProperty("--kb-inset");
@@ -434,7 +503,7 @@ export const MessageComposer = memo(function MessageComposer({
       emojiGlideRafRef.current = requestAnimationFrame(step);
     };
     emojiGlideRafRef.current = requestAnimationFrame(step);
-  }, [emojiSwap.open, emojiSwap.height, keyboardInset, stopEmojiGlide]);
+  }, [swap.open, swap.height, keyboardInset, stopEmojiGlide]);
 
   // Clean up the local override and any in-flight glide on unmount.
   useEffect(() => () => {
@@ -454,7 +523,7 @@ export const MessageComposer = memo(function MessageComposer({
     <div
       ref={rootRef}
       onMouseDown={handleComposerMouseDown}
-      className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${emojiSwap.open ? " is-emoji-open" : ""}`}
+      className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${swap.open ? " is-sheet-open" : ""}`}
     >
       {replyToMessage && (
         <div className="composer-reply-banner">
@@ -547,7 +616,7 @@ export const MessageComposer = memo(function MessageComposer({
             <button
               type="button"
               className="composer-attach-btn"
-              onClick={openFilePicker}
+              onClick={isTouch ? handleAttachTrigger : openFilePicker}
               onMouseDown={(e) => e.preventDefault()}
               aria-label="Прикрепить файл"
             >
@@ -602,10 +671,10 @@ export const MessageComposer = memo(function MessageComposer({
             onEmojiSelect={handleEmojiSelect}
             triggerRef={emojiButtonRef}
             keyboardSwap
-            swapOpen={emojiSwap.open}
-            swapHeight={emojiSwap.height}
-            onSwapToggle={emojiSwap.toggle}
-            onSwapClose={() => emojiSwap.closePanel(false)}
+            swapOpen={swap.open && activeSheet === "emoji"}
+            swapHeight={swap.height}
+            onSwapToggle={handleEmojiTrigger}
+            onSwapClose={handleSheetClose}
           >
             <button
               type="button"
@@ -635,6 +704,41 @@ export const MessageComposer = memo(function MessageComposer({
           {isEditing ? <Pencil size={16} /> : <SendHorizontal size={16} />}
         </button>
       </div>
+
+      {/* Touch attach sheet — occupies the keyboard's slot (same swap
+          machinery as the emoji panel). The native picker only opens after
+          an explicit source choice; the editor stays blurred and the
+          composer lifted, so nothing in the flow depends on iOS. */}
+      {((swap.open && activeSheet === "attach") || attachClosing) &&
+        createPortal(
+          <div
+            className={`composer-attach-sheet${attachClosing ? " is-closing" : ""}`}
+            data-testid="attach-sheet"
+            style={{ height: swap.height || 300 }}
+          >
+            <button
+              type="button"
+              className="composer-attach-backdrop"
+              aria-label="Закрыть меню"
+              onClick={handleSheetClose}
+            />
+            <div className="composer-attach-options">
+              <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("camera")}>
+                <Camera size={22} />
+                <span>Камера</span>
+              </button>
+              <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("photo")}>
+                <ImageIcon size={22} />
+                <span>Фото</span>
+              </button>
+              <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("file")}>
+                <FileText size={22} />
+                <span>Файлы</span>
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 });
