@@ -909,6 +909,41 @@ export const MessageComposer = memo(function MessageComposer({
     emojiGlideRafRef.current = requestAnimationFrame(step);
   }, [swap.open, swap.height, keyboardInset, viewportHeight, sheetSlot, stopEmojiGlide, startWindowFollow]);
 
+  // Synchronous event path for the window-engine (Firefox iOS) ride: the
+  // keyboard's rise can stall the page's rAF callbacks (the system animation
+  // beats the page's frames) or ship few/no visualViewport events, so even the
+  // rAF follow can miss frames of the collapse — the stale local then drifts
+  // the composer off the sheet top and the first event snaps it back. The
+  // window/visualViewport resize events fire per re-layout while the keyboard
+  // animates; write the lift SYNCHRONOUSLY in the handler (no frame
+  // scheduling), so the composer is glued to the sheet top regardless of how
+  // the frames land. Gated to the window-collapse engine and an ACTIVE lift
+  // (local > 0): a keyboard dismissed outside a sheet session never moves
+  // anything, and the open/switch/anchor writes all use the same formula, so
+  // this never fights them.
+  useEffect(() => {
+    const onResize = () => {
+      if (!sessionShrinkRef.current) return;
+      const panel = rootRef.current?.closest<HTMLElement>(".chat-panel");
+      if (!panel) return;
+      if ((parseFloat(panel.style.getPropertyValue("--kb-inset")) || 0) <= 0) return;
+      const winH = typeof window !== "undefined" ? window.innerHeight : 0;
+      const lift = Math.max(0, Math.round(winH) - sheetTopRef.current);
+      if (lift > 0) {
+        panel.style.setProperty("--kb-inset", `${lift}px`);
+        startWindowFollow();
+      } else {
+        panel.style.removeProperty("--kb-inset");
+      }
+    };
+    window.addEventListener("resize", onResize);
+    window.visualViewport?.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.visualViewport?.removeEventListener("resize", onResize);
+    };
+  }, [startWindowFollow]);
+
   // iOS pans the document when the soft keyboard opens/closes and an input is
   // focused: the visual viewport shrinks/grows, the browser scrolls the layout
   // viewport to "reveal" the input, and the whole `position: fixed` messenger
@@ -970,7 +1005,7 @@ export const MessageComposer = memo(function MessageComposer({
       const lines = [
         `open:${String(swap.open)} sheet:${String(activeSheet)} slot:${sheetSlot} top:${sheetTop} h:${swap.height}`,
         `kbInset:${kb.keyboardInset} vv:${vv ? Math.round(vv.height) : "—"} / ${typeof window !== "undefined" ? window.innerHeight : "—"} offT:${vv ? Math.round(vv.offsetTop) : "—"}`,
-        `local:${local} base:${baselineHeightRef.current ?? "—"} shrink:${baselineHeightRef.current !== null && typeof window !== "undefined" ? Math.max(0, baselineHeightRef.current - window.innerHeight) : 0}`,
+        `local:${local} base:${baselineHeightRef.current ?? "—"} shrink:${baselineHeightRef.current !== null && typeof window !== "undefined" ? Math.max(0, baselineHeightRef.current - window.innerHeight) : 0} follow:${windowFollowRafRef.current !== null ? 1 : 0}`,
         `focus:${active} scroll:${typeof window !== "undefined" ? window.scrollY : "—"}`,
       ].join("\n");
       if (strip.textContent !== lines) strip.textContent = lines;

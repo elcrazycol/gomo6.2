@@ -1020,9 +1020,10 @@ describe("MessageComposer", () => {
       // (still no vv-delta). The lift tracks the collapse — lift =
       // innerHeight − sheetTop — easing 340 → 0 while holding the composer at
       // the sheet's top; no stale hold, no abrupt drop under the keyboard.
-      // The close branch now follows the window with a rAF loop (Firefox can
-      // deliver the rise with no viewport events at all): flush the frames
-      // between the collapse steps.
+      // The close branch now rides the collapse via the synchronous
+      // window-resize events (rAF can be throttled while the system keyboard
+      // animates) with a rAF follow as the backstop — assert through the real
+      // `resize` event, mid-collapse, without waiting for any frame.
       (container.querySelector("input") as HTMLInputElement).focus();
       mockEmojiSwap.open = false;
       mockMobileKeyboard.keyboardInset = 0;
@@ -1031,13 +1032,17 @@ describe("MessageComposer", () => {
       Object.defineProperty(window, "innerHeight", { value: 591, configurable: true });
       mockMobileKeyboard.viewportHeight = 591;
       rerenderPanel();
-      await new Promise((r) => setTimeout(r, 50));
+      fireEvent(window, new Event("resize"));
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("163px");
       // Fully collapsed: the window bottom IS the keyboard top — no lift.
       Object.defineProperty(window, "innerHeight", { value: 428, configurable: true });
       mockMobileKeyboard.viewportHeight = 428;
-      rerenderPanel();
-      await new Promise((r) => setTimeout(r, 50));
+      fireEvent(window, new Event("resize"));
+      expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
+      // And a later window growth (keyboard dismissed by an outside tap etc.)
+      // must NOT re-lift the composer: the ride is over (local 0).
+      Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
+      fireEvent(window, new Event("resize"));
       expect(chatPanel.style.getPropertyValue("--kb-inset")).toBe("");
       Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
     });
