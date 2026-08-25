@@ -101,17 +101,21 @@ type TableMeta struct {
 	GomosubVisibility bool // GET gated to boards the caller may see
 	EmojiVisibility   bool // GET gated to packs the caller may see
 
-	// WriteScopedByHandler marks tables whose PUT/DELETE routes are
-	// ownership-scoped by explicit handler/middleware code instead of the
-	// generic WriteOwner scope. Set for the emoji tables: handlePut/handleDelete
-	// append `author_id = caller` (emoji_packs) / `pack_id IN (... author_id =
-	// caller)` (custom_emojis) clauses, so a client can only edit its own packs
-	// and emojis. The registry consistency test (table_registry_test.go)
-	// requires every table with a PUT/DELETE route to have either
-	// WriteOwner != OwnNone, GomosubManagement, or this flag — a new writable
-	// table can never get unscoped write routes silently (that would let any
-	// caller update/delete another user's rows: an IDOR).
-	WriteScopedByHandler bool
+	// HandlerScope is a per-table SQL predicate template that ownership-scopes
+	// PUT/DELETE writes in handlePut/handleDelete for tables whose scoping is
+	// handler-driven rather than the generic WriteOwner scope. Non-empty marks
+	// the table as handler-managed AND is the enforcement: the handlers read
+	// this field and append the predicate with the authenticated user id bound
+	// to the (single) `%d` argument index — so a table marked here is actually
+	// scoped, and the declaration can never drift from the enforcement. Set for
+	// the emoji tables: `author_id = $%d` (emoji_packs) / `pack_id IN (SELECT
+	// id FROM emoji_packs WHERE author_id = $%d)` (custom_emojis), so a client
+	// can only edit its own packs and emojis. The registry consistency test
+	// (table_registry_test.go) requires every write route (POST/PUT/DELETE) to
+	// be covered by PostOwner/WriteOwner, GomosubManagement, or HandlerScope —
+	// a new writable table can never get unscoped write routes silently (that
+	// would let any caller update/delete another user's rows: an IDOR).
+	HandlerScope string
 
 	// Upsert.
 	Upsert bool // POST uses INSERT ... ON CONFLICT (upsertInsertQuery)
@@ -182,9 +186,10 @@ var genericTables = []TableMeta{
 			"pack_id": true, "name": true, "image_url": true, "is_animated": true, "sort_order": true,
 			"unicode_triggers": true,
 		},
-		EmojiVisibility:      true,
-		WriteScopedByHandler: true,
-	}, {
+		EmojiVisibility: true,
+		HandlerScope:    "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $%d)",
+	},
+	{
 		Name: "emoji_packs",
 		// emoji_count / subscriber_count are maintained by triggers and the
 		// subscription flow — a client must never be able to inflate them.
@@ -194,8 +199,8 @@ var genericTables = []TableMeta{
 		WritableColumns: map[string]bool{
 			"name": true, "slug": true, "description": true, "icon_url": true, "is_public": true,
 		},
-		EmojiVisibility:      true,
-		WriteScopedByHandler: true,
+		EmojiVisibility: true,
+		HandlerScope:    "author_id = $%d",
 	},
 	{
 		Name:              "gomosub_invites",

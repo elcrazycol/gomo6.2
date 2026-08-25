@@ -1547,22 +1547,18 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	var clauses []string
 
-	if tableName == "emoji_packs" {
+	// Handler-scoped tables (registry HandlerScope): PUT/DELETE is bounded to
+	// the authenticated user's own rows via the registry-declared predicate.
+	// The handler reads the same field the registry test validates, so a table
+	// marked HandlerScope is actually scoped here — the declaration and the
+	// enforcement cannot drift.
+	if meta := GenericTableByName(tableName); meta != nil && meta.HandlerScope != "" {
 		uid := authenticatedUserID(c)
 		if uid == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
 		}
-		clauses = append(clauses, "author_id = $"+strconv.Itoa(argIndex))
-		args = append(args, uid)
-		argIndex++
-	} else if tableName == "custom_emojis" {
-		uid := authenticatedUserID(c)
-		if uid == "" {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-			return
-		}
-		clauses = append(clauses, "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $"+strconv.Itoa(argIndex)+")")
+		clauses = append(clauses, fmt.Sprintf(meta.HandlerScope, argIndex))
 		args = append(args, uid)
 		argIndex++
 	}
@@ -1738,22 +1734,18 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 	var clauses []string
 	argIndex := 1
 
-	if tableName == "emoji_packs" {
+	// Handler-scoped tables (registry HandlerScope): PUT/DELETE is bounded to
+	// the authenticated user's own rows via the registry-declared predicate.
+	// The handler reads the same field the registry test validates, so a table
+	// marked HandlerScope is actually scoped here — the declaration and the
+	// enforcement cannot drift.
+	if meta := GenericTableByName(tableName); meta != nil && meta.HandlerScope != "" {
 		uid := authenticatedUserID(c)
 		if uid == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
 		}
-		clauses = append(clauses, "author_id = $"+strconv.Itoa(argIndex))
-		args = append(args, uid)
-		argIndex++
-	} else if tableName == "custom_emojis" {
-		uid := authenticatedUserID(c)
-		if uid == "" {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-			return
-		}
-		clauses = append(clauses, "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $"+strconv.Itoa(argIndex)+")")
+		clauses = append(clauses, fmt.Sprintf(meta.HandlerScope, argIndex))
 		args = append(args, uid)
 		argIndex++
 	}

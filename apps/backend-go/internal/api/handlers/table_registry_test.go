@@ -40,20 +40,42 @@ func TestGenericTables_RegistryConsistency(t *testing.T) {
 			t.Errorf("table %q: Upsert but PostOwner is OwnNone", meta.Name)
 		}
 
-		// Every table with a PUT/DELETE route must have SOME ownership
-		// enforcement for those writes: the generic WriteOwner scope, gomosub
-		// board permission gating (GomosubManagement), or explicit handler/
-		// middleware scoping (WriteScopedByHandler, e.g. the emoji tables).
-		// Without this, a new writable table — added to the registry by
-		// someone (or an AI) who forgets the owner — would accept a PUT/DELETE
-		// with only an id filter and update/delete ANY user's rows (IDOR,
-		// no `user_id = caller` predicate).
-		if meta.WriteOwner == OwnNone && !meta.GomosubManagement && !meta.WriteScopedByHandler {
+		// Every table with a write route (POST/PUT/DELETE) must have SOME
+		// ownership enforcement: the generic PostOwner/WriteOwner scope,
+		// gomosub board permission gating (GomosubManagement), or explicit
+		// handler scoping (HandlerScope, e.g. the emoji tables — handlePost
+		// forces the author, handlePut/handleDelete append the
+		// registry-declared predicate). Without this, a new writable table —
+		// added to the registry by someone (or an AI) who forgets the owner —
+		// would accept writes scoped to nothing: a PUT/DELETE with only an id
+		// filter could update/delete ANY user's rows (IDOR, no `user_id =
+		// caller` predicate), and a POST could insert rows with a forged
+		// user_id.
+		for _, r := range meta.Writes {
+			ok := meta.GomosubManagement || meta.HandlerScope != ""
+			switch r.Method {
+			case "POST":
+				ok = ok || meta.PostOwner != OwnNone
+			case "PUT", "DELETE":
+				ok = ok || meta.WriteOwner != OwnNone
+			}
+			if !ok {
+				t.Errorf("table %q: %s route without ownership enforcement (PostOwner=OwnNone, WriteOwner=OwnNone, GomosubManagement=false, HandlerScope=\"\")", meta.Name, r.Method)
+			}
+		}
+
+		// HandlerScope is dead config without PUT/DELETE routes: the predicate
+		// is only appended by handlePut/handleDelete.
+		if meta.HandlerScope != "" {
+			hasMutatingRoute := false
 			for _, r := range meta.Writes {
 				if r.Method == "PUT" || r.Method == "DELETE" {
-					t.Errorf("table %q: %s route without ownership enforcement (WriteOwner=OwnNone, GomosubManagement=false, WriteScopedByHandler=false)", meta.Name, r.Method)
+					hasMutatingRoute = true
 					break
 				}
+			}
+			if !hasMutatingRoute {
+				t.Errorf("table %q: HandlerScope set but no PUT/DELETE routes", meta.Name)
 			}
 		}
 		// Guest-read tables are reachable by anonymous callers; ReadDenied
