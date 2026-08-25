@@ -3000,10 +3000,18 @@ main.is-messenger-page {
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
+    /* Pre-JS fallback: the mobile slide is owned by framer-motion (MessengerView
+       animates x for open/close and the swipe-back drag) — a CSS transition on
+       transform here would lag every per-frame transform write. */
     transform: translateX(100%);
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     pointer-events: none;
     will-change: transform;
+  }
+
+  .chat-panel.is-back-dragging {
+    /* While the swipe-back peels the chat away, cast a soft shadow over the
+       conversation list revealed beneath it. */
+    box-shadow: -20px 0 48px -16px rgb(0 0 0 / 0.45);
   }
 
   .chat-panel.is-open {
