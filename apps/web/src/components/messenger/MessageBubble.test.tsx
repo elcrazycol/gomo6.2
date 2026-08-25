@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReactElement } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { rememberAttachmentAspectRatio, __resetAttachmentRatioCacheForTests } from "@/utils/attachmentRatioCache";
 import type { MessageView } from "./types";
@@ -475,5 +476,65 @@ describe("MessageBubble", () => {
     await screen.findByText("Ответить");
     expect(screen.queryByText("Редактировать")).not.toBeInTheDocument();
     expect(screen.queryByText("Удалить")).not.toBeInTheDocument();
+  });
+
+  // A chat-panel harness so the scrim/host classes and dismissal wiring can be
+  // asserted the way they live in the real chat.
+  function renderInChat(ui: ReactElement) {
+    return render(
+      <div className="chat-panel">
+        <div className="message-scroll">
+          <div className="message-virtual-list">
+            <div className="message-virtual-item">{ui}</div>
+          </div>
+        </div>
+      </div>,
+    );
+  }
+
+  it("anchors the action panel under the message and blurs the rest of the chat", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    const panel = await screen.findByRole("menu");
+    expect(panel.className).toContain("msg-action-panel");
+    expect(panel.parentElement?.className).toContain("bubble-row-inner");
+
+    // The chat blurs (scrim class), and only this message's row stays crisp.
+    expect(container.querySelector(".chat-panel")?.className).toContain("has-message-menu");
+    const host = container.querySelector(".message-virtual-item");
+    expect(host?.className).toContain("is-menu-host");
+  });
+
+  it("dismisses the panel on outside tap but keeps it open when tapping inside", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    const replyItem = screen.getByText("Ответить");
+    fireEvent.pointerDown(replyItem);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    const scroller = container.querySelector(".message-scroll");
+    expect(scroller).not.toBeNull();
+    fireEvent.pointerDown(scroller as Element);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-panel")?.className).not.toContain("has-message-menu");
+  });
+
+  it("dismisses the panel on Escape and drops the scrim classes", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-panel")?.className).not.toContain("has-message-menu");
+    expect(container.querySelector(".message-virtual-item")?.className).not.toContain("is-menu-host");
   });
 });

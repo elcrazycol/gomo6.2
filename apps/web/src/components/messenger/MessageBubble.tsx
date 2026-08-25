@@ -4,7 +4,6 @@ import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, F
 import { formatTime, formatReadAt } from "./utils";
 import { MessageContent } from "./MessageContent";
 import { messengerPlainPreview } from "./messengerRichTextUtils";
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import type { MessageView } from "./types";
 import { useLanguageStore } from "@/stores/languageStore";
 import { hapticTick, hapticSuccess } from "@/lib/haptics";
@@ -108,7 +107,61 @@ export const MessageBubble = memo(function MessageBubble({
     setIsLongPressing(false);
   }, []);
 
+  // The press-and-hold / right-click actions panel, anchored BELOW the
+  // message with a small gap. Local state + a ref mirror so the native touch
+  // handlers (which fire outside React's synthetic pipeline) never race a
+  // stale closure.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuOpenRef = useRef(false);
+  const actionPanelRef = useRef<HTMLDivElement | null>(null);
+
+  const openMenu = useCallback(() => {
+    menuOpenRef.current = true;
+    setMenuOpen(true);
+  }, []);
+
+  const dismissMenu = useCallback(() => {
+    if (!menuOpenRef.current) return;
+    menuOpenRef.current = false;
+    clearLongPress();
+    setMenuOpen(false);
+  }, [clearLongPress]);
+
   const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+
+  // Scroll the message UP so the panel below it fits inside the visible
+  // message area — "the message moves up to free room for the panel". The
+  // panel lives inside the row, so scrolling the scroller carries both up
+  // together. Runs at open (right-click) and again once the long-press finger
+  // lifts (the row sat at its pre-gesture offset while the panel appeared
+  // under the thumb). Programmatic scrolls are suppressed from the
+  // close-on-scroll logic via a timestamp window — a smooth scroll keeps
+  // emitting scroll events for ~300ms, so a boolean toggle would race.
+  const fittingUntilRef = useRef(0);
+  const fitActionPanel = useCallback(() => {
+    const panel = actionPanelRef.current;
+    const scroller = panel?.closest(".message-scroll");
+    if (!panel || !scroller) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const breath = 14;
+    const overflow = panelRect.bottom - (scrollerRect.bottom - breath);
+    if (overflow > 0) {
+      // `auto` on touch: the finger may still hold the row, so an animated
+      // scroll would fight the gesture — an instant move settles immediately.
+      fittingUntilRef.current = performance.now() + 500;
+      scroller.scrollBy({ top: overflow, behavior: isTouchDevice ? "auto" : "smooth" });
+    }
+    // Safety net: cap the panel height to what the scroller can actually
+    // show, so even the tightest screens keep every action tappable.
+    const available = scrollerRect.height - breath;
+    const maxHeight = Math.max(150, Math.min(available, 480));
+    if (panel.scrollHeight > maxHeight + 2) {
+      panel.style.maxHeight = `${maxHeight}px`;
+    }
+  }, [isTouchDevice]);
+  const fitActionPanelRef = useRef(fitActionPanel);
+  fitActionPanelRef.current = fitActionPanel;
 
   // Anchor the reply badge so it STRADDLES the message's right edge: exactly
   // half of the badge sits on the bubble, half sticks out to its right —
@@ -129,7 +182,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   const bind = useDrag(
     ({ movement: [mx], last, active }) => {
-      if (!isTouchDevice) return;
+      if (!isTouchDevice || menuOpenRef.current) return;
 
       if (active) {
         const offsetX = Math.max(SWIPE_MAX_X, Math.min(0, mx));
@@ -231,7 +284,9 @@ export const MessageBubble = memo(function MessageBubble({
   }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (isSwiping) return;
+    // While the panel is open the gesture budget belongs to it — no new
+    // long-press timers from the selected message.
+    if (isSwiping || menuOpenRef.current) return;
     const el = e.currentTarget;
     const touch = e.touches[0];
     touchStartPos.current = { x: touch.clientX, y: touch.clientY };
@@ -249,10 +304,7 @@ export const MessageBubble = memo(function MessageBubble({
       scrollContainer?.removeEventListener("scroll", handleScrollOrCancel);
       setIsLongPressing(true);
       hapticTick(10);
-      el.dispatchEvent(new MouseEvent("contextmenu", {
-        bubbles: true, cancelable: true,
-        clientX: touch.clientX, clientY: touch.clientY, view: window,
-      }));
+      openMenu();
     }, LONG_PRESS_DELAY);
 
     const cleanup = () => {
@@ -262,7 +314,7 @@ export const MessageBubble = memo(function MessageBubble({
     };
     el.addEventListener("touchend", cleanup);
     el.addEventListener("touchcancel", cleanup);
-  }, [clearLongPress, isSwiping]);
+  }, [clearLongPress, isSwiping, openMenu]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -271,8 +323,62 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }, [clearLongPress]);
 
-  const handleTouchEnd = useCallback(() => clearLongPress(), [clearLongPress]);
+  const handleTouchEnd = useCallback(() => {
+    clearLongPress();
+    // The panel opened while the thumb still held the row — refit it now that
+    // the finger is gone so the message + panel end up fully visible.
+    requestAnimationFrame(() => fitActionPanelRef.current?.());
+  }, [clearLongPress]);
   const handleTouchCancel = useCallback(() => clearLongPress(), [clearLongPress]);
+
+  // While the panel is open: the .chat-panel::before scrim blurs and dims
+  // every other surface, this row ("is-menu-host") and its panel paint above
+  // it and stay crisp, touch scrolling is frozen, and the panel dismisses on
+  // scroll / outside tap / Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const rowEl = rowInnerRef.current;
+    const chatEl = rowEl?.closest(".chat-panel");
+    const hostEl = rowEl?.closest(".message-virtual-item") ?? rowEl?.closest(".notes-pinned-item") ?? null;
+    const scroller = rowEl?.closest(".message-scroll");
+    chatEl?.classList.add("has-message-menu");
+    hostEl?.classList.add("is-menu-host");
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (actionPanelRef.current?.contains(e.target as Node)) return;
+      dismissMenu();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismissMenu();
+    };
+    const onScroll = () => {
+      // Scrolling takes the message away from the panel (and the row can even
+      // be virtualized out of the window) — close instead of leaving an
+      // orphaned floating panel. The scroll-to-fit below suppresses itself.
+      if (performance.now() > fittingUntilRef.current) dismissMenu();
+    };
+    chatEl?.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      chatEl?.classList.remove("has-message-menu");
+      hostEl?.classList.remove("is-menu-host");
+      chatEl?.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+      scroller?.removeEventListener("scroll", onScroll);
+    };
+  }, [menuOpen, dismissMenu]);
+
+  // Make room for the panel under the message right as it opens (and once
+  // more shortly after — covers the long-press finger lift and a running
+  // smooth scroll on desktop).
+  useEffect(() => {
+    if (!menuOpen) return;
+    const raf = requestAnimationFrame(fitActionPanel);
+    const t = window.setTimeout(fitActionPanel, 260);
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(t); };
+  }, [menuOpen, fitActionPanel]);
 
   const getStatusIcon = () => {
     if (message.localStatus === "sending") return <span className="status-dot status-pending" />;
@@ -395,126 +501,133 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div
-              ref={messageBubbleRef}
-              className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isCompact ? " is-compact" : ""}${hasMeasuredLines && !isCompact && !isMediaBubble ? " is-multiline" : ""}`}
-              data-message-id={message.id}
-            >
-              {quotedMessage && (
-                <div className="quoted-message">
-                  <CornerDownRight size={12} />
-                  <span className="quoted-author">
-                    {quotedMessage.sender_user_id === message.sender_user_id ? "Вы" : "Собеседник"}
-                  </span>
-                  <span className="quoted-text">
-                    {quotedMessage.is_deleted ? "Сообщение удалено" : messengerPlainPreview(quotedMessage.content)}
-                  </span>
-                </div>
-              )}
-
-              {message.localStatus === "failed" && (
-                <div className="message-error-header">
-                  <RefreshCw size={11} />
-                  <span>Не отправлено</span>
-                  <button type="button" className="retry-button" onClick={() => onRetry(message)} title="Повторить">
-                    Повторить
-                  </button>
-                </div>
-              )}
-
-              <MessageContent
-                content={message.content}
-                attachments={message.attachments}
-                hasQuotedMessage={Boolean(quotedMessage)}
-              />
-
-              <div className="message-meta">
-                <span className="message-time">{formatTime(message.sent_at)}</span>
-                {message.is_edited && <span className="edited-label">изм.</span>}
-                {isMine && (
-                  <span className="message-status">{getStatusIcon()}</span>
-                )}
-              </div>
-
-              {notesControls && (message.notesFolder || (message.notesTags?.length ?? 0) > 0) && (
-                <div className="notes-bubble-chips">
-                  {message.notesFolder && (
-                    <button
-                      type="button"
-                      className="notes-chip notes-folder-chip"
-                      onClick={() => onNotesOrganize?.(message)}
-                      title="Папка — нажми, чтобы изменить"
-                    >
-                      <Folder size={10} />
-                      <span>{message.notesFolder}</span>
-                    </button>
-                  )}
-                  {message.notesTags?.map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      className="notes-chip notes-tag-chip"
-                      onClick={() => onNotesOrganize?.(message)}
-                      title="Тег — нажми, чтобы изменить"
-                    >
-                      <Tag size={10} />
-                      <span>{tag}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-            </div>
-          </ContextMenuTrigger>
-
-          <ContextMenuContent className="msg-context-menu">
-            <ContextMenuItem onClick={() => onReply(message)}>
-              <Reply size={14} /><span>Ответить</span>
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => onCopy(message.content)}>
-              <Copy size={14} /><span>Копировать</span>
-            </ContextMenuItem>
-            <ContextMenuSeparator />
+        {/* Press-and-hold / right-click action panel — anchored BELOW the
+            message with a small offset; everything else in the chat blurs
+            behind it (the .chat-panel::before scrim). The panel lives inside
+            the row, so the scroll-to-fit on open carries both the message and
+            the panel up together. */}
+        {menuOpen && (
+          <div
+            ref={actionPanelRef}
+            className="msg-action-panel"
+            role="menu"
+            tabIndex={-1}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onReply(message); }}>
+              <Reply size={15} /><span>Ответить</span>
+            </button>
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onCopy(message.content); }}>
+              <Copy size={15} /><span>Копировать</span>
+            </button>
+            <div className="msg-action-sep" role="separator" />
             {isMine && !message.is_deleted && (
               <>
-                <ContextMenuItem onClick={() => onEdit(message.id, message.content)}>
-                  <Pencil size={14} /><span>Редактировать</span>
-                </ContextMenuItem>
-                <ContextMenuItem className="msg-context-item-danger" onClick={() => onDelete(message.id)}>
-                  <Trash2 size={14} /><span>Удалить</span>
-                </ContextMenuItem>
-                <ContextMenuSeparator />
+                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onEdit(message.id, message.content); }}>
+                  <Pencil size={15} /><span>Редактировать</span>
+                </button>
+                <button type="button" role="menuitem" className="msg-action-item msg-action-item-danger" onClick={() => { dismissMenu(); onDelete(message.id); }}>
+                  <Trash2 size={15} /><span>Удалить</span>
+                </button>
+                <div className="msg-action-sep" role="separator" />
               </>
             )}
-            <ContextMenuItem onClick={() => onTogglePin(message.id)}>
-              {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onTogglePin(message.id); }}>
+              {isPinned ? <PinOff size={15} /> : <Pin size={15} />}
               <span>{isPinned ? "Открепить" : "Закрепить"}</span>
-            </ContextMenuItem>
+            </button>
             {notesControls && (
               <>
-                <ContextMenuSeparator />
-                <ContextMenuItem onClick={() => onNotesOrganize?.(message)}>
-                  <Tags size={14} /><span>Папка и теги…</span>
-                </ContextMenuItem>
+                <div className="msg-action-sep" role="separator" />
+                <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onNotesOrganize?.(message); }}>
+                  <Tags size={15} /><span>Папка и теги…</span>
+                </button>
               </>
             )}
-            {/* When the interlocutor read this message — an informational
-                item, separate from the actions, with the exact time. */}
+            {/* When the interlocutor read this message — an informational row,
+                separate from the actions, with the exact time. */}
             {isMine && peerReadAt && (
               <>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  disabled
-                  className="msg-context-item-read cursor-default data-[disabled]:opacity-100"
-                >
-                  <CheckCheck size={14} /><span>Прочитано: {formatReadAt(peerReadAt)}</span>
-                </ContextMenuItem>
+                <div className="msg-action-sep" role="separator" />
+                <div className="msg-action-item msg-action-item-read" aria-disabled="true">
+                  <CheckCheck size={15} /><span>Прочитано: {formatReadAt(peerReadAt)}</span>
+                </div>
               </>
             )}
-          </ContextMenuContent>
-        </ContextMenu>
+          </div>
+        )}
+
+        {/* The message bubble — right-click opens the same action panel. */}
+        <div
+          ref={messageBubbleRef}
+          className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isCompact ? " is-compact" : ""}${hasMeasuredLines && !isCompact && !isMediaBubble ? " is-multiline" : ""}`}
+          data-message-id={message.id}
+          onContextMenu={(e) => { e.preventDefault(); openMenu(); }}
+        >
+          {quotedMessage && (
+            <div className="quoted-message">
+              <CornerDownRight size={12} />
+              <span className="quoted-author">
+                {quotedMessage.sender_user_id === message.sender_user_id ? "Вы" : "Собеседник"}
+              </span>
+              <span className="quoted-text">
+                {quotedMessage.is_deleted ? "Сообщение удалено" : messengerPlainPreview(quotedMessage.content)}
+              </span>
+            </div>
+          )}
+
+          {message.localStatus === "failed" && (
+            <div className="message-error-header">
+              <RefreshCw size={11} />
+              <span>Не отправлено</span>
+              <button type="button" className="retry-button" onClick={() => onRetry(message)} title="Повторить">
+                Повторить
+              </button>
+            </div>
+          )}
+
+          <MessageContent
+            content={message.content}
+            attachments={message.attachments}
+            hasQuotedMessage={Boolean(quotedMessage)}
+          />
+
+          <div className="message-meta">
+            <span className="message-time">{formatTime(message.sent_at)}</span>
+            {message.is_edited && <span className="edited-label">изм.</span>}
+            {isMine && (
+              <span className="message-status">{getStatusIcon()}</span>
+            )}
+          </div>
+
+          {notesControls && (message.notesFolder || (message.notesTags?.length ?? 0) > 0) && (
+            <div className="notes-bubble-chips">
+              {message.notesFolder && (
+                <button
+                  type="button"
+                  className="notes-chip notes-folder-chip"
+                  onClick={() => onNotesOrganize?.(message)}
+                  title="Папка — нажми, чтобы изменить"
+                >
+                  <Folder size={10} />
+                  <span>{message.notesFolder}</span>
+                </button>
+              )}
+              {message.notesTags?.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  className="notes-chip notes-tag-chip"
+                  onClick={() => onNotesOrganize?.(message)}
+                  title="Тег — нажми, чтобы изменить"
+                >
+                  <Tag size={10} />
+                  <span>{tag}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Notes quick pin — sibling of the bubble so media bubbles' overflow
             cannot clip it; notes are a self-chat, so the bubble always sits at

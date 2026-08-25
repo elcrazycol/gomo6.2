@@ -57,6 +57,9 @@ export function useSwipeBackToClose(options: { enabled: boolean; onBack: () => v
     let lastT = 0;
 
     const onTouchStart = (e: TouchEvent) => {
+      // The press-and-hold message panel owns the screen while it is open —
+      // taps and drags belong to it, not to the peek-back gesture.
+      if (el.classList.contains("has-message-menu")) return;
       // Only a single-finger, enabled (mobile + keyboard closed) gesture.
       if (!enabledRef.current || e.touches.length > 1) return;
       const t = e.touches[0];
