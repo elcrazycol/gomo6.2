@@ -6,9 +6,12 @@
 #   - https://github.com/elcrazycol/gomo6.2
 #   - https://gitlab.com/crazycol/gomo6.2
 #
-# Механика — `git clone --mirror` + `git push --prune --force --all --tags`.
-# Копируется ПОЛНАЯ история со всеми ветками и тегами; ветки, удалённые
+# Механика — `git clone --mirror` + `git push --prune --force` с явными
+# refspec'ами `refs/heads/*` и `refs/tags/*`.
+# Копируется ПОЛНАЯ история со всеми ветками и тегами; ветки и теги, удалённые
 # в Codeberg, автоматически удаляются и на зеркалах.
+# Явные refspec'ы вместо `--all --tags`: новые git запрещают комбинацию
+# `--all/--branches` + `--tags` — "options cannot be used together".
 #
 # Подготовка (один раз):
 #   1. Создать ПУСТЫЕ репозитории-зеркала на GitHub и GitLab (без README /
@@ -77,8 +80,9 @@ jobs:
             echo "::error::Секрет GH_PAT не задан — добавь GitHub PAT в Actions secrets"
             exit 1
           fi
-          git -C mirror.git push --prune --force --all --tags \
-            "https://x-access-token:${TOKEN}@github.com/elcrazycol/gomo6.2.git"
+          git -C mirror.git push --prune --force \
+            "https://x-access-token:${TOKEN}@github.com/elcrazycol/gomo6.2.git" \
+            'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
 
       - name: Push to GitLab
         if: always()
@@ -89,5 +93,6 @@ jobs:
             echo "::error::Секрет GL_PAT не задан — добавь GitLab PAT в Actions secrets"
             exit 1
           fi
-          git -C mirror.git push --prune --force --all --tags \
-            "https://oauth2:${TOKEN}@gitlab.com/crazycol/gomo6.2.git"
+          git -C mirror.git push --prune --force \
+            "https://oauth2:${TOKEN}@gitlab.com/crazycol/gomo6.2.git" \
+            'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
