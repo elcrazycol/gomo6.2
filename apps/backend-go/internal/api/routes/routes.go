@@ -14,6 +14,7 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/backup"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/oauth"
 	"github.com/gomo6/backend/internal/push"
@@ -159,7 +160,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	}
 	messengerHandler.SetStorage(storageClient)
 
-	backupHandler := handlers.NewBackupHandler(db)
+	backupHandler := backup.NewBackupHandler(db)
 	backupHandler.SetStorage(storageClient)
 
 	// Client-side error reporting handler

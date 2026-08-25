@@ -1,4 +1,4 @@
-package handlers
+package backup
 
 import (
 	"archive/tar"
@@ -18,6 +18,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 )
+
+// strPtr is a tiny test helper (was shared via the handlers package before
+// the backup extraction).
+func strPtr(s string) *string { return &s }
 
 const (
 	backupBoardID = "550e8400-e29b-41d4-a716-446655440200"

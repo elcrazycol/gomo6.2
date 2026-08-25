@@ -262,25 +262,6 @@ func genericEmojiVisibility(c *gin.Context, tableName string, argIndex int) (str
 
 // ─── Filter Helpers ─────────────────────────────────────────────────────────
 
-// decodeColumnValue converts a database column value to a JSON-safe representation.
-// JSONB columns come as []byte from the driver — we parse them into proper JSON
-// objects/arrays. Other []byte values (UUIDs, text) are returned as strings.
-func decodeColumnValue(val interface{}) interface{} {
-	b, ok := val.([]byte)
-	if !ok {
-		return val
-	}
-	// Only try JSON parsing for values that look like JSON objects or arrays.
-	s := strings.TrimSpace(string(b))
-	if len(s) > 0 && (s[0] == '{' || s[0] == '[') {
-		var jsonVal interface{}
-		if err := json.Unmarshal(b, &jsonVal); err == nil {
-			return jsonVal
-		}
-	}
-	return string(b)
-}
-
 func joinStrings(strs []string, sep string) string {
 	if len(strs) == 0 {
 		return ""

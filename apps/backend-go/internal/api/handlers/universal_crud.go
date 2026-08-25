@@ -9,11 +9,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 )
@@ -115,25 +114,6 @@ func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, comm
 	}
 }
 
-// wallResultString returns the string value of a generic result-map cell, or "".
-func wallResultString(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-// wallIDPtr returns nil for an empty string, else a pointer to it.
-func wallIDPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 // wallPostOwnerAuthor resolves the wall owner and author of a wall post.
 func (h *UniversalHandler) wallPostOwnerAuthor(c *gin.Context, postID string) (ownerID, authorID string) {
 	if postID == "" {
@@ -177,43 +157,43 @@ func (h *UniversalHandler) notifyWallPostLike(c *gin.Context, postID, actorID st
 	if authorID == "" || authorID == actorID {
 		return
 	}
-	h.createWallNotification(c, authorID, actorID, "wall_post_like", "", getUsernameFromDB(h.db, actorID), wallIDPtr(postID), nil, wallIDPtr(ownerID))
+	h.createWallNotification(c, authorID, actorID, "wall_post_like", "", getUsernameFromDB(h.db, actorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(ownerID))
 }
 
 // notifyWallComment creates the wall comment / reply notifications for a newly
 // inserted wall comment.
 func (h *UniversalHandler) notifyWallComment(c *gin.Context, result map[string]interface{}) {
-	commentID := wallResultString(result["id"])
-	postID := wallResultString(result["post_id"])
-	actorID := wallResultString(result["user_id"])
-	parentID := wallResultString(result["parent_id"])
+	commentID := crud.WallResultString(result["id"])
+	postID := crud.WallResultString(result["post_id"])
+	actorID := crud.WallResultString(result["user_id"])
+	parentID := crud.WallResultString(result["parent_id"])
 	if postID == "" || actorID == "" {
 		return
 	}
 
-	snippet := truncateRunes(wallResultString(result["content"]), 100)
+	snippet := truncateRunes(crud.WallResultString(result["content"]), 100)
 	ownerID, postAuthorID := h.wallPostOwnerAuthor(c, postID)
 
 	// Reply to another comment → notify the parent comment's author.
 	if parentID != "" {
 		_, parentAuthorID := h.wallCommentPostAndAuthor(c, parentID)
 		if parentAuthorID != "" && parentAuthorID != actorID {
-			h.createWallNotification(c, parentAuthorID, actorID, "wall_comment_reply", snippet, getUsernameFromDB(h.db, actorID), wallIDPtr(postID), wallIDPtr(commentID), wallIDPtr(ownerID))
+			h.createWallNotification(c, parentAuthorID, actorID, "wall_comment_reply", snippet, getUsernameFromDB(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
 		}
 		return
 	}
 
 	// Top-level comment → notify the post author.
 	if postAuthorID != "" && postAuthorID != actorID {
-		h.createWallNotification(c, postAuthorID, actorID, "wall_comment", snippet, getUsernameFromDB(h.db, actorID), wallIDPtr(postID), wallIDPtr(commentID), wallIDPtr(ownerID))
+		h.createWallNotification(c, postAuthorID, actorID, "wall_comment", snippet, getUsernameFromDB(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
 	}
 }
 
 // notifyWallRepost creates the "wall_repost" notification for the author of the
 // original wall post.
 func (h *UniversalHandler) notifyWallRepost(c *gin.Context, result map[string]interface{}) {
-	originalPostID := wallResultString(result["post_id"])
-	actorID := wallResultString(result["user_id"])
+	originalPostID := crud.WallResultString(result["post_id"])
+	actorID := crud.WallResultString(result["user_id"])
 	if originalPostID == "" || actorID == "" {
 		return
 	}
@@ -221,7 +201,7 @@ func (h *UniversalHandler) notifyWallRepost(c *gin.Context, result map[string]in
 	if originalAuthorID == "" || originalAuthorID == actorID {
 		return
 	}
-	h.createWallNotification(c, originalAuthorID, actorID, "wall_repost", "", getUsernameFromDB(h.db, actorID), wallIDPtr(originalPostID), nil, wallIDPtr(ownerID))
+	h.createWallNotification(c, originalAuthorID, actorID, "wall_repost", "", getUsernameFromDB(h.db, actorID), crud.WallIDPtr(originalPostID), nil, crud.WallIDPtr(ownerID))
 }
 
 // ─── GET ────────────────────────────────────────────────────────────────────
@@ -373,7 +353,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 			val := values[i]
 			b, ok := val.([]byte)
 			if ok {
-				row[col] = decodeColumnValue(b)
+				row[col] = crud.DecodeColumnValue(b)
 			} else {
 				row[col] = val
 			}
@@ -610,31 +590,6 @@ RETURNING *, (xmax = 0) AS inserted`
 	default:
 		return "", nil, false
 	}
-}
-
-func scanRowToMap(rows *sql.Rows) (map[string]interface{}, error) {
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
-	for i := range columns {
-		valuePtrs[i] = &values[i]
-	}
-	if err := rows.Scan(valuePtrs...); err != nil {
-		return nil, err
-	}
-	result := make(map[string]interface{})
-	for i, col := range columns {
-		val := values[i]
-		if b, ok := val.([]byte); ok {
-			result[col] = decodeColumnValue(b)
-		} else {
-			result[col] = val
-		}
-	}
-	return result, nil
 }
 
 // wallOwnerVisibleToViewer reports whether viewerID may interact with the wall
@@ -884,54 +839,6 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 	return clauses, args, argIndex, true
 }
 
-func validateCustomEmojiAsset(data map[string]interface{}, userID string) error {
-	value, ok := data["image_url"]
-	if !ok {
-		return nil
-	}
-	imageURL, ok := value.(string)
-	if userID == "" || !ok || imageURL == "" || strings.Contains(imageURL, "://") || !strings.HasPrefix(imageURL, userID+"/") {
-		return fmt.Errorf("image_url must reference the authenticated user's emoji storage")
-	}
-	return nil
-}
-
-func validateCustomEmojiTriggers(data map[string]interface{}) error {
-	raw, ok := data["unicode_triggers"]
-	if !ok {
-		return fmt.Errorf("unicode_triggers must contain 1 to 3 emoji")
-	}
-	var encoded []byte
-	switch value := raw.(type) {
-	case []byte:
-		encoded = value
-	case string:
-		encoded = []byte(value)
-	default:
-		return fmt.Errorf("unicode_triggers must be an array")
-	}
-	var triggers []string
-	if err := json.Unmarshal(encoded, &triggers); err != nil || len(triggers) < 1 || len(triggers) > 3 {
-		return fmt.Errorf("unicode_triggers must contain 1 to 3 emoji")
-	}
-	for _, trigger := range triggers {
-		if !utf8.ValidString(trigger) || strings.TrimSpace(trigger) == "" || len([]rune(trigger)) > 16 {
-			return fmt.Errorf("invalid unicode emoji trigger")
-		}
-		containsEmoji := false
-		for _, r := range trigger {
-			if unicode.In(r, unicode.So) || r == '\u200d' || r == '\ufe0f' {
-				containsEmoji = true
-				break
-			}
-		}
-		if !containsEmoji {
-			return fmt.Errorf("unicode_triggers must contain emoji characters")
-		}
-	}
-	return nil
-}
-
 func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
@@ -954,11 +861,11 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	// identifier gate and before ownership forcing re-adds user_id/author_id.
 	filterWritableColumns(tableName, data)
 	if tableName == "custom_emojis" {
-		if err := validateCustomEmojiTriggers(data); err != nil {
+		if err := crud.ValidateCustomEmojiTriggers(data); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
-		if err := validateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
+		if err := crud.ValidateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
@@ -1023,7 +930,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse("No rows returned"))
 			return
 		}
-		result, err := scanRowToMap(rows)
+		result, err := crud.ScanRowToMap(rows)
 		if err != nil {
 			serverError(c, "database error", err)
 			return
@@ -1049,7 +956,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 				// Notify the post author only on a genuinely new like (xmax = 0
 				// distinguishes a fresh INSERT from the ON CONFLICT re-like).
 				if inserted, _ := result["inserted"].(bool); inserted {
-					h.notifyWallPostLike(c, postID, wallResultString(result["user_id"]))
+					h.notifyWallPostLike(c, postID, crud.WallResultString(result["user_id"]))
 				}
 			}
 		}
@@ -1095,7 +1002,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		return
 	}
 
-	result, err := scanRowToMap(rows)
+	result, err := crud.ScanRowToMap(rows)
 	if err != nil {
 		serverError(c, "database error", err)
 		return
@@ -1113,12 +1020,12 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		h.invalidateCacheForTableResult(c, tableName, result)
 
 		// Wall notification: someone else posted on this wall.
-		wallOwnerID := wallResultString(result["user_id"])
-		authorID := wallResultString(result["author_id"])
+		wallOwnerID := crud.WallResultString(result["user_id"])
+		authorID := crud.WallResultString(result["author_id"])
 		if wallOwnerID != "" && authorID != "" && wallOwnerID != authorID {
-			postID := wallResultString(result["id"])
-			msg := truncateRunes(wallResultString(result["content"]), 100)
-			h.createWallNotification(c, wallOwnerID, authorID, "wall_post", msg, getUsernameFromDB(h.db, authorID), wallIDPtr(postID), nil, wallIDPtr(wallOwnerID))
+			postID := crud.WallResultString(result["id"])
+			msg := truncateRunes(crud.WallResultString(result["content"]), 100)
+			h.createWallNotification(c, wallOwnerID, authorID, "wall_post", msg, getUsernameFromDB(h.db, authorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(wallOwnerID))
 		}
 
 		// Build enriched payload with author data for WebSocket
@@ -1269,11 +1176,11 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	// identifier gate and before the ownership scope is applied.
 	filterWritableColumns(tableName, data)
 	if tableName == "custom_emojis" {
-		if err := validateCustomEmojiTriggers(data); err != nil {
+		if err := crud.ValidateCustomEmojiTriggers(data); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
-		if err := validateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
+		if err := crud.ValidateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
@@ -1451,7 +1358,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		val := values[i]
 		b, ok := val.([]byte)
 		if ok {
-			result[col] = decodeColumnValue(b)
+			result[col] = crud.DecodeColumnValue(b)
 		} else {
 			result[col] = val
 		}
@@ -1632,7 +1539,7 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 		val := values[i]
 		b, ok := val.([]byte)
 		if ok {
-			result[col] = decodeColumnValue(b)
+			result[col] = crud.DecodeColumnValue(b)
 		} else {
 			result[col] = val
 		}

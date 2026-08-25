@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"github.com/gomo6/backend/internal/achievements"
+	"github.com/gomo6/backend/internal/crud"
 )
 
 // emitAchievement schedules an achievement event for a user. It is async and
@@ -39,7 +40,7 @@ func (h *UniversalHandler) emitUniversalAchievementEvents(tableName string, resu
 // wallPostHasImage reports whether a wall-post write carries an image
 // (image_url set, or a non-empty attachments JSONB array).
 func wallPostHasImage(result map[string]interface{}) bool {
-	if s := wallResultString(result["image_url"]); s != "" {
+	if s := crud.WallResultString(result["image_url"]); s != "" {
 		return true
 	}
 	if v, ok := result["attachments"]; ok {
