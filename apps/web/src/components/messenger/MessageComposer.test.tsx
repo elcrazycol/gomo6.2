@@ -1426,6 +1426,42 @@ describe("MessageComposer", () => {
     });
   });
 
+  describe("reply banner", () => {
+    it("dismissing the reply keeps the composer focused (the X must not steal focus)", () => {
+      const onCancelReply = vi.fn();
+      render(
+        <MessageComposer
+          draft=""
+          setDraft={vi.fn()}
+          isSending={false}
+          onSend={vi.fn()}
+          composerRef={{ current: null }}
+          replyToMessage={{ id: "m1", content: "Привет", is_deleted: false } as any}
+          replySenderLabel="Вы"
+          onCancelReply={onCancelReply}
+        />,
+      );
+      const cancel = screen.getByRole("button", { name: "Отменить ответ" }) as HTMLButtonElement;
+      const textarea = screen.getByPlaceholderText("Напиши сообщение...") as HTMLTextAreaElement;
+      textarea.focus();
+      expect(document.activeElement).toBe(textarea);
+      const focusBefore = editorSpies.focusCalls.length;
+      // The X is a pressable button, but its mousedown default would focus the
+      // button — blurring the editor and dismissing the keyboard on iOS (and
+      // leaving a focus ring). The guard cancels that default.
+      const ev = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+      cancel.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(textarea);
+      // The click still dismisses the reply, and the editor is re-focused in
+      // the same gesture so the keyboard stays up.
+      cancel.click();
+      expect(onCancelReply).toHaveBeenCalledTimes(1);
+      expect(editorSpies.focusCalls.length).toBeGreaterThan(focusBefore);
+      expect(document.activeElement).toBe(textarea);
+    });
+  });
+
   describe("editing mode", () => {
     it("shows the edit banner and a save button", () => {
       render(

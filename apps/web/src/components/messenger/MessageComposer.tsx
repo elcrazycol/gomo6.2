@@ -1225,7 +1225,23 @@ useEffect(() => {
           <span className="reply-text">
             {replyToMessage.is_deleted ? "Удалено" : messengerPlainPreview(replyToMessage.content, 120)}
           </span>
-          <button type="button" className="composer-reply-cancel" onClick={onCancelReply} aria-label="Отменить ответ">
+          {/* The ✕ is a pressable button, but it must NOT steal focus from
+              the editor: the browser's mousedown default would focus the
+              button — blurring the editor and dismissing the soft keyboard
+              on iOS — and leave a focus ring ("square") behind. preventDefault
+              cancels that default; the click still fires, and the editor is
+              re-focused synchronously in the same gesture so the keyboard
+              stays up (same rule as reply/edit focus). */}
+          <button
+            type="button"
+            className="composer-reply-cancel"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onCancelReply?.();
+              editorRef.current?.focus();
+            }}
+            aria-label="Отменить ответ"
+          >
             <X size={14} />
           </button>
         </div>
@@ -1234,7 +1250,16 @@ useEffect(() => {
         <div className="composer-edit-banner">
           <Pencil size={13} />
           <span>Редактирование</span>
-          <button type="button" className="composer-edit-cancel" onClick={onCancelEdit} aria-label="Отменить">
+          <button
+            type="button"
+            className="composer-edit-cancel"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onCancelEdit?.();
+              editorRef.current?.focus();
+            }}
+            aria-label="Отменить"
+          >
             <X size={14} />
           </button>
         </div>
@@ -1266,7 +1291,13 @@ useEffect(() => {
               <span className="composer-attachment-icon">{getAttachmentIcon(att.type)}</span>
               <span className="composer-attachment-name">{att.name}</span>
               <span className="composer-attachment-size">{formatFileSize(att.size)}</span>
-              <button type="button" className="composer-attachment-remove" onClick={() => handleRemoveAttachment(i)} aria-label="Удалить">
+              <button
+                type="button"
+                className="composer-attachment-remove"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRemoveAttachment(i)}
+                aria-label="Удалить"
+              >
                 <X size={12} />
               </button>
             </div>

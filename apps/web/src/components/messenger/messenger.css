@@ -1755,8 +1755,9 @@ main.is-messenger-page {
 }
 .composer-reply-banner .reply-label { font-weight: 600; color: hsl(var(--primary)); }
 .composer-reply-banner .reply-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--foreground) / 0.7); }
-.composer-reply-cancel { background: none; border: none; cursor: pointer; color: hsl(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; }
+.composer-reply-cancel { background: none; border: none; cursor: pointer; color: hsl(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; outline: none; }
 .composer-reply-cancel:hover { background: hsl(var(--foreground) / 0.1); color: hsl(var(--foreground)); }
+.composer-reply-cancel:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
 
 /* Pinned message highlight */
 .message-bubble.is-pinned {
@@ -1821,6 +1822,7 @@ main.is-messenger-page {
   background: transparent;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
+  outline: none;
   transition: background-color 0.15s ease;
 }
 
@@ -1828,6 +1830,8 @@ main.is-messenger-page {
   background: hsl(var(--primary) / 0.12);
   color: hsl(var(--foreground));
 }
+
+.composer-edit-cancel:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
 
 /* ── Composer (always-visible, autogrowing input) ── */
 
@@ -2240,12 +2244,15 @@ main.is-messenger-page {
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
+  outline: none;
 }
 
 .composer-attachment-remove:hover {
   background: hsl(var(--destructive) / 0.15);
   color: hsl(var(--destructive));
 }
+
+.composer-attachment-remove:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
 
 /* ── Uploading files progress (in-flight attach) ── */
 
