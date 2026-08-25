@@ -6,7 +6,7 @@
 #   - https://github.com/elcrazycol/gomo6.2
 #   - https://gitlab.com/crazycol/gomo6.2
 #
-# Механика — одна команда git: `git clone --mirror` + `git push --mirror`.
+# Механика — `git clone --mirror` + `git push --prune --force --all --tags`.
 # Копируется ПОЛНАЯ история со всеми ветками и тегами; ветки, удалённые
 # в Codeberg, автоматически удаляются и на зеркалах.
 #
@@ -27,7 +27,7 @@
 #     GitHub/GitLab, будут перезаписаны при следующем push в Codeberg.
 #   - На зеркала уходит вся история — gitleaks там не запускается.
 #     Убедитесь, что история чистая от секретов, прежде чем включать.
-#   - push --mirror не меняет default branch на зеркалах: после первого
+#   - push не меняет default branch на зеркалах: после первого
 #     запуска задайте его вручную в настройках GitHub/GitLab.
 #   - Branch protection на зеркалах сломает зеркалирование (force-push
 #     отклоняется) — не включайте его.
@@ -59,6 +59,9 @@ jobs:
       GIT_TERMINAL_PROMPT: '0'
     steps:
       # Полный клон по публичному URL — токены не нужны (репозиторий публичный).
+      # Клонируем с --mirror (чтобы при пуше знать обо всех ветках/тегах), но
+      # пушим только heads + tags: refs/pull/* (Codeberg создаёт их для PR)
+      # GitHub/GitLab не принимают (deny updating a hidden ref) — из-за них шаг падал.
       - name: Clone full mirror
         run: |
           git clone --mirror "https://codeberg.org/${{ github.repository }}.git" mirror.git
@@ -74,7 +77,7 @@ jobs:
             echo "::error::Секрет GH_PAT не задан — добавь GitHub PAT в Actions secrets"
             exit 1
           fi
-          git -C mirror.git push --mirror \
+          git -C mirror.git push --prune --force --all --tags \
             "https://x-access-token:${TOKEN}@github.com/elcrazycol/gomo6.2.git"
 
       - name: Push to GitLab
@@ -86,5 +89,5 @@ jobs:
             echo "::error::Секрет GL_PAT не задан — добавь GitLab PAT в Actions secrets"
             exit 1
           fi
-          git -C mirror.git push --mirror \
+          git -C mirror.git push --prune --force --all --tags \
             "https://oauth2:${TOKEN}@gitlab.com/crazycol/gomo6.2.git"
