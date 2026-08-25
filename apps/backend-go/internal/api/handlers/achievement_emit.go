@@ -16,71 +16,23 @@ func emitAchievement(e *achievements.Engine, userID string, evt achievements.Eve
 
 // emitUniversalAchievementEvents fires the achievement events implied by a
 // universal-CRUD write. It runs on both the upsert and the INSERT write paths.
+// Which tables emit events is declared in the table registry
+// (TableMeta.EmitAchievements, implemented in table_hooks.go); tables without
+// a hook emit nothing.
 //
 // The unified content model: записи = threads + profile_wall_posts (by
 // author_id — a post on someone else's wall counts for the AUTHOR), comments =
-// posts + wall comments, likes = all four like tables.
+// posts + wall comments, likes = all four like tables. Threads/posts/boards
+// are NOT reachable through the generic CRUD surface (they have dedicated
+// handlers that emit through their RPC paths — CreateThreadRPC /
+// CreatePostRPC / CreateGomoSub), so they carry no hooks.
 func (h *UniversalHandler) emitUniversalAchievementEvents(tableName string, result map[string]interface{}) {
 	e := h.achEngine
 	if e == nil {
 		return
 	}
-	switch tableName {
-	// Note: threads/posts/boards are NOT reachable through the generic CRUD
-	// surface (they are not in the UniversalHandler allow-list), so they carry
-	// no emit cases here. Threads/posts emit through their RPC handlers
-	// (CreateThreadRPC / CreatePostRPC) and g subsystems through
-	// CreateGomoSub; profile content goes through this surface. The unified
-	// model maps wall content to the same events as RPC-created content.
-	case "profile_wall_posts":
-		if uid := rowUserID(result["author_id"]); uid != "" {
-			emitAchievement(e, uid, achievements.EventEntryCreated)
-			if wallPostHasImage(result) {
-				emitAchievement(e, uid, achievements.EventImageUploaded)
-			}
-		}
-	case "profile_wall_post_comments":
-		if uid := rowUserID(result["user_id"]); uid != "" {
-			emitAchievement(e, uid, achievements.EventCommentCreated)
-		}
-	case "profile_wall_post_likes":
-		if liker := rowUserID(result["user_id"]); liker != "" {
-			emitAchievement(e, liker, achievements.EventLikeGiven)
-		}
-		if postID := wallResultString(result["post_id"]); postID != "" {
-			var authorID string
-			_ = h.db.QueryRow("SELECT author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&authorID)
-			emitAchievement(e, authorID, achievements.EventLikeReceived)
-		}
-	case "profile_wall_comment_likes":
-		if liker := rowUserID(result["user_id"]); liker != "" {
-			emitAchievement(e, liker, achievements.EventLikeGiven)
-		}
-		if commentID := wallResultString(result["comment_id"]); commentID != "" {
-			var authorID string
-			_ = h.db.QueryRow("SELECT user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&authorID)
-			emitAchievement(e, authorID, achievements.EventLikeReceived)
-		}
-	case "profile_wall_post_reposts":
-		if uid := rowUserID(result["user_id"]); uid != "" {
-			emitAchievement(e, uid, achievements.EventRepostCreated)
-		}
-	case "user_daily_visits":
-		if uid := rowUserID(result["user_id"]); uid != "" {
-			emitAchievement(e, uid, achievements.EventDailyVisit)
-		}
-	case "gomosub_memberships":
-		if uid := rowUserID(result["user_id"]); uid != "" {
-			emitAchievement(e, uid, achievements.EventSubJoined)
-		}
-	case "gomosub_rules_acceptance":
-		if uid := rowUserID(result["user_id"]); uid != "" {
-			emitAchievement(e, uid, achievements.EventSubRulesAccepted)
-		}
-	case "profile_customization":
-		if uid := rowUserID(result["user_id"]); uid != "" {
-			emitAchievement(e, uid, achievements.EventProfileStyled)
-		}
+	if meta := GenericTableByName(tableName); meta != nil && meta.EmitAchievements != nil {
+		meta.EmitAchievements(h, result)
 	}
 }
 

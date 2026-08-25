@@ -1222,14 +1222,15 @@ func TestUniversalDelete_ThreadSubscriptions_ForeignRow(t *testing.T) {
 	}
 }
 
-// ─── invalidateCacheForTableResult (posts → board thread list) ───────────────
+// ─── invalidateCacheForTableResult (registry dispatch) ──────────────────────
 
-// TestInvalidatePostClearsBoardThreadList verifies that a post write
-// invalidates the board's thread list cache (threads?board_id=eq.X), which is
-// keyed by board_id and therefore NOT covered by the thread-scoped post
-// invalidation. This mirrors the client-side posts→threads relation.
-func TestInvalidatePostClearsBoardThreadList(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+// TestInvalidateEmojiPacksDispatch verifies the registry-driven dispatcher
+// runs a table's declared invalidation hook: an emoji_packs write must clear
+// the pack list, the by-slug gate and the /my-emoji-* lists that embed pack
+// metadata — a forgotten hook (the old switch-based design's recurring bug)
+// would keep serving the pre-change list for the whole TTL.
+func TestInvalidateEmojiPacksDispatch(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -1240,38 +1241,69 @@ func TestInvalidatePostClearsBoardThreadList(t *testing.T) {
 	t.Cleanup(func() { client.Close() })
 	h.redis = client
 
-	threadID := "thread-1"
-	boardID := "board-1"
-
-	// Board list + standalone thread page are both cached under distinct keys.
-	boardListKey := "data:/api/v1/threads?board_id=eq." + boardID + "&order=created_at.desc|viewer=anon"
-	threadKey := "data:/api/v1/threads?id=eq." + threadID + "|viewer=anon"
-	if err := mr.Set(boardListKey, `{"data":[]}`); err != nil {
-		t.Fatalf("failed to seed board list cache: %v", err)
+	keys := []string{
+		"data:/api/v1/emoji_packs?order=created_at.desc|viewer=anon",
+		"data:/api/v1/emoji_packs/by-slug/my-pack|viewer=anon",
+		"data:/api/v1/my-emoji-subscriptions?user_id=eq.u1",
+		"data:/api/v1/my-emoji-packs?user_id=eq.u1",
 	}
-	if err := mr.Set(threadKey, `{"data":[]}`); err != nil {
-		t.Fatalf("failed to seed thread cache: %v", err)
+	for _, key := range keys {
+		if err := mr.Set(key, `{"data":[]}`); err != nil {
+			t.Fatalf("failed to seed cache key %q: %v", key, err)
+		}
 	}
 
-	// The helper resolves the thread's board via DB to know which list to clear.
-	mock.ExpectQuery(`SELECT board_id FROM threads WHERE id = \$1`).
-		WithArgs(threadID).
-		WillReturnRows(sqlmock.NewRows([]string{"board_id"}).AddRow(boardID))
-
-	c, _ := newUniversalRequestContext("POST", "/api/v1/posts", nil, nil)
-	h.invalidateCacheForTableResult(c, "posts", map[string]interface{}{
-		"id":        "post-1",
-		"thread_id": threadID,
+	c, _ := newUniversalRequestContext("POST", "/api/v1/emoji_packs", nil, nil)
+	h.invalidateCacheForTableResult(c, "emoji_packs", map[string]interface{}{
+		"id":        "pack-1",
+		"author_id": "u1",
 	})
 
-	if mr.Exists(boardListKey) {
-		t.Errorf("board thread list cache %q was not invalidated after post write", boardListKey)
+	for _, key := range keys {
+		if mr.Exists(key) {
+			t.Errorf("cache key %q was not invalidated after emoji_packs write", key)
+		}
 	}
-	if mr.Exists(threadKey) {
-		t.Errorf("standalone thread cache %q was not invalidated after post write", threadKey)
+}
+
+// TestInvalidateGenericFallback verifies the dispatcher's default path: a
+// writable table without a declared invalidation hook falls back to the
+// generic table invalidation keyed by the row id, so a new registry table can
+// never silently skip cache invalidation entirely (the documented recurring
+// stale-data bug).
+func TestInvalidateGenericFallback(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+	h.redis = client
+
+	// thread_subscriptions is writable through the generic surface but
+	// declares no InvalidateCache hook — the dispatcher must still clear its
+	// rows via the generic fallback.
+	matching := "data:/api/v1/thread_subscriptions?id=eq.ts1&select=id|viewer=u1"
+	unrelated := "data:/api/v1/thread_subscriptions?id=eq.other|viewer=u1"
+	if err := mr.Set(matching, `{"data":[]}`); err != nil {
+		t.Fatalf("failed to seed cache key: %v", err)
+	}
+	if err := mr.Set(unrelated, `{"data":[]}`); err != nil {
+		t.Fatalf("failed to seed cache key: %v", err)
 	}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled mock expectations: %v", err)
+	c, _ := newUniversalRequestContext("POST", "/api/v1/thread_subscriptions", nil, nil)
+	h.invalidateCacheForTableResult(c, "thread_subscriptions", map[string]interface{}{
+		"id": "ts1",
+	})
+
+	if mr.Exists(matching) {
+		t.Errorf("matching row cache %q was not invalidated by the generic fallback", matching)
+	}
+	if !mr.Exists(unrelated) {
+		t.Errorf("unrelated row cache %q was invalidated by the generic fallback", unrelated)
 	}
 }

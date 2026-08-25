@@ -78,6 +78,28 @@ func TestGenericTables_RegistryConsistency(t *testing.T) {
 				t.Errorf("table %q: HandlerScope set but no PUT/DELETE routes", meta.Name)
 			}
 		}
+
+		// Cache-invalidation hooks run after generic writes (invalidateCache
+		// ForTableResult), so a hook on a table the surface cannot write is
+		// dead code — usually a copied entry. A table WITHOUT a hook is fine:
+		// it falls back to the generic table invalidation.
+		if meta.InvalidateCache != nil && (meta.WriteDenied || len(meta.Writes) == 0) {
+			t.Errorf("table %q: InvalidateCache hook but no generic write routes", meta.Name)
+		}
+		// Achievement hooks fire on the POST (insert + upsert) write path; a
+		// table without a POST route can never trigger them.
+		if meta.EmitAchievements != nil {
+			hasPost := false
+			for _, r := range meta.Writes {
+				if r.Method == "POST" {
+					hasPost = true
+					break
+				}
+			}
+			if meta.WriteDenied || !hasPost {
+				t.Errorf("table %q: EmitAchievements hook but no POST route", meta.Name)
+			}
+		}
 		// Guest-read tables are reachable by anonymous callers; ReadDenied
 		// tables are sensitive and must not be guest-visible.
 		if meta.ReadAccess == GuestRead && meta.ReadDenied {

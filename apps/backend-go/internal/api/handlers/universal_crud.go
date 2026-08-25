@@ -20,7 +20,11 @@ import (
 
 // ─── Cache Invalidation ─────────────────────────────────────────────────────
 
-// invalidateCacheForTableResult invalidates cache based on table and result data
+// invalidateCacheForTableResult invalidates cache based on table and result
+// data. Which tables need custom invalidation is declared in the table
+// registry (TableMeta.InvalidateCache, implemented in table_hooks.go) — tables
+// without a hook fall back to the generic table invalidation keyed by the row
+// id, so a new table can never silently skip invalidation entirely.
 func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableName string, result map[string]interface{}) {
 	if h.redis == nil {
 		fmt.Printf("[CacheInvalidator] Redis is nil, skipping invalidation for %s\n", tableName)
@@ -32,170 +36,18 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 		fmt.Printf("[CacheInvalidator]   result[%s] = %v (type: %T)\n", k, v, v)
 	}
 
-	// Build values map from result
+	if meta := GenericTableByName(tableName); meta != nil && meta.InvalidateCache != nil {
+		meta.InvalidateCache(h, c, result)
+		return
+	}
+
+	// Generic invalidation: no registry hook — clear by table + row id.
 	values := make(map[string]string)
 	if id, ok := result["id"].(string); ok && id != "" {
-		fmt.Printf("[CacheInvalidator] Found id: %s\n", id)
 		values["id"] = id
-	} else {
-		fmt.Printf("[CacheInvalidator] id not found or not string, ok=%v, id=%v\n", ok, result["id"])
 	}
-
-	// Add foreign keys based on table
-	// The /my-emoji-subscriptions and /my-emoji-packs handlers embed pack
-	// metadata, emoji counts and the full emoji lists. Any emoji-pack write
-	// must invalidate them too, otherwise the data cache keeps serving the
-	// pre-change list for the whole TTL (a freshly installed pack was invisible
-	// for up to 2 minutes — the "pack appears with a delay" bug).
-	invalidateMyEmojiLists := func() {
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/my-emoji-subscriptions*")
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/my-emoji-packs*")
-	}
-
-	switch tableName {
-	case "emoji_packs":
-		if authorID, ok := result["author_id"].(string); ok {
-			values["author_id"] = authorID
-		}
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
-		invalidateMyEmojiLists()
-	case "custom_emojis":
-		if packID, ok := result["pack_id"].(string); ok {
-			values["pack_id"] = packID
-		}
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/custom_emojis*")
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
-		invalidateMyEmojiLists()
-	case "profiles":
-		if username, ok := result["username"].(string); ok && username != "" {
-			values["username"] = username
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating profile cache: id=%s, username=%s\n", values["id"], values["username"])
-		cache.InvalidateForProfile(h.redis, values["id"], values["username"])
-	case "boards":
-		if slug, ok := result["slug"].(string); ok && slug != "" {
-			values["slug"] = slug
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating board cache: id=%s, slug=%s\n", values["id"], values["slug"])
-		cache.InvalidateForBoard(h.redis, values["id"], values["slug"])
-	case "posts":
-		if threadID, ok := result["thread_id"].(string); ok && threadID != "" {
-			values["thread_id"] = threadID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating post cache: id=%s, thread_id=%s\n", values["id"], values["thread_id"])
-		cache.InvalidateForPost(h.redis, values["id"], values["thread_id"])
-		// The board's thread list (threads?board_id=eq.X) is cached under the
-		// board_id and embeds post_count — the post-scoped patterns only match
-		// the standalone thread page, so the list would go stale for the TTL.
-		h.invalidateThreadBoardCache(c, values["thread_id"])
-		// New posts bump threads in the unified feed.
-		middleware.InvalidateCacheForFeed(h.redis)
-	case "threads":
-		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
-			values["board_id"] = boardID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating thread cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
-		cache.InvalidateForThread(h.redis, values["id"], values["board_id"])
-		// A new/updated thread is a candidate for the unified feed.
-		middleware.InvalidateCacheForFeed(h.redis)
-	case "profile_wall_posts":
-		if wallOwnerID, ok := result["user_id"].(string); ok && wallOwnerID != "" {
-			values["user_id"] = wallOwnerID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating wall post cache: id=%s, user_id=%s\n", values["id"], values["user_id"])
-		cache.InvalidateForWallPost(h.redis, values["id"], values["user_id"])
-	case "profile_wall_post_comments":
-		if postID, ok := result["post_id"].(string); ok && postID != "" {
-			values["post_id"] = postID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating wall comment cache: id=%s, post_id=%s\n", values["id"], values["post_id"])
-		cache.InvalidateForWallComment(h.redis, values["id"], values["post_id"])
-	case "chat_messages":
-		if conversationID, ok := result["conversation_id"].(string); ok && conversationID != "" {
-			values["conversation_id"] = conversationID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating chat message cache: id=%s, conversation_id=%s\n", values["id"], values["conversation_id"])
-		cache.InvalidateForChatMessage(h.redis, values["id"], values["conversation_id"])
-	case "notifications":
-		if userID, ok := result["user_id"].(string); ok && userID != "" {
-			fmt.Printf("[CacheInvalidator] Invalidating notification cache for user_id=%s\n", userID)
-			cache.InvalidateForNotification(h.redis, userID)
-		}
-	case "chat_conversation_members":
-		if conversationID, ok := result["conversation_id"].(string); ok && conversationID != "" {
-			fmt.Printf("[CacheInvalidator] Invalidating chat conversation cache: conversation_id=%s\n", conversationID)
-			cache.InvalidateForChatConversation(h.redis, conversationID, "")
-		}
-	case "channels":
-		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
-			values["board_id"] = boardID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating channels cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
-		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channels*board_id=eq.%s*", values["board_id"]))
-	case "gift_catalog":
-		fmt.Printf("[CacheInvalidator] Invalidating gift_catalog cache: id=%s\n", values["id"])
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/gift_catalog*")
-	case "user_gifts":
-		if recipientID, ok := result["recipient_id"].(string); ok && recipientID != "" {
-			values["recipient_id"] = recipientID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating user_gifts cache: id=%s, recipient_id=%s\n", values["id"], values["recipient_id"])
-		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_gifts*recipient_id=eq.%s*", values["recipient_id"]))
-	case "gomosub_roles":
-		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
-			values["board_id"] = boardID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating gomosub_roles cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
-		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_roles*board_id=eq.%s*", values["board_id"]))
-	case "channel_permissions":
-		if channelID, ok := result["channel_id"].(string); ok && channelID != "" {
-			values["channel_id"] = channelID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating channel_permissions cache: channel_id=%s\n", values["channel_id"])
-		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_permissions*channel_id=eq.%s*", values["channel_id"]))
-	case "gomosub_memberships":
-		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
-			values["board_id"] = boardID
-		}
-		fmt.Printf("[CacheInvalidator] Invalidating gomosub_memberships cache: board_id=%s\n", values["board_id"])
-		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", values["board_id"]))
-	case "friend_requests", "friendships":
-		fmt.Printf("[CacheInvalidator] Invalidating friends cache: %s\n", tableName)
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/friends*")
-	case "profile_customization":
-		if userID, ok := result["user_id"].(string); ok && userID != "" {
-			fmt.Printf("[CacheInvalidator] Invalidating profile_customization cache: user_id=%s\n", userID)
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=eq.%s*", userID))
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=%s*", userID))
-			// Also invalidate profile hover card cache (contains customization)
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
-		}
-	case "privacy_settings":
-		if userID, ok := result["user_id"].(string); ok && userID != "" {
-			fmt.Printf("[CacheInvalidator] Invalidating privacy_settings + profile cache: user_id=%s\n", userID)
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/privacy_settings*user_id=eq.%s*", userID))
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/friends*user_id=%s*", userID))
-			// The public visibility-flags endpoint (GET /api/v1/users/:id/privacy)
-			// caches per viewer under data:/api/v1/users/<id>/privacy?|viewer=… —
-			// without this, a settings change would keep serving stale hide flags
-			// (tabs that were just unhidden stay missing for the cache TTL).
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/users/%s/privacy*", userID))
-		}
-	case "user_emoji_subscriptions":
-		if userID, ok := result["user_id"].(string); ok && userID != "" {
-			fmt.Printf("[CacheInvalidator] Invalidating user_emoji_subscriptions cache: user_id=%s\n", userID)
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_emoji_subscriptions*user_id=eq.%s*", userID))
-		}
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
-		invalidateMyEmojiLists()
-	default:
-		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
-		cache.InvalidateForTable(h.redis, tableName, values)
-	}
+	fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
+	cache.InvalidateForTable(h.redis, tableName, values)
 }
 
 // invalidateWallListCache clears the owner's wall-list cache entry after an
@@ -213,23 +65,6 @@ func (h *UniversalHandler) invalidateWallListCache(c *gin.Context, postID string
 		return
 	}
 	middleware.InvalidateCacheForProfileWall(h.redis, ownerID)
-}
-
-// invalidateThreadBoardCache clears the board's thread-list cache after a post
-// write. The board list (threads?board_id=eq.X) is cached under the board_id
-// and embeds per-thread post_count — post-scoped invalidation only matches the
-// standalone thread page, so without this the board list would show a stale
-// post_count until the data-cache TTL expires.
-func (h *UniversalHandler) invalidateThreadBoardCache(c *gin.Context, threadID string) {
-	if h.redis == nil || threadID == "" {
-		return
-	}
-	var boardID string
-	if err := h.db.QueryRowContext(c.Request.Context(),
-		"SELECT board_id FROM threads WHERE id = $1", threadID).Scan(&boardID); err != nil || boardID == "" {
-		return
-	}
-	middleware.InvalidateCacheForBoard(h.redis, boardID)
 }
 
 // invalidateCommentLikesCache invalidates every cache whose response embeds
@@ -1194,32 +1029,10 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			return
 		}
 
-		// Invalidate cache for upsert tables that need it
-		if tableName == "profile_wall_post_likes" {
-			if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-				middleware.InvalidateCacheForWallPost(h.redis, postID)
-				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
-				cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
-				// Likes affect feed popularity scores.
-				middleware.InvalidateCacheForFeed(h.redis)
-			}
-		}
-
-		// Invalidate rules acceptance cache so the dialog doesn't re-appear after accepting
-		if tableName == "gomosub_rules_acceptance" && h.redis != nil {
-			uid := fmt.Sprint(result["user_id"])
-			bid := fmt.Sprint(result["board_id"])
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*user_id=eq.%s*", uid))
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*board_id=eq.%s*", bid))
-			cache.InvalidateByPattern(h.redis, "data:/api/v1/gomosub_rules_acceptance?*")
-		}
-
-		// Invalidate terms acceptance cache so the dialog doesn't re-appear after accepting
-		if tableName == "user_terms_acceptance" && h.redis != nil {
-			uid := fmt.Sprint(result["user_id"])
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_terms_acceptance*user_id=eq.%s*", uid))
-			cache.InvalidateByPattern(h.redis, "data:/api/v1/user_terms_acceptance?*")
-		}
+		// Invalidate cache for the written row. Which tables need custom
+		// invalidation is declared in the registry (TableMeta.InvalidateCache,
+		// implemented in table_hooks.go); the generic fallback covers the rest.
+		h.invalidateCacheForTableResult(c, tableName, result)
 
 		// Keep profile stats in sync when session time accumulates via upsert
 		if tableName == "user_session_time" {
@@ -1238,16 +1051,6 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 				if inserted, _ := result["inserted"].(bool); inserted {
 					h.notifyWallPostLike(c, postID, wallResultString(result["user_id"]))
 				}
-			}
-		}
-
-		// Invalidate profile customization cache on upsert
-		if tableName == "profile_customization" && h.redis != nil {
-			if userID, ok := result["user_id"].(string); ok {
-				fmt.Printf("[CacheInvalidator] Invalidating profile_customization cache on upsert: user_id=%s\n", userID)
-				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=eq.%s*", userID))
-				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=%s*", userID))
-				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
 			}
 		}
 

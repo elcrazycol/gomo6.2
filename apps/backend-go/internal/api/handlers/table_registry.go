@@ -1,5 +1,9 @@
 package handlers
 
+import (
+	"github.com/gin-gonic/gin"
+)
+
 // ─── Table Registry ─────────────────────────────────────────────────────────
 //
 // The generic CRUD surface (UniversalHandler.HandleTableRequest + the
@@ -17,13 +21,20 @@ package handlers
 //   - isGomosubManagementTable (universal.go)
 //   - genericGomosubVisibility / genericEmojiVisibility (universal.go)
 //   - upsertInsertQuery gating (universal_crud.go)
+//   - invalidateCacheForTableResult (universal_crud.go): the per-table cache
+//     invalidation switch — now TableMeta.InvalidateCache, a hook referenced
+//     here and implemented in table_hooks.go
+//   - emitUniversalAchievementEvents (achievement_emit.go): the per-table
+//     achievement switch — now TableMeta.EmitAchievements (same file)
 //
 // Adding a table required touching all of them, and a missed one silently
 // broke an endpoint ("GET-only routes made Gin return 404" — the recurring
-// bug) or served stale data (missing cache invalidation). This file is the
-// single source of truth: the routes are generated from it
-// (registerGenericTableRoutes in routes.go) and every switch above now
-// consults it. Adding a table = adding one entry here.
+// bug) or served stale data (missing cache invalidation — the other
+// recurring bug). This file is the single source of truth: the routes are
+// generated from it (registerGenericTableRoutes in routes.go) and every
+// switch above now consults it. Adding a table = adding one entry here,
+// including its cache-invalidation and achievement hooks (table_hooks.go) if
+// the write needs them.
 
 // TableReadAccess selects the middleware group a table's generic GET route is
 // registered on.
@@ -119,7 +130,27 @@ type TableMeta struct {
 
 	// Upsert.
 	Upsert bool // POST uses INSERT ... ON CONFLICT (upsertInsertQuery)
+
+	// Write side effects. Both are run by the generic write paths after the
+	// row is written (POST/upsert/PUT/DELETE), with the written row. Nil
+	// fields mean: no registry-declared cache invalidation (the dispatcher
+	// falls back to the generic cache.InvalidateForTable) / no achievement
+	// events. Implementations live in table_hooks.go — this file only
+	// references them, so the declaration and the behavior cannot drift.
+	InvalidateCache  TableInvalidator   // nil = generic table invalidation
+	EmitAchievements AchievementEmitter // nil = no achievement events
 }
+
+// TableInvalidator invalidates the Redis caches that embed data of a row
+// written through the generic CRUD surface. Runs after the write with the
+// written row; h.redis is guaranteed non-nil by the dispatcher.
+type TableInvalidator func(h *UniversalHandler, c *gin.Context, result map[string]interface{})
+
+// AchievementEmitter fires the achievement events implied by a row written
+// through the generic CRUD surface. Runs after the write, best-effort
+// (emissions are async and swallowed); h.achEngine is guaranteed non-nil by
+// the dispatcher.
+type AchievementEmitter func(h *UniversalHandler, result map[string]interface{})
 
 // fullWrites is the most common write surface: POST/PUT/DELETE with the
 // wildcard variant each.
@@ -165,6 +196,7 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
 		GomosubVisibility: true,
+		InvalidateCache:   invalidateChannelPermissionsCache,
 	},
 	{
 		Name:              "channels",
@@ -174,6 +206,7 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
 		GomosubVisibility: true,
+		InvalidateCache:   invalidateChannelsCache,
 	}, {
 		Name: "custom_emojis",
 		// image_url is validated against the authenticated user's storage by
@@ -188,6 +221,7 @@ var genericTables = []TableMeta{
 		},
 		EmojiVisibility: true,
 		HandlerScope:    "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $%d)",
+		InvalidateCache: invalidateCustomEmojisCache,
 	},
 	{
 		Name: "emoji_packs",
@@ -201,6 +235,7 @@ var genericTables = []TableMeta{
 		},
 		EmojiVisibility: true,
 		HandlerScope:    "author_id = $%d",
+		InvalidateCache: invalidateEmojiPacksCache,
 	},
 	{
 		Name:              "gomosub_invites",
@@ -218,6 +253,8 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		UserScopedRead:    true,
 		GomosubManagement: true,
+		InvalidateCache:   invalidateGomosubMembershipsCache,
+		EmitAchievements:  emitGomosubMembershipsAchievements,
 	},
 	{
 		Name:              "gomosub_roles",
@@ -227,17 +264,20 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
 		GomosubVisibility: true,
+		InvalidateCache:   invalidateGomosubRolesCache,
 	},
 	{
-		Name:           "gomosub_rules_acceptance",
-		ReadAccess:     ProtectedRead,
-		ReadWildcard:   true,
-		Writes:         postPutWrites(),
-		WriteGroup:     GenericWrite,
-		UserScopedRead: true,
-		PostOwner:      OwnSingle,
-		WriteOwner:     OwnSingle,
-		Upsert:         true,
+		Name:             "gomosub_rules_acceptance",
+		ReadAccess:       ProtectedRead,
+		ReadWildcard:     true,
+		Writes:           postPutWrites(),
+		WriteGroup:       GenericWrite,
+		UserScopedRead:   true,
+		PostOwner:        OwnSingle,
+		WriteOwner:       OwnSingle,
+		Upsert:           true,
+		InvalidateCache:  invalidateGomosubRulesAcceptanceCache,
+		EmitAchievements: emitGomosubRulesAcceptanceAchievements,
 	},
 	{
 		Name:         "poll_votes",
@@ -258,14 +298,15 @@ var genericTables = []TableMeta{
 		WriteDenied: true,
 	},
 	{
-		Name:           "privacy_settings",
-		ReadAccess:     ProtectedRead,
-		ReadWildcard:   true,
-		Writes:         postPutWrites(),
-		WriteGroup:     GenericWrite,
-		UserScopedRead: true,
-		PostOwner:      OwnSingle,
-		WriteOwner:     OwnSingle,
+		Name:            "privacy_settings",
+		ReadAccess:      ProtectedRead,
+		ReadWildcard:    true,
+		Writes:          postPutWrites(),
+		WriteGroup:      GenericWrite,
+		UserScopedRead:  true,
+		PostOwner:       OwnSingle,
+		WriteOwner:      OwnSingle,
+		InvalidateCache: invalidatePrivacySettingsCache,
 	},
 	{
 		Name:         "profile_customization",
@@ -277,19 +318,22 @@ var genericTables = []TableMeta{
 		// partial updates and CSS sanitization. PostOwner applies; WriteOwner
 		// intentionally stays OwnNone — there are no PUT/DELETE routes and a
 		// generic scoped PUT must keep behaving exactly as today (unscoped).
-		UserScopedRead: true,
-		PostOwner:      OwnSingle,
-		Upsert:         true,
+		UserScopedRead:   true,
+		PostOwner:        OwnSingle,
+		Upsert:           true,
+		InvalidateCache:  invalidateProfileCustomizationCache,
+		EmitAchievements: emitProfileCustomizationAchievements,
 	},
 	{
-		Name:           "profile_wall_comment_likes",
-		ReadAccess:     GuestRead,
-		ReadWildcard:   true,
-		Writes:         fullWrites(),
-		WriteGroup:     GenericWrite,
-		UserScopedRead: true,
-		PostOwner:      OwnSingle,
-		WriteOwner:     OwnSingle,
+		Name:             "profile_wall_comment_likes",
+		ReadAccess:       GuestRead,
+		ReadWildcard:     true,
+		Writes:           fullWrites(),
+		WriteGroup:       GenericWrite,
+		UserScopedRead:   true,
+		PostOwner:        OwnSingle,
+		WriteOwner:       OwnSingle,
+		EmitAchievements: emitProfileWallCommentLikesAchievements,
 	},
 	{
 		Name:         "profile_wall_post_comments",
@@ -306,8 +350,10 @@ var genericTables = []TableMeta{
 		// handlePut, so the comment tree cannot be re-parented retroactively.
 		WritableColumns: map[string]bool{"content": true, "content_json": true, "post_id": true, "parent_id": true},
 		// The generic GET handler is overridden by handleProfileWallPostCommentsGet.
-		PostOwner:  OwnSingle,
-		WriteOwner: OwnSingle,
+		PostOwner:        OwnSingle,
+		WriteOwner:       OwnSingle,
+		InvalidateCache:  invalidateProfileWallPostCommentsCache,
+		EmitAchievements: emitProfileWallPostCommentsAchievements,
 	},
 	{
 		Name:         "profile_wall_post_likes",
@@ -316,10 +362,12 @@ var genericTables = []TableMeta{
 		Writes:       fullWrites(),
 		WriteGroup:   GenericWrite,
 		// user_id is forced to the caller by OwnSingle.
-		UserScopedRead: true,
-		PostOwner:      OwnSingle,
-		WriteOwner:     OwnSingle,
-		Upsert:         true,
+		UserScopedRead:   true,
+		PostOwner:        OwnSingle,
+		WriteOwner:       OwnSingle,
+		Upsert:           true,
+		InvalidateCache:  invalidateProfileWallPostLikesCache,
+		EmitAchievements: emitProfileWallPostLikesAchievements,
 	},
 	{
 		Name:         "profile_wall_post_reposts",
@@ -330,9 +378,10 @@ var genericTables = []TableMeta{
 		// user_id AND wall_user_id are always forced to the caller (OwnWallRepost):
 		// a repost is authored by and placed on the caller's own wall — a
 		// client-controlled wall_user_id would be a foreign-wall bypass.
-		UserScopedRead: true,
-		PostOwner:      OwnWallRepost,
-		WriteOwner:     OwnSingle,
+		UserScopedRead:   true,
+		PostOwner:        OwnWallRepost,
+		WriteOwner:       OwnSingle,
+		EmitAchievements: emitProfileWallPostRepostsAchievements,
 	},
 	{
 		Name:         "profile_wall_posts",
@@ -344,9 +393,11 @@ var genericTables = []TableMeta{
 		// another user, but only when their privacy settings allow it and the
 		// caller may view the wall (enforcePostOwnership / enforceWallTargetPrivacy).
 		// The generic GET handler is overridden by handleProfileWallPostsGet.
-		UserScopedRead: true,
-		PostOwner:      OwnWallPost,
-		WriteOwner:     OwnWallPost,
+		UserScopedRead:   true,
+		PostOwner:        OwnWallPost,
+		WriteOwner:       OwnWallPost,
+		InvalidateCache:  invalidateProfileWallPostsCache,
+		EmitAchievements: emitProfileWallPostsAchievements,
 	},
 	{
 		Name:       "reports",
@@ -393,15 +444,16 @@ var genericTables = []TableMeta{
 		// Same posture as reports: reads are sensitive, no routes registered.
 	},
 	{
-		Name:           "user_daily_visits",
-		ReadAccess:     ProtectedRead,
-		ReadWildcard:   true,
-		Writes:         postPutWrites(),
-		WriteGroup:     GenericWrite,
-		UserScopedRead: true,
-		PostOwner:      OwnSingle,
-		WriteOwner:     OwnSingle,
-		Upsert:         true,
+		Name:             "user_daily_visits",
+		ReadAccess:       ProtectedRead,
+		ReadWildcard:     true,
+		Writes:           postPutWrites(),
+		WriteGroup:       GenericWrite,
+		UserScopedRead:   true,
+		PostOwner:        OwnSingle,
+		WriteOwner:       OwnSingle,
+		Upsert:           true,
+		EmitAchievements: emitUserDailyVisitsAchievements,
 	},
 	{
 		Name:       "user_emoji_subscriptions",
@@ -413,6 +465,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:  true,
 		PostOwner:       OwnSingle,
 		WriteOwner:      OwnSingle,
+		InvalidateCache: invalidateUserEmojiSubscriptionsCache,
 	},
 	{
 		Name:           "user_placeholders",
@@ -453,14 +506,15 @@ var genericTables = []TableMeta{
 		WriteOwner:     OwnSingle,
 	},
 	{
-		Name:           "user_terms_acceptance",
-		ReadAccess:     ProtectedRead,
-		ReadWildcard:   true,
-		Writes:         postOnlyWrites(),
-		WriteGroup:     GenericWrite,
-		UserScopedRead: true,
-		PostOwner:      OwnSingle,
-		Upsert:         true,
+		Name:            "user_terms_acceptance",
+		ReadAccess:      ProtectedRead,
+		ReadWildcard:    true,
+		Writes:          postOnlyWrites(),
+		WriteGroup:      GenericWrite,
+		UserScopedRead:  true,
+		PostOwner:       OwnSingle,
+		Upsert:          true,
+		InvalidateCache: invalidateUserTermsAcceptanceCache,
 	},
 }
 
