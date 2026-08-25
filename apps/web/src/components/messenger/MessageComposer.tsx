@@ -515,14 +515,18 @@ export const MessageComposer = memo(function MessageComposer({
 
   // ── Focus retention on the composer chrome ────────────────────────────────
   // A press on the composer's non-interactive parts (pill padding, empty row
-  // space, banners…) must not move focus: the browser would blur the editor
-  // and on mobile the soft keyboard flies away as a result (mobileKeyboard's
-  // handleFocusOut starts the eased composer descent on blur). preventDefault
-  // on mousedown cancels the browser's default focus move; interactive
-  // targets — the editor itself, enabled buttons, links, form fields — fall
-  // through and keep their native behaviour. Disabled buttons are covered
-  // here as well: on iOS a tap on an inert control dismisses the keyboard
-  // with no event to intercept on the button itself.
+  // space, banners…) must not move focus AWAY: the browser would blur the
+  // editor and on mobile the soft keyboard flies away as a result
+  // (mobileKeyboard's handleFocusOut starts the eased composer descent on
+  // blur). preventDefault on mousedown cancels the browser's default focus
+  // move; interactive targets — the editor itself, enabled buttons, links,
+  // form fields — fall through and keep their native behaviour. Disabled
+  // buttons are covered here as well: on iOS a tap on an inert control
+  // dismisses the keyboard with no event to intercept on the button itself.
+  // While NOTHING is focused, the chrome press claims the editor directly
+  // (synchronously, in the same gesture) so the very first tap — e.g. right
+  // after a reply — opens the keyboard cleanly instead of doing a cold open
+  // on the next tap.
   const handleComposerMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target;
@@ -535,7 +539,20 @@ export const MessageComposer = memo(function MessageComposer({
       return;
     }
     e.preventDefault();
-  }, []);
+    // A press on the composer chrome (pill padding, reply/edit banner…) while
+    // the editor is NOT focused — e.g. the very first tap right after a reply
+    // was armed — claims focus SYNCHRONOUSLY in the same gesture, so the soft
+    // keyboard opens cleanly with the tap. Without this the tap is eaten here
+    // (preventDefault, nothing happens) and the NEXT tap on the editor does a
+    // cold keyboard open that makes the composer jump. With an emoji/attach
+    // sheet session up, the chrome belongs to that session — keep the old
+    // no-op.
+    if (!swap.open) {
+      const active = typeof document !== "undefined" ? document.activeElement : null;
+      const editing = !!active && active !== document.body && isEditableElement(active);
+      if (!editing) editorRef.current?.focus();
+    }
+  }, [swap.open]);
 
   // ── Emoji (wall-post behaviour: keyboard swap on touch, popover on desktop) ─
   const handleEmojiSelect = useCallback((data: { emojiId: string; packId: string; url: string; name: string }) => {
