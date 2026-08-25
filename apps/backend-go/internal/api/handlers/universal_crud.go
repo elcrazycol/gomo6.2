@@ -463,26 +463,23 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 	// members (public boards are readable by everyone, guests included). This
 	// stops anonymous browsing from enumerating a private gomosub's internal
 	// structure by guessing UUIDs and also closes the pre-existing exposure of
-	// that structure to any logged-in non-member.
-	if tableName == "channels" || tableName == "gomosub_roles" || tableName == "channel_permissions" {
-		scopeClause, scopeArgs, nextArgIndex := genericGomosubVisibility(c, tableName, argIndex)
-		if scopeClause != "" {
-			clauses = append(clauses, scopeClause)
-			args = append(args, scopeArgs...)
-			argIndex = nextArgIndex
-		}
+	// that structure to any logged-in non-member. The predicate applies to
+	// exactly the tables the registry marks GomosubVisibility.
+	scopeClause, scopeArgs, nextArgIndex := genericGomosubVisibility(c, tableName, argIndex)
+	if scopeClause != "" {
+		clauses = append(clauses, scopeClause)
+		args = append(args, scopeArgs...)
+		argIndex = nextArgIndex
 	}
 
 	// Emoji packs and their emojis: private packs are only visible to their
 	// author and subscribers through the generic surface as well (mirrors the
 	// by-slug gate in GetPackBySlug).
-	if tableName == "emoji_packs" || tableName == "custom_emojis" {
-		scopeClause, scopeArgs, nextArgIndex := genericEmojiVisibility(c, tableName, argIndex)
-		if scopeClause != "" {
-			clauses = append(clauses, scopeClause)
-			args = append(args, scopeArgs...)
-			argIndex = nextArgIndex
-		}
+	scopeClause, scopeArgs, nextArgIndex = genericEmojiVisibility(c, tableName, argIndex)
+	if scopeClause != "" {
+		clauses = append(clauses, scopeClause)
+		args = append(args, scopeArgs...)
+		argIndex = nextArgIndex
 	}
 
 	if len(clauses) > 0 {
@@ -563,8 +560,14 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 
 // ─── POST ───────────────────────────────────────────────────────────────────
 
-// upsertInsertQuery returns INSERT ... ON CONFLICT for tables the frontend calls via .upsert().
+// upsertInsertQuery returns INSERT ... ON CONFLICT for tables the frontend
+// calls via .upsert(). Which tables support upsert is declared in the table
+// registry (TableMeta.Upsert); this function builds the per-table statement.
 func upsertInsertQuery(tableName string, data map[string]interface{}) (query string, args []interface{}, ok bool) {
+	meta := GenericTableByName(tableName)
+	if meta == nil || !meta.Upsert {
+		return "", nil, false
+	}
 	switch tableName {
 	case "user_daily_visits":
 		uid, hasUID := data["user_id"]
@@ -938,10 +941,17 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 
 // enforcePostOwnership forces ownership columns of user-owned tables to the
 // authenticated user so a client can never impersonate another user on write.
+// The ownership kind per table comes from the registry (TableMeta.PostOwner):
+// OwnSingle forces user_id, OwnWallPost forces author_id (with the wall owner
+// allowed when privacy permits), OwnWallRepost forces user_id AND wall_user_id.
 // It writes the HTTP response and returns false when the request is rejected.
 func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string, data map[string]interface{}) bool {
-	switch tableName {
-	case "profile_wall_posts":
+	meta := GenericTableByName(tableName)
+	if meta == nil {
+		return true
+	}
+	switch meta.PostOwner {
+	case OwnWallPost:
 		userID := authenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -976,11 +986,7 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 				return false
 			}
 		}
-	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_comment_likes",
-		"user_daily_visits", "thread_custom_message_visits", "gomosub_rules_acceptance", "profile_customization",
-		"privacy_settings", "user_session_time", "user_terms_acceptance",
-		"thread_subscriptions", "user_placeholders", "user_settings_changes",
-		"user_emoji_subscriptions", "poll_votes":
+	case OwnSingle:
 		// Single-owner tables: the owner is always the authenticated user.
 		userID := authenticatedUserID(c)
 		if userID == "" {
@@ -991,7 +997,7 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 		if !h.enforceWallTargetPrivacy(c, tableName, data, userID) {
 			return false
 		}
-	case "profile_wall_post_reposts":
+	case OwnWallRepost:
 		// Reposts are always authored by and placed on the caller's own wall;
 		// wall_user_id must never be client-controlled (foreign-wall bypass).
 		userID := authenticatedUserID(c)
@@ -1009,11 +1015,18 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 }
 
 // enforceWallWriteScope appends the ownership predicate to the WHERE clause of
-// wall-related writes so a client can only modify its own content.
+// wall-related writes so a client can only modify its own content. The
+// ownership kind per table comes from the registry (TableMeta.WriteOwner):
+// OwnSingle scopes `user_id = caller`, OwnWallPost scopes
+// `author_id = caller OR user_id = caller`.
 // Returns false (response already written) when unauthenticated.
 func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, args []interface{}, argIndex int) ([]string, []interface{}, int, bool) {
-	switch tableName {
-	case "profile_wall_posts":
+	meta := GenericTableByName(tableName)
+	if meta == nil {
+		return clauses, args, argIndex, true
+	}
+	switch meta.WriteOwner {
+	case OwnWallPost:
 		userID := authenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -1023,11 +1036,7 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 		clauses = append(clauses, "(author_id = $"+strconv.Itoa(argIndex)+" OR user_id = $"+strconv.Itoa(argIndex)+")")
 		args = append(args, userID)
 		argIndex++
-	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_post_reposts", "profile_wall_comment_likes",
-		"privacy_settings", "user_session_time", "user_daily_visits",
-		"thread_subscriptions", "user_placeholders", "user_settings_changes",
-		"thread_custom_message_visits", "gomosub_rules_acceptance",
-		"user_emoji_subscriptions", "poll_votes":
+	case OwnSingle:
 		userID := authenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -1538,22 +1547,18 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	var clauses []string
 
-	if tableName == "emoji_packs" {
+	// Handler-scoped tables (registry HandlerScope): PUT/DELETE is bounded to
+	// the authenticated user's own rows via the registry-declared predicate.
+	// The handler reads the same field the registry test validates, so a table
+	// marked HandlerScope is actually scoped here — the declaration and the
+	// enforcement cannot drift.
+	if meta := GenericTableByName(tableName); meta != nil && meta.HandlerScope != "" {
 		uid := authenticatedUserID(c)
 		if uid == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
 		}
-		clauses = append(clauses, "author_id = $"+strconv.Itoa(argIndex))
-		args = append(args, uid)
-		argIndex++
-	} else if tableName == "custom_emojis" {
-		uid := authenticatedUserID(c)
-		if uid == "" {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-			return
-		}
-		clauses = append(clauses, "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $"+strconv.Itoa(argIndex)+")")
+		clauses = append(clauses, fmt.Sprintf(meta.HandlerScope, argIndex))
 		args = append(args, uid)
 		argIndex++
 	}
@@ -1729,22 +1734,18 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 	var clauses []string
 	argIndex := 1
 
-	if tableName == "emoji_packs" {
+	// Handler-scoped tables (registry HandlerScope): PUT/DELETE is bounded to
+	// the authenticated user's own rows via the registry-declared predicate.
+	// The handler reads the same field the registry test validates, so a table
+	// marked HandlerScope is actually scoped here — the declaration and the
+	// enforcement cannot drift.
+	if meta := GenericTableByName(tableName); meta != nil && meta.HandlerScope != "" {
 		uid := authenticatedUserID(c)
 		if uid == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
 		}
-		clauses = append(clauses, "author_id = $"+strconv.Itoa(argIndex))
-		args = append(args, uid)
-		argIndex++
-	} else if tableName == "custom_emojis" {
-		uid := authenticatedUserID(c)
-		if uid == "" {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-			return
-		}
-		clauses = append(clauses, "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $"+strconv.Itoa(argIndex)+")")
+		clauses = append(clauses, fmt.Sprintf(meta.HandlerScope, argIndex))
 		args = append(args, uid)
 		argIndex++
 	}
