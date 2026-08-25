@@ -39,6 +39,23 @@ func TestGenericTables_RegistryConsistency(t *testing.T) {
 		if meta.Upsert && meta.PostOwner == OwnNone {
 			t.Errorf("table %q: Upsert but PostOwner is OwnNone", meta.Name)
 		}
+
+		// Every table with a PUT/DELETE route must have SOME ownership
+		// enforcement for those writes: the generic WriteOwner scope, gomosub
+		// board permission gating (GomosubManagement), or explicit handler/
+		// middleware scoping (WriteScopedByHandler, e.g. the emoji tables).
+		// Without this, a new writable table — added to the registry by
+		// someone (or an AI) who forgets the owner — would accept a PUT/DELETE
+		// with only an id filter and update/delete ANY user's rows (IDOR,
+		// no `user_id = caller` predicate).
+		if meta.WriteOwner == OwnNone && !meta.GomosubManagement && !meta.WriteScopedByHandler {
+			for _, r := range meta.Writes {
+				if r.Method == "PUT" || r.Method == "DELETE" {
+					t.Errorf("table %q: %s route without ownership enforcement (WriteOwner=OwnNone, GomosubManagement=false, WriteScopedByHandler=false)", meta.Name, r.Method)
+					break
+				}
+			}
+		}
 		// Guest-read tables are reachable by anonymous callers; ReadDenied
 		// tables are sensitive and must not be guest-visible.
 		if meta.ReadAccess == GuestRead && meta.ReadDenied {

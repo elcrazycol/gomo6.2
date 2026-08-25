@@ -101,6 +101,18 @@ type TableMeta struct {
 	GomosubVisibility bool // GET gated to boards the caller may see
 	EmojiVisibility   bool // GET gated to packs the caller may see
 
+	// WriteScopedByHandler marks tables whose PUT/DELETE routes are
+	// ownership-scoped by explicit handler/middleware code instead of the
+	// generic WriteOwner scope. Set for the emoji tables: handlePut/handleDelete
+	// append `author_id = caller` (emoji_packs) / `pack_id IN (... author_id =
+	// caller)` (custom_emojis) clauses, so a client can only edit its own packs
+	// and emojis. The registry consistency test (table_registry_test.go)
+	// requires every table with a PUT/DELETE route to have either
+	// WriteOwner != OwnNone, GomosubManagement, or this flag — a new writable
+	// table can never get unscoped write routes silently (that would let any
+	// caller update/delete another user's rows: an IDOR).
+	WriteScopedByHandler bool
+
 	// Upsert.
 	Upsert bool // POST uses INSERT ... ON CONFLICT (upsertInsertQuery)
 }
@@ -158,8 +170,7 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
 		GomosubVisibility: true,
-	},
-	{
+	}, {
 		Name: "custom_emojis",
 		// image_url is validated against the authenticated user's storage by
 		// validateCustomEmojiAsset; unicode_triggers by
@@ -171,9 +182,9 @@ var genericTables = []TableMeta{
 			"pack_id": true, "name": true, "image_url": true, "is_animated": true, "sort_order": true,
 			"unicode_triggers": true,
 		},
-		EmojiVisibility: true,
-	},
-	{
+		EmojiVisibility:      true,
+		WriteScopedByHandler: true,
+	}, {
 		Name: "emoji_packs",
 		// emoji_count / subscriber_count are maintained by triggers and the
 		// subscription flow — a client must never be able to inflate them.
@@ -183,7 +194,8 @@ var genericTables = []TableMeta{
 		WritableColumns: map[string]bool{
 			"name": true, "slug": true, "description": true, "icon_url": true, "is_public": true,
 		},
-		EmojiVisibility: true,
+		EmojiVisibility:      true,
+		WriteScopedByHandler: true,
 	},
 	{
 		Name:              "gomosub_invites",
