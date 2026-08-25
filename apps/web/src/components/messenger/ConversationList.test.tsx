@@ -28,6 +28,7 @@ const mockStore = {
   error: null as string | null,
   setError: mockSetError,
   isInitialLoading: false,
+  me: null as { id: string } | null,
 };
 
 vi.mock("@/stores/messengerStore", () => ({
@@ -179,18 +180,18 @@ describe("ConversationList", () => {
       expect(screen.getByText("3")).toBeInTheDocument();
     });
 
-    it("shows the interlocutor's @username under a 1:1 chat instead of the last message preview", () => {
+    it("shows the last message preview under a 1:1 chat", () => {
       mockStore.conversations = [mockConversation({
         id: "conv-1",
         other_username: "alice",
         last_message_preview: "Hello!",
       })];
       render(<ConversationList />);
-      expect(screen.getByText("@alice")).toBeInTheDocument();
-      expect(screen.queryByText("Hello!")).not.toBeInTheDocument();
+      expect(screen.getByText("Hello!")).toBeInTheDocument();
+      expect(screen.queryByText("@alice")).not.toBeInTheDocument();
     });
 
-    it("shows the @username even when the 1:1 chat has no messages or last seen", () => {
+    it("shows a friendly fallback when the 1:1 chat has no messages yet", () => {
       mockStore.conversations = [mockConversation({
         id: "conv-1",
         other_username: "alice",
@@ -199,9 +200,49 @@ describe("ConversationList", () => {
         other_last_seen_at: "2025-06-01T12:00:00Z",
       })];
       render(<ConversationList />);
-      expect(screen.getByText("@alice")).toBeInTheDocument();
-      expect(screen.queryByText("Нет сообщений")).not.toBeInTheDocument();
-      expect(screen.queryByText(/^был\(а\)/)).not.toBeInTheDocument();
+      expect(screen.queryByText("@alice")).not.toBeInTheDocument();
+      expect(screen.getByText(/был\(а\)/)).toBeInTheDocument();
+    });
+
+    it("renders a gift last message prettily (no raw token)", () => {
+      mockStore.conversations = [mockConversation({
+        id: "conv-1",
+        other_username: "alice",
+        last_message_preview: "__GIFT__:g-1:Роза:gifts/rose.png",
+      })];
+      render(<ConversationList />);
+      expect(screen.getByText("Подарок · Роза")).toBeInTheDocument();
+      expect(screen.queryByText(/__GIFT__/)).not.toBeInTheDocument();
+    });
+
+    it("shows a single tick for my message the peer has not read", () => {
+      mockStore.me = { id: "u2" };
+      mockStore.conversations = [mockConversation({ other_last_read_at: null })];
+      const { container } = render(<ConversationList />);
+      const tick = container.querySelector(".conversation-status")!;
+      expect(tick.className).toContain("status-check");
+      expect(tick.className).not.toContain("is-read");
+      expect(tick.textContent).toBe("✓");
+    });
+
+    it("shows double blue ticks once the peer read my last message", () => {
+      mockStore.me = { id: "u2" };
+      // other_last_read_at == last_message_at → read through my message.
+      mockStore.conversations = [mockConversation({ other_last_read_at: "2025-06-01T12:00:00Z" })];
+      const { container } = render(<ConversationList />);
+      const tick = container.querySelector(".conversation-status")!;
+      expect(tick.className).toContain("status-double-check");
+      expect(tick.className).toContain("is-read");
+      expect(tick.textContent).toBe("✓✓");
+    });
+
+    it("shows gray double ticks while the peer has not read it yet", () => {
+      mockStore.me = { id: "u2" };
+      mockStore.conversations = [mockConversation({ other_last_read_at: "2025-05-01T12:00:00Z" })];
+      const { container } = render(<ConversationList />);
+      const tick = container.querySelector(".conversation-status")!;
+      expect(tick.className).toContain("status-double-check");
+      expect(tick.className).not.toContain("is-read");
     });
 
     it("keeps the last message preview and 'Нет сообщений' for groups", () => {

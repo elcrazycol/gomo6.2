@@ -27,6 +27,9 @@ export type ConversationView = {
   other_account_number: number | null;
   other_is_online: boolean | null;
   other_last_seen_at: string | null;
+  /** The peer's read line (their chat_members.last_read_at) — real read
+   *  status for the list: ≥ last_message_at means my last message was read. */
+  other_last_read_at?: string | null;
   // Group fields
   is_group: boolean;
   group_name: string | null;

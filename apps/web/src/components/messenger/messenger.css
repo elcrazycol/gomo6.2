@@ -471,6 +471,17 @@ main.is-messenger-page {
   opacity: 0.7;
 }
 
+/* Decorative icon for special-message previews (gift / shared post) — sits
+   inline before the label; the parent span keeps its ellipsis clipping. */
+.conversation-preview-icon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+  flex-shrink: 0;
+  color: hsl(var(--primary));
+  opacity: 0.85;
+}
+
 /* ── Avatars ── */
 
 .avatar-wrapper {

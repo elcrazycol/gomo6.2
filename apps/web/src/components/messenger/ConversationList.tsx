@@ -1,12 +1,13 @@
 import { memo, useCallback, useState, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MessageCircle, NotebookPen, Search, UserPlus, X } from "lucide-react";
+import { Gift, Link2, MessageCircle, NotebookPen, Search, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
 import { formatConversationDate, formatPresence, getInitials } from "./utils";
+import { messengerConversationPreview } from "./messengerRichTextUtils";
 import { NewChatDialog } from "./NewChatDialog";
 import type { ConversationView } from "./types";
 
@@ -36,6 +37,17 @@ const ConversationCard = memo(function ConversationCard({
   const isOnline = !conversation.is_group && conversation.other_is_online;
   const unread = conversation.unread_count ?? 0;
   const lastMessageIsMine = Boolean(myUserId && conversation.last_message_sender_id === myUserId);
+
+  // Real read status for the LAST message (1:1 only): the peer's read line
+  // (backend chat_members.other_last_read_at) versus the message time.
+  const lastMessageAt = conversation.last_message_at;
+  const peerReadLine = !conversation.is_group && !conversation.is_notes ? conversation.other_last_read_at ?? null : null;
+  const peerRead = Boolean(peerReadLine && lastMessageAt && Date.parse(peerReadLine) >= Date.parse(lastMessageAt));
+  const peerDelivered = !peerRead && Boolean(peerReadLine);
+
+  const rawPreview = conversation.last_message_preview;
+  const previewIsGift = Boolean(rawPreview?.startsWith("__GIFT__"));
+  const previewIsShare = Boolean(rawPreview?.startsWith("__SHARE__"));
 
   return (
     <button
@@ -80,19 +92,28 @@ const ConversationCard = memo(function ConversationCard({
             </div>
           </div>
           <div className="conversation-last-meta" aria-label={`Последнее сообщение: ${formatConversationDate(conversation.last_message_at)}`}>
-            {lastMessageIsMine && <span className="conversation-status" aria-label="Отправлено">✓</span>}
+            {lastMessageIsMine && !conversation.is_notes && (
+              <span
+                className={`conversation-status ${peerRead ? "status-double-check is-read" : peerDelivered ? "status-double-check" : "status-check"}`}
+                aria-label={peerRead ? "Прочитано" : peerDelivered ? "Доставлено" : "Отправлено"}
+              >
+                {peerRead || peerDelivered ? "✓✓" : "✓"}
+              </span>
+            )}
             <span className="conversation-time">
               {formatConversationDate(conversation.last_message_at)}
             </span>
           </div>
         </div>
         <div className="conversation-meta">
-          {/* For 1:1 chats show the interlocutor's @username instead of the
-              last message text; groups keep the last message preview. */}
-          {!conversation.is_group && conversation.other_username ? (
-            <span className="conversation-preview muted">@{conversation.other_username}</span>
-          ) : conversation.last_message_preview ? (
-            <span className="conversation-preview">{conversation.last_message_preview}</span>
+          {/* 1:1 chats now preview the last message too; gifts and shared
+              posts render as decorated labels instead of raw tokens. */}
+          {rawPreview ? (
+            <span className="conversation-preview">
+              {previewIsGift && <Gift size={13} className="conversation-preview-icon" aria-hidden="true" />}
+              {previewIsShare && <Link2 size={13} className="conversation-preview-icon" aria-hidden="true" />}
+              {messengerConversationPreview(rawPreview)}
+            </span>
           ) : !conversation.is_group && (conversation.other_is_online || conversation.other_last_seen_at) ? (
             <span className="conversation-preview muted">
               {formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}

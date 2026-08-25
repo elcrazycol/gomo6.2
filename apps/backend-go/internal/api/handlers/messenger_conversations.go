@@ -41,7 +41,8 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
 			ou.nickname_emoji_id AS other_nickname_emoji_id,
 			ou.avatar_url AS other_avatar_url, ou.account_number AS other_account_number,
-			ou.is_online AS other_is_online, ou.last_seen_at AS other_last_seen_at
+			ou.is_online AS other_is_online, ou.last_seen_at AS other_last_seen_at,
+			cm2.last_read_at AS other_last_read_at
 		FROM chat_members cm
 		INNER JOIN chat_conversations c ON c.id = cm.conversation_id
 		LEFT JOIN chat_members cm2 ON cm2.conversation_id = cm.conversation_id AND cm2.user_id != $1
@@ -61,6 +62,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		var otherID, otherUsername, otherDisplayName, otherNicknameEmojiID, otherAvatar, otherLastSeen sql.NullString
 		var otherAccount sql.NullInt64
 		var otherOnline sql.NullBool
+		var otherLastReadAt sql.NullString
 		var preview, lastMsgAt, lastMsgSender, pinnedMsg sql.NullString
 		var groupName, groupAvatar sql.NullString
 
@@ -72,6 +74,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&conv.MemberCount,
 			&otherID, &otherUsername, &otherDisplayName, &otherNicknameEmojiID,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
+			&otherLastReadAt,
 		); err != nil {
 			serverError(c, "scan conversation row", err)
 			return
@@ -139,6 +142,9 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		}
 		if otherLastSeen.Valid {
 			conv.OtherLastSeenAt = &otherLastSeen.String
+		}
+		if otherLastReadAt.Valid {
+			conv.OtherLastReadAt = &otherLastReadAt.String
 		}
 
 		conversations = append(conversations, conv)

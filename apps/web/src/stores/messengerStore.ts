@@ -76,10 +76,17 @@ async function decryptNotesMessages(conversationId: string, messages: MessageVie
 // The server computes previews by truncating the raw wire content (BBCode +
 // [e:…] tokens) to 80 chars. Strip the markup so the conversation list shows
 // readable plain text — a truncated preview may also end mid-tag, which
-// messengerTextToPlain's dangling-fragment strip handles.
+// messengerTextToPlain's dangling-fragment strip handles. Emoji tokens are
+// dropped WITHOUT the ◆ placeholder (a one-line list preview must not fill
+// with diamonds); special-message markers (__GIFT__/__SHARE__) are kept
+// verbatim so the list can decorate them with their real labels/names.
 function sanitizeServerPreview(preview: string | null | undefined): string {
   if (!preview) return "";
-  return messengerTextToPlain(stripDanglingTagFragment(preview)).slice(0, 80);
+  return messengerTextToPlain(stripDanglingTagFragment(preview))
+    .replace(/◆/g, "")
+    .replace(/[ \t]+/g, " ")
+    .trim()
+    .slice(0, 80);
 }
 
 // Decrypts notes conversation previews (the server passes the client
