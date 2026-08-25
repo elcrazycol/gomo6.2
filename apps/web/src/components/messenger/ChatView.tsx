@@ -285,7 +285,13 @@ export const ChatView = memo(function ChatView({
     setEditingMessageId(msgId);
     setEditingContent(content);
     setDraft(content);
-  }, []);
+    // Same synchronous-focus rule as reply: iOS raises the soft keyboard only
+    // for a focus that lands in the same event tick as the user gesture (the
+    // action-panel click), so a deferred focus silently does nothing there.
+    // The editor re-seeds from the new draft on the next commit (resetKey
+    // bump) without losing focus — GomoRichEditor keeps the instance.
+    composerRef.current?.focus();
+  }, [composerRef]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingMessageId(null);

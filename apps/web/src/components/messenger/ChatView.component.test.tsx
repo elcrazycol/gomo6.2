@@ -302,6 +302,25 @@ describe("ChatView", () => {
       expect(mockComposerProps.editingContent).toBe("Привет");
     });
 
+    it("focuses the composer when starting an edit so the keyboard opens", () => {
+      const focus = vi.fn();
+      render(
+        <ChatView
+          {...defaultProps}
+          composerRef={{
+            current: {
+              focus,
+              insertText: vi.fn(),
+              insertEmoji: vi.fn(),
+              getEditor: () => null,
+            },
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByText("edit"));
+      expect(focus).toHaveBeenCalledOnce();
+    });
+
     it("deletes a message", async () => {
       render(<ChatView {...defaultProps} />);
       fireEvent.click(screen.getByText("delete"));
