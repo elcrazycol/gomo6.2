@@ -555,6 +555,189 @@ describe("keyboard-open scroll corrections", () => {
   });
 });
 
+describe("keyboard close animation (composer glides down)", () => {
+  let dispose: (() => void) | null = null;
+
+  afterEach(() => {
+    dispose?.();
+    dispose = null;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete (window as any).visualViewport;
+    delete (window as any).innerHeight;
+    document.body.innerHTML = "";
+  });
+
+  const stubTouchViewport = () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+    );
+    const vv: { height: number; offsetTop: number; addEventListener: () => void; removeEventListener: () => void } = {
+      height: 800,
+      offsetTop: 0,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    };
+    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    return vv;
+  };
+
+  const inset = () => document.documentElement.style.getPropertyValue("--kb-inset");
+
+  it("glides the composer down over time instead of teleporting to 0 on close", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    dispose = initMobileKeyboard();
+
+    // Open the keyboard.
+    input.focus();
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    expect(inset()).toBe("300px");
+
+    // Close: the keyboard collapses. The inset must NOT jump to 0 instantly.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    expect(inset()).toBe("300px"); // still lifted right after the close event
+
+    // Mid-animation: partially descended.
+    vi.advanceTimersByTime(140);
+    const mid = parseInt(inset(), 10);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(300);
+
+    // Fully descended.
+    vi.advanceTimersByTime(300);
+    expect(inset()).toBe("0px");
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+  });
+
+  it("starts the descent immediately when the keyboard begins collapsing (stepped close)", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    dispose = initMobileKeyboard();
+
+    // Open the keyboard.
+    input.focus();
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    expect(inset()).toBe("300px");
+
+    // Stepped close (as iOS actually does): the first collapse event already
+    // drops below the open threshold (delta 800−745=55 < 60) but the keyboard
+    // has not fully gone yet (delta 55 ≥ 24). The descent must START NOW, not
+    // after a debounce — so well inside the next 140ms the inset is already
+    // descending (older debounced code would still be lifting at "300px").
+    vv.height = 745;
+    window.dispatchEvent(new Event("resize"));
+
+    vi.advanceTimersByTime(50);
+    const early = parseInt(inset(), 10);
+    expect(early).toBeLessThan(300); // already gliding, no debounce wait
+
+    // And it settles at 0 within its own animation budget.
+    vi.advanceTimersByTime(400);
+    expect(inset()).toBe("0px");
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+  });
+
+  it("starts the descent on blur (keyboard-begin-hiding signal), before any resize", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    dispose = initMobileKeyboard();
+
+    // Open the keyboard.
+    input.focus();
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    expect(inset()).toBe("300px");
+
+    // iOS does not fire a visual-viewport change while the keyboard slides
+    // down, so the only prompt we get is the field losing focus. Blurring must
+    // start the eased descent immediately, well before any resize event.
+    input.blur();
+
+    // Let the deferred (rAF) descend actually run.
+    vi.advanceTimersByTime(60);
+    const vh = parseInt(document.documentElement.style.getPropertyValue("--app-vh"), 10);
+    expect(parseInt(inset(), 10)).toBeLessThan(300); // already gliding down
+    expect(vh).toBeGreaterThan(500); // messenger already expanding back down
+
+    // Mid-descent, iOS still reports the (now even smaller) open viewport —
+    // a transient "open" resize. This must NOT yank the composer back up (the
+    // blur-initiated descent is locked against it).
+    vv.height = 400;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(30);
+    expect(parseInt(inset(), 10)).toBeLessThan(300);
+
+    // The keyboard finally fully disappears → the real close event arrives and
+    // the state completes to closed.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(500);
+    expect(inset()).toBe("0px");
+    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+  });
+
+  it("does not restart or skip the descent on a closed→closed re-entry (URL-bar collapse)", () => {
+    vi.useFakeTimers();
+    const vv = stubTouchViewport();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    dispose = initMobileKeyboard();
+
+    // Open the keyboard.
+    input.focus();
+    vv.height = 500;
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(700);
+    expect(inset()).toBe("300px");
+
+    // Close → the eased descent starts.
+    vv.height = 800;
+    window.dispatchEvent(new Event("resize"));
+    expect(inset()).toBe("300px");
+
+    // Mid-descent: partially descended.
+    vi.advanceTimersByTime(140);
+    const mid = parseInt(inset(), 10);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(300);
+
+    // A closed→closed re-entry (visual viewport shrinks a little, still under
+    // the open threshold — URL-bar noise) must neither restart the animation
+    // nor write the closed geometry over it (which would teleport to 0).
+    vv.height = 780;
+    window.dispatchEvent(new Event("resize"));
+    expect(parseInt(inset(), 10)).toBe(mid);
+
+    // The original descent still completes within its own 280ms budget.
+    vi.advanceTimersByTime(300);
+    expect(inset()).toBe("0px");
+  });
+});
+
 describe("getScrollContext", () => {
   beforeEach(() => {
     document.body.innerHTML = "";

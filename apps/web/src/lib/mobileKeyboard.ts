@@ -64,11 +64,6 @@ const TOUCH_QUERY = "(pointer: coarse)";
 const OPEN_THRESHOLD_PX = 60;
 /** Gap between the focused input's bottom edge and the keyboard top. */
 const SCROLL_GAP_PX = 12;
-/** Close events are debounced: the keyboard collapse fires several resize
- *  events and the URL bar can briefly distort the delta mid-animation. */
-const CLOSE_DEBOUNCE_MS = 120;
-/** Below this delta the keyboard is gone for sure — close immediately. */
-const CLOSE_IMMEDIATE_THRESHOLD_PX = 24;
 /** After a committed close, re-measure this long later: the keyboard-open
  *  animation can end with ONE transient resize event that reports the
  *  pre-keyboard geometry (WebKit quirk), which would commit a false close
@@ -97,6 +92,10 @@ const TOUCH_SLOP_PX = 10;
  *  away over roughly this time on iOS; the eased interpolation keeps the
  *  fixed/sticky bars glued to it instead of teleporting. */
 const DISMISS_DURATION_MS = 280;
+/** Duration of the eased composer descent on a NORMAL close (keyboard hide
+ *  button / blur / send). Mirrors DISMISS_DURATION_MS so the keyboard
+ *  collapse and the composer fall in sync. */
+const CLOSE_ANIM_MS = 280;
 
 const listeners = new Set<Listener>();
 let initialized = false;
@@ -109,7 +108,6 @@ let state: MobileKeyboardState = {
 let focusedEditable: HTMLElement | null = null;
 const pendingScrollTimers = new Set<ReturnType<typeof setTimeout>>();
 let cancelUserInterrupt: (() => void) | null = null;
-let closeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let dismissUntil = 0;
 let dismissalActive = false;
 let dismissProbeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -122,6 +120,16 @@ let followRaf: number | null = null;
 let followUntil = 0;
 let gestureStart: { x: number; y: number } | null = null;
 let dismissAnimFrame: number | null = null;
+// One-shot rAF that starts the eased composer descent when the focused field
+// loses focus (see handleFocusOut). Deferred a frame so a same-tick focusin
+// (field-to-field transfer) can cancel it via stopInsetAnimation first.
+let focusOutRaf: number | null = null;
+// While the field has blurred and we're easing the composer down on our own
+// (before iOS reports the visual-viewport change), the per-frame follow must
+// not lift the composer back up against the stale still-open vv. Set on
+// blur-descend and cleared on the next real metrics event (which then decides
+// open/closed authoritatively).
+let closingLocked = false;
 // True while the current touch began on a `[data-kb-locked]` element (a
 // pinned composer bar). Such gestures must never scroll the page or dismiss
 // the keyboard — the bar is position:fixed and cannot be dragged.
@@ -134,6 +142,14 @@ let lockedGestureActive = false;
 let stickyScrollActive = false;
 // Cancels an in-flight fixed-bar scroll guard (see guardFixedBarFocusScroll).
 let cancelFixedGuard: (() => void) | null = null;
+// Last geometry actually written to the CSS vars — the starting point for the
+// eased close animation (see runInsetAnimation).
+let lastInset = 0;
+let lastVh = typeof window === "undefined" ? 0 : window.innerHeight;
+// Eased composer-descent animation (normal close), see runInsetAnimation.
+let insetAnimRaf: number | null = null;
+let insetAnimActive = false;
+let insetAnimDone: (() => void) | null = null;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -179,6 +195,11 @@ export function initMobileKeyboard(): () => void {
   document.addEventListener("touchstart", handleTouchStart, { passive: true, capture: true });
   document.addEventListener("touchend", handleTouchEnd, { passive: true, capture: true });
   document.addEventListener("touchcancel", handleTouchEnd, { passive: true, capture: true });
+  // Safari scroll-to-reveal: when the user taps an input inside [data-kb-app],
+  // Safari scrolls the document BEFORE visualViewport changes (so state.isOpen
+  // is still false). Cancel the scroll immediately if the focused element is
+  // inside a kb-app shell.
+  window.addEventListener("scroll", handleAppShellScroll, { passive: true, capture: true });
 
   // Seed the CSS variables immediately so full-screen surfaces are sized
   // correctly before the first user interaction.
@@ -201,9 +222,8 @@ export function initMobileKeyboard(): () => void {
     document.removeEventListener("touchstart", handleTouchStart, { capture: true });
     document.removeEventListener("touchend", handleTouchEnd, { capture: true });
     document.removeEventListener("touchcancel", handleTouchEnd, { capture: true });
+    window.removeEventListener("scroll", handleAppShellScroll, { capture: true });
     clearPendingScrolls();
-    if (closeDebounceTimer) clearTimeout(closeDebounceTimer);
-    closeDebounceTimer = null;
     if (dismissProbeTimer) clearTimeout(dismissProbeTimer);
     dismissProbeTimer = null;
     if (closeVerifyTimer) clearTimeout(closeVerifyTimer);
@@ -214,6 +234,9 @@ export function initMobileKeyboard(): () => void {
     followRaf = null;
     if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
     dismissAnimFrame = null;
+    if (focusOutRaf !== null) cancelAnimationFrame(focusOutRaf);
+    focusOutRaf = null;
+    closingLocked = false;
     gestureStart = null;
     lockedGestureActive = false;
     stickyScrollActive = false;
@@ -222,6 +245,7 @@ export function initMobileKeyboard(): () => void {
     focusedEditable = null;
     cancelFixedGuard?.();
     cancelFixedGuard = null;
+    stopInsetAnimation();
   };
 }
 
@@ -448,6 +472,8 @@ function computeRaw(): MobileKeyboardState {
 
 function writeGeometryVars(next: MobileKeyboardState) {
   if (typeof document === "undefined") return;
+  lastInset = next.keyboardInset;
+  lastVh = next.viewportHeight;
   const root = document.documentElement;
   root.style.setProperty("--app-vh", `${next.viewportHeight}px`);
   root.style.setProperty("--kb-inset", `${next.keyboardInset}px`);
@@ -474,14 +500,84 @@ function startGeometryFollow() {
   if (followRaf !== null) return;
   const step = () => {
     followRaf = null;
-    if (dismissalActive) return; // the dismissal animation owns the vars
-    writeGeometryVars(computeRaw());
+    if (dismissalActive) return;
+    // While an eased open/close animation owns the CSS vars, don't overwrite
+    // them mid-frame — the follow just keeps the document pan pinned. It
+    // resumes writing the live geometry once the animation finishes. The same
+    // applies while a blur-initiated descent is in flight (closingLocked): the
+    // stale still-open visual viewport must not lift the composer back up.
+    if (!insetAnimActive && !closingLocked) {
+      writeGeometryVars(computeRaw());
+    }
     pinAppShellScroll();
     if (Date.now() < followUntil || state.isOpen) {
       followRaf = requestAnimationFrame(step);
     }
   };
   followRaf = requestAnimationFrame(step);
+}
+
+/**
+ * Eased rAF interpolation of --kb-inset/--app-vh from their current values to
+ * a target, so the composer glides down with the departing keyboard instead of
+ * teleporting to the bottom in one frame. Used for NORMAL closes (keyboard
+ * hide button / blur / send); the scroll-to-dismiss path uses its own
+ * startDismissalAnimation. The per-frame follow defers while this runs (see
+ * startGeometryFollow) and takes over for exact live tracking afterwards.
+ */
+function runInsetAnimation(toInset: number, toVh: number, onDone?: () => void) {
+  stopInsetAnimation();
+  const fromInset = lastInset;
+  const fromVh = lastVh;
+  insetAnimActive = true;
+  insetAnimDone = onDone ?? null;
+  // Use Date.now() as the animation clock: it is what vi.useFakeTimers fakes
+  // (performance.now()/rAF timestamps are NOT), so the easing advances
+  // deterministically in tests and stays exact in production.
+  const startedAt = Date.now();
+  const step = () => {
+    insetAnimRaf = null;
+    const t = Math.min(1, (Date.now() - startedAt) / CLOSE_ANIM_MS);
+    const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+    writeGeometryVars({
+      isOpen: toInset > 0,
+      keyboardInset: Math.round(fromInset + (toInset - fromInset) * eased),
+      viewportHeight: Math.round(fromVh + (toVh - fromVh) * eased),
+    } as MobileKeyboardState);
+    if (t < 1) {
+      insetAnimRaf = requestAnimationFrame(step);
+    } else {
+      insetAnimActive = false;
+      const done = insetAnimDone;
+      insetAnimDone = null;
+      done?.();
+    }
+  };
+  insetAnimRaf = requestAnimationFrame(step);
+}
+
+function stopInsetAnimation() {
+  if (insetAnimRaf !== null) cancelAnimationFrame(insetAnimRaf);
+  insetAnimRaf = null;
+  insetAnimActive = false;
+  insetAnimDone = null;
+}
+
+/**
+ * Cancels Safari scroll-to-reveal when the user taps an input inside a
+ * [data-kb-app] shell. Safari scrolls the document BEFORE visualViewport
+ * changes (so state.isOpen is still false and pinAppShellScroll() exits
+ * early). This handler fires synchronously on the scroll event and resets
+ * window.scrollY to 0 if the active element is inside a kb-app.
+ */
+function handleAppShellScroll() {
+  const el = typeof document !== "undefined" ? document.activeElement : null;
+  if (!el || !(el instanceof HTMLElement)) return;
+  if (!el.closest("[data-kb-app]")) return;
+  if (typeof window === "undefined") return;
+  if (window.scrollY !== 0 || window.scrollX !== 0) {
+    window.scrollTo(0, 0);
+  }
 }
 
 /**
@@ -525,7 +621,24 @@ function applyState(next: MobileKeyboardState) {
     next.isTouch !== state.isTouch;
   state = next;
 
-  writeGeometryVars(next);
+  // Write the geometry vars. On open the per-frame follow glides the layout
+  // up with the LIVE viewport (exact sync with the rising keyboard). On a
+  // normal close the keyboard collapses with no live source to track, so ease
+  // the descent instead of teleporting the composer to the bottom in one
+  // frame. Re-opening mid-descent cancels the animation and writes directly.
+  if (next.isOpen) {
+    stopInsetAnimation();
+    writeGeometryVars(next);
+  } else if (insetAnimActive) {
+    // A descent animation already owns the CSS vars — a closed→closed
+    // re-entry (URL-bar collapse changing innerHeight) must neither restart
+    // it (stretching the total time) nor overwrite the intermediate values
+    // with the closed geometry (which would teleport the composer to 0).
+  } else if (lastInset > 0) {
+    runInsetAnimation(0, typeof window !== "undefined" ? window.innerHeight : lastVh);
+  } else {
+    writeGeometryVars(next);
+  }
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("kb-open", next.isOpen);
   }
@@ -559,12 +672,6 @@ function applyState(next: MobileKeyboardState) {
   }
 }
 
-function currentVisualDelta(): number {
-  const vv = typeof window !== "undefined" ? window.visualViewport : null;
-  if (!vv) return 0;
-  return window.innerHeight - vv.height;
-}
-
 function handleMetricsChanged() {
   if (dismissalActive) {
     // Scroll-to-dismiss in progress: WebKit reports the old keyboard-open
@@ -579,34 +686,38 @@ function handleMetricsChanged() {
   }
   const next = computeRaw();
   if (next.isOpen) {
-    if (closeDebounceTimer) {
-      clearTimeout(closeDebounceTimer);
-      closeDebounceTimer = null;
-    }
+    // While a blur-initiated descent is mid-flight, an "open" report (the
+    // visual viewport is still momentarily small mid-collapse, or a WebKit
+    // transient) would restart the composer upward and it would bounce. Ignore
+    // such reports and let the descent finish. If the user actually refocused
+    // and the keyboard is really coming back, handleFocusIn clears
+    // closingLocked and the follow re-lifts the composer naturally.
+    if (closingLocked && insetAnimActive) return;
+    closingLocked = false;
     if (closeVerifyTimer) {
       clearTimeout(closeVerifyTimer);
       closeVerifyTimer = null;
     }
     applyState(next);
   } else if (state.isOpen) {
-    const delta = currentVisualDelta();
-    if (delta < CLOSE_IMMEDIATE_THRESHOLD_PX) {
-      // Keyboard fully gone — close right away so full-screen surfaces expand
-      // in sync with the collapse instead of lagging a debounce window.
-      applyState(next);
-      scheduleCloseVerify();
-    } else {
-      // Still mid-transition (delta 24–60): hold the open state for a beat.
-      if (closeDebounceTimer) clearTimeout(closeDebounceTimer);
-      closeDebounceTimer = setTimeout(() => {
-        closeDebounceTimer = null;
-        const again = computeRaw();
-        if (!again.isOpen) applyState(again);
-        scheduleCloseVerify();
-      }, CLOSE_DEBOUNCE_MS);
-    }
+    // The keyboard started collapsing (the visual-viewport delta already
+    // dropped below the open threshold, but the keyboard may still be mostly
+    // visible). Start the eased composer descent RIGHT NOW, on this first
+    // frame, so the composer rides down TOGETHER with the keyboard instead of
+    // waiting for it to fully disappear (the old debounce delayed the start
+    // until delta < 24px, by which time the keyboard was already gone — the
+    // composer only began descending after the keyboard finished).
+    //
+    // Re-fired events of the same collapse land in the closed→closed branch
+    // below (state.isOpen is already false), so this runs once. A re-open
+    // mid-descent is impossible here because isOpen became false, and
+    // scheduleCloseVerify re-opens if the keyboard was actually still up.
+    closingLocked = false;
+    applyState(next);
+    scheduleCloseVerify();
   } else {
     // Closed → closed: viewportHeight can still change (URL bar collapse).
+    closingLocked = false;
     applyState(next);
   }
 }
@@ -619,6 +730,8 @@ function handleFocusIn(e: FocusEvent) {
   // including an in-flight descent animation (user re-tapped the composer
   // while the keyboard was sliding away).
   dismissalActive = false;
+  stopInsetAnimation();
+  closingLocked = false;
   if (dismissProbeTimer) {
     clearTimeout(dismissProbeTimer);
     dismissProbeTimer = null;
@@ -668,6 +781,36 @@ function handleFocusOut() {
     focusPollTimer = null;
   }
   clearPendingScrolls();
+
+  // The keyboard is hiding: on iOS visualViewport.height is NOT updated while
+  // the keyboard slides down — the close resize event lands only once the
+  // keyboard is already gone. Starting the eased composer descent HERE, the
+  // moment the field loses focus (which fires as the keyboard begins to hide
+  // for every dismissal method: tap-outside, iOS hide button, swipe, send),
+  // makes the composer ride down TOGETHER with the keyboard instead of after
+  // it. Re-focus (field-to-field transfer, emoji-panel swap) cancels it in
+  // handleFocusIn via stopInsetAnimation; deferring one frame lets a same-tick
+  // focusin win so a transfer never flashes a descent.
+  if (!state.isOpen || !state.isTouch || dismissalActive) return;
+  if (focusOutRaf !== null) cancelAnimationFrame(focusOutRaf);
+  focusOutRaf = requestAnimationFrame(() => {
+    focusOutRaf = null;
+    // A new editable took focus meanwhile → handleFocusIn owns the geometry.
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    if (active && isEditableElement(active)) return;
+    // A companion panel (emoji keyboard-swap) keeps the composer lifted via a
+    // local --kb-inset on the chat panel — don't descend underneath it.
+    const host = focusedEditable?.closest<HTMLElement>(".chat-panel");
+    if (host) {
+      const panelInset = host.style.getPropertyValue("--kb-inset");
+      if (panelInset && Number.parseFloat(panelInset) > 0) return;
+    }
+    // We've decided the keyboard is hiding: hold off the per-frame follow (and
+    // any intermediate "open" resize) until the descent completes, so nothing
+    // lifts the composer back up mid-way.
+    closingLocked = true;
+    runInsetAnimation(0, typeof window !== "undefined" ? window.innerHeight : lastVh);
+  });
 }
 
 /**
@@ -799,11 +942,14 @@ function startDismissalAnimation() {
       endViewportHeight,
       progress,
     });
-    if (typeof document !== "undefined") {
-      const root = document.documentElement;
-      root.style.setProperty("--kb-inset", `${frame.keyboardInset}px`);
-      root.style.setProperty("--app-vh", `${frame.viewportHeight}px`);
-    }
+    // Route the writes through writeGeometryVars so lastInset/lastVh track the
+    // descent — the close commit below must not see a stale "lifted" inset and
+    // re-run the eased close animation (composer popping back up).
+    writeGeometryVars({
+      isOpen: frame.keyboardInset > 0,
+      keyboardInset: frame.keyboardInset,
+      viewportHeight: frame.viewportHeight,
+    } as MobileKeyboardState);
     if (progress < 1) {
       dismissAnimFrame = requestAnimationFrame(step);
     } else {

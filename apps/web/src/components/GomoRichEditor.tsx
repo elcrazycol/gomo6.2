@@ -559,6 +559,50 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     return () => el.removeEventListener("keydown", handleKeyDown);
   }, [editor, onSubmit]);
 
+  // Cancel Safari scroll-to-reveal on tap. The global handleAppShellScroll in
+  // mobileKeyboard.ts fires too late (after the scroll already happened and
+  // caused a visible jank). Instead, arm a flag on mousedown/touchstart and
+  // intercept the focus event: blur + refocus with preventScroll, capturing
+  // scroll position and restoring it if Safari still scrolled.
+  useEffect(() => {
+    const el = editorContainerRef.current?.querySelector('[contenteditable]') as HTMLElement | null;
+    if (!el) return;
+    let tapPending = false;
+    let scrollY = 0;
+    let scrollX = 0;
+
+    const onTap = () => {
+      if (document.activeElement === el) return; // already focused
+      tapPending = true;
+      scrollY = window.scrollY;
+      scrollX = window.scrollX;
+    };
+
+    const onFocus = (e: FocusEvent) => {
+      if (!tapPending) return;
+      tapPending = false;
+      // The browser already applied focus and may have scrolled. Blur and
+      // refocus with preventScroll, then restore scroll position if it changed.
+      e.preventDefault();
+      el.blur();
+      el.focus({ preventScroll: true });
+      requestAnimationFrame(() => {
+        if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
+          window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
+        }
+      });
+    };
+
+    el.addEventListener('mousedown', onTap);
+    el.addEventListener('touchstart', onTap);
+    el.addEventListener('focus', onFocus);
+    return () => {
+      el.removeEventListener('mousedown', onTap);
+      el.removeEventListener('touchstart', onTap);
+      el.removeEventListener('focus', onFocus);
+    };
+  }, [editor]);
+
   if (!editor) return null;
 
   return (

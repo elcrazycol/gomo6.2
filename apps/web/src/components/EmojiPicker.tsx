@@ -31,6 +31,15 @@ interface EmojiPickerProps {
   swapOpen?: boolean;
   /** Panel height in px — the captured keyboard height (keyboardSwap mode). */
   swapHeight?: number;
+  /**
+   * Pin the panel's TOP edge (px from the top of the window) instead of the
+   * bottom. Engines that collapse the window itself when the keyboard opens
+   * (Firefox iOS: innerHeight shrinks with it) would otherwise carry a
+   * bottom-anchored panel up and down with the window resize; the top edge of
+   * the keyboard's slot is stable in screen space, so top-pinning keeps the
+   * panel glued to it. Only used in keyboardSwap mode.
+   */
+  swapTop?: number;
   /** Trigger toggled while in keyboardSwap mode. */
   onSwapToggle?: () => void;
   /** Close requested without returning the keyboard (outside tap / Escape). */
@@ -57,6 +66,7 @@ export const EmojiPicker = ({
   keyboardSwap = false,
   swapOpen = false,
   swapHeight = 0,
+  swapTop = 0,
   onSwapToggle,
   onSwapClose,
 }: EmojiPickerProps) => {
@@ -88,6 +98,15 @@ export const EmojiPicker = ({
   // Keep open pickers in sync when another one records an emoji.
   useEffect(() => subscribeRecentEmojis(() => setRecent(getRecentEmojis())), []);
 
+  // When the swap closes while the panel was up, keep it mounted for its exit
+  // slide. This must be a RENDER-PHASE adjustment (React re-renders the
+  // component immediately BEFORE committing): firing it from an effect would
+  // unmount the panel for a frame and re-mount it to play the animation —
+  // the visible "panel flies up then slides down" pop on close.
+  if (keyboardMode && !swapOpen && prevSwapOpen.current && !swapClosing) {
+    setSwapClosing(true);
+  }
+
   useEffect(() => {
     if (!keyboardMode) return;
     const wasOpen = prevSwapOpen.current;
@@ -106,18 +125,14 @@ export const EmojiPicker = ({
       }
       return;
     }
-    // Only animate the exit when the panel was actually open — a fresh mount
-    // with swapOpen=false must not flash an invisible closing panel.
-    if (wasOpen) {
-      setSwapClosing(true);
-      if (swapCloseTimer.current === null) {
-        // Safety net: if the panel's exit animation never fires (reduced
-        // motion / odd browser), force the unmount shortly after.
-        swapCloseTimer.current = window.setTimeout(() => {
-          setSwapClosing(false);
-          swapCloseTimer.current = null;
-        }, 300);
-      }
+    // The close transition itself is driven by the render phase above; here
+    // only the safety net: if the panel's exit animation never fires (reduced
+    // motion / odd browser), unmount it shortly after.
+    if (wasOpen && swapCloseTimer.current === null) {
+      swapCloseTimer.current = window.setTimeout(() => {
+        setSwapClosing(false);
+        swapCloseTimer.current = null;
+      }, 300);
     }
     return () => {
       if (swapCloseTimer.current !== null) {
@@ -171,6 +186,20 @@ export const EmojiPicker = ({
     const active = keyboardMode ? swapOpen || swapClosing : open;
     if (!active) return;
     const handler = (e: MouseEvent) => {
+      // A tap on an editable (the composer's editor) must NOT close via this
+      // outside handler: the tap's own focus lets useEmojiKeyboardSwap's
+      // focusin close the swap, and the composer keeps its lift while the
+      // keyboard returns. Closing here would glide the composer down as the
+      // keyboard rises (the visible blink on switching back to typing).
+      const target = e.target as Element | null;
+      if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
+      // A tap on the composer chrome (pill / toolbar — where the OTHER panel
+      // trigger lives) is a switch, not an outside tap: closing here would
+      // glide the composer down to the bottom while the other panel opens
+      // (the "composer drops on attach↔emoji switch"). Touch-swap only: the
+      // desktop popover keeps closing on any outside tap (including the
+      // composer's own chrome).
+      if (keyboardMode && target?.closest(".composer")) return;
       const inPanel =
         (pickerRef.current && pickerRef.current.contains(e.target as Node)) ||
         (panelRef.current && panelRef.current.contains(e.target as Node));
@@ -474,6 +503,7 @@ export const EmojiPicker = ({
             data-testid="emoji-keyboard-panel"
             className="fixed inset-x-0 bottom-0 z-[100] flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-background/95 backdrop-blur-xl shadow-2xl"
             style={{
+              ...(swapTop ? { top: swapTop } : {}),
               height: swapHeight || 300,
               animation: swapClosing
                 ? 'emoji-sheet-down 240ms cubic-bezier(0.4, 0, 0.2, 1) both'
