@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { StrictMode } from "react";
 import type { ReactElement } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { rememberAttachmentAspectRatio, __resetAttachmentRatioCacheForTests } from "@/utils/attachmentRatioCache";
@@ -543,5 +544,18 @@ describe("MessageBubble", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(container.querySelector(".chat-panel")?.className).not.toContain("has-message-menu");
     expect(container.querySelector(".message-virtual-item")?.className).not.toContain("is-menu-host");
+  });
+
+  it("floats exactly ONE copy of the message even under StrictMode double effects", async () => {
+    const { container } = renderInChat(
+      <StrictMode>
+        <MessageBubble message={createMessage()} {...defaultProps} />
+      </StrictMode>,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+    // The overlay's layout effect deep-clones the bubble; React StrictMode
+    // runs effects twice, and the idempotent append must not stack copies.
+    expect(container.querySelectorAll(".msg-action-lift .message-bubble").length).toBe(1);
   });
 });

@@ -39,6 +39,11 @@ export function MessageActionOverlay({ hostEl, portalEl, isMine, children }: Mes
     const cloneHost = cloneHostRef.current;
     if (!wrapper || !cloneHost) return;
 
+    // Idempotent: React StrictMode double-invokes layout effects in dev, and
+    // the cleanup must undo the append so the second run starts clean — else
+    // the floated copy would stack a duplicate bubble under itself.
+    cloneHost.replaceChildren();
+
     // Pixel-identical copy of the rendered bubble (purely visual — the group
     // is not interactive; all actions live in the panel below it).
     const clone = hostEl.cloneNode(true) as HTMLElement;
@@ -82,7 +87,10 @@ export function MessageActionOverlay({ hostEl, portalEl, isMine, children }: Mes
       setLift(-Math.min(overflow, roomUp));
     });
 
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (clone.parentNode === cloneHost) cloneHost.removeChild(clone);
+    };
   }, [hostEl, portalEl, isMine]);
 
   return createPortal(
