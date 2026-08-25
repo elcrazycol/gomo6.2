@@ -181,8 +181,9 @@ export const ChatView = memo(function ChatView({
 
   const handleReply = useCallback((msg: MessageView) => {
     setReplyToMessage(msg);
-    setTimeout(() => composerRef.current?.focus(), 50);
-  }, [composerRef]);
+    // The composer focuses its own editor (and summons the soft keyboard on
+    // touch) the moment the reply banner appears — see MessageComposer.
+  }, []);
 
   const handleCopy = useCallback((text: string) => {
     // Strip BBCode formatting tags but keep [e:…] tokens — pasting the text

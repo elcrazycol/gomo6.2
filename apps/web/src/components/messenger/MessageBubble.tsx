@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useState, useRef } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck } from "lucide-react";
 import { formatTime, formatReadAt } from "./utils";
@@ -7,9 +7,21 @@ import { messengerPlainPreview } from "./messengerRichTextUtils";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import type { MessageView } from "./types";
 import { useLanguageStore } from "@/stores/languageStore";
+import { hapticTick, hapticSuccess } from "@/lib/haptics";
 
 const LONG_PRESS_DELAY = 400;
 const SWIPE_THRESHOLD = 80;
+/** Max horizontal pull of the swipe reply, in px (leftwards). */
+const SWIPE_MAX_X = -120;
+/** Acceptance cone for the swipe START direction: the thumb may drift up to
+ *  40° off the horizontal (tan 40° ≈ 0.84) and the gesture still counts as a
+ *  reply swipe — a slightly diagonal start is the native path for a thumb.
+ *  Beyond 40° the movement is treated as a scroll and handed to the browser. */
+const SWIPE_MAX_ANGLE_TAN = Math.tan((40 * Math.PI) / 180);
+/** The finger must travel at least this far before the scroll-vs-swipe
+ *  direction is locked — small enough to beat the browser's own scroll slop,
+ *  large enough to ignore idle finger wiggles. */
+const SWIPE_LOCK_SLOP = 5;
 
 interface Props {
   message: MessageView;
@@ -64,7 +76,14 @@ export const MessageBubble = memo(function MessageBubble({
   const [hasMeasuredLines, setHasMeasuredLines] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const messageBubbleRef = useRef<HTMLDivElement | null>(null);
+  const rowInnerRef = useRef<HTMLDivElement | null>(null);
   const [isSwiping, setIsSwiping] = useState(false);
+  // Scroll-vs-swipe direction lock, decided natively (see the effect below):
+  // once the finger has entered the reply cone the touchmove is
+  // preventDefault'ed, so the browser can never steal the gesture by latching
+  // onto its vertical component — a diagonal start keeps working all the way.
+  const swipeModeRef = useRef<"swipe" | null>(null);
+  const swipeAnchorRef = useRef({ x: 0, y: 0 });
 
   const clearLongPress = useCallback(() => {
     if (longPressTimer.current) {
@@ -81,13 +100,15 @@ export const MessageBubble = memo(function MessageBubble({
       if (!isTouchDevice) return;
 
       if (active) {
-        const offsetX = Math.max(-120, Math.min(0, mx));
+        const offsetX = Math.max(SWIPE_MAX_X, Math.min(0, mx));
         setSwipeOffset(offsetX);
         setIsSwiping(true);
       } else if (last) {
-        const finalOffset = Math.max(-120, Math.min(0, mx));
+        const finalOffset = Math.max(SWIPE_MAX_X, Math.min(0, mx));
         if (Math.abs(finalOffset) > SWIPE_THRESHOLD) {
-          if (navigator.vibrate) navigator.vibrate(5);
+          // The reply is created — confirm it with a tactile pulse (Android:
+          // navigator.vibrate; iOS Safari: a very quiet WebAudio click).
+          hapticSuccess();
           onReply(message);
         }
         setSwipeOffset(0);
@@ -98,12 +119,70 @@ export const MessageBubble = memo(function MessageBubble({
       }
     },
     {
-      axis: "x",
+      // NO axis lock: the gesture stays free — a thumb swipe that starts up
+      // to 40° off the horizontal (up or down) is recognised from the very
+      // first pixels. The bubble itself still moves only horizontally
+      // (translateX above): the vertical part of the finger path is ignored
+      // visually. touchAction: pan-y keeps vertical scrolling on the message
+      // list intact; the direction lock lives in the native listener below.
       filterTaps: true,
       from: () => [0, 0],
       threshold: 5,
     },
   );
+
+  // Native (non-passive) scroll-vs-swipe arbitration. With `touch-action:
+  // pan-y` alone, the BROWSER decides the dominant direction at its own slop
+  // (~8px), so a swipe that starts slightly diagonal can be stolen as a
+  // scroll before the drag even begins. Here the element decides instead:
+  // once the finger has moved past SWIPE_LOCK_SLOP px inside the ±40° reply
+  // cone, EVERY subsequent touchmove is preventDefault'ed — the browser
+  // cannot scroll, the pointer stream never cancels, and the reply swipe
+  // plays out even if the thumb keeps drifting vertically mid-gesture.
+  // Movements outside the cone are left untouched: they scroll the list.
+  useEffect(() => {
+    const el = rowInnerRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      swipeModeRef.current = null;
+      const t = e.touches[0];
+      if (t) swipeAnchorRef.current = { x: t.clientX, y: t.clientY };
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (swipeModeRef.current === "swipe") {
+        e.preventDefault();
+        return;
+      }
+      const t = e.touches[0];
+      if (!t) return;
+      const dx = t.clientX - swipeAnchorRef.current.x;
+      const dy = t.clientY - swipeAnchorRef.current.y;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_LOCK_SLOP) return;
+      // Inside the cone (|angle from horizontal| ≤ 40°) → commit to the swipe
+      // and secure it; outside → stay passive and let the browser scroll.
+      if (Math.abs(dy) <= Math.abs(dx) * SWIPE_MAX_ANGLE_TAN) {
+        swipeModeRef.current = "swipe";
+        e.preventDefault();
+      }
+    };
+
+    const onTouchEnd = () => {
+      swipeModeRef.current = null;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (isSwiping) return;
@@ -123,7 +202,7 @@ export const MessageBubble = memo(function MessageBubble({
     longPressTimer.current = setTimeout(() => {
       scrollContainer?.removeEventListener("scroll", handleScrollOrCancel);
       setIsLongPressing(true);
-      if (navigator.vibrate) navigator.vibrate(10);
+      hapticTick(10);
       el.dispatchEvent(new MouseEvent("contextmenu", {
         bubbles: true, cancelable: true,
         clientX: touch.clientX, clientY: touch.clientY, view: window,
@@ -252,6 +331,7 @@ export const MessageBubble = memo(function MessageBubble({
       onDoubleClick={handleRowDoubleClick}
     >
       <div
+        ref={rowInnerRef}
         className={`bubble-row-inner${isLongPressing ? " is-long-press" : ""}${isSwiping ? " is-swiping" : ""}`}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
