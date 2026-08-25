@@ -116,8 +116,33 @@ export const MessageBubble = memo(function MessageBubble({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuOpenRef = useRef(false);
   const actionPanelRef = useRef<HTMLDivElement | null>(null);
+  // Whether the composer's editing surface was engaged when the panel opened
+  // (editor focused, attach/emoji sheet open): an outside tap that dismisses
+  // the panel must not yank that focus away — the soft keyboard would drop.
+  const composerEngagedRef = useRef(false);
+  const hasComposerEngaged = (chatEl: Element | null): boolean => {
+    const active = document.activeElement;
+    // The editor or any control inside the composer row (attach, emoji, send,
+    // toolbar); the attach sheet and the emoji sheet render as body portals.
+    const activeInComposer = Boolean(
+      active
+      && active !== document.body
+      && (
+        active.closest?.(".composer")
+        || active.closest?.(".composer-attach-sheet")
+        || active.closest?.('[data-testid="emoji-keyboard-panel"], [data-testid="emoji-picker-popover"]')
+      ),
+    );
+    // ...or one of the swap sheets is actually open (its focus may already
+    // have moved to <body> after the sheet replaced the keyboard).
+    const sheetOpen = chatEl?.querySelector(".composer")?.classList.contains("is-sheet-open") ?? false;
+    return activeInComposer || sheetOpen;
+  };
 
   const openMenu = useCallback(() => {
+    composerEngagedRef.current = hasComposerEngaged(
+      rowInnerRef.current?.closest(".chat-panel") ?? null,
+    );
     menuOpenRef.current = true;
     setMenuOpen(true);
   }, []);
@@ -309,6 +334,18 @@ export const MessageBubble = memo(function MessageBubble({
 
     const onPointerDown = (e: PointerEvent) => {
       if (actionPanelRef.current?.contains(e.target as Node)) return;
+      // If the composer's editing surface was engaged when the panel opened,
+      // an outside tap dismisses the panel but must not drop that focus: the
+      // tap's default action (blurring the active element on a non-focusable
+      // target) would collapse the soft keyboard. Suppress it unless the tap
+      // itself landed on an interactive control that wants the focus anyway.
+      if (composerEngagedRef.current) {
+        const target = e.target as Element | null;
+        const interactive = target?.closest?.(
+          "input, textarea, select, button, a[href], [contenteditable], [role='button'], label",
+        );
+        if (!interactive) e.preventDefault();
+      }
       dismissMenu();
     };
     const onKeyDown = (e: KeyboardEvent) => {

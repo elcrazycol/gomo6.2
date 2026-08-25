@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StrictMode } from "react";
 import type { ReactElement } from "react";
@@ -557,5 +557,41 @@ describe("MessageBubble", () => {
     // The overlay's layout effect deep-clones the bubble; React StrictMode
     // runs effects twice, and the idempotent append must not stack copies.
     expect(container.querySelectorAll(".msg-action-lift .message-bubble").length).toBe(1);
+  });
+
+  it("keeps composer focus when the panel is dismissed by an outside tap", async () => {
+    const { container } = renderInChat(
+      <>
+        <MessageBubble message={createMessage()} {...defaultProps} />
+        <div className="composer"><input aria-label="editor" /></div>
+      </>,
+    );
+    const input = container.querySelector(".composer input") as HTMLInputElement;
+    input.focus();
+
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    const scroller = container.querySelector(".message-scroll") as Element;
+    const evt = new MouseEvent("pointerdown", { bubbles: true, cancelable: true });
+    act(() => { scroller.dispatchEvent(evt); });
+    // The outside tap is swallowed so it cannot blur the composer input…
+    expect(evt.defaultPrevented).toBe(true);
+    // …and the panel still dismisses.
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("does not swallow outside taps when the composer had no focus", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    const scroller = container.querySelector(".message-scroll") as Element;
+    const evt = new MouseEvent("pointerdown", { bubbles: true, cancelable: true });
+    act(() => { scroller.dispatchEvent(evt); });
+    expect(evt.defaultPrevented).toBe(false);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });
