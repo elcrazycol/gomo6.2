@@ -300,24 +300,6 @@ export const MessageComposer = memo(function MessageComposer({
     if (typingTimer.current) clearTimeout(typingTimer.current);
   }, []);
 
-  // ── Reply created → summon the keyboard ───────────────────────────────────
-  // The instant a reply is created (swipe reply, context menu, double-click)
-  // the compose field must take focus so the soft keyboard opens and the user
-  // can write the answer immediately — but ONLY on the creation transition
-  // (none → some, or message A → message B): cancelling the reply banner must
-  // not yank focus anywhere. The short delay lets the reply banner render and
-  // the layout settle; the focus call is what actually raises the keyboard.
-  const prevReplyRef = useRef(replyToMessage);
-  useEffect(() => {
-    const prev = prevReplyRef.current;
-    prevReplyRef.current = replyToMessage;
-    if (replyToMessage && replyToMessage !== prev) {
-      const timer = window.setTimeout(() => editorRef.current?.focus(), 50);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [replyToMessage]);
-
   const handleEditorChange = useCallback(
     ({ json, text }: { json: unknown; text: string }) => {
       lastChangeFromEditorRef.current = true;

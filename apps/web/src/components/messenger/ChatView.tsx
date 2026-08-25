@@ -179,11 +179,16 @@ export const ChatView = memo(function ChatView({
 
   const { isDragging: isDraggingFiles, dragHandlers } = useFileDrop(handleDropFiles);
 
-  const handleReply = useCallback((msg: MessageView) => {
+  const handleReply = useCallback((msg: MessageView, opts?: { focus?: boolean }) => {
     setReplyToMessage(msg);
-    // The composer focuses its own editor (and summons the soft keyboard on
-    // touch) the moment the reply banner appears — see MessageComposer.
-  }, []);
+    // The swipe path arms the reply banner MID-DRAG with { focus: false } —
+    // focusing there would pop the soft keyboard under the moving finger. The
+    // keyboard is summoned on the gesture lift ({ focus: true }) instead.
+    // Menu / double-click call without opts and focus right away.
+    if (opts?.focus !== false) {
+      setTimeout(() => composerRef.current?.focus(), 50);
+    }
+  }, [composerRef]);
 
   const handleCopy = useCallback((text: string) => {
     // Strip BBCode formatting tags but keep [e:…] tokens — pasting the text

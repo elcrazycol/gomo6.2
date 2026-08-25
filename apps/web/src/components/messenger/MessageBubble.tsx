@@ -10,9 +10,15 @@ import { useLanguageStore } from "@/stores/languageStore";
 import { hapticTick, hapticSuccess } from "@/lib/haptics";
 
 const LONG_PRESS_DELAY = 400;
-const SWIPE_THRESHOLD = 80;
-/** Max horizontal pull of the swipe reply, in px (leftwards). */
-const SWIPE_MAX_X = -120;
+/** Max horizontal pull of the swipe reply, in px (leftwards) — 40% shorter
+ *  than the original 120px, so the reply arms before the bubble travels far. */
+const SWIPE_MAX_X = -72;
+/** The reply arms at 70% of the max pull: reply badge + haptic + the reply
+ *  banner in the composer appear together and stay until the finger lifts. */
+const SWIPE_ARM_X = Math.round(Math.abs(SWIPE_MAX_X) * 0.7);
+/** Half the reply badge's width (32px from messenger.css) — the badge is
+ *  centred on the message's right edge, so half of it overlaps the bubble. */
+const REPLY_BADGE_HALF = 16;
 /** Acceptance cone for the swipe START direction: the thumb may drift up to
  *  40° off the horizontal (tan 40° ≈ 0.84) and the gesture still counts as a
  *  reply swipe — a slightly diagonal start is the native path for a thumb.
@@ -39,7 +45,10 @@ interface Props {
   onDelete: (id: string) => void;
   onTogglePin: (id: string) => void;
   onRetry: (message: MessageView) => void;
-  onReply: (message: MessageView) => void;
+  /** Sets the reply. `focus: false` arms it mid-swipe (banner only — the
+   *  keyboard must NOT pop up under the moving finger); the default focuses
+   *  the composer (menu / double-click / swipe lift). */
+  onReply: (message: MessageView, opts?: { focus?: boolean }) => void;
   onCopy: (text: string) => void;
   quotedMessage?: MessageView | null;
   peerReadAt?: string | null;
@@ -78,6 +87,12 @@ export const MessageBubble = memo(function MessageBubble({
   const messageBubbleRef = useRef<HTMLDivElement | null>(null);
   const rowInnerRef = useRef<HTMLDivElement | null>(null);
   const [isSwiping, setIsSwiping] = useState(false);
+  // The reply-badge "armed" state: appears (with haptic + composer banner) at
+  // 70% of the pull and stays until the finger lifts — even if the user pulls
+  // back. Ref mirror so the drag handler never races a stale closure.
+  const [replyArmed, setReplyArmed] = useState(false);
+  const replyArmedRef = useRef(false);
+  const [replyBadgeStyle, setReplyBadgeStyle] = useState<React.CSSProperties | undefined>(undefined);
   // Scroll-vs-swipe direction lock, decided natively (see the effect below):
   // once the finger has entered the reply cone the touchmove is
   // preventDefault'ed, so the browser can never steal the gesture by latching
@@ -95,6 +110,23 @@ export const MessageBubble = memo(function MessageBubble({
 
   const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
+  // Anchor the reply badge so it STRADDLES the message's right edge: exactly
+  // half of the badge sits on the bubble, half sticks out to its right —
+  // the same for every message. For own bubbles (flush with the row's right
+  // edge) the protruding half lands in the list gutter, which is at least
+  // as wide as the badge's half (gutter ≥16px), so nothing clips it.
+  // The bubble is measured at arm time; the row's own translation affects
+  // row and bubble equally, so the offset stays valid for the whole gesture.
+  const computeReplyBadgeStyle = useCallback((): React.CSSProperties | undefined => {
+    const bubbleEl = messageBubbleRef.current;
+    const rowEl = rowInnerRef.current;
+    if (!bubbleEl || !rowEl) return undefined;
+    const rowRect = rowEl.getBoundingClientRect();
+    const bubbleRect = bubbleEl.getBoundingClientRect();
+    const bubbleRight = Math.round(bubbleRect.right - rowRect.left);
+    return { left: bubbleRight - REPLY_BADGE_HALF };
+  }, []);
+
   const bind = useDrag(
     ({ movement: [mx], last, active }) => {
       if (!isTouchDevice) return;
@@ -103,14 +135,28 @@ export const MessageBubble = memo(function MessageBubble({
         const offsetX = Math.max(SWIPE_MAX_X, Math.min(0, mx));
         setSwipeOffset(offsetX);
         setIsSwiping(true);
-      } else if (last) {
-        const finalOffset = Math.max(SWIPE_MAX_X, Math.min(0, mx));
-        if (Math.abs(finalOffset) > SWIPE_THRESHOLD) {
-          // The reply is created — confirm it with a tactile pulse (Android:
-          // navigator.vibrate; iOS Safari: a very quiet WebAudio click).
+        // At 70% of the max pull the reply "arms": the badge pops in on the
+        // right of the message, the haptic fires and the reply banner appears
+        // in the composer — all at once. It stays armed (sticky) until the
+        // finger lifts, so pulling back never loses the preview.
+        if (!replyArmedRef.current && Math.abs(offsetX) >= SWIPE_ARM_X) {
+          replyArmedRef.current = true;
+          setReplyArmed(true);
+          setReplyBadgeStyle(computeReplyBadgeStyle());
           hapticSuccess();
-          onReply(message);
+          // focus: false → banner only; the keyboard must not rise under the
+          // moving finger (it is summoned on lift below).
+          onReply(message, { focus: false });
         }
+      } else if (last) {
+        if (replyArmedRef.current) {
+          // Finger up — the reply (already in the composer) is committed; now
+          // focus the composer so the soft keyboard opens for the answer.
+          onReply(message, { focus: true });
+        }
+        replyArmedRef.current = false;
+        setReplyArmed(false);
+        setReplyBadgeStyle(undefined);
         setSwipeOffset(0);
         setIsSwiping(false);
       } else {
@@ -340,9 +386,11 @@ export const MessageBubble = memo(function MessageBubble({
         {...bind()}
         style={{ transform: `translateX(${swipeOffset}px)`, touchAction: "pan-y" }}
       >
-        {/* Swipe reply indicator */}
-        {swipeOffset < -20 && (
-          <div className="swipe-reply-indicator" style={{ opacity: Math.min(1, Math.abs(swipeOffset) / SWIPE_THRESHOLD) }}>
+        {/* Reply badge — straddles the message's right edge (half on the bubble,
+            half sticking out) when the swipe reaches 70% of its travel
+            (armed); pulses subtly and stays until the finger lifts. */}
+        {replyArmed && (
+          <div className="swipe-reply-indicator" style={replyBadgeStyle}>
             <Reply size={18} />
           </div>
         )}
