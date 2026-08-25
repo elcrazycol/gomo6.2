@@ -10,8 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -305,7 +307,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 				}
 			}
 		}
-		if s, ok := parseOrderClause(joined, "t"); ok {
+		if s, ok := crud.ParseOrderClause(joined, "t"); ok {
 			orderClause = " ORDER BY " + s
 		}
 	} else {
@@ -614,11 +616,11 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	}
 
 	if ownerID.Valid {
-		RecomputeUserProfileStats(h.db, ownerID.String)
+		profiles.RecomputeUserProfileStats(h.db, ownerID.String)
 	}
 	for _, aid := range postAuthors {
 		if aid != ownerID.String {
-			RecomputeUserProfileStats(h.db, aid)
+			profiles.RecomputeUserProfileStats(h.db, aid)
 		}
 	}
 

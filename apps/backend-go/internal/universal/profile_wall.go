@@ -1,4 +1,4 @@
-package handlers
+package universal
 
 import (
 	"database/sql"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -266,11 +267,11 @@ func (h *UniversalHandler) runWallSelectQuery(c *gin.Context, baseQuery, tableAl
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" || key == "cursor" {
 			continue
 		}
-		if !isValidColumnName(key) {
+		if !crud.IsValidColumnName(key) {
 			continue
 		}
 		for _, rawValue := range values {
-			clause, nextArgs, nextIndex := buildFilterClause(tableAlias+"."+key, rawValue, ai)
+			clause, nextArgs, nextIndex := crud.BuildFilterClause(tableAlias+"."+key, rawValue, ai)
 			if clause != "" {
 				clauses = append(clauses, clause)
 				args = append(args, nextArgs...)
@@ -280,14 +281,14 @@ func (h *UniversalHandler) runWallSelectQuery(c *gin.Context, baseQuery, tableAl
 	}
 	if orRaw := c.Query("or"); orRaw != "" {
 		orRaw = strings.Trim(orRaw, "()")
-		parts := splitCSV(orRaw)
+		parts := crud.SplitCSV(orRaw)
 		var orClauses []string
 		for _, part := range parts {
-			col, op, value, ok := parseOrCondition(part)
+			col, op, value, ok := crud.ParseOrCondition(part)
 			if !ok {
 				continue
 			}
-			clause, nextArgs, nextIndex := buildFilterFromParts(tableAlias+"."+col, op, value, ai)
+			clause, nextArgs, nextIndex := crud.BuildFilterFromParts(tableAlias+"."+col, op, value, ai)
 			if clause != "" {
 				orClauses = append(orClauses, clause)
 				args = append(args, nextArgs...)
@@ -333,7 +334,6 @@ func (h *UniversalHandler) runWallSelectQuery(c *gin.Context, baseQuery, tableAl
 	if opts.cursor != nil {
 		clauses = append(clauses, "("+tableAlias+".created_at, "+tableAlias+".id) < ($"+strconv.Itoa(ai)+"::timestamptz, $"+strconv.Itoa(ai+1)+"::uuid)")
 		args = append(args, opts.cursor.createdAt, opts.cursor.id)
-		ai += 2
 	}
 
 	// The viewer parameter reference is only known now that the filter clauses
@@ -361,7 +361,7 @@ func (h *UniversalHandler) runWallSelectQuery(c *gin.Context, baseQuery, tableAl
 			}
 			joined += o
 		}
-		if s, ok := parseOrderClause(joined, tableAlias); ok {
+		if s, ok := crud.ParseOrderClause(joined, tableAlias); ok {
 			query += " ORDER BY " + s
 		}
 	}

@@ -1,4 +1,4 @@
-package handlers
+package universal
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/api/handlers"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -60,11 +62,11 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
-		if !isValidColumnName(key) {
+		if !crud.IsValidColumnName(key) {
 			continue
 		}
 		for _, rawValue := range values {
-			clause, nextArgs, nextIndex := buildFilterClause(key, rawValue, argIndex)
+			clause, nextArgs, nextIndex := crud.BuildFilterClause(key, rawValue, argIndex)
 			if clause != "" {
 				clauses = append(clauses, clause)
 				args = append(args, nextArgs...)
@@ -73,14 +75,14 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 		}
 	}
 	if orRaw := c.Query("or"); orRaw != "" {
-		parts := splitCSV(orRaw)
+		parts := crud.SplitCSV(orRaw)
 		var orClauses []string
 		for _, part := range parts {
-			col, op, value, ok := parseOrCondition(part)
+			col, op, value, ok := crud.ParseOrCondition(part)
 			if !ok {
 				continue
 			}
-			clause, nextArgs, nextIndex := buildFilterFromParts(col, op, value, argIndex)
+			clause, nextArgs, nextIndex := crud.BuildFilterFromParts(col, op, value, argIndex)
 			if clause != "" {
 				orClauses = append(orClauses, clause)
 				args = append(args, nextArgs...)
@@ -115,7 +117,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	// Private profile: hide achievements from non-friends
 	if userID := c.Query("user_id"); userID != "" {
 		uid := strings.TrimPrefix(userID, "eq.")
-		canView, err := CanViewUserAchievements(h.db, viewerID, uid)
+		canView, err := handlers.CanViewUserAchievements(h.db, viewerID, uid)
 		if err != nil {
 			serverError(c, "handler error", err)
 			return
@@ -134,7 +136,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			joined += o
 		}
 		// No table alias for ORDER BY — columns are aliases in SELECT (e.g., level = COALESCE(ua.current_level, 0))
-		if s, ok := parseOrderClause(joined, ""); ok {
+		if s, ok := crud.ParseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	}

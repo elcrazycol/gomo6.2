@@ -1,4 +1,4 @@
-package handlers
+package universal
 
 import (
 	"database/sql"
@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/profiles"
 )
 
 // ─── Cache Invalidation ─────────────────────────────────────────────────────
@@ -90,11 +92,11 @@ func (h *UniversalHandler) recomputeStatsForWallPostLike(c *gin.Context, postID,
 		var authorID string
 		if err := h.db.QueryRowContext(c.Request.Context(),
 			"SELECT author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&authorID); err == nil && authorID != "" {
-			RecomputeUserProfileStats(h.db, authorID)
+			profiles.RecomputeUserProfileStats(h.db, authorID)
 		}
 	}
 	if likerID != "" {
-		RecomputeUserProfileStats(h.db, likerID)
+		profiles.RecomputeUserProfileStats(h.db, likerID)
 	}
 }
 
@@ -106,11 +108,11 @@ func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, comm
 		var authorID string
 		if err := h.db.QueryRowContext(c.Request.Context(),
 			"SELECT user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&authorID); err == nil && authorID != "" {
-			RecomputeUserProfileStats(h.db, authorID)
+			profiles.RecomputeUserProfileStats(h.db, authorID)
 		}
 	}
 	if likerID != "" {
-		RecomputeUserProfileStats(h.db, likerID)
+		profiles.RecomputeUserProfileStats(h.db, likerID)
 	}
 }
 
@@ -142,7 +144,7 @@ func (h *UniversalHandler) createWallNotification(c *gin.Context, recipientID, a
 		return
 	}
 	params := &models.NotificationParams{Actor: actorUsername}
-	if _, err := CreateWallNotification(h.db, h.redis, h.hub, recipientID, notifType, message, params, wallPostID, wallCommentID, wallUserID, &actorID); err != nil {
+	if _, err := handlers.CreateWallNotification(h.db, h.redis, h.hub, recipientID, notifType, message, params, wallPostID, wallCommentID, wallUserID, &actorID); err != nil {
 		fmt.Printf("[WallNotifications] error creating %s notification: %v\n", notifType, err)
 	}
 }
@@ -231,12 +233,12 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
-		if !isValidColumnName(key) {
+		if !crud.IsValidColumnName(key) {
 			continue
 		}
 
 		for _, rawValue := range values {
-			clause, nextArgs, nextIndex := buildFilterClause(key, rawValue, argIndex)
+			clause, nextArgs, nextIndex := crud.BuildFilterClause(key, rawValue, argIndex)
 			if clause != "" {
 				clauses = append(clauses, clause)
 				args = append(args, nextArgs...)
@@ -254,14 +256,14 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 
 	// OR conditions: or=col.eq.value,col2.ilike.%term%
 	if orRaw := c.Query("or"); orRaw != "" {
-		parts := splitCSV(orRaw)
+		parts := crud.SplitCSV(orRaw)
 		var orClauses []string
 		for _, part := range parts {
-			col, op, value, ok := parseOrCondition(part)
+			col, op, value, ok := crud.ParseOrCondition(part)
 			if !ok {
 				continue
 			}
-			clause, nextArgs, nextIndex := buildFilterFromParts(col, op, value, argIndex)
+			clause, nextArgs, nextIndex := crud.BuildFilterFromParts(col, op, value, argIndex)
 			if clause != "" {
 				orClauses = append(orClauses, clause)
 				args = append(args, nextArgs...)
@@ -290,11 +292,10 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 	// Emoji packs and their emojis: private packs are only visible to their
 	// author and subscribers through the generic surface as well (mirrors the
 	// by-slug gate in GetPackBySlug).
-	scopeClause, scopeArgs, nextArgIndex = genericEmojiVisibility(c, tableName, argIndex)
+	scopeClause, scopeArgs, _ = genericEmojiVisibility(c, tableName, argIndex)
 	if scopeClause != "" {
 		clauses = append(clauses, scopeClause)
 		args = append(args, scopeArgs...)
-		argIndex = nextArgIndex
 	}
 
 	if len(clauses) > 0 {
@@ -310,7 +311,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 			}
 			joined += o
 		}
-		if s, ok := parseOrderClause(joined, ""); ok {
+		if s, ok := crud.ParseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	}
@@ -539,14 +540,14 @@ RETURNING *, (xmax = 0) AS inserted`
 		// A present-but-null value clears the background (the remove action).
 		if v, ok := data["background_url"]; ok {
 			s, _ := v.(string)
-			add("background_url", sanitizeProfileBackgroundURL(s), "")
+			add("background_url", profiles.SanitizeProfileBackgroundURL(s), "")
 		}
 		// background_variant is the owner's default display variant for their
 		// background (banner/card/page/page_dim) — validated against the
 		// allow-list; anything else falls back to the banner default.
 		if v, ok := data["background_variant"]; ok {
 			s, _ := v.(string)
-			add("background_variant", sanitizeProfileBackgroundVariant(s), "")
+			add("background_variant", profiles.SanitizeProfileBackgroundVariant(s), "")
 		}
 		// Auto-theme: theme_enabled is a plain bool; theme_tokens is a JSONB
 		// payload of CSS variables rendered as inline styles on the profile
@@ -556,7 +557,7 @@ RETURNING *, (xmax = 0) AS inserted`
 			add("theme_enabled", b, "")
 		}
 		if v, ok := data["theme_tokens"]; ok {
-			themeTokens := sanitizeProfileThemeTokens(v)
+			themeTokens := profiles.SanitizeProfileThemeTokens(v)
 			themeTokensJSON := "{}"
 			if len(themeTokens) > 0 {
 				if b, err := json.Marshal(themeTokens); err == nil {
@@ -852,7 +853,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	// C1 (security audit): body keys are interpolated into the INSERT column
 	// list verbatim. Reject any key that is not a safe SQL identifier before
 	// any other logic sees the payload.
-	if err := validateBodyColumnNames(data); err != nil {
+	if err := crud.ValidateBodyColumnNames(data); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
@@ -944,7 +945,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		// Keep profile stats in sync when session time accumulates via upsert
 		if tableName == "user_session_time" {
 			if uid := rowUserID(result["user_id"]); uid != "" {
-				RecomputeUserProfileStats(h.db, uid)
+				profiles.RecomputeUserProfileStats(h.db, uid)
 			}
 		}
 
@@ -988,7 +989,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		argIndex++
 	}
 
-	query += joinStrings(columns, ", ") + ") VALUES (" + joinStrings(placeholders, ", ") + ") RETURNING *"
+	query += crud.JoinStrings(columns, ", ") + ") VALUES (" + crud.JoinStrings(placeholders, ", ") + ") RETURNING *"
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -1088,11 +1089,11 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	switch tableName {
 	case "profile_wall_posts":
 		if uid := rowUserID(result["author_id"]); uid != "" {
-			RecomputeUserProfileStats(h.db, uid)
+			profiles.RecomputeUserProfileStats(h.db, uid)
 		}
 	case "profile_wall_post_comments":
 		if uid := rowUserID(result["user_id"]); uid != "" {
-			RecomputeUserProfileStats(h.db, uid)
+			profiles.RecomputeUserProfileStats(h.db, uid)
 		}
 	case "profile_wall_post_likes":
 		if postID, ok := result["post_id"].(string); ok {
@@ -1114,7 +1115,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	if tableName == "user_session_time" {
 		if uid := rowUserID(result["user_id"]); uid != "" {
-			RecomputeUserProfileStats(h.db, uid)
+			profiles.RecomputeUserProfileStats(h.db, uid)
 		}
 	}
 
@@ -1167,7 +1168,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	// C1 (security audit): body keys are interpolated into the UPDATE SET
 	// clause verbatim. Reject any key that is not a safe SQL identifier before
 	// any other logic sees the payload.
-	if err := validateBodyColumnNames(data); err != nil {
+	if err := crud.ValidateBodyColumnNames(data); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
@@ -1303,7 +1304,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
-		if !isValidColumnName(key) {
+		if !crud.IsValidColumnName(key) {
 			continue
 		}
 		// H1: for gomosub management tables, board_id is consumed by the board
@@ -1313,7 +1314,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 			continue
 		}
 		for _, rawValue := range values {
-			clause, nextArgs, nextIndex := buildFilterClause(key, rawValue, argIndex)
+			clause, nextArgs, nextIndex := crud.BuildFilterClause(key, rawValue, argIndex)
 			if clause != "" {
 				clauses = append(clauses, clause)
 				args = append(args, nextArgs...)
@@ -1327,7 +1328,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		return
 	}
 
-	query += joinStrings(updates, ", ") + " WHERE " + strings.Join(clauses, " AND ") + " RETURNING *"
+	query += crud.JoinStrings(updates, ", ") + " WHERE " + strings.Join(clauses, " AND ") + " RETURNING *"
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -1406,7 +1407,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	if tableName == "user_session_time" {
 		if uid := rowUserID(result["user_id"]); uid != "" {
-			RecomputeUserProfileStats(h.db, uid)
+			profiles.RecomputeUserProfileStats(h.db, uid)
 		}
 	}
 
@@ -1487,7 +1488,7 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
-		if !isValidColumnName(key) {
+		if !crud.IsValidColumnName(key) {
 			continue
 		}
 		// H1: board_id is consumed by the board scope above (see handlePut).
@@ -1495,7 +1496,7 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 			continue
 		}
 		for _, rawValue := range values {
-			clause, nextArgs, nextIndex := buildFilterClause(key, rawValue, argIndex)
+			clause, nextArgs, nextIndex := crud.BuildFilterClause(key, rawValue, argIndex)
 			if clause != "" {
 				clauses = append(clauses, clause)
 				args = append(args, nextArgs...)
@@ -1608,7 +1609,7 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 	switch tableName {
 	case "profile_wall_posts":
 		if uid := rowUserID(result["author_id"]); uid != "" {
-			RecomputeUserProfileStats(h.db, uid)
+			profiles.RecomputeUserProfileStats(h.db, uid)
 		}
 	case "profile_wall_post_likes":
 		if postID, ok := result["post_id"].(string); ok {

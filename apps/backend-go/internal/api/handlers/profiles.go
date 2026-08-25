@@ -13,6 +13,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	profilepkg "github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -204,7 +205,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		}
 		if singleID != "" {
 			if _, err := uuid.Parse(singleID); err == nil {
-				RecomputeUserProfileStats(h.db, singleID)
+				profilepkg.RecomputeUserProfileStats(h.db, singleID)
 			}
 		}
 	}
@@ -264,19 +265,19 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		} // L6: only sanitized storage keys ever reach the client — legacy or
 		// forged rows are neutralized before they render as an <img> src.
 		if backgroundURL.Valid && backgroundURL.String != "" {
-			sanitized := sanitizeProfileBackgroundURL(backgroundURL.String)
+			sanitized := profilepkg.SanitizeProfileBackgroundURL(backgroundURL.String)
 			if sanitized != "" {
 				profile.BackgroundURL = &sanitized
 			}
 		}
 		// Owner-set display variant is validated against the allow-list too.
-		profile.BackgroundVariant = sanitizeProfileBackgroundVariant(profile.BackgroundVariant)
+		profile.BackgroundVariant = profilepkg.SanitizeProfileBackgroundVariant(profile.BackgroundVariant)
 		// Auto-theme: sanitize the token payload before it can be applied as
 		// CSS variables on a viewer's screen (allow-listed --* keys + HSL).
 		if themeTokensJSON.Valid && themeTokensJSON.String != "" && themeTokensJSON.String != "{}" {
 			var raw map[string]interface{}
 			if err := json.Unmarshal([]byte(themeTokensJSON.String), &raw); err == nil {
-				sanitized := sanitizeProfileThemeTokens(raw)
+				sanitized := profilepkg.SanitizeProfileThemeTokens(raw)
 				if len(sanitized) > 0 {
 					if b, err := json.Marshal(sanitized); err == nil {
 						profile.ThemeTokens = b
@@ -368,7 +369,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
 	if _, err := uuid.Parse(id); err == nil {
-		RecomputeUserProfileStats(h.db, id)
+		profilepkg.RecomputeUserProfileStats(h.db, id)
 	}
 
 	query := `
@@ -413,19 +414,19 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	}
 	// L6: see GetProfiles — only sanitized storage keys reach the client.
 	if backgroundURL.Valid && backgroundURL.String != "" {
-		sanitized := sanitizeProfileBackgroundURL(backgroundURL.String)
+		sanitized := profilepkg.SanitizeProfileBackgroundURL(backgroundURL.String)
 		if sanitized != "" {
 			profile.BackgroundURL = &sanitized
 		}
 	}
 	// Owner-set display variant is validated against the allow-list too.
-	profile.BackgroundVariant = sanitizeProfileBackgroundVariant(profile.BackgroundVariant)
+	profile.BackgroundVariant = profilepkg.SanitizeProfileBackgroundVariant(profile.BackgroundVariant)
 	// Auto-theme: sanitize the token payload before it can be applied as CSS
 	// variables on a viewer's screen (allow-listed --* keys + HSL).
 	if themeTokensJSON.Valid && themeTokensJSON.String != "" && themeTokensJSON.String != "{}" {
 		var raw map[string]interface{}
 		if err := json.Unmarshal([]byte(themeTokensJSON.String), &raw); err == nil {
-			sanitized := sanitizeProfileThemeTokens(raw)
+			sanitized := profilepkg.SanitizeProfileThemeTokens(raw)
 			if len(sanitized) > 0 {
 				if b, err := json.Marshal(sanitized); err == nil {
 					profile.ThemeTokens = b
@@ -667,10 +668,10 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 
 	// Achievements: avatar / bio set → unlock events.
 	if updates.AvatarURL != nil && *updates.AvatarURL != "" {
-		emitAchievement(h.achEngine, id, achievements.EventAvatarUpdated)
+		EmitAchievement(h.achEngine, id, achievements.EventAvatarUpdated)
 	}
 	if updates.Bio != nil && *updates.Bio != "" {
-		emitAchievement(h.achEngine, id, achievements.EventBioUpdated)
+		EmitAchievement(h.achEngine, id, achievements.EventBioUpdated)
 	}
 
 	// Return updated profile

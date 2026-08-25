@@ -1,10 +1,9 @@
-package handlers
+package universal
 
 import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -258,148 +257,6 @@ func genericEmojiVisibility(c *gin.Context, tableName string, argIndex int) (str
 	default:
 		return "", nil, argIndex
 	}
-}
-
-// ─── Filter Helpers ─────────────────────────────────────────────────────────
-
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
-}
-
-func isValidColumnName(name string) bool {
-	if len(name) == 0 || len(name) > 63 {
-		return false
-	}
-	for i, c := range name {
-		if i == 0 {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
-				return false
-			}
-		} else {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// validateBodyColumnNames rejects any JSON body key that is not a safe SQL
-// identifier (CWE-89, C1 regression guard). The generic write handlers
-// interpolate body keys directly into INSERT column lists and UPDATE SET
-// clauses, so an unvalidated key could smuggle arbitrary SQL into the
-// statement (e.g. `accepted_at = (SELECT password_hash FROM users), updated_at`
-// produced a working expression because the trailing ` = $N` absorbed the
-// bind parameter). Values are parameterized, but the identifier itself must
-// still be constrained: a valid column name can never contain SQL syntax, so
-// enforcing the same shape as isValidColumnName is sufficient.
-func validateBodyColumnNames(data map[string]interface{}) error {
-	for key := range data {
-		if !isValidColumnName(key) {
-			return fmt.Errorf("invalid column name %q in request body", key)
-		}
-	}
-	return nil
-}
-
-func buildFilterClause(column, rawValue string, argIndex int) (string, []interface{}, int) {
-	parts := strings.SplitN(rawValue, ".", 2)
-	if len(parts) != 2 {
-		// Backward compatibility: plain equality
-		return column + " = $" + strconv.Itoa(argIndex), []interface{}{rawValue}, argIndex + 1
-	}
-	return buildFilterFromParts(column, parts[0], parts[1], argIndex)
-}
-
-func buildFilterFromParts(column, op, value string, argIndex int) (string, []interface{}, int) {
-	switch op {
-	case "eq":
-		return column + " = $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "neq":
-		return column + " <> $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "gt":
-		return column + " > $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "gte":
-		return column + " >= $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "lt":
-		return column + " < $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "lte":
-		return column + " <= $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "ilike":
-		return column + " ILIKE $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "is":
-		if value == "null" {
-			return column + " IS NULL", nil, argIndex
-		}
-		if value == "true" {
-			return column + " IS TRUE", nil, argIndex
-		}
-		if value == "false" {
-			return column + " IS FALSE", nil, argIndex
-		}
-		return column + " = $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	case "in":
-		trimmed := strings.TrimPrefix(value, "(")
-		trimmed = strings.TrimSuffix(trimmed, ")")
-		items := splitCSV(trimmed)
-		if len(items) == 0 {
-			return "", nil, argIndex
-		}
-		placeholders := make([]string, 0, len(items))
-		args := make([]interface{}, 0, len(items))
-		for _, item := range items {
-			placeholders = append(placeholders, "$"+strconv.Itoa(argIndex))
-			args = append(args, item)
-			argIndex++
-		}
-		return column + " IN (" + strings.Join(placeholders, ", ") + ")", args, argIndex
-	case "not":
-		sub := strings.SplitN(value, ".", 2)
-		if len(sub) != 2 {
-			return "", nil, argIndex
-		}
-		clause, args, next := buildFilterFromParts(column, sub[0], sub[1], argIndex)
-		if clause == "" {
-			return "", nil, argIndex
-		}
-		return "NOT (" + clause + ")", args, next
-	default:
-		return column + " = $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
-	}
-}
-
-func parseOrCondition(condition string) (column, op, value string, ok bool) {
-	parts := strings.SplitN(condition, ".", 3)
-	if len(parts) != 3 {
-		return "", "", "", false
-	}
-	if !isValidColumnName(parts[0]) {
-		return "", "", "", false
-	}
-	return parts[0], parts[1], parts[2], true
-}
-
-func splitCSV(input string) []string {
-	if input == "" {
-		return nil
-	}
-	parts := strings.Split(input, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		out = append(out, trimmed)
-	}
-	return out
 }
 
 // extractRecordID extracts the record ID from a URL path like /api/v1/table_name/abc-123.

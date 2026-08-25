@@ -13,6 +13,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -45,7 +46,7 @@ func NewRPCHandler(db *sql.DB) *RPCHandler {
 	return &RPCHandler{
 		db: db,
 		recomputeStatsFn: func(db *sql.DB, userID string) {
-			RecomputeUserProfileStats(db, userID)
+			profiles.RecomputeUserProfileStats(db, userID)
 		},
 	}
 }
@@ -307,7 +308,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	h.recomputeStatsFn(h.db, claims.UserID)
 
-	emitAchievement(h.achEngine, claims.UserID, achievements.EventCommentCreated)
+	EmitAchievement(h.achEngine, claims.UserID, achievements.EventCommentCreated)
 
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
@@ -529,9 +530,9 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	h.recomputeStatsFn(h.db, claims.UserID)
 
-	emitAchievement(h.achEngine, claims.UserID, achievements.EventEntryCreated)
+	EmitAchievement(h.achEngine, claims.UserID, achievements.EventEntryCreated)
 	if len(req.ImageURLs) > 0 {
-		emitAchievement(h.achEngine, claims.UserID, achievements.EventImageUploaded)
+		EmitAchievement(h.achEngine, claims.UserID, achievements.EventImageUploaded)
 	}
 
 	if h.redis != nil {

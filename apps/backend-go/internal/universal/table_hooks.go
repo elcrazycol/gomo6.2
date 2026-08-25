@@ -1,10 +1,11 @@
-package handlers
+package universal
 
 import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
+	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/middleware"
@@ -190,9 +191,9 @@ func invalidateUserTermsAcceptanceCache(h *UniversalHandler, _ *gin.Context, res
 func emitProfileWallPostsAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := rowUserID(result["author_id"]); uid != "" {
-		emitAchievement(e, uid, achievements.EventEntryCreated)
+		handlers.EmitAchievement(e, uid, achievements.EventEntryCreated)
 		if wallPostHasImage(result) {
-			emitAchievement(e, uid, achievements.EventImageUploaded)
+			handlers.EmitAchievement(e, uid, achievements.EventImageUploaded)
 		}
 	}
 }
@@ -200,65 +201,65 @@ func emitProfileWallPostsAchievements(h *UniversalHandler, result map[string]int
 func emitProfileWallPostCommentsAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := rowUserID(result["user_id"]); uid != "" {
-		emitAchievement(e, uid, achievements.EventCommentCreated)
+		handlers.EmitAchievement(e, uid, achievements.EventCommentCreated)
 	}
 }
 
 func emitProfileWallPostLikesAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if liker := rowUserID(result["user_id"]); liker != "" {
-		emitAchievement(e, liker, achievements.EventLikeGiven)
+		handlers.EmitAchievement(e, liker, achievements.EventLikeGiven)
 	}
 	if postID := crud.WallResultString(result["post_id"]); postID != "" {
 		var authorID string
 		_ = h.db.QueryRow("SELECT author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&authorID)
-		emitAchievement(e, authorID, achievements.EventLikeReceived)
+		handlers.EmitAchievement(e, authorID, achievements.EventLikeReceived)
 	}
 }
 
 func emitProfileWallCommentLikesAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if liker := rowUserID(result["user_id"]); liker != "" {
-		emitAchievement(e, liker, achievements.EventLikeGiven)
+		handlers.EmitAchievement(e, liker, achievements.EventLikeGiven)
 	}
 	if commentID := crud.WallResultString(result["comment_id"]); commentID != "" {
 		var authorID string
 		_ = h.db.QueryRow("SELECT user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&authorID)
-		emitAchievement(e, authorID, achievements.EventLikeReceived)
+		handlers.EmitAchievement(e, authorID, achievements.EventLikeReceived)
 	}
 }
 
 func emitProfileWallPostRepostsAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := rowUserID(result["user_id"]); uid != "" {
-		emitAchievement(e, uid, achievements.EventRepostCreated)
+		handlers.EmitAchievement(e, uid, achievements.EventRepostCreated)
 	}
 }
 
 func emitUserDailyVisitsAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := rowUserID(result["user_id"]); uid != "" {
-		emitAchievement(e, uid, achievements.EventDailyVisit)
+		handlers.EmitAchievement(e, uid, achievements.EventDailyVisit)
 	}
 }
 
 func emitGomosubMembershipsAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := rowUserID(result["user_id"]); uid != "" {
-		emitAchievement(e, uid, achievements.EventSubJoined)
+		handlers.EmitAchievement(e, uid, achievements.EventSubJoined)
 	}
 }
 
 func emitGomosubRulesAcceptanceAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := rowUserID(result["user_id"]); uid != "" {
-		emitAchievement(e, uid, achievements.EventSubRulesAccepted)
+		handlers.EmitAchievement(e, uid, achievements.EventSubRulesAccepted)
 	}
 }
 
 func emitProfileCustomizationAchievements(h *UniversalHandler, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := rowUserID(result["user_id"]); uid != "" {
-		emitAchievement(e, uid, achievements.EventProfileStyled)
+		handlers.EmitAchievement(e, uid, achievements.EventProfileStyled)
 	}
 }

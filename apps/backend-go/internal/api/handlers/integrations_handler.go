@@ -213,7 +213,7 @@ func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 
 	h.redirectToSettings(c, "success", "Spotify подключён!")
 
-	emitAchievement(h.achEngine, userID, achievements.EventIntegrationConnected)
+	EmitAchievement(h.achEngine, userID, achievements.EventIntegrationConnected)
 }
 
 // DisconnectSpotify removes the Spotify integration for the authenticated user

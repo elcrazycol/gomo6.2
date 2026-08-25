@@ -1,4 +1,4 @@
-package handlers
+package crud
 
 import (
 	"testing"
@@ -25,7 +25,7 @@ func TestParseSingleOrderSegment(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			col, dir, ok := parseSingleOrderSegment(tt.segment)
+			col, dir, ok := ParseSingleOrderSegment(tt.segment)
 			if ok != tt.ok {
 				t.Fatalf("ok: got %v, want %v", ok, tt.ok)
 			}
@@ -58,9 +58,9 @@ func TestIsSafeSQLIdentifier(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isSafeSQLIdentifier(tt.s)
+			got := IsSafeSQLIdentifier(tt.s)
 			if got != tt.want {
-				t.Errorf("isSafeSQLIdentifier(%q) = %v, want %v", tt.s, got, tt.want)
+				t.Errorf("IsSafeSQLIdentifier(%q) = %v, want %v", tt.s, got, tt.want)
 			}
 		})
 	}
@@ -75,7 +75,7 @@ func TestIsSafeSQLIdentifier(t *testing.T) {
 		if len(s) != 63 {
 			t.Fatalf("test setup: len=%d, want 63", len(s))
 		}
-		if !isSafeSQLIdentifier(s) {
+		if !IsSafeSQLIdentifier(s) {
 			t.Error("63 chars should be valid")
 		}
 	})
@@ -84,7 +84,7 @@ func TestIsSafeSQLIdentifier(t *testing.T) {
 		if len(s) != 64 {
 			t.Fatalf("test setup: len=%d, want 64", len(s))
 		}
-		if isSafeSQLIdentifier(s) {
+		if IsSafeSQLIdentifier(s) {
 			t.Error("64 chars should be invalid")
 		}
 	})
@@ -101,9 +101,9 @@ func TestQuoteSQLIdent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := quoteSQLIdent(tt.input)
+			got := QuoteSQLIdent(tt.input)
 			if got != tt.want {
-				t.Errorf("quoteSQLIdent(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("QuoteSQLIdent(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -129,7 +129,7 @@ func TestParseOrderClause(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotSQL, gotOK := parseOrderClause(tt.expr, tt.tableAlias)
+			gotSQL, gotOK := ParseOrderClause(tt.expr, tt.tableAlias)
 			if gotOK != tt.wantOK {
 				t.Fatalf("ok: got %v, want %v", gotOK, tt.wantOK)
 			}

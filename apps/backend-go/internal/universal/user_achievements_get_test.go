@@ -1,4 +1,4 @@
-package handlers
+package universal
 
 import (
 	"testing"
