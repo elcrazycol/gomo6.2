@@ -1639,21 +1639,32 @@ main.is-messenger-page {
   background: hsl(var(--border));
 }
 
-/* Scrim: blur + dim every chat surface except the selected message and its
-   panel. backdrop-filter samples everything painted BELOW the scrim; the host
-   row paints ABOVE it (z-index 55 > 40), so it stays sharp. */
-.chat-panel.has-message-menu::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  background: hsl(var(--background) / 0.45);
-  -webkit-backdrop-filter: blur(9px) saturate(0.85);
-  backdrop-filter: blur(9px) saturate(0.85);
+/* Blur + dim every chat surface except the selected message and its panel.
+   Per-SURFACE `filter`, not a full-panel backdrop scrim: on mobile the lifted
+   message area is its own stacking context (`.chat-messages-area` carries
+   `translate` / `will-change: translate` for the keyboard lift, and any
+   non-`none` translate creates a stacking context), so nothing inside it can
+   ever paint above a panel-level scrim — the selected message and its panel
+   would end up BEHIND the blur. Blurring each sibling surface directly
+   (excluding .is-menu-host) keeps the selected message crisp in every
+   stacking context, mobile and desktop alike. */
+.chat-panel.has-message-menu .chat-header-group,
+.chat-panel.has-message-menu .composer,
+.chat-panel.has-message-menu .error-banner,
+.chat-panel.has-message-menu .notes-key-banner,
+.chat-panel.has-message-menu .notes-filter-bar,
+.chat-panel.has-message-menu .notes-pinned-section .notes-section-heading,
+.chat-panel.has-message-menu .msg-history-header,
+.chat-panel.has-message-menu .message-list-footer,
+.chat-panel.has-message-menu .scroll-to-bottom-btn,
+.chat-panel.has-message-menu .message-virtual-item:not(.is-menu-host),
+.chat-panel.has-message-menu .notes-pinned-item:not(.is-menu-host) {
+  filter: blur(6px) brightness(0.85);
+  opacity: 0.55;
+  transition: filter 0.18s ease, opacity 0.18s ease;
 }
 
-/* Freeze touch scrolling while the panel is open — the scrim already eats
-   taps, this stops pan gestures under the finger. */
+/* Freeze touch scrolling while the panel is open. */
 .chat-panel.has-message-menu { touch-action: none; }
 
 /* The selected message (and its panel) stays crisp above the scrim. */
