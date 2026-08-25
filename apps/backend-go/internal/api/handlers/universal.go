@@ -75,46 +75,18 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		return
 	}
 
-	// Only allow specific tables for security
-	allowedTables := map[string]bool{
-		"user_roles":                   true,
-		"channels":                     true,
-		"gomosub_roles":                true,
-		"channel_permissions":          true,
-		"gomosub_memberships":          true,
-		"user_session_time":            true,
-		"user_achievements":            true,
-		"achievements":                 true,
-		"user_terms_acceptance":        true,
-		"profile_customization":        true,
-		"user_placeholders":            true,
-		"polls":                        true,
-		"poll_votes":                   true,
-		"thread_subscriptions":         true,
-		"privacy_settings":             true,
-		"user_daily_visits":            true,
-		"thread_custom_message_visits": true,
-		"profile_wall_posts":           true,
-		"profile_wall_post_comments":   true,
-		"profile_wall_post_likes":      true,
-		"profile_wall_post_reposts":    true,
-		"profile_wall_comment_likes":   true,
-		"gomosub_rules_acceptance":     true,
-		"reports":                      true,
-		"user_bans":                    true,
-		"user_settings_changes":        true,
-		"emoji_packs":                  true,
-		"custom_emojis":                true,
-		"user_emoji_subscriptions":     true,
-	}
-
-	if !allowedTables[tableName] {
+	// Only allow specific tables for security. The allow-list lives in the
+	// declarative table registry (GenericTables) — the same registry that
+	// generates the routes in routes.go, so a table can never be routable
+	// without being allow-listed here.
+	meta := GenericTableByName(tableName)
+	if meta == nil {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Table not found"))
 		return
 	}
 
 	// Check gomosub management permissions for write operations
-	if c.Request.Method != "GET" && isGomosubManagementTable(tableName) {
+	if c.Request.Method != "GET" && meta.GomosubManagement {
 		if tableName == "gomosub_memberships" {
 			// Allow self-join (POST) and self-leave (DELETE) without management permissions
 			if (c.Request.Method == "POST" && h.isSelfJoin(c)) || (c.Request.Method == "DELETE" && h.isSelfLeave(c)) {
@@ -127,7 +99,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		}
 	}
 
-	if c.Request.Method == http.MethodGet && genericReadDeniedTable(tableName) {
+	if c.Request.Method == http.MethodGet && meta.ReadDenied {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Generic access to this table is disabled"))
 		return
 	}
@@ -136,7 +108,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	// the generic CRUD surface. Without this guard, any authenticated user could
 	// INSERT/PUT into user_roles and grant themselves the admin/moderator role
 	// (privilege escalation) or forge achievements/polls. Reads stay allowed.
-	if c.Request.Method != http.MethodGet && genericWriteDeniedTable(tableName) {
+	if c.Request.Method != http.MethodGet && meta.WriteDenied {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Writes to this table are not allowed"))
 		return
 	}
@@ -155,72 +127,17 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	}
 }
 
-// genericReadDeniedTable lists tables whose contents are too sensitive for the
-// compatibility CRUD surface. They must be exposed only through explicit,
-// business-authorized handlers.
-func genericReadDeniedTable(table string) bool {
-	switch table {
-	case "reports", "user_bans":
-		return true
-	default:
-		return false
-	}
-}
-
-// genericWriteDeniedTable lists tables that must never be written through the
-// compatibility CRUD surface. Their rows are created and maintained exclusively
-// by the server (RPC handlers, achievement checker, migrations) or by explicit
-// business-authorized handlers. Allowing generic writes here would let any
-// authenticated user escalate privileges (e.g. INSERT/PUT into user_roles to
-// grant themselves the admin role) or forge server-managed records.
-func genericWriteDeniedTable(table string) bool {
-	switch table {
-	case "user_roles", "achievements", "user_achievements", "polls", "gomosub_invites":
-		return true
-	default:
-		return false
-	}
-}
-
 // writableColumnsForTable returns the columns a client may write for tables
 // whose remaining columns are server-managed (counters, ownership foreign
 // keys). An empty result means the table is only restricted by ownership
-// forcing, not by column allow-listing.
+// forcing, not by column allow-listing. Source of truth: the table registry
+// (TableMeta.WritableColumns).
 func writableColumnsForTable(tableName string) map[string]bool {
-	switch tableName {
-	case "emoji_packs":
-		// emoji_count / subscriber_count are maintained by triggers and the
-		// subscription flow — a client must never be able to inflate them.
-		return map[string]bool{
-			"name": true, "slug": true, "description": true, "icon_url": true, "is_public": true,
-		}
-	case "custom_emojis":
-		// image_url is additionally validated by validateCustomEmojiAsset;
-		// unicode_triggers by validateCustomEmojiTriggers (migration 087).
-		return map[string]bool{
-			"pack_id": true, "name": true, "image_url": true, "is_animated": true, "sort_order": true,
-			"unicode_triggers": true,
-		}
-	case "user_emoji_subscriptions":
-		// user_id is forced to the caller by enforcePostOwnership.
-		return map[string]bool{"pack_id": true}
-	case "thread_subscriptions":
-		// user_id is forced to the caller by enforcePostOwnership.
-		return map[string]bool{"thread_id": true}
-	case "poll_votes":
-		// user_id is forced to the caller by enforcePostOwnership.
-		return map[string]bool{"poll_id": true, "option_ids": true, "option_index": true}
-	case "profile_wall_post_comments":
-		// user_id is forced to the caller by enforcePostOwnership (POST) / the
-		// ownership scope (PUT). is_deleted is server-managed — it is set only
-		// by the soft-delete DELETE path, so a client can neither un-delete a
-		// comment nor flag someone else's as deleted through a generic PUT.
-		// post_id/parent_id are writable ONLY at creation (they must survive
-		// the POST body for the wall-privacy gate) and are stripped from PUT in
-		// handlePut, so the comment tree cannot be re-parented retroactively.
-		return map[string]bool{"content": true, "content_json": true, "post_id": true, "parent_id": true}
+	meta := GenericTableByName(tableName)
+	if meta == nil {
+		return nil
 	}
-	return nil
+	return meta.WritableColumns
 }
 
 // filterWritableColumns strips client-supplied columns that are not in the
@@ -253,22 +170,12 @@ func authenticatedUserID(c *gin.Context) string {
 }
 
 // genericReadScopeUser returns the authenticated user ID for tables where the
-// compatibility read endpoint must be user-scoped. An unscoped table is left
-// untouched so public-ish compatibility queries (channels, roles, etc.) keep
-// their existing semantics.
+// compatibility read endpoint must be user-scoped (TableMeta.UserScopedRead).
+// An unscoped table is left untouched so public-ish compatibility queries
+// (channels, roles, etc.) keep their existing semantics.
 func genericReadScopeUser(c *gin.Context, table string) string {
-	needsScope := false
-	switch table {
-	case "user_roles", "gomosub_memberships", "user_session_time",
-		"user_achievements", "user_terms_acceptance", "profile_customization",
-		"user_placeholders", "poll_votes", "thread_subscriptions",
-		"privacy_settings", "user_daily_visits", "thread_custom_message_visits",
-		"profile_wall_posts", "profile_wall_post_likes", "profile_wall_post_reposts",
-		"profile_wall_comment_likes", "gomosub_rules_acceptance",
-		"user_settings_changes", "user_emoji_subscriptions":
-		needsScope = true
-	}
-	if !needsScope {
+	meta := GenericTableByName(table)
+	if meta == nil || !meta.UserScopedRead {
 		return ""
 	}
 	claimsValue, claimsExists := c.Get("claims")
@@ -287,8 +194,13 @@ func genericReadScopeUser(c *gin.Context, table string) string {
 // visibility gate (GetBoard), so anonymous browsing cannot enumerate a private
 // gomosub's internal structure by guessing UUIDs — and the pre-existing
 // exposure of that structure to any logged-in non-member is closed as well.
-// Returns an empty clause for unknown tables.
+// Returns an empty clause for tables not gated by the registry
+// (TableMeta.GomosubVisibility).
 func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (string, []interface{}, int) {
+	meta := GenericTableByName(tableName)
+	if meta == nil || !meta.GomosubVisibility {
+		return "", nil, argIndex
+	}
 	viewerID := authenticatedUserID(c)
 	var clause string
 	var args []interface{}
@@ -298,8 +210,6 @@ func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (s
 		clause = "board_id IN (SELECT b.id FROM boards b WHERE b.visibility IS DISTINCT FROM 'private'"
 	case "channel_permissions":
 		clause = "channel_id IN (SELECT ch.id FROM channels ch JOIN boards b ON b.id = ch.board_id WHERE b.visibility IS DISTINCT FROM 'private'"
-	default:
-		return "", nil, argIndex
 	}
 
 	if viewerID != "" {
@@ -320,7 +230,13 @@ func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (s
 // included), private packs only by their author and subscribers. Without this
 // the generic surface exposed private packs and their emoji lists to strangers
 // by guessing ids, defeating the by-slug gate in GetPackBySlug.
+// Returns an empty clause for tables not gated by the registry
+// (TableMeta.EmojiVisibility).
 func genericEmojiVisibility(c *gin.Context, tableName string, argIndex int) (string, []interface{}, int) {
+	meta := GenericTableByName(tableName)
+	if meta == nil || !meta.EmojiVisibility {
+		return "", nil, argIndex
+	}
 	viewerID := authenticatedUserID(c)
 	switch tableName {
 	case "emoji_packs":
@@ -546,14 +462,11 @@ func gomosubBoardScopeClause(tableName, boardID string, argIndex int) (string, i
 	return "board_id = " + ph, boardID
 }
 
-// isGomosubManagementTable returns true if the table requires gomosub permission checks.
+// isGomosubManagementTable returns true if the table requires gomosub
+// permission checks (TableMeta.GomosubManagement).
 func isGomosubManagementTable(table string) bool {
-	switch table {
-	case "channels", "gomosub_roles", "channel_permissions", "gomosub_memberships":
-		return true
-	default:
-		return false
-	}
+	meta := GenericTableByName(table)
+	return meta != nil && meta.GomosubManagement
 }
 
 // isSelfJoin checks if a POST to gomosub_memberships is a user joining a board themselves.

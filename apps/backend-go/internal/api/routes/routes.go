@@ -354,11 +354,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		// Additional tables (frontend compatibility)
 		//
-		// Read-only GET surface for guest browsing. Registered on the `rest`
-		// group so it inherits OptionalAuth (claims when present, anonymous
-		// allowed), the viewer-keyed data cache and the global rate limiter.
-		// Writes (POST/PUT/DELETE) stay behind the strict AuthCacheMiddleware
-		// in genericProtected.
+		// Universal CRUD routes are generated from the declarative table
+		// registry (handlers.GenericTables) by registerGenericTableRoutes
+		// below — each table declares its read group (guest/authenticated),
+		// write methods and middleware group in ONE place. Previously every
+		// table needed ~8 manual registrations across three groups and a
+		// missing one silently 404'd the endpoint (the recurring "GET-only
+		// routes made Gin return 404" bug).
 		//
 		// Security notes:
 		//  - Personal tables are viewer-scoped by genericReadScopeUser, so
@@ -371,219 +373,31 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		//    authenticated path (private walls stay hidden).
 		genericRead := rest.Group("")
 		{
-			genericRead.GET("/channels", universalHandler.HandleTableRequest)
-			genericRead.GET("/channels/*path", universalHandler.HandleTableRequest)
-
-			genericRead.GET("/user_achievements", universalHandler.HandleTableRequest)
-			genericRead.GET("/user_achievements/*path", universalHandler.HandleTableRequest)
-
-			genericRead.GET("/achievements", universalHandler.HandleTableRequest)
-			genericRead.GET("/achievements/*path", universalHandler.HandleTableRequest)
-
-			genericRead.GET("/profile_customization", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_customization/*path", universalHandler.HandleTableRequest)
-
-			genericRead.GET("/user_placeholders", universalHandler.HandleTableRequest)
-			genericRead.GET("/user_placeholders/*path", universalHandler.HandleTableRequest)
-
-			genericRead.GET("/polls", universalHandler.HandleTableRequest)
-			genericRead.GET("/polls/*path", universalHandler.HandleTableRequest)
-
-			// Profile wall reads — public for public walls (the handler enforces
-			// the same privacy predicate as the authenticated path).
-			genericRead.GET("/profile_wall_posts", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_post_comments", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_post_likes", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
-			genericRead.GET("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
-
-			// Emoji packs — specific routes BEFORE any wildcard (Gin requirement)
+			// Emoji routes that are NOT part of the generic CRUD surface: the
+			// by-slug public gate and the guest emoji resolver.
 			genericRead.GET("/emoji_packs/by-slug/:slug", emojiPacksHandler.GetPackBySlug)
-			// Emoji resolution is read-only — guests need it to render custom
-			// emojis in posts and nicknames.
 			genericRead.POST("/custom_emojis/resolve", emojiPacksHandler.ResolveEmojis)
-			genericRead.GET("/emoji_packs", universalHandler.HandleTableRequest)
-			genericRead.GET("/custom_emojis", universalHandler.HandleTableRequest)
-			genericRead.GET("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
 		}
 
 		genericProtected := rest.Group("")
 		genericProtected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		genericProtected.Use(middleware.ValidateCSRFMiddleware())
 
-		genericProtected.GET("/user_roles", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_roles/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/gomosub_memberships", universalHandler.HandleTableRequest)
-		genericProtected.GET("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
-		// Writes: join (POST), leave (DELETE) and role assignment (PUT) are
-		// called by Board.tsx / GomoSubSettings.tsx. GET-only routes made Gin
-		// return 404 before the already-implemented handler was reached —
-		// joining or leaving a gomosub fired a 404 and the frontend crashed on
-		// JSON.parse of the non-JSON 404 body.
-		genericProtected.POST("/gomosub_memberships", universalHandler.HandleTableRequest)
-		genericProtected.POST("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/gomosub_memberships", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/gomosub_memberships", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/gomosub_roles", universalHandler.HandleTableRequest)
-		genericProtected.GET("/gomosub_roles/*path", universalHandler.HandleTableRequest)
-		// Writes: role create (POST) / delete (DELETE) from GomoSubSettings.tsx.
-		// GET-only routes made Gin return 404 — role management was completely
-		// broken (same JSON.parse crash on the 404 body).
-		genericProtected.POST("/gomosub_roles", universalHandler.HandleTableRequest)
-		genericProtected.POST("/gomosub_roles/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/gomosub_roles", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/gomosub_roles/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/gomosub_roles", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/gomosub_roles/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/channel_permissions", universalHandler.HandleTableRequest)
-		genericProtected.GET("/channel_permissions/*path", universalHandler.HandleTableRequest)
-		// Writes: per-role channel access toggles (POST/PUT) from
-		// GomoSubSettings.tsx — 404 before this registration.
-		genericProtected.POST("/channel_permissions", universalHandler.HandleTableRequest)
-		genericProtected.POST("/channel_permissions/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/channel_permissions", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/channel_permissions/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/channel_permissions", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/channel_permissions/*path", universalHandler.HandleTableRequest)
-
-		// Writes: the frontend creates/renames/reorders/deletes channels via the
-		// universal CRUD handler (GomoSubSettings.tsx handleAddChannel & co).
-		// Channels GET is guest-visible in genericRead above; writes stay behind
-		// AuthCacheMiddleware + CSRF here. GET-only routes made Gin return 404 —
-		// channel creation was completely broken (JSON.parse crash on the 404
-		// body), even though the handler and can_manage_channels permission
-		// check were already implemented.
-		genericProtected.POST("/channels", universalHandler.HandleTableRequest)
-		genericProtected.POST("/channels/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/channels", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/channels/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/channels", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/channels/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/user_session_time", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_session_time/*path", universalHandler.HandleTableRequest)
-		// Writes: the frontend inserts/updates its own session time row via the
-		// universal CRUD handler (useSessionTime). POST and PUT were missing, so
-		// Gin returned 404 before the (already implemented) handler was reached.
-		genericProtected.POST("/user_session_time", universalHandler.HandleTableRequest)
-		genericProtected.POST("/user_session_time/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/user_session_time", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/user_session_time/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/user_terms_acceptance", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
-		// Writes: the frontend inserts the acceptance row right after signup;
-		// without POST the terms dialog could never be accepted (404).
-		genericProtected.POST("/user_terms_acceptance", universalHandler.HandleTableRequest)
-		genericProtected.POST("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.POST("/profile_customization", universalHandler.HandleTableRequest)
-		genericProtected.POST("/profile_customization/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/poll_votes", universalHandler.HandleTableRequest)
-		genericProtected.GET("/poll_votes/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/thread_subscriptions", universalHandler.HandleTableRequest)
-		genericProtected.GET("/thread_subscriptions/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/privacy_settings", universalHandler.HandleTableRequest)
-		genericProtected.GET("/privacy_settings/*path", universalHandler.HandleTableRequest)
-		// Writes are ownership-scoped in enforcePostOwnership/enforceWallWriteScope:
-		// the user_id column is always forced to the authenticated caller.
-		genericProtected.PUT("/privacy_settings", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/privacy_settings/*path", universalHandler.HandleTableRequest)
-		genericProtected.POST("/privacy_settings", universalHandler.HandleTableRequest)
-		genericProtected.POST("/privacy_settings/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/user_daily_visits", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_daily_visits/*path", universalHandler.HandleTableRequest)
-		// Writes: useSessionTime upserts the daily visit row on load. The POST
-		// upsert path was implemented and tested but never routed → 404 spam.
-		genericProtected.POST("/user_daily_visits", universalHandler.HandleTableRequest)
-		genericProtected.POST("/user_daily_visits/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/user_daily_visits", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/user_daily_visits/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/thread_custom_message_visits", universalHandler.HandleTableRequest)
-		genericProtected.GET("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
-		// Writes: the frontend records a thread visit (idempotent upsert) on every
-		// thread view. GET-only routes made Gin return 404 before the already
-		// implemented upsert handler was reached — every thread view fired a 404.
-		genericProtected.POST("/thread_custom_message_visits", universalHandler.HandleTableRequest)
-		genericProtected.POST("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/thread_custom_message_visits", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
-
-		// Profile wall uses the universal CRUD handler for reads and mutations.
-		// Register every method here; registering GET only makes Gin return 404
-		// before the already-tested POST/PUT/DELETE handler is reached.
-		genericProtected.POST("/profile_wall_posts", universalHandler.HandleTableRequest)
-		genericProtected.POST("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_posts", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_posts", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.POST("/profile_wall_post_comments", universalHandler.HandleTableRequest)
-		genericProtected.POST("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_post_comments", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_post_comments", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.POST("/profile_wall_post_likes", universalHandler.HandleTableRequest)
-		genericProtected.POST("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_post_likes", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_post_likes", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.POST("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
-		genericProtected.POST("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.POST("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
-		genericProtected.POST("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
-		genericProtected.DELETE("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/gomosub_invites", universalHandler.HandleTableRequest)
-		genericProtected.GET("/gomosub_invites/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
-		genericProtected.GET("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
-		// Writes: the frontend inserts/upserts the acceptance row when the user
-		// accepts a gomosub's rules (Board.tsx handleAcceptRules). GET-only routes
-		// made Gin return 404 before the already-implemented upsert handler was
-		// reached — every "Принять правила" click fired a 404 and the frontend
-		// crashed on JSON.parse of the non-JSON 404 body.
-		genericProtected.POST("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
-		genericProtected.POST("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
-		genericProtected.PUT("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
-
-		genericProtected.GET("/user_settings_changes", universalHandler.HandleTableRequest)
-		genericProtected.GET("/user_settings_changes/*path", universalHandler.HandleTableRequest)
-
-		// Protected endpoints
+		// The authenticated group for tables whose writes must run through the
+		// RLS middleware chain (emoji tables). Declared here so the generic
+		// route loop can target it; the rest of the protected endpoints below
+		// reuse this same group.
 		protected := rest.Group("")
 		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		protected.Use(middleware.RLSSetConfigMiddleware(db))
+
+		// Generate every generic CRUD route from the registry: guest GETs on
+		// genericRead, authenticated GETs and writes on genericProtected, and
+		// emoji writes on protected.
+		registerGenericTableRoutes(genericRead, genericProtected, protected, universalHandler.HandleTableRequest)
+
+		// Protected endpoints (the `protected` group itself is declared above,
+		// next to the generic CRUD routes — see registerGenericTableRoutes).
 		{
 
 			protected.POST("/profiles", func(c *gin.Context) {
@@ -710,22 +524,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				protected.POST("/translations", translationsHandler.SubmitTranslation)
 				protected.POST("/translations/:id/vote", translationsHandler.VoteTranslation)
 				protected.DELETE("/translations/:id", translationsHandler.DeleteTranslation)
-
-				// Emoji pack writes use the generic CRUD handler but must be routed
-				// through the authenticated/RLS group. Previously only GET routes
-				// existed, so creating packs and adding/removing emojis returned 404.
-				protected.POST("/emoji_packs", universalHandler.HandleTableRequest)
-				protected.PUT("/emoji_packs", universalHandler.HandleTableRequest)
-				protected.PUT("/emoji_packs/*path", universalHandler.HandleTableRequest)
-				protected.DELETE("/emoji_packs", universalHandler.HandleTableRequest)
-				protected.DELETE("/emoji_packs/*path", universalHandler.HandleTableRequest)
-				protected.POST("/custom_emojis", universalHandler.HandleTableRequest)
-				protected.PUT("/custom_emojis", universalHandler.HandleTableRequest)
-				protected.PUT("/custom_emojis/*path", universalHandler.HandleTableRequest)
-				protected.DELETE("/custom_emojis", universalHandler.HandleTableRequest)
-				protected.DELETE("/custom_emojis/*path", universalHandler.HandleTableRequest)
-				protected.POST("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
-				protected.DELETE("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
 			}
 		}
 	}
@@ -1250,4 +1048,53 @@ func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
 		return false
 	}
 	return friend
+}
+
+// ─── Universal CRUD route generation ────────────────────────────────────────
+
+// registerGenericTableRoutes generates every generic CRUD route from the
+// declarative table registry (handlers.GenericTables). The registry is the
+// single source of truth for which tables exist and how they are routed — the
+// handler allow-list (UniversalHandler.HandleTableRequest), the read/write
+// deny lists and the ownership/visibility scopes all read the same entries, so
+// a table can never be routable without being allow-listed, and adding a table
+// is a one-line registry change instead of ~8 coordinated edits.
+//
+// Group semantics:
+//   - guest:     OptionalAuth — claims when present, anonymous allowed. Carries
+//     the viewer-keyed data cache and the global rate limiter.
+//   - protected: AuthCacheMiddleware + CSRF.
+//   - rls:       the authenticated group with the RLS middleware chain (the
+//     no-op RLSSetConfigMiddleware) — used by the emoji tables.
+func registerGenericTableRoutes(guest, protected, rls *gin.RouterGroup, handler func(*gin.Context)) {
+	for _, meta := range handlers.GenericTables() {
+		base := "/" + meta.Name
+
+		// Reads (GET + optional wildcard) on the group the table declares.
+		switch meta.ReadAccess {
+		case handlers.GuestRead:
+			guest.GET(base, handler)
+			if meta.ReadWildcard {
+				guest.GET(base+"/*path", handler)
+			}
+		case handlers.ProtectedRead:
+			protected.GET(base, handler)
+			if meta.ReadWildcard {
+				protected.GET(base+"/*path", handler)
+			}
+		}
+
+		// Writes on the group the table declares (default: the CSRF-protected
+		// generic group; emoji tables go through the RLS group).
+		for _, route := range meta.Writes {
+			target := protected
+			if meta.WriteGroup == handlers.RLSWrite {
+				target = rls
+			}
+			target.Handle(route.Method, base, handler)
+			if route.Wildcard {
+				target.Handle(route.Method, base+"/*path", handler)
+			}
+		}
+	}
 }
