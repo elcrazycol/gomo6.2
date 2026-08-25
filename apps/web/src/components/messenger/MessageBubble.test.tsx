@@ -423,7 +423,7 @@ describe("MessageBubble", () => {
 
   it("opens context menu on right-click and calls onReply", async () => {
     const onReply = vi.fn();
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -438,7 +438,7 @@ describe("MessageBubble", () => {
 
   it("calls onCopy with message content", async () => {
     const onCopy = vi.fn();
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -452,7 +452,7 @@ describe("MessageBubble", () => {
   });
 
   it("shows Edit and Delete only for own messages in context menu", async () => {
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -465,7 +465,7 @@ describe("MessageBubble", () => {
   });
 
   it("hides Edit and Delete for other user's messages", async () => {
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -499,9 +499,16 @@ describe("MessageBubble", () => {
     fireEvent.contextMenu(screen.getByText("Hello, world!"));
     const panel = await screen.findByRole("menu");
     expect(panel.className).toContain("msg-action-panel");
-    expect(panel.parentElement?.className).toContain("bubble-row-inner");
 
-    // The chat blurs (scrim class), and only this message's row stays crisp.
+    // The panel floats in the lifted overlay, next to a pixel-identical copy
+    // of the message; the in-list bubble is hidden in place (layout kept).
+    const lift = panel.parentElement;
+    expect(lift?.className).toContain("msg-action-lift");
+    expect(lift?.querySelector(".message-bubble")).not.toBeNull();
+    const inListBubble = container.querySelector(".bubble-row .message-bubble");
+    expect(inListBubble?.className).toContain("is-menu-hidden");
+
+    // The chat blurs (per-surface), and only this message's row is excluded.
     expect(container.querySelector(".chat-panel")?.className).toContain("has-message-menu");
     const host = container.querySelector(".message-virtual-item");
     expect(host?.className).toContain("is-menu-host");
