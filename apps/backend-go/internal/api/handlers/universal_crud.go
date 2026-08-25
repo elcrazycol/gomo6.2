@@ -465,25 +465,21 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 	// structure by guessing UUIDs and also closes the pre-existing exposure of
 	// that structure to any logged-in non-member. The predicate applies to
 	// exactly the tables the registry marks GomosubVisibility.
-	{
-		scopeClause, scopeArgs, nextArgIndex := genericGomosubVisibility(c, tableName, argIndex)
-		if scopeClause != "" {
-			clauses = append(clauses, scopeClause)
-			args = append(args, scopeArgs...)
-			argIndex = nextArgIndex
-		}
+	scopeClause, scopeArgs, nextArgIndex := genericGomosubVisibility(c, tableName, argIndex)
+	if scopeClause != "" {
+		clauses = append(clauses, scopeClause)
+		args = append(args, scopeArgs...)
+		argIndex = nextArgIndex
 	}
 
 	// Emoji packs and their emojis: private packs are only visible to their
 	// author and subscribers through the generic surface as well (mirrors the
 	// by-slug gate in GetPackBySlug).
-	{
-		scopeClause, scopeArgs, nextArgIndex := genericEmojiVisibility(c, tableName, argIndex)
-		if scopeClause != "" {
-			clauses = append(clauses, scopeClause)
-			args = append(args, scopeArgs...)
-			argIndex = nextArgIndex
-		}
+	scopeClause, scopeArgs, nextArgIndex = genericEmojiVisibility(c, tableName, argIndex)
+	if scopeClause != "" {
+		clauses = append(clauses, scopeClause)
+		args = append(args, scopeArgs...)
+		argIndex = nextArgIndex
 	}
 
 	if len(clauses) > 0 {

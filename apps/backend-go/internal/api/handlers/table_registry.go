@@ -476,8 +476,11 @@ func GenericTableByName(name string) *TableMeta {
 	return genericTablesByName[name]
 }
 
-// GenericTables returns the registry entries. routes.go iterates it to
-// generate the universal CRUD routes.
+// GenericTables returns a copy of the registry entries. routes.go iterates it
+// to generate the universal CRUD routes. A copy (instead of the internal slice)
+// keeps callers from mutating the shared backing array and silently desyncing
+// genericTablesByName, which the handler allow-list and every permission check
+// read.
 func GenericTables() []TableMeta {
-	return genericTables
+	return append([]TableMeta(nil), genericTables...)
 }
