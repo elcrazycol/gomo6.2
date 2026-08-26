@@ -146,14 +146,16 @@ describe("ProfileAttachmentUpload", () => {
     expect(screen.getByLabelText("Редактировать фото")).toBeInTheDocument();
   });
 
-  it("opens the crop/epstein editor for a draft photo", () => {
+  it("opens the photo editor for a draft photo", () => {
     const onChange = vi.fn();
     render(<ProfileAttachmentUpload value={makeUploaded()} onChange={onChange} bucket="wall" editable />);
 
     // Opens straight into edit mode (startInEditMode): the editor toolbar shows.
     fireEvent.click(screen.getByLabelText("Редактировать фото"));
-    expect(document.body.textContent).toContain("Кадрировать");
-    expect(document.body.textContent).toContain("Epstein");
+    expect(document.body.textContent).toContain("Редактирование фото");
+    expect(document.body.querySelector('[aria-label="Кисть"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Размытие"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).toBeInTheDocument();
 
     // Closing the lightbox leaves the draft untouched.
     fireEvent.keyDown(window, { key: "Escape" });

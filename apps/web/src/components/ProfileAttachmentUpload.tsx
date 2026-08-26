@@ -29,9 +29,10 @@ interface ProfileAttachmentUploadProps {
    */
   dropZone?: boolean;
   /**
-   * Enable the crop/epstein editor on draft photos: image thumbnails gain an
-   * edit button that opens the shared lightbox in edit mode, and the edited
-   * data URL replaces the photo in `value` before it is sent.
+   * Enable the photo editor (crop / brush / blur) on draft photos: image
+   * thumbnails gain an edit button that opens the shared lightbox in edit
+   * mode, and the edited data URL replaces the photo in `value` before it is
+   * sent.
    */
   editable?: boolean;
 }
@@ -195,8 +196,8 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
     };
 
     // Draft-image editing: the edit button on a thumbnail opens the shared
-    // crop/epstein editor on the photo before it is sent. The lightbox counts
-    // photos only, so the clicked attachment is mapped to the image-only list.
+    // photo editor on the photo before it is sent. The lightbox counts photos
+    // only, so the clicked attachment is mapped to the image-only list.
     const openImageEditor = (attachmentIndex: number) => {
       const clicked = value[attachmentIndex];
       if (!clicked || clicked.type !== "image") return;
@@ -285,7 +286,7 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
                           onClick={() => openImageEditor(index)}
                           className="absolute bottom-1 right-1 p-1 rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity hover:bg-black/80"
                           aria-label="Редактировать фото"
-                          title="Кадрировать / затемнить"
+                          title="Кадрировать · Кисть · Размытие"
                         >
                           <Scissors className="w-3 h-3" />
                         </button>

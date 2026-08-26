@@ -69,12 +69,6 @@ function counterText(): string {
   return query(".msg-lightbox-counter").textContent ?? "";
 }
 
-function findButton(text: string): HTMLButtonElement {
-  const btn = [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes(text));
-  expect(btn, `button containing "${text}"`).not.toBeUndefined();
-  return btn as HTMLButtonElement;
-}
-
 describe("Lightbox", () => {
   const items = [makeItem("a.jpg"), makeItem("b.jpg"), makeItem("c.jpg")];
 
@@ -239,7 +233,7 @@ describe("Lightbox", () => {
   });
 });
 
-// ─── Editor (crop / epstein) ────────────────────────────────────────────────
+// ─── Editor (crop / brush / blur) ───────────────────────────────────────────
 // jsdom has no canvas implementation: stub getContext/toDataURL and the image
 // loading flags the editor reads (complete, naturalWidth/Height, decode).
 
@@ -261,6 +255,16 @@ describe("Lightbox editor", () => {
       fill: vi.fn(),
       stroke: vi.fn(),
       arc: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: "high",
+      filter: "none",
+      lineCap: "round",
+      lineJoin: "round",
+      strokeStyle: "#000",
+      fillStyle: "#000",
+      lineWidth: 1,
     } as unknown as CanvasRenderingContext2D;
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
     vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,FAKE");
@@ -300,8 +304,11 @@ describe("Lightbox editor", () => {
 
   it("opens the editor when onEditImage is provided", () => {
     openEditor(vi.fn());
-    expect(document.body.textContent).toContain("Кадрировать");
-    expect(document.body.textContent).toContain("Epstein");
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Кисть"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Размытие"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Отменить"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Повторить"]')).toBeInTheDocument();
     expect(document.body.querySelectorAll(".msg-lightbox-thumbnail")).toHaveLength(0);
   });
 
@@ -309,38 +316,42 @@ describe("Lightbox editor", () => {
     render(
       <Lightbox items={items} initialIndex={0} onClose={vi.fn()} onEditImage={vi.fn()} startInEditMode />,
     );
-    expect(document.body.textContent).toContain("Кадрировать");
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).toBeInTheDocument();
     expect(document.body.querySelector('[aria-label="Редактировать"]')).not.toBeInTheDocument();
   });
 
   it("ignores startInEditMode when onEditImage is missing", () => {
     render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} startInEditMode />);
-    expect(document.body.textContent).not.toContain("Кадрировать");
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).not.toBeInTheDocument();
   });
 
   it("cancels the editor back to the viewer", () => {
     openEditor(vi.fn());
-    fireEvent.click(findButton("Отмена"));
-    expect(document.body.textContent).not.toContain("Кадрировать");
+    fireEvent.click(document.body.querySelector('[aria-label="Отмена"]')!);
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).not.toBeInTheDocument();
     expect(document.body.querySelectorAll(".msg-lightbox-thumbnail")).toHaveLength(3);
     expect(document.body.querySelector('[aria-label="Редактировать"]')).toBeInTheDocument();
   });
 
-  it("switches between the crop and epstein tools", () => {
+  it("switches between the crop, brush and blur tools", () => {
     openEditor(vi.fn());
-    const crop = findButton("Кадрировать");
-    const epstein = findButton("Epstein");
-    expect(crop.className).toContain("bg-white/25");
-    expect(epstein.className).not.toContain("bg-white/25");
-    fireEvent.click(epstein);
-    expect(epstein.className).toContain("bg-white/25");
-    expect(crop.className).not.toContain("bg-white/25");
+    const crop = document.body.querySelector('[aria-label="Кадрировать"]')!;
+    const brush = document.body.querySelector('[aria-label="Кисть"]')!;
+    const blur = document.body.querySelector('[aria-label="Размытие"]')!;
+    expect(crop.className).toContain("is-active");
+    expect(brush.className).not.toContain("is-active");
+    fireEvent.click(brush);
+    expect(brush.className).toContain("is-active");
+    expect(crop.className).not.toContain("is-active");
+    fireEvent.click(blur);
+    expect(blur.className).toContain("is-active");
+    expect(brush.className).not.toContain("is-active");
   });
 
-  it("applies a crop edit and reports the edited data URL", async () => {
+  it("applies the edit and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
     openEditor(onEditImage);
-    fireEvent.click(findButton("Применить"));
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
     // Editor closes back to the viewer after applying.
@@ -350,28 +361,54 @@ describe("Lightbox editor", () => {
   it("resizes the crop box by dragging the south-east handle", async () => {
     const onEditImage = vi.fn();
     openEditor(onEditImage);
-    const canvas = document.body.querySelector("canvas") as HTMLCanvasElement;
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     expect(canvas).not.toBeNull();
     stubCanvasPointer(canvas);
     fireEvent.pointerDown(canvas, { clientX: 796, clientY: 596, pointerId: 1 });
     fireEvent.pointerMove(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
-    fireEvent.click(findButton("Применить"));
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
   });
 
-  it("draws a redaction box with the epstein tool", async () => {
+  it("draws with the brush tool and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
     openEditor(onEditImage);
-    fireEvent.click(findButton("Epstein"));
-    const canvas = document.body.querySelector("canvas") as HTMLCanvasElement;
+    fireEvent.click(document.body.querySelector('[aria-label="Кисть"]')!);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     stubCanvasPointer(canvas);
     fireEvent.pointerDown(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
-    fireEvent.click(findButton("Применить"));
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
+  });
+
+  it("enables undo after a brush stroke and redo after undo", async () => {
+    const onEditImage = vi.fn();
+    openEditor(onEditImage);
+    const undo = document.body.querySelector('[aria-label="Отменить"]') as HTMLButtonElement;
+    const redo = document.body.querySelector('[aria-label="Повторить"]') as HTMLButtonElement;
+    expect(undo.disabled).toBe(true);
+    expect(redo.disabled).toBe(true);
+
+    // Draw a stroke: undo becomes available.
+    fireEvent.click(document.body.querySelector('[aria-label="Кисть"]')!);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 200, clientY: 150, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 200, clientY: 150, pointerId: 1 });
+    expect(undo.disabled).toBe(false);
+
+    fireEvent.click(undo);
+    expect(undo.disabled).toBe(true);
+    expect(redo.disabled).toBe(false);
+
+    fireEvent.click(redo);
+    expect(redo.disabled).toBe(true);
+    expect(undo.disabled).toBe(false);
   });
 });

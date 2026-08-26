@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import useEmblaCarousel from "embla-carousel-react";
-import { X, Download, ZoomOut, ChevronLeft, ChevronRight, Scissors, Square } from "lucide-react";
+import { X, Download, ZoomOut, ChevronLeft, ChevronRight, Scissors } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { parseImageMeta, useAuthenticatedAttachmentUrl } from "@/components/messenger/attachmentMedia";
 import type { Attachment } from "@/components/messenger/types";
-import { cn } from "@/lib/utils";
+import { PhotoEditor } from "@/components/PhotoEditor";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
@@ -34,7 +34,8 @@ export type LightboxProps = {
   items: LightboxItem[];
   initialIndex?: number;
   onClose: () => void;
-  /** When provided, the lightbox gains the crop/epstein image editor. */
+  /** When provided, the lightbox gains the Telegram-style photo editor
+      (crop with aspect presets, brush with colour/size, blur brush, undo/redo). */
   onEditImage?: (index: number, dataUrl: string) => void;
   /** Open straight into the editor instead of the viewer (used from draft
       attachment thumbnails, where editing is the primary action). */
@@ -43,10 +44,6 @@ export type LightboxProps = {
       other bucket (default "content") resolves via plain storageUrl. */
   bucket?: string;
 };
-
-type Tool = "crop" | "epstein";
-type Box = { x: number; y: number; w: number; h: number };
-type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 function zoomAround(prevZoom: number, prevPan: Pan, newZoom: number, anchorX: number, anchorY: number): { zoom: number; pan: Pan } {
   const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, newZoom));
@@ -215,399 +212,6 @@ function LightboxThumbnail({ item, bucket, index, active, onSelect }: { item: Li
   );
 }
 
-// ─── Editor (crop / epstein redact) — from the legacy ImageGallery ──────────
-
-function EditorCanvas({
-  src,
-  onApply,
-  onCancel,
-}: {
-  src: string;
-  onApply: (dataUrl: string) => void;
-  onCancel: () => void;
-}) {
-  const [tool, setTool] = useState<Tool>("crop");
-  const [redacts, setRedacts] = useState<Box[]>([]);
-  const [cropBox, setCropBox] = useState<Box>({ x: 0, y: 0, w: 1, h: 1 });
-  const [draftRedact, setDraftRedact] = useState<Box | null>(null);
-  const [renderRect, setRenderRect] = useState<Box | null>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const activeHandleRef = useRef<Handle | null>(null);
-  const cropStartRef = useRef<{ x: number; y: number; box: Box } | null>(null);
-  const redactStartRef = useRef<{ x: number; y: number } | null>(null);
-  const isTouch = useMemo(
-    () => typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0),
-    []
-  );
-
-  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-
-  const computeRenderRect = useCallback(() => {
-    if (!containerRef.current || !imgRef.current) return null;
-    const cw = containerRef.current.clientWidth;
-    const ch = containerRef.current.clientHeight;
-    const iw = imgRef.current.naturalWidth;
-    const ih = imgRef.current.naturalHeight;
-    if (!iw || !ih) return null;
-    const scale = Math.min(cw / iw, ch / ih);
-    const w = iw * scale;
-    const h = ih * scale;
-    return { x: (cw - w) / 2, y: (ch - h) / 2, w, h };
-  }, []);
-
-  const refreshRenderRect = useCallback(() => {
-    const rect = computeRenderRect();
-    if (rect) setRenderRect(rect);
-  }, [computeRenderRect]);
-
-  useEffect(() => {
-    refreshRenderRect();
-    const handleResize = () => refreshRenderRect();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [refreshRenderRect]);
-
-  const getHandlePositions = (box: Box, width: number, height: number) => {
-    const left = box.x * width;
-    const top = box.y * height;
-    const right = left + box.w * width;
-    const bottom = top + box.h * height;
-    const midX = (left + right) / 2;
-    const midY = (top + bottom) / 2;
-    return [
-      { id: "nw" as Handle, x: left, y: top },
-      { id: "n" as Handle, x: midX, y: top },
-      { id: "ne" as Handle, x: right, y: top },
-      { id: "e" as Handle, x: right, y: midY },
-      { id: "se" as Handle, x: right, y: bottom },
-      { id: "s" as Handle, x: midX, y: bottom },
-      { id: "sw" as Handle, x: left, y: bottom },
-      { id: "w" as Handle, x: left, y: midY },
-    ];
-  };
-
-  const hitTestHandle = (x: number, y: number, width: number, height: number, box: Box, radius: number) => {
-    const handles = getHandlePositions(box, width, height);
-    const radiusSq = radius * radius;
-    for (const handle of handles) {
-      const dx = x - handle.x;
-      const dy = y - handle.y;
-      if (dx * dx + dy * dy <= radiusSq) return handle.id;
-    }
-    return null;
-  };
-
-  const drawEditor = useCallback(() => {
-    const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img || !renderRect) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const width = Math.max(1, Math.round(renderRect.w));
-    const height = Math.max(1, Math.round(renderRect.h));
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.floor(width * dpr));
-    canvas.height = Math.max(1, Math.floor(height * dpr));
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(img, 0, 0, width, height);
-
-    if (tool === "crop") {
-      const cx = cropBox.x * width;
-      const cy = cropBox.y * height;
-      const cw = cropBox.w * width;
-      const ch = cropBox.h * height;
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.fillRect(0, 0, width, height);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(cx, cy, cw, ch);
-      ctx.clip();
-      ctx.drawImage(img, 0, 0, width, height);
-      ctx.restore();
-      ctx.strokeStyle = "rgba(255,255,255,0.9)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cx, cy, cw, ch);
-      const handleRadius = isTouch ? 12 : 8;
-      const handles = getHandlePositions(cropBox, width, height);
-      ctx.fillStyle = "rgba(0,0,0,0.85)";
-      ctx.strokeStyle = "rgba(255,255,255,0.95)";
-      handles.forEach((handle) => {
-        ctx.beginPath();
-        ctx.arc(handle.x, handle.y, handleRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      });
-    } else {
-      ctx.fillStyle = "#000";
-      redacts.forEach((r) => {
-        ctx.fillRect(r.x * width, r.y * height, r.w * width, r.h * height);
-      });
-      if (draftRedact) {
-        ctx.fillRect(draftRedact.x * width, draftRedact.y * height, draftRedact.w * width, draftRedact.h * height);
-      }
-    }
-  }, [cropBox, draftRedact, isTouch, redacts, renderRect, tool]);
-
-  useEffect(() => {
-    drawEditor();
-  }, [drawEditor]);
-
-  const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    const x = clamp(e.clientX - rect.left, 0, rect.width);
-    const y = clamp(e.clientY - rect.top, 0, rect.height);
-    return { x, y, width: rect.width, height: rect.height };
-  };
-
-  const handleEditorPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!renderRect) return;
-    const info = getCanvasPoint(e);
-    if (!info) return;
-    const { x, y, width, height } = info;
-    const nx = x / width;
-    const ny = y / height;
-    const target = e.currentTarget;
-    const handleRadius = isTouch ? 18 : 12;
-
-    if (tool === "crop") {
-      const handle = hitTestHandle(x, y, width, height, cropBox, handleRadius);
-      if (!handle) return;
-      activeHandleRef.current = handle;
-      cropStartRef.current = { x: nx, y: ny, box: cropBox };
-    } else {
-      redactStartRef.current = { x: nx, y: ny };
-      setDraftRedact({ x: nx, y: ny, w: 0, h: 0 });
-    }
-
-    e.preventDefault();
-    target.setPointerCapture(e.pointerId);
-  };
-
-  const handleEditorPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const info = getCanvasPoint(e);
-    if (!info) return;
-    const { x, y, width, height } = info;
-    const nx = x / width;
-    const ny = y / height;
-
-    if (tool === "crop") {
-      const handle = activeHandleRef.current;
-      const start = cropStartRef.current;
-      if (!handle || !start) return;
-      const dx = nx - start.x;
-      const dy = ny - start.y;
-      const minW = (isTouch ? 44 : 24) / width;
-      const minH = (isTouch ? 44 : 24) / height;
-      const startLeft = start.box.x;
-      const startRight = start.box.x + start.box.w;
-      const startTop = start.box.y;
-      const startBottom = start.box.y + start.box.h;
-      let left = startLeft;
-      let right = startRight;
-      let top = startTop;
-      let bottom = startBottom;
-
-      if (handle.includes("w")) left = startLeft + dx;
-      if (handle.includes("e")) right = startRight + dx;
-      if (handle.includes("n")) top = startTop + dy;
-      if (handle.includes("s")) bottom = startBottom + dy;
-
-      left = clamp(left, 0, right - minW);
-      right = clamp(right, left + minW, 1);
-      top = clamp(top, 0, bottom - minH);
-      bottom = clamp(bottom, top + minH, 1);
-
-      setCropBox({ x: left, y: top, w: right - left, h: bottom - top });
-    } else {
-      const start = redactStartRef.current;
-      if (!start) return;
-      const x1 = Math.min(start.x, nx);
-      const y1 = Math.min(start.y, ny);
-      const w = Math.abs(nx - start.x);
-      const h = Math.abs(ny - start.y);
-      setDraftRedact({ x: x1, y: y1, w, h });
-    }
-
-    e.preventDefault();
-  };
-
-  const handleEditorPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const info = getCanvasPoint(e);
-    const width = info?.width ?? 1;
-    const height = info?.height ?? 1;
-
-    if (tool === "crop") {
-      activeHandleRef.current = null;
-      cropStartRef.current = null;
-    } else {
-      const start = redactStartRef.current;
-      if (start && info) {
-        const nx = info.x / width;
-        const ny = info.y / height;
-        const x1 = Math.min(start.x, nx);
-        const y1 = Math.min(start.y, ny);
-        const w = Math.abs(nx - start.x);
-        const h = Math.abs(ny - start.y);
-        const wPx = w * width;
-        const hPx = h * height;
-        if (wPx >= 4 && hPx >= 4) {
-          setRedacts((prev) => [...prev, { x: x1, y: y1, w, h }]);
-        }
-      }
-      setDraftRedact(null);
-      redactStartRef.current = null;
-    }
-
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
-    e.preventDefault();
-  };
-
-  const handleEditorPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    activeHandleRef.current = null;
-    cropStartRef.current = null;
-    redactStartRef.current = null;
-    setDraftRedact(null);
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
-    e.preventDefault();
-  };
-
-  const applyEdit = async () => {
-    try {
-      const img = imgRef.current;
-      if (!img || !img.complete) return;
-      const canvas = document.createElement("canvas");
-      const { naturalWidth, naturalHeight } = img;
-
-      if (tool === "crop") {
-        const nx = clamp(cropBox.x, 0, 1);
-        const ny = clamp(cropBox.y, 0, 1);
-        const nw = clamp(cropBox.w, 0.01, 1 - nx);
-        const nh = clamp(cropBox.h, 0.01, 1 - ny);
-        const x1 = Math.round(nx * naturalWidth);
-        const y1 = Math.round(ny * naturalHeight);
-        const w = Math.max(1, Math.round(nw * naturalWidth));
-        const h = Math.max(1, Math.round(nh * naturalHeight));
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.src = src;
-        await image.decode();
-        ctx.drawImage(image, x1, y1, w, h, 0, 0, w, h);
-      } else {
-        canvas.width = naturalWidth;
-        canvas.height = naturalHeight;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.src = src;
-        await image.decode();
-        ctx.drawImage(image, 0, 0, naturalWidth, naturalHeight);
-        const allRedacts = draftRedact ? [...redacts, draftRedact] : redacts;
-        allRedacts.forEach((r) => {
-          ctx.fillStyle = "rgba(0,0,0,1)";
-          ctx.fillRect(r.x * naturalWidth, r.y * naturalHeight, r.w * naturalWidth, r.h * naturalHeight);
-        });
-      }
-
-      onApply(canvas.toDataURL("image/png"));
-    } catch (e) {
-      console.error("Edit failed", e);
-    }
-  };
-
-  const switchTool = (next: Tool) => {
-    setTool(next);
-    setRedacts([]);
-    setDraftRedact(null);
-    setCropBox({ x: 0, y: 0, w: 1, h: 1 });
-    activeHandleRef.current = null;
-    cropStartRef.current = null;
-    redactStartRef.current = null;
-  };
-
-  return (
-    <>
-      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-black/40 backdrop-blur px-3 py-2 rounded-2xl">
-        <button
-          type="button"
-          className={cn("h-8 px-3 text-white text-xs rounded-md transition-colors", tool === "crop" ? "bg-white/25" : "hover:bg-white/10")}
-          onClick={() => switchTool("crop")}
-        >
-          <Scissors className="w-4 h-4 inline mr-1" /> Кадрировать
-        </button>
-        <button
-          type="button"
-          className={cn("h-8 px-3 text-white text-xs rounded-md transition-colors", tool === "epstein" ? "bg-white/25" : "hover:bg-white/10")}
-          onClick={() => switchTool("epstein")}
-        >
-          <Square className="w-4 h-4 inline mr-1" /> Epstein
-        </button>
-        <button
-          type="button"
-          className="h-8 px-3 bg-white text-black text-xs font-semibold rounded-md hover:bg-white/90"
-          onClick={() => void applyEdit()}
-        >
-          Применить
-        </button>
-        <button
-          type="button"
-          className="h-8 px-3 text-white text-xs rounded-md hover:bg-white/10"
-          onClick={onCancel}
-        >
-          Отмена
-        </button>
-      </div>
-      <div ref={containerRef} className="relative flex items-center justify-center w-full h-full">
-        <img
-          ref={imgRef}
-          src={src}
-          alt="Редактирование"
-          className="opacity-0 pointer-events-none max-w-full max-h-full"
-          draggable={false}
-          onLoad={refreshRenderRect}
-        />
-        {renderRect && (
-          <canvas
-            ref={canvasRef}
-            className="absolute z-10 select-none touch-none cursor-crosshair"
-            style={{
-              left: `${renderRect.x}px`,
-              top: `${renderRect.y}px`,
-              width: `${renderRect.w}px`,
-              height: `${renderRect.h}px`,
-            }}
-            onPointerDown={handleEditorPointerDown}
-            onPointerMove={handleEditorPointerMove}
-            onPointerUp={handleEditorPointerUp}
-            onPointerCancel={handleEditorPointerCancel}
-          />
-        )}
-      </div>
-    </>
-  );
-}
-
 // ─── Unified Lightbox ────────────────────────────────────────────────────────
 
 export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startInEditMode = false, bucket = "content" }: LightboxProps) {
@@ -731,7 +335,7 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
         <span className="msg-lightbox-counter">{selectedIndex + 1} / {localItems.length}</span>
         <div className="msg-lightbox-actions">
           {canEdit && !isEditing && (
-            <button type="button" className="msg-lightbox-action" onClick={() => setIsEditing(true)} aria-label="Редактировать" title="Редактировать (обрезка / затемнение)">
+            <button type="button" className="msg-lightbox-action" onClick={() => setIsEditing(true)} aria-label="Редактировать" title="Редактировать (кисть · размытие · кадрирование)">
               <Scissors size={18} />
             </button>
           )}
@@ -752,7 +356,7 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
       {isEditing && current && (
         <div className="absolute inset-0 z-2">
           {currentEditSrc ? (
-            <EditorCanvas src={currentEditSrc} onApply={handleApplyEdit} onCancel={() => setIsEditing(false)} />
+            <PhotoEditor src={currentEditSrc} onApply={handleApplyEdit} onCancel={() => setIsEditing(false)} />
           ) : (
             <span className="msg-attachment-loading-shimmer" aria-label="Загрузка оригинала" />
           )}
@@ -763,7 +367,7 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
           {localItems.map((item, index) => <LightboxThumbnail key={item.id || item.url + index} item={item} bucket={bucket} index={index} active={index === selectedIndex} onSelect={selectThumbnail} />)}
         </div>
       )}
-      <div className="msg-lightbox-hint">{isEditing ? "Обрезка · затемнение · Esc — закрыть" : (isImage ? "Колесо — масштаб · двойной клик — зум · Esc — закрыть" : "Свайп — переключение · Esc — закрыть")}</div>
+      <div className="msg-lightbox-hint">{isEditing ? "Кадрировать · Кисть · Размытие · Отменить (по шагу) · Esc — закрыть" : (isImage ? "Колесо — масштаб · двойной клик — зум · Esc — закрыть" : "Свайп — переключение · Esc — закрыть")}</div>
     </div>,
     document.body,
   );
