@@ -139,6 +139,9 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     const W = canvas.width;
     const H = canvas.height;
     const box = cropBoxRef.current;
+    // Canvas → screen scale: all overlay geometry is drawn in canvas pixels
+    // but must look the same on screen regardless of the photo resolution.
+    const scale = canvas.width / Math.max(1, fit.w);
     ctx.clearRect(0, 0, W, H);
 
     // Darken everything outside the crop frame.
@@ -151,7 +154,7 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     // Rule-of-thirds grid.
     if (box.w >= 60 && box.h >= 60) {
       ctx.strokeStyle = "rgba(255,255,255,0.35)";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = Math.max(1, 1 * scale);
       for (let i = 1; i <= 2; i += 1) {
         const gx = box.x + (box.w * i) / 3;
         const gy = box.y + (box.h * i) / 3;
@@ -166,32 +169,38 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       }
     }
 
-    // Frame + corner handles.
-    ctx.strokeStyle = "rgba(255,255,255,0.95)";
-    ctx.lineWidth = 2;
+    // Thin frame.
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = Math.max(1, 1.5 * scale);
     ctx.strokeRect(box.x, box.y, box.w, box.h);
 
-    const handleRadius = isTouch ? 11 : 8;
-    const positions: { id: Handle; x: number; y: number }[] = [
-      { id: "nw", x: box.x, y: box.y },
-      { id: "n", x: box.x + box.w / 2, y: box.y },
-      { id: "ne", x: box.x + box.w, y: box.y },
-      { id: "e", x: box.x + box.w, y: box.y + box.h / 2 },
-      { id: "se", x: box.x + box.w, y: box.y + box.h },
-      { id: "s", x: box.x + box.w / 2, y: box.y + box.h },
-      { id: "sw", x: box.x, y: box.y + box.h },
-      { id: "w", x: box.x, y: box.y + box.h / 2 },
+    // Telegram-style grips: thick short strips along the frame. Corners get a
+    // right-angle pair, side midpoints get a small centred strip.
+    const handleThickness = Math.max(2, (isTouch ? 5 : 4) * scale);
+    const cornerLen = (isTouch ? 26 : 22) * scale;
+    const midLen = (isTouch ? 18 : 14) * scale;
+    ctx.fillStyle = "#ffffff";
+
+    const corners: { x: number; y: number; hx: 1 | -1; hy: 1 | -1 }[] = [
+      { x: box.x, y: box.y, hx: 1, hy: 1 },
+      { x: box.x + box.w, y: box.y, hx: -1, hy: 1 },
+      { x: box.x + box.w, y: box.y + box.h, hx: -1, hy: -1 },
+      { x: box.x, y: box.y + box.h, hx: 1, hy: -1 },
     ];
-    positions.forEach((p) => {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, handleRadius, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0,0,0,0.6)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+    corners.forEach((c) => {
+      // Horizontal strip along the top/bottom edge.
+      ctx.fillRect(c.hx < 0 ? c.x - cornerLen : c.x, c.y - handleThickness / 2, cornerLen, handleThickness);
+      // Vertical strip along the left/right edge.
+      ctx.fillRect(c.x - handleThickness / 2, c.hy < 0 ? c.y - cornerLen : c.y, handleThickness, cornerLen);
     });
-  }, [getOverlayCtx, isTouch]);
+
+    const midX = box.x + box.w / 2;
+    const midY = box.y + box.h / 2;
+    ctx.fillRect(midX - midLen / 2, box.y - handleThickness / 2, midLen, handleThickness);
+    ctx.fillRect(midX - midLen / 2, box.y + box.h - handleThickness / 2, midLen, handleThickness);
+    ctx.fillRect(box.x - handleThickness / 2, midY - midLen / 2, handleThickness, midLen);
+    ctx.fillRect(box.x + box.w - handleThickness / 2, midY - midLen / 2, handleThickness, midLen);
+  }, [getOverlayCtx, isTouch, fit.w]);
 
   // Initial load: decode the source at most 2560px on the long edge, then
   // render it onto the main canvas. The canvas always stays inside the stage
@@ -329,22 +338,24 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
 
   const hitTestHandle = useCallback(
     (x: number, y: number, box: Box): Handle | null => {
-      const handleRadius = (isTouch ? 22 : 16) * (canvasRef.current ? canvasRef.current.width / Math.max(1, fit.w) : 1);
-      const positions: { id: Handle; x: number; y: number }[] = [
-        { id: "nw", x: box.x, y: box.y },
-        { id: "n", x: box.x + box.w / 2, y: box.y },
-        { id: "ne", x: box.x + box.w, y: box.y },
-        { id: "e", x: box.x + box.w, y: box.y + box.h / 2 },
-        { id: "se", x: box.x + box.w, y: box.y + box.h },
-        { id: "s", x: box.x + box.w / 2, y: box.y + box.h },
-        { id: "sw", x: box.x, y: box.y + box.h },
-        { id: "w", x: box.x, y: box.y + box.h / 2 },
+      // Hit zones as rectangles around the Telegram-style grips: generous
+      // enough for touch, matching the drawn strips on desktop.
+      const scale = canvasRef.current ? canvasRef.current.width / Math.max(1, fit.w) : 1;
+      const half = ((isTouch ? 26 : 18) * scale) / 2;
+      const midX = box.x + box.w / 2;
+      const midY = box.y + box.h / 2;
+      const zones: { id: Handle; cx: number; cy: number }[] = [
+        { id: "nw", cx: box.x, cy: box.y },
+        { id: "ne", cx: box.x + box.w, cy: box.y },
+        { id: "se", cx: box.x + box.w, cy: box.y + box.h },
+        { id: "sw", cx: box.x, cy: box.y + box.h },
+        { id: "n", cx: midX, cy: box.y },
+        { id: "s", cx: midX, cy: box.y + box.h },
+        { id: "w", cx: box.x, cy: midY },
+        { id: "e", cx: box.x + box.w, cy: midY },
       ];
-      const radiusSq = handleRadius * handleRadius;
-      for (const p of positions) {
-        const dx = x - p.x;
-        const dy = y - p.y;
-        if (dx * dx + dy * dy <= radiusSq) return p.id;
+      for (const zone of zones) {
+        if (Math.abs(x - zone.cx) <= half && Math.abs(y - zone.cy) <= half) return zone.id;
       }
       return null;
     },
