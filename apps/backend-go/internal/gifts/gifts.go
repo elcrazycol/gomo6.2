@@ -26,7 +26,6 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crypto"
-	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
@@ -193,7 +192,7 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 
 	// Invalidate cache
 	if h.redis != nil {
-		cache.InvalidateForProfile(h.redis, recipientID.String(), "")
+		cache.InvalidateCacheForProfile(h.redis, recipientID.String())
 		cache.InvalidateForTable(h.redis, "user_gifts", map[string]string{"recipient_id": recipientID.String()})
 	}
 
@@ -231,7 +230,7 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 	}
 
 	if h.redis != nil {
-		middleware.InvalidateCacheForNotification(h.redis, recipientID)
+		cache.InvalidateCacheForNotification(h.redis, recipientID)
 	}
 
 	if h.hub != nil {

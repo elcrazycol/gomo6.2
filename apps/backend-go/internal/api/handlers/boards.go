@@ -443,7 +443,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 	if h.redis != nil {
 		var boardSlug string
 		if err := h.db.QueryRow(`SELECT slug FROM boards WHERE id = $1`, id).Scan(&boardSlug); err == nil {
-			cache.InvalidateForBoard(h.redis, id, boardSlug)
+			cache.InvalidateCacheForBoardWithSlug(h.redis, id, boardSlug)
 		}
 	}
 

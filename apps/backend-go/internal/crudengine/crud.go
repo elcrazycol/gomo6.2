@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
-	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
@@ -67,7 +66,7 @@ func (h *Engine) invalidateWallListCache(c *gin.Context, postID string) {
 		"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&ownerID); err != nil || ownerID == "" {
 		return
 	}
-	middleware.InvalidateCacheForProfileWall(h.redis, ownerID)
+	cache.InvalidateCacheForProfileWall(h.redis, ownerID)
 }
 
 // invalidateCommentLikesCache invalidates every cache whose response embeds
@@ -81,7 +80,7 @@ func (h *Engine) invalidateCommentLikesCache(c *gin.Context, commentID string) {
 		"SELECT post_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&postID); err != nil || postID == "" {
 		return
 	}
-	middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+	cache.InvalidateCacheForWallComment(h.redis, commentID, postID)
 	h.invalidateWallListCache(c, postID)
 }
 

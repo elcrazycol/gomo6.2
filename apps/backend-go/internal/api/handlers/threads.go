@@ -13,8 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
-	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
@@ -628,12 +628,12 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	}
 
 	if h.redis != nil {
-		middleware.InvalidateCacheForThread(h.redis, id)
+		cache.InvalidateCacheForThread(h.redis, id)
 		// The board's thread list embeds per-thread post_count and the unified
 		// feed contains the thread — both would keep serving the deleted row
 		// until the data-cache TTL expires.
-		middleware.InvalidateCacheForBoard(h.redis, boardID)
-		middleware.InvalidateCacheForFeed(h.redis)
+		cache.InvalidateCacheForBoard(h.redis, boardID)
+		cache.InvalidateCacheForFeed(h.redis)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
@@ -721,7 +721,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 	}
 
 	if h.redis != nil {
-		middleware.InvalidateCacheForThread(h.redis, thread.ID)
+		cache.InvalidateCacheForThread(h.redis, thread.ID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(thread))

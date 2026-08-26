@@ -12,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
-	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
@@ -556,14 +556,14 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 
 	// Invalidate cache for this thread's posts
 	if h.redis != nil {
-		middleware.InvalidateCacheForThread(h.redis, threadID)
+		cache.InvalidateCacheForThread(h.redis, threadID)
 		// The board's thread list embeds per-thread post_count — refresh it.
 		var boardID string
 		if err := h.db.QueryRow(`SELECT board_id FROM threads WHERE id = $1`, threadID).Scan(&boardID); err == nil && boardID != "" {
-			middleware.InvalidateCacheForBoard(h.redis, boardID)
+			cache.InvalidateCacheForBoard(h.redis, boardID)
 		}
 		// Posts bump threads in the unified feed — deletion does the opposite.
-		middleware.InvalidateCacheForFeed(h.redis)
+		cache.InvalidateCacheForFeed(h.redis)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
@@ -652,7 +652,7 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 
 	// Invalidate cache for this post and its thread
 	if h.redis != nil {
-		middleware.InvalidateCacheForPost(h.redis, post.ID, post.ThreadID)
+		cache.InvalidateCacheForPost(h.redis, post.ID, post.ThreadID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(post))
