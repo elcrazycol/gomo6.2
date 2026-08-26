@@ -174,14 +174,25 @@ export const ChatView = memo(function ChatView({
 
   const handleDropFiles = useCallback((files: File[]) => {
     void handleAttachFiles(files);
-    setTimeout(() => composerRef.current?.focus(), 50);
+    composerRef.current?.focus();
   }, [handleAttachFiles, composerRef]);
 
   const { isDragging: isDraggingFiles, dragHandlers } = useFileDrop(handleDropFiles);
 
-  const handleReply = useCallback((msg: MessageView) => {
+  const handleReply = useCallback((msg: MessageView, opts?: { focus?: boolean }) => {
     setReplyToMessage(msg);
-    setTimeout(() => composerRef.current?.focus(), 50);
+    // The swipe path arms the reply banner MID-DRAG with { focus: false } —
+    // focusing there would pop the soft keyboard under the moving finger. The
+    // keyboard is summoned on the gesture lift ({ focus: true }) instead.
+    // Menu / double-click call without opts and focus right away.
+    //
+    // The focus must land SYNCHRONOUSLY inside the triggering gesture (menu
+    // click / double click / swipe lift are all user gestures): iOS Safari
+    // raises the soft keyboard only for a focus in the same event tick, so a
+    // deferred (setTimeout) focus silently does nothing there.
+    if (opts?.focus !== false) {
+      composerRef.current?.focus();
+    }
   }, [composerRef]);
 
   const handleCopy = useCallback((text: string) => {
@@ -274,7 +285,13 @@ export const ChatView = memo(function ChatView({
     setEditingMessageId(msgId);
     setEditingContent(content);
     setDraft(content);
-  }, []);
+    // Same synchronous-focus rule as reply: iOS raises the soft keyboard only
+    // for a focus that lands in the same event tick as the user gesture (the
+    // action-panel click), so a deferred focus silently does nothing there.
+    // The editor re-seeds from the new draft on the next commit (resetKey
+    // bump) without losing focus — GomoRichEditor keeps the instance.
+    composerRef.current?.focus();
+  }, [composerRef]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingMessageId(null);

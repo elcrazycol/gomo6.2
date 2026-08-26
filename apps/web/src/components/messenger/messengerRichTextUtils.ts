@@ -314,3 +314,21 @@ export function messengerTextToCopy(text: string): string {
     .replace(/\[[\]/]?(?:b|i|u|s|spoiler|blur|col|size|url)(?:=[^\]]*)?\]/gi, "")
     .replace(/\u200b/g, "");
 }
+
+/**
+ * Conversation-list preview of the server-truncated `last_message_preview`.
+ * The store keeps special-message markers verbatim, so a gift renders as its
+ * real name (e.g. «Подарок · Роза») and a shared post as a friendly action
+ * label — never the raw `__GIFT__:…` token. Plain previews pass through.
+ */
+export function messengerConversationPreview(text: string | null | undefined): string {
+  if (!text) return "";
+  if (text.startsWith("__GIFT__")) {
+    // The server cuts previews at 80 chars — a truncated token may lose the
+    // name/image; only complete tokens are decorated with the gift name.
+    const match = text.match(/^__GIFT__:(.+?):(.+?):(.*)$/);
+    return match ? `Подарок · ${match[2]}` : "Подарок";
+  }
+  if (text.startsWith("__SHARE__")) return "Поделился записью";
+  return text;
+}

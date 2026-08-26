@@ -1,10 +1,13 @@
 import { useEffect, useRef, useCallback, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useSearchParams } from "react-router-dom";
+import { motion, animate } from "framer-motion";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { useMessengerStore, selectSelectedConversation } from "@/stores/messengerStore";
 import { messengerWs } from "@/services/messengerWebSocket";
 import { eventManager } from "@/services/eventManager";
 import { useMessengerPresence } from "@/hooks/useMessengerPresence";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
+import { useSwipeBackToClose } from "@/hooks/useSwipeBackToClose";
 import { MessengerErrorBoundary } from "./ErrorBoundary";
 import { ConversationList } from "./ConversationList";
 import { ChatView } from "./ChatView";
@@ -231,6 +234,43 @@ export const MessengerView = () => {
     setSearchParams({}, { replace: true });
   }, [selectConversation, setSearchParams]);
 
+  // ── Mobile swipe-right-to-go-back ───────────────────────────────────────
+  // The chat panel slides with the finger over the conversation list; on
+  // release past the threshold (or a fast flick) it glides fully off and
+  // leaves the chat. Disabled while the soft keyboard is open (the swipe
+  // belongs to typing there), desktop never drags. Framer owns the panel's
+  // horizontal position on touch devices (see the slide effect below) —
+  // the same overlay-drag technique as WallPost.
+  const kb = useMobileKeyboard();
+  const swipeBack = useSwipeBackToClose({
+    enabled: isMobile && !kb.isOpen,
+    onBack: handleBack,
+  });
+
+  // The chat panel's mobile slide: open → spring in; close → glide off.
+  // The CSS transition was removed (per-frame transform transitions would lag
+  // the drag), so the enter/exit animation lives here. Desktop pins x to 0 —
+  // the panel is a plain grid column there. The mobile check is synchronous
+  // (matchMedia) so the very first paint is correct before `isMobile` state
+  // has settled.
+  useEffect(() => {
+    const mobileNow = typeof window !== "undefined"
+      && window.matchMedia("(max-width: 980px)").matches;
+    if (!mobileNow) {
+      swipeBack.x.set(0);
+      return;
+    }
+    if (showMobileChat) {
+      // Never fight a settled or mid-exit panel (a small guard against an
+      // already-0 x re-opening after a quick select-chat → back cycle).
+      if (swipeBack.x.get() > 8) {
+        animate(swipeBack.x, 0, { type: "spring", stiffness: 260, damping: 30, mass: 0.9 });
+      }
+    } else {
+      animate(swipeBack.x, window.innerWidth, { duration: 0.22, ease: [0.32, 0.72, 0, 1] });
+    }
+  }, [showMobileChat, swipeBack.x]);
+
   // Get typing user for this conversation
   const typingUsername = conversation
     ? Object.values(typingUsers).find((t) => t.user_id === conversation.other_user_id)?.username ?? null
@@ -284,12 +324,14 @@ export const MessengerView = () => {
             )}
           </aside>
 
-          <section
-            className={`chat-panel${showMobileChat ? " is-open" : ""}${!conversation ? " is-empty" : ""}`}
+          <motion.section
+            ref={swipeBack.panelRef}
+            className={`chat-panel${showMobileChat ? " is-open" : ""}${!conversation ? " is-empty" : ""}${swipeBack.isBackDragging ? " is-back-dragging" : ""}`}
             // Scrolling the chat (history, composer) must keep the soft
             // keyboard up — like the emoji swap panel does — instead of
             // triggering the iOS scroll-to-dismiss (see mobileKeyboard.ts).
             data-kb-keep
+            style={{ x: swipeBack.x }}
           >
             <ChatView
               onBack={handleBack}
@@ -297,7 +339,7 @@ export const MessengerView = () => {
               typingUsername={typingUsername}
               onTyping={handleTyping}
             />
-          </section>
+          </motion.section>
         </div>
       </div>
     </MessengerErrorBoundary>

@@ -1,5 +1,7 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { StrictMode } from "react";
+import type { ReactElement } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { rememberAttachmentAspectRatio, __resetAttachmentRatioCacheForTests } from "@/utils/attachmentRatioCache";
 import type { MessageView } from "./types";
@@ -422,7 +424,7 @@ describe("MessageBubble", () => {
 
   it("opens context menu on right-click and calls onReply", async () => {
     const onReply = vi.fn();
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -437,7 +439,7 @@ describe("MessageBubble", () => {
 
   it("calls onCopy with message content", async () => {
     const onCopy = vi.fn();
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -451,7 +453,7 @@ describe("MessageBubble", () => {
   });
 
   it("shows Edit and Delete only for own messages in context menu", async () => {
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -464,7 +466,7 @@ describe("MessageBubble", () => {
   });
 
   it("hides Edit and Delete for other user's messages", async () => {
-    render(
+    renderInChat(
       <MessageBubble
         message={createMessage()}
         {...defaultProps}
@@ -475,5 +477,121 @@ describe("MessageBubble", () => {
     await screen.findByText("Ответить");
     expect(screen.queryByText("Редактировать")).not.toBeInTheDocument();
     expect(screen.queryByText("Удалить")).not.toBeInTheDocument();
+  });
+
+  // A chat-panel harness so the scrim/host classes and dismissal wiring can be
+  // asserted the way they live in the real chat.
+  function renderInChat(ui: ReactElement) {
+    return render(
+      <div className="chat-panel">
+        <div className="message-scroll">
+          <div className="message-virtual-list">
+            <div className="message-virtual-item">{ui}</div>
+          </div>
+        </div>
+      </div>,
+    );
+  }
+
+  it("anchors the action panel under the message and blurs the rest of the chat", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    const panel = await screen.findByRole("menu");
+    expect(panel.className).toContain("msg-action-panel");
+
+    // The panel floats in the lifted overlay, next to a pixel-identical copy
+    // of the message; the in-list bubble is hidden in place (layout kept).
+    const lift = panel.parentElement;
+    expect(lift?.className).toContain("msg-action-lift");
+    expect(lift?.querySelector(".message-bubble")).not.toBeNull();
+    const inListBubble = container.querySelector(".bubble-row .message-bubble");
+    expect(inListBubble?.className).toContain("is-menu-hidden");
+
+    // The chat blurs (per-surface), and only this message's row is excluded.
+    expect(container.querySelector(".chat-panel")?.className).toContain("has-message-menu");
+    const host = container.querySelector(".message-virtual-item");
+    expect(host?.className).toContain("is-menu-host");
+  });
+
+  it("dismisses the panel on outside tap but keeps it open when tapping inside", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    const replyItem = screen.getByText("Ответить");
+    fireEvent.pointerDown(replyItem);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    const scroller = container.querySelector(".message-scroll");
+    expect(scroller).not.toBeNull();
+    fireEvent.pointerDown(scroller as Element);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-panel")?.className).not.toContain("has-message-menu");
+  });
+
+  it("dismisses the panel on Escape and drops the scrim classes", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-panel")?.className).not.toContain("has-message-menu");
+    expect(container.querySelector(".message-virtual-item")?.className).not.toContain("is-menu-host");
+  });
+
+  it("floats exactly ONE copy of the message even under StrictMode double effects", async () => {
+    const { container } = renderInChat(
+      <StrictMode>
+        <MessageBubble message={createMessage()} {...defaultProps} />
+      </StrictMode>,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+    // The overlay's layout effect deep-clones the bubble; React StrictMode
+    // runs effects twice, and the idempotent append must not stack copies.
+    expect(container.querySelectorAll(".msg-action-lift .message-bubble").length).toBe(1);
+  });
+
+  it("keeps composer focus when the panel is dismissed by an outside tap", async () => {
+    const { container } = renderInChat(
+      <>
+        <MessageBubble message={createMessage()} {...defaultProps} />
+        <div className="composer"><input aria-label="editor" /></div>
+      </>,
+    );
+    const input = container.querySelector(".composer input") as HTMLInputElement;
+    input.focus();
+
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    const scroller = container.querySelector(".message-scroll") as Element;
+    const evt = new MouseEvent("pointerdown", { bubbles: true, cancelable: true });
+    act(() => { scroller.dispatchEvent(evt); });
+    // The outside tap is swallowed so it cannot blur the composer input…
+    expect(evt.defaultPrevented).toBe(true);
+    // …and the panel still dismisses.
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("does not swallow outside taps when the composer had no focus", async () => {
+    const { container } = renderInChat(
+      <MessageBubble message={createMessage()} {...defaultProps} />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByRole("menu");
+
+    const scroller = container.querySelector(".message-scroll") as Element;
+    const evt = new MouseEvent("pointerdown", { bubbles: true, cancelable: true });
+    act(() => { scroller.dispatchEvent(evt); });
+    expect(evt.defaultPrevented).toBe(false);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

@@ -5,6 +5,7 @@ import {
   messengerTextToPlain,
   isMessengerTextEmpty,
   messengerPlainPreview,
+  messengerConversationPreview,
   stripDanglingTagFragment,
   sanitizeMessengerHref,
 } from "./messengerRichTextUtils";
@@ -215,6 +216,28 @@ describe("messengerPlainPreview", () => {
 
   it("keeps short text intact", () => {
     expect(messengerPlainPreview("short")).toBe("short");
+  });
+});
+
+describe("messengerConversationPreview", () => {
+  it("decorates a gift token with its real name", () => {
+    expect(messengerConversationPreview("__GIFT__:g-1:Роза:gifts/rose.png")).toBe("Подарок · Роза");
+  });
+
+  it("falls back to a generic gift label for truncated tokens", () => {
+    expect(messengerConversationPreview("__GIFT__:g-1:Роз")).toBe("Подарок");
+    expect(messengerConversationPreview("__GIFT__:g-1:")).toBe("Подарок");
+  });
+
+  it("renders a shared post as a friendly action label", () => {
+    expect(messengerConversationPreview("__SHARE__:thread:t-1")).toBe("Поделился записью");
+    expect(messengerConversationPreview("__SHARE__:wall:w-2")).toBe("Поделился записью");
+  });
+
+  it("passes plain previews through", () => {
+    expect(messengerConversationPreview("Hello!")).toBe("Hello!");
+    expect(messengerConversationPreview(null)).toBe("");
+    expect(messengerConversationPreview(undefined)).toBe("");
   });
 });
 

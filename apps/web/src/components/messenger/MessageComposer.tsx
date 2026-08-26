@@ -515,14 +515,18 @@ export const MessageComposer = memo(function MessageComposer({
 
   // ── Focus retention on the composer chrome ────────────────────────────────
   // A press on the composer's non-interactive parts (pill padding, empty row
-  // space, banners…) must not move focus: the browser would blur the editor
-  // and on mobile the soft keyboard flies away as a result (mobileKeyboard's
-  // handleFocusOut starts the eased composer descent on blur). preventDefault
-  // on mousedown cancels the browser's default focus move; interactive
-  // targets — the editor itself, enabled buttons, links, form fields — fall
-  // through and keep their native behaviour. Disabled buttons are covered
-  // here as well: on iOS a tap on an inert control dismisses the keyboard
-  // with no event to intercept on the button itself.
+  // space, banners…) must not move focus AWAY: the browser would blur the
+  // editor and on mobile the soft keyboard flies away as a result
+  // (mobileKeyboard's handleFocusOut starts the eased composer descent on
+  // blur). preventDefault on mousedown cancels the browser's default focus
+  // move; interactive targets — the editor itself, enabled buttons, links,
+  // form fields — fall through and keep their native behaviour. Disabled
+  // buttons are covered here as well: on iOS a tap on an inert control
+  // dismisses the keyboard with no event to intercept on the button itself.
+  // While NOTHING is focused, the chrome press claims the editor directly
+  // (synchronously, in the same gesture) so the very first tap — e.g. right
+  // after a reply — opens the keyboard cleanly instead of doing a cold open
+  // on the next tap.
   const handleComposerMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target;
@@ -535,7 +539,20 @@ export const MessageComposer = memo(function MessageComposer({
       return;
     }
     e.preventDefault();
-  }, []);
+    // A press on the composer chrome (pill padding, reply/edit banner…) while
+    // the editor is NOT focused — e.g. the very first tap right after a reply
+    // was armed — claims focus SYNCHRONOUSLY in the same gesture, so the soft
+    // keyboard opens cleanly with the tap. Without this the tap is eaten here
+    // (preventDefault, nothing happens) and the NEXT tap on the editor does a
+    // cold keyboard open that makes the composer jump. With an emoji/attach
+    // sheet session up, the chrome belongs to that session — keep the old
+    // no-op.
+    if (!swap.open) {
+      const active = typeof document !== "undefined" ? document.activeElement : null;
+      const editing = !!active && active !== document.body && isEditableElement(active);
+      if (!editing) editorRef.current?.focus();
+    }
+  }, [swap.open]);
 
   // ── Emoji (wall-post behaviour: keyboard swap on touch, popover on desktop) ─
   const handleEmojiSelect = useCallback((data: { emojiId: string; packId: string; url: string; name: string }) => {
@@ -1208,7 +1225,23 @@ useEffect(() => {
           <span className="reply-text">
             {replyToMessage.is_deleted ? "Удалено" : messengerPlainPreview(replyToMessage.content, 120)}
           </span>
-          <button type="button" className="composer-reply-cancel" onClick={onCancelReply} aria-label="Отменить ответ">
+          {/* The ✕ is a pressable button, but it must NOT steal focus from
+              the editor: the browser's mousedown default would focus the
+              button — blurring the editor and dismissing the soft keyboard
+              on iOS — and leave a focus ring ("square") behind. preventDefault
+              cancels that default; the click still fires, and the editor is
+              re-focused synchronously in the same gesture so the keyboard
+              stays up (same rule as reply/edit focus). */}
+          <button
+            type="button"
+            className="composer-reply-cancel"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onCancelReply?.();
+              editorRef.current?.focus();
+            }}
+            aria-label="Отменить ответ"
+          >
             <X size={14} />
           </button>
         </div>
@@ -1217,7 +1250,16 @@ useEffect(() => {
         <div className="composer-edit-banner">
           <Pencil size={13} />
           <span>Редактирование</span>
-          <button type="button" className="composer-edit-cancel" onClick={onCancelEdit} aria-label="Отменить">
+          <button
+            type="button"
+            className="composer-edit-cancel"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onCancelEdit?.();
+              editorRef.current?.focus();
+            }}
+            aria-label="Отменить"
+          >
             <X size={14} />
           </button>
         </div>
@@ -1249,7 +1291,13 @@ useEffect(() => {
               <span className="composer-attachment-icon">{getAttachmentIcon(att.type)}</span>
               <span className="composer-attachment-name">{att.name}</span>
               <span className="composer-attachment-size">{formatFileSize(att.size)}</span>
-              <button type="button" className="composer-attachment-remove" onClick={() => handleRemoveAttachment(i)} aria-label="Удалить">
+              <button
+                type="button"
+                className="composer-attachment-remove"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRemoveAttachment(i)}
+                aria-label="Удалить"
+              >
                 <X size={12} />
               </button>
             </div>

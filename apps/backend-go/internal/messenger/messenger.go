@@ -75,6 +75,9 @@ type ConversationResponse struct {
 	OtherAccountNum      *int    `json:"other_account_number"`
 	OtherIsOnline        *bool   `json:"other_is_online"`
 	OtherLastSeenAt      *string `json:"other_last_seen_at"`
+	// The peer's read line in the 1:1 chat (their chat_members.last_read_at) —
+	// lets the client show the real read status of my last message in the list.
+	OtherLastReadAt *string `json:"other_last_read_at"`
 	// Group fields
 	IsGroup     bool    `json:"is_group"`
 	GroupName   *string `json:"group_name"`

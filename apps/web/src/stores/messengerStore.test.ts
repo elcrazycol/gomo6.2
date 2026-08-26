@@ -678,7 +678,7 @@ describe("messengerStore", () => {
       });
 
       const c = useMessengerStore.getState().conversations[0];
-      expect(c.last_message_preview).toBe("Привет ◆ как дела");
+      expect(c.last_message_preview).toBe("Привет как дела");
     });
   });
 
