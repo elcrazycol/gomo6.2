@@ -240,11 +240,16 @@ describe("Lightbox", () => {
 describe("Lightbox editor", () => {
   const items = [makeItem("a.jpg"), makeItem("b.jpg"), makeItem("c.jpg")];
 
+  // Shared spy: the mocked canvas context is one object for every getContext
+  // call, so tests can assert on the drawImage arguments (e.g. the crop box).
+  let drawImageSpy: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
+    drawImageSpy = vi.fn();
     const ctx = {
       setTransform: vi.fn(),
       clearRect: vi.fn(),
-      drawImage: vi.fn(),
+      drawImage: drawImageSpy,
       fillRect: vi.fn(),
       save: vi.fn(),
       beginPath: vi.fn(),
@@ -292,6 +297,17 @@ describe("Lightbox editor", () => {
   function openEditor(onEditImage: (i: number, dataUrl: string) => void) {
     render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} onEditImage={onEditImage} />);
     fireEvent.click(document.body.querySelector('[aria-label="Редактировать"]')!);
+  }
+
+  // The photo loads asynchronously (decode → draw → setReady), so tests that
+  // depend on the working canvas state (fit, crop window, undo) must wait for
+  // it: the main canvas gets its real size only once init has finished.
+  async function openEditorReady(onEditImage: (i: number, dataUrl: string) => void) {
+    openEditor(onEditImage);
+    await waitFor(() => {
+      const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement | null;
+      expect(main?.width).toBe(800);
+    });
   }
 
   function stubCanvasPointer(canvas: HTMLCanvasElement) {
@@ -456,5 +472,124 @@ describe("Lightbox editor", () => {
 
     fireEvent.pointerUp(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+  });
+
+  it("pans the photo with a two-finger drag after zooming in", async () => {
+    await openEditorReady(vi.fn());
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    const pan = document.body.querySelector(".pe-frame-pan") as HTMLElement;
+    stubCanvasPointer(canvas);
+
+    // Zoom in first: pan is clamped to zero at scale 1.
+    fireEvent.wheel(canvas, { clientX: 400, clientY: 300, deltaY: -100 });
+
+    // Two fingers moving together shift the midpoint → the photo pans.
+    fireEvent.pointerDown(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerDown(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+    fireEvent.pointerMove(canvas, { clientX: 330, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 530, clientY: 300, pointerId: 2 });
+    expect(pan.style.transform).toContain("translate3d(30px, 0px, 0)");
+    fireEvent.pointerUp(canvas, { clientX: 330, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 530, clientY: 300, pointerId: 2 });
+  });
+
+  it("draws with the blur brush and reports the edited data URL", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    fireEvent.click(document.body.querySelector('[aria-label="Размытие"]')!);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
+  });
+
+  it("exports the pending crop from Готово without applying it first", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 796, clientY: 596, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    // The pending crop goes through cropCanvas: drawImage receives the crop
+    // box as (source, sx, sy, sw, sh, dx, dy, dw, dh).
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 600, 450, 0, 0, 600, 450);
+  });
+
+  it("bakes the crop into the canvas with Применить кадр and exports it", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 796, clientY: 596, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.click(document.body.querySelector(".pe-apply-crop")!);
+
+    // The working canvas is now the cropped size and the crop is undoable.
+    const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement;
+    expect(main.width).toBe(600);
+    expect(main.height).toBe(450);
+    expect((document.body.querySelector('[aria-label="Отменить"]') as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
+  });
+
+  it("keeps the crop square when a 1:1 aspect preset is applied", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+
+    // Pick the 1:1 preset from the dropdown.
+    fireEvent.click(document.body.querySelector(".pe-aspect-trigger")!);
+    const option = Array.from(document.body.querySelectorAll(".pe-aspect-option")).find(
+      (el) => el.textContent === "1:1"
+    ) as HTMLElement;
+    fireEvent.click(option);
+    // The menu closes on selection; the trigger now shows the chosen preset.
+    expect(document.body.querySelector(".pe-aspect-trigger-label")).toHaveTextContent("1:1");
+
+    // Drag the south-east corner of the now-square window.
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 700, clientY: 600, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 500, clientY: 450, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 500, clientY: 450, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    // Exported box {100, 0, 400, 400} — width equals height.
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 100, 0, 400, 400, 0, 0, 400, 400);
+  });
+
+  it("nudges the crop window with the arrow keys and switches tools with 1/2/3", () => {
+    openEditor(vi.fn());
+    // Arrow keys only move the window in crop mode; the toolbar stays on crop.
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    fireEvent.keyDown(document, { key: "2" });
+    expect(document.body.querySelector('[aria-label="Кисть"]')!.className).toContain("is-active");
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    fireEvent.keyDown(document, { key: "1" });
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')!.className).toContain("is-active");
+  });
+
+  it("shows a retry button when the photo fails to load and recovers on retry", async () => {
+    // First decode attempt fails, subsequent ones succeed.
+    Object.defineProperty(HTMLImageElement.prototype, "decode", {
+      configurable: true,
+      value: vi.fn().mockRejectedValueOnce(new Error("decode failed")).mockResolvedValue(undefined),
+    });
+    openEditor(vi.fn());
+    await waitFor(() => expect(document.body.querySelector(".pe-error")).toBeInTheDocument());
+    fireEvent.click(document.body.querySelector(".pe-error button")!);
+    await waitFor(() => expect(document.body.querySelector(".pe-error")).not.toBeInTheDocument());
+    expect(document.body.querySelector(".pe-overlay")).toBeInTheDocument();
   });
 });
