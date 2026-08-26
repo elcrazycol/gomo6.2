@@ -295,9 +295,14 @@ describe("Lightbox editor", () => {
   }
 
   function stubCanvasPointer(canvas: HTMLCanvasElement) {
-    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+    // Screen coordinates are read from the full-stage overlay; image
+    // coordinates are mapped through the zoomed photo canvas. Stub both.
+    const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement;
+    const rect = {
       left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}),
-    } as DOMRect);
+    } as DOMRect;
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(rect);
+    if (main && main !== canvas) vi.spyOn(main, "getBoundingClientRect").mockReturnValue(rect);
     (canvas as unknown as Record<string, unknown>).setPointerCapture = vi.fn();
     (canvas as unknown as Record<string, unknown>).releasePointerCapture = vi.fn();
   }
