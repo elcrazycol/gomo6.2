@@ -15,7 +15,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/websocket"
@@ -336,7 +336,7 @@ func firstNonNilString(a, b *string) *string {
 // group-merge paths so both deliver identically.
 func (s *Service) afterNotificationCreated(n *models.Notification) {
 	if s.redis != nil {
-		middleware.InvalidateCacheForNotification(s.redis, n.UserID)
+		cache.InvalidateCacheForNotification(s.redis, n.UserID)
 	}
 
 	if s.hub != nil {

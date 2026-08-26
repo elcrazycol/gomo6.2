@@ -14,7 +14,6 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
-	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	profilepkg "github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
@@ -65,7 +64,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 			if rows.Scan(&threadID, &boardID) != nil {
 				continue
 			}
-			cache.InvalidateForThread(h.redis, threadID, boardID)
+			cache.InvalidateCacheForThread(h.redis, threadID, boardID)
 			if boardID != "" {
 				// Cover board_id=in.(...) aggregate feeds (main page), not just
 				// board_id=eq.<boardID> — the raw board id substring matches
@@ -85,7 +84,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 			if rows.Scan(&postID, &threadID) != nil {
 				continue
 			}
-			cache.InvalidateForPost(h.redis, postID, threadID)
+			cache.InvalidateCacheForPost(h.redis, postID, threadID)
 		}
 	}
 
@@ -102,7 +101,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 			if rows.Scan(&wallOwnerID) != nil || wallOwnerID == "" {
 				continue
 			}
-			middleware.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
+			cache.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
 		}
 	}
 
@@ -120,7 +119,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 			if rows.Scan(&wallOwnerID) != nil || wallOwnerID == "" {
 				continue
 			}
-			middleware.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
+			cache.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
 		}
 	}
 }
@@ -660,8 +659,8 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	// Invalidate cache for this profile (and its profile wall, whose posts
 	// embed the author's nickname emoji in the cached JSON).
 	if h.redis != nil {
-		middleware.InvalidateCacheForProfile(h.redis, id)
-		middleware.InvalidateCacheForProfileWall(h.redis, id)
+		cache.InvalidateCacheForProfile(h.redis, id)
+		cache.InvalidateCacheForProfileWall(h.redis, id)
 		// Threads and posts embed the author's profile fields (display_name,
 		// nickname_emoji_id, avatar_url) via a users JOIN — without this the
 		// first message of an authored thread would keep the old emoji until

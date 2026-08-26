@@ -27,7 +27,6 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/httpx"
-	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/textutil"
@@ -374,9 +373,9 @@ func afterWallPostWrite(h *Engine, c *gin.Context, method string, result map[str
 	switch method {
 	case "POST":
 		if ownerID != "" && h.redis != nil {
-			middleware.InvalidateCacheForProfileWall(h.redis, ownerID)
+			cache.InvalidateCacheForProfileWall(h.redis, ownerID)
 			// A new wall post is a candidate for the unified feed.
-			middleware.InvalidateCacheForFeed(h.redis)
+			cache.InvalidateCacheForFeed(h.redis)
 		}
 		// Wall notification: someone else posted on this wall.
 		authorID := crud.WallResultString(result["author_id"])
@@ -395,14 +394,14 @@ func afterWallPostWrite(h *Engine, c *gin.Context, method string, result map[str
 		}
 	case "PUT":
 		if ownerID != "" && h.redis != nil {
-			middleware.InvalidateCacheForProfileWall(h.redis, ownerID)
+			cache.InvalidateCacheForProfileWall(h.redis, ownerID)
 		}
 		if h.hub != nil {
 			h.publishWallPostEvent(c, "update", result)
 		}
 	case "DELETE":
 		if ownerID != "" && h.redis != nil {
-			middleware.InvalidateCacheForProfileWall(h.redis, ownerID)
+			cache.InvalidateCacheForProfileWall(h.redis, ownerID)
 		}
 		// Cascade: invalidate comments, likes and reposts of the deleted post.
 		if postID := crud.WallResultString(result["id"]); postID != "" && h.redis != nil {
@@ -457,7 +456,7 @@ func afterWallCommentWrite(h *Engine, c *gin.Context, method string, result map[
 	if method == "POST" {
 		if postID != "" && h.redis != nil {
 			commentID, _ := result["id"].(string)
-			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+			cache.InvalidateCacheForWallComment(h.redis, commentID, postID)
 			h.invalidateWallListCache(c, postID)
 		}
 		// Wall notifications: comment → post author; reply → parent comment author.
@@ -470,7 +469,7 @@ func afterWallCommentWrite(h *Engine, c *gin.Context, method string, result map[
 	// PUT / DELETE: the comments list of the touched post changed.
 	if postID != "" && h.redis != nil {
 		commentID, _ := result["id"].(string)
-		middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+		cache.InvalidateCacheForWallComment(h.redis, commentID, postID)
 		h.invalidateWallListCache(c, postID)
 	}
 }
@@ -481,21 +480,21 @@ func afterWallRepostWrite(h *Engine, c *gin.Context, method string, result map[s
 	switch method {
 	case "POST":
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-			middleware.InvalidateCacheForWallPost(h.redis, postID)
+			cache.InvalidateCacheForWallPost(h.redis, postID, "")
 			h.invalidateWallListCache(c, postID)
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
-			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+			cache.InvalidateCacheForProfileWall(h.redis, userID)
 		}
 		// Wall notification: the original post's author gets a repost notice.
 		h.notifyWallRepost(c, result)
 	case "DELETE":
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-			middleware.InvalidateCacheForWallPost(h.redis, postID)
+			cache.InvalidateCacheForWallPost(h.redis, postID, "")
 			h.invalidateWallListCache(c, postID)
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
-			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+			cache.InvalidateCacheForProfileWall(h.redis, userID)
 		}
 	}
 }
@@ -533,7 +532,7 @@ func afterWallPostLikeWrite(h *Engine, c *gin.Context, method string, result map
 		}
 	case "DELETE":
 		if h.redis != nil {
-			middleware.InvalidateCacheForWallPost(h.redis, postID)
+			cache.InvalidateCacheForWallPost(h.redis, postID, "")
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
 			cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
 			h.invalidateWallListCache(c, postID)

@@ -20,7 +20,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
-	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/websocket"
@@ -179,7 +179,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 		return
 	}
 
-	middleware.InvalidateCacheForWallPostPin(h.redis, postID, userID)
+	cache.InvalidateCacheForWallPostPin(h.redis, postID, userID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }
@@ -347,16 +347,16 @@ func (h *RPCHandler) insertPostAndNotify(userID, username string, req *models.Cr
 	}
 
 	if h.redis != nil {
-		middleware.InvalidateCacheForThread(h.redis, req.ThreadID)
+		cache.InvalidateCacheForThread(h.redis, req.ThreadID, "")
 		// The board's thread list (threads?board_id=eq.X) is cached under the
 		// board_id and embeds post_count. InvalidateForThread only clears the
 		// standalone thread page, so without this the board list would show a
 		// stale post_count for up to the data-cache TTL.
 		if postBoardID != "" {
-			middleware.InvalidateCacheForBoard(h.redis, postBoardID)
+			cache.InvalidateCacheForBoard(h.redis, postBoardID, "")
 		}
 		// New replies bump the thread in the unified feed (updated_at changes).
-		middleware.InvalidateCacheForFeed(h.redis)
+		cache.InvalidateCacheForFeed(h.redis)
 	}
 
 	if h.wsHub != nil {
@@ -560,9 +560,9 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 	}
 
 	if h.redis != nil {
-		middleware.InvalidateCacheForBoard(h.redis, req.BoardID)
+		cache.InvalidateCacheForBoard(h.redis, req.BoardID, "")
 		// A brand-new thread is a candidate for the unified feed.
-		middleware.InvalidateCacheForFeed(h.redis)
+		cache.InvalidateCacheForFeed(h.redis)
 	}
 
 	if h.wsHub != nil {

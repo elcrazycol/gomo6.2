@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
-	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
@@ -240,7 +240,7 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 	}
 
 	if h.redis != nil {
-		middleware.InvalidateCacheForNotification(h.redis, userClaims.UserID)
+		cache.InvalidateCacheForNotification(h.redis, userClaims.UserID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
@@ -276,7 +276,7 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 	}
 
 	if h.redis != nil {
-		middleware.InvalidateCacheForNotification(h.redis, userClaims.UserID)
+		cache.InvalidateCacheForNotification(h.redis, userClaims.UserID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))

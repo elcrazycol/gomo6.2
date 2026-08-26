@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
-	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/websocket"
@@ -138,7 +138,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
-		middleware.InvalidateCacheForThreadLike(h.redis, threadID, "")
+		cache.InvalidateCacheForThreadLike(h.redis, threadID, "")
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(like))
@@ -193,7 +193,7 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
-		middleware.InvalidateCacheForThreadLike(h.redis, threadID, "")
+		cache.InvalidateCacheForThreadLike(h.redis, threadID, "")
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
@@ -293,7 +293,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 
 	// Invalidate cache for post and its thread
 	if h.redis != nil {
-		middleware.InvalidateCacheForPostLike(h.redis, postID, threadID)
+		cache.InvalidateCacheForPostLike(h.redis, postID, threadID)
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(like))
@@ -348,7 +348,7 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 
 	// Invalidate cache for post and its thread
 	if h.redis != nil {
-		middleware.InvalidateCacheForPostLike(h.redis, postID, threadID)
+		cache.InvalidateCacheForPostLike(h.redis, postID, threadID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))

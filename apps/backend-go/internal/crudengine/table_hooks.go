@@ -7,7 +7,6 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
-	"github.com/gomo6/backend/internal/middleware"
 )
 
 // ─── Table Write Hooks ──────────────────────────────────────────────────────
@@ -59,7 +58,7 @@ func invalidateProfileWallPostsCache(h *Engine, _ *gin.Context, result map[strin
 	id := crud.WallResultString(result["id"])
 	userID := crud.WallResultString(result["user_id"])
 	fmt.Printf("[CacheInvalidator] Invalidating wall post cache: id=%s, user_id=%s\n", id, userID)
-	cache.InvalidateForWallPost(h.redis, id, userID)
+	cache.InvalidateCacheForWallPost(h.redis, id, userID)
 }
 
 // invalidateProfileWallPostCommentsCache clears the post's comments list.
@@ -67,7 +66,7 @@ func invalidateProfileWallPostCommentsCache(h *Engine, _ *gin.Context, result ma
 	id := crud.WallResultString(result["id"])
 	postID := crud.WallResultString(result["post_id"])
 	fmt.Printf("[CacheInvalidator] Invalidating wall comment cache: id=%s, post_id=%s\n", id, postID)
-	cache.InvalidateForWallComment(h.redis, id, postID)
+	cache.InvalidateCacheForWallComment(h.redis, id, postID)
 }
 
 // invalidateChannelsCache clears the board's channels list.
@@ -154,10 +153,10 @@ func invalidateProfileWallPostLikesCache(h *Engine, _ *gin.Context, result map[s
 	if postID == "" {
 		return
 	}
-	middleware.InvalidateCacheForWallPost(h.redis, postID)
+	cache.InvalidateCacheForWallPost(h.redis, postID, "")
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
 	cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
-	middleware.InvalidateCacheForFeed(h.redis)
+	cache.InvalidateCacheForFeed(h.redis)
 }
 
 // invalidateGomosubRulesAcceptanceCache clears the rules-acceptance keys so a
