@@ -22,6 +22,7 @@ import (
 	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
+	"github.com/gomo6/backend/internal/socialpreview"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
 	"github.com/gomo6/backend/internal/websocket"
@@ -846,7 +847,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Reddit, Discord, Slack, VK, … fetch them without executing JS). Caddy
 	// routes social-crawler requests to this backend; the NoRoute fallback
 	// renders a full HTML page with per-content OG/Twitter meta tags.
-	ogHandler := handlers.NewSocialPreviewHandler(db)
+	ogHandler := socialpreview.New(db)
 	// Crawler requests are anonymous by nature, so both surfaces are guarded
 	// by per-IP budgets (fail open without Redis): the page renderer and the
 	// wall image proxy each run 1–2 indexed DB queries per request and would

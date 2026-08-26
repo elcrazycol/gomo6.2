@@ -1,4 +1,9 @@
-package handlers
+// Package socialpreview renders Open Graph / Twitter Card pages for
+// link-preview crawlers. Extract from the former api/handlers god package:
+// the domain is self-contained (its own SQL, privacy-gated resolution and
+// rate budgets), so it lives as a leaf package next to notifications/privacy
+// and is wired into the router from routes.go.
+package socialpreview
 
 import (
 	"database/sql"
@@ -72,14 +77,16 @@ func isBackendPath(path string) bool {
 		path == "/health" || path == "/ready" || path == "/metrics"
 }
 
-// SocialPreviewHandler renders Open Graph pages for link-preview crawlers.
-type SocialPreviewHandler struct {
+// Service renders Open Graph pages for link-preview crawlers.
+type Service struct {
 	db          *sql.DB
 	rateLimiter *middleware.AuthRateLimiter
 }
 
-func NewSocialPreviewHandler(db *sql.DB) *SocialPreviewHandler {
-	return &SocialPreviewHandler{db: db}
+// New builds the OG renderer. The rate limiter is attached separately via
+// SetRateLimiter once the router has built its per-IP budgets (routes.go).
+func New(db *sql.DB) *Service {
+	return &Service{db: db}
 }
 
 // SetRateLimiter attaches a per-IP budget to the renderer. The limiter is
@@ -87,7 +94,7 @@ func NewSocialPreviewHandler(db *sql.DB) *SocialPreviewHandler {
 // everything that reaches content resolution, including paths that 404 after
 // the DB lookup (non-crawler traffic and API 404s never deplete it). Fail
 // open when nil or when Redis is unavailable.
-func (h *SocialPreviewHandler) SetRateLimiter(l *middleware.AuthRateLimiter) {
+func (h *Service) SetRateLimiter(l *middleware.AuthRateLimiter) {
 	h.rateLimiter = l
 }
 
@@ -140,7 +147,7 @@ func defaultSiteMeta(description string) *ogMeta {
 // Render handles an unmatched GET/HEAD path for a social crawler: resolves the
 // path to a content item, queries the DB and serves a complete HTML page with
 // Open Graph / Twitter Card meta tags.
-func (h *SocialPreviewHandler) Render(c *gin.Context) {
+func (h *Service) Render(c *gin.Context) {
 	// A plain c.Status(404) without a body never reaches the client in this
 	// Gin version (WriteHeader is deferred until the first Write), so every
 	// 404 path below writes an explicit body via c.String.
@@ -190,7 +197,7 @@ func (h *SocialPreviewHandler) Render(c *gin.Context) {
 }
 
 // resolve maps the request path to an ogMeta card.
-func (h *SocialPreviewHandler) resolve(c *gin.Context) *ogMeta {
+func (h *Service) resolve(c *gin.Context) *ogMeta {
 	path := strings.TrimSuffix(c.Request.URL.Path, "/")
 	if path == "" {
 		path = "/"
@@ -243,7 +250,7 @@ func (h *SocialPreviewHandler) resolve(c *gin.Context) *ogMeta {
 // ── Content resolvers ────────────────────────────────────────────────────────
 
 // resolveWallPost renders the card for /profile/:userId/wall/:postId.
-func (h *SocialPreviewHandler) resolveWallPost(c *gin.Context, postID string) *ogMeta {
+func (h *Service) resolveWallPost(c *gin.Context, postID string) *ogMeta {
 	const q = `
 SELECT p.title, p.content, p.image_url, p.attachments,
        u.username, COALESCE(u.display_name, ''), COALESCE(u.avatar_url, ''),
@@ -319,7 +326,7 @@ WHERE p.id = $1`
 }
 
 // resolveProfile renders the card for /profile/:userId.
-func (h *SocialPreviewHandler) resolveProfile(c *gin.Context, userID string) *ogMeta {
+func (h *Service) resolveProfile(c *gin.Context, userID string) *ogMeta {
 	const q = `
 SELECT COALESCE(u.display_name, ''), u.username, COALESCE(u.avatar_url, ''),
        COALESCE(u.bio, ''), COALESCE(u.is_anonymous, false),
@@ -366,7 +373,7 @@ WHERE u.id = $1`
 }
 
 // resolveThread renders the card for /…/thread/:threadId.
-func (h *SocialPreviewHandler) resolveThread(c *gin.Context, slug, threadID string) *ogMeta {
+func (h *Service) resolveThread(c *gin.Context, slug, threadID string) *ogMeta {
 	const q = `
 SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
        COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
@@ -424,7 +431,7 @@ WHERE t.id = $1 AND b.slug = $2`
 }
 
 // resolveBoard renders the card for /g/:slug (and /:slug).
-func (h *SocialPreviewHandler) resolveBoard(c *gin.Context, slug string) *ogMeta {
+func (h *Service) resolveBoard(c *gin.Context, slug string) *ogMeta {
 	const q = `
 SELECT name, COALESCE(description, ''), COALESCE(gomosub_avatar_url, ''),
        COALESCE(cover_image_url, ''), COALESCE(visibility, 'public')
