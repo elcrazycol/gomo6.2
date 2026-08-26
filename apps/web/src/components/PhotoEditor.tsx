@@ -471,9 +471,11 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
         ctx.drawImage(img, 0, 0, snap.width, snap.height);
-        imageRef.current = { width: snap.width, height: snap.height };
-        setView(IDENTITY_VIEW);
-        setAspect(null);
+        // Restoring pixels must not touch the view (zoom/pan) or the aspect
+        // lock: undo of a brush stroke keeps the user's context, and the
+        // derived crop box simply re-syncs with the unchanged screen window.
+        // The crop window is only reset inside syncStage when the photo size
+        // itself changed (e.g. undoing an applied crop).
         syncStage();
       };
       const img = new Image();
