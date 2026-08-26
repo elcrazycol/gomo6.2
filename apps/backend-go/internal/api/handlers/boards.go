@@ -327,45 +327,89 @@ func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 // @Failure      403 {object} models.APIResponse
 // @Router       /boards/{id} [put]
 // @Security     BearerAuth
+
 func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 	id := c.Param("id")
 
-	claims, exists := c.Get("claims")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-		return
-	}
-	userClaims := claims.(*auth.Claims)
-
-	var ownerID sql.NullString
-	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, id).Scan(&ownerID)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
-		return
-	}
-	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
-	}
-	if !ownerID.Valid || ownerID.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can update settings"))
+	if !requireBoardOwner(c, h.db, id) {
 		return
 	}
 
-	var updates struct {
-		Name             *string          `json:"name"`
-		Description      *string          `json:"description"`
-		Visibility       *string          `json:"visibility"`
-		RulesMarkdown    *string          `json:"rules_markdown"`
-		GomosubAvatarURL *string          `json:"gomosub_avatar_url"`
-		CoverImageURL    *string          `json:"cover_image_url"`
-		GomosubTags      *json.RawMessage `json:"gomosub_tags"`
-	}
+	var updates boardUpdateRequest
 	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
+	sets, args := h.buildBoardUpdateSet(updates, id)
+	if len(sets) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("no fields to update"))
+		return
+	}
+
+	args = append(args, id)
+	query := "UPDATE boards SET " + strings.Join(sets, ", ") + fmt.Sprintf(" WHERE id = $%d", len(args))
+	if _, err := h.db.Exec(query, args...); err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+
+	h.invalidateBoardCache(c, id)
+
+	board, err := h.fetchBoardByID(id)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(board))
+}
+
+// boardUpdateRequest carries the owner-editable board fields; every pointer is
+// nil when the field was absent from the request body, so absent fields are
+// never written.
+type boardUpdateRequest struct {
+	Name             *string          `json:"name"`
+	Description      *string          `json:"description"`
+	Visibility       *string          `json:"visibility"`
+	RulesMarkdown    *string          `json:"rules_markdown"`
+	GomosubAvatarURL *string          `json:"gomosub_avatar_url"`
+	CoverImageURL    *string          `json:"cover_image_url"`
+	GomosubTags      *json.RawMessage `json:"gomosub_tags"`
+}
+
+// requireBoardOwner authenticates the request and verifies the caller owns the
+// board. It writes the 401/404/403 response on failure and returns false.
+func requireBoardOwner(c *gin.Context, db *sql.DB, boardID string) bool {
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return false
+	}
+	userClaims := claims.(*auth.Claims)
+
+	var ownerID sql.NullString
+	err := db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
+		return false
+	}
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return false
+	}
+	if !ownerID.Valid || ownerID.String != userClaims.UserID {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can update settings"))
+		return false
+	}
+	return true
+}
+
+// buildBoardUpdateSet turns the present fields of the request into a dynamic
+// SET clause. Whitelisting happens here: unknown visibility values and absent
+// fields are silently skipped; rules_markdown additionally bumps
+// rules_updated_at only when the value actually changed.
+func (h *BoardsHandler) buildBoardUpdateSet(updates boardUpdateRequest, boardID string) ([]string, []interface{}) {
 	var sets []string
 	var args []interface{}
 	n := 1
@@ -390,7 +434,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 	}
 	if updates.RulesMarkdown != nil {
 		var oldRulesMarkdown sql.NullString
-		_ = h.db.QueryRow(`SELECT rules_markdown FROM boards WHERE id = $1`, id).Scan(&oldRulesMarkdown)
+		_ = h.db.QueryRow(`SELECT rules_markdown FROM boards WHERE id = $1`, boardID).Scan(&oldRulesMarkdown)
 		oldVal := ""
 		if oldRulesMarkdown.Valid {
 			oldVal = oldRulesMarkdown.String
@@ -425,49 +469,37 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 			n++
 		}
 	}
+	return sets, args
+}
 
-	if len(sets) == 0 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("no fields to update"))
+// invalidateBoardCache drops the board's cached rows (by slug, when
+// resolvable) after a successful update.
+func (h *BoardsHandler) invalidateBoardCache(c *gin.Context, boardID string) {
+	if h.redis == nil {
 		return
 	}
-
-	query := "UPDATE boards SET " + strings.Join(sets, ", ") + fmt.Sprintf(" WHERE id = $%d", n)
-	args = append(args, id)
-
-	_, err = h.db.Exec(query, args...)
-	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
+	var boardSlug string
+	if err := h.db.QueryRow(`SELECT slug FROM boards WHERE id = $1`, boardID).Scan(&boardSlug); err == nil {
+		cache.InvalidateCacheForBoardWithSlug(h.redis, boardID, boardSlug)
 	}
+}
 
-	if h.redis != nil {
-		var boardSlug string
-		if err := h.db.QueryRow(`SELECT slug FROM boards WHERE id = $1`, id).Scan(&boardSlug); err == nil {
-			cache.InvalidateCacheForBoardWithSlug(h.redis, id, boardSlug)
-		}
-	}
-
+// fetchBoardByID loads the full board projection used by update responses.
+func (h *BoardsHandler) fetchBoardByID(boardID string) (models.Board, error) {
 	var board models.Board
-	err = h.db.QueryRow(`
+	err := h.db.QueryRow(`
 		SELECT id, slug, name, description, is_gomosub, is_rules_board, owner_id, visibility,
 		       gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown, rules_updated_at, created_at
 		FROM boards WHERE id = $1
-	`, id).Scan(
+	`, boardID).Scan(
 		&board.ID, &board.Slug, &board.Name, &board.Description,
 		&board.IsGomosub, &board.IsRulesBoard, &board.OwnerID,
 		&board.Visibility,
 		&board.GomosubAvatarURL, &board.CoverImageURL, &board.GomosubTags,
 		&board.RulesMarkdown, &board.RulesUpdatedAt, &board.CreatedAt,
 	)
-	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(board))
-}
-
-// ─── Invite endpoints ──────────────────────────────────────────────────────
+	return board, err
+} // ─── Invite endpoints ──────────────────────────────────────────────────────
 
 // CreateInvite — POST /api/v1/boards/:id/invites
 // Only the board owner can create invites. Only for PRIVATE gomosubs.
