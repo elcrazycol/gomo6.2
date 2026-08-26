@@ -63,8 +63,15 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.src = src;
     // decode() resolves once the image is fully decoded (and works in jsdom
     // tests where onload never fires); onload remains as the browser fallback.
+    // A decode rejection while onload has not fired means the image genuinely
+    // cannot be drawn — fail fast instead of hanging forever.
     if (typeof img.decode === "function") {
-      img.decode().then(done).catch(() => {});
+      img.decode().then(done).catch(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error("Не удалось загрузить изображение"));
+        }
+      });
     }
   });
 }
@@ -309,7 +316,16 @@ function usePinchZoom({
     setView(IDENTITY_VIEW);
   }, []);
 
-  return { view, viewRef, resetView, beginPinch, updatePinch, endPinch };
+  /** Zoom by a fixed factor around the stage centre (keyboard +/-, mouse). */
+  const zoomBy = useCallback((factor: number) => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
+  }, [overlayRef, zoomAt]);
+
+  return { view, viewRef, resetView, zoomBy, beginPinch, updatePinch, endPinch };
 }
 
 // ─── Crop window ────────────────────────────────────────────────────────────
@@ -367,8 +383,8 @@ function useCropWindow({
 
   /** Screen rect of the visible (zoomed + panned) photo, in stage coordinates.
       Computed analytically so it works before the browser has laid the frame
-      out (and in tests). */
-  const getImageScreenRect = (): Box => {
+      out (and in tests). Reads refs only, so it is stable. */
+  const getImageScreenRect = useCallback((): Box => {
     const stage = stageRef.current;
     const f = fitRef.current;
     const v = viewRef.current;
@@ -377,7 +393,7 @@ function useCropWindow({
     const w = f.w * v.zoom;
     const h = f.h * v.zoom;
     return { x: cx - w / 2, y: cy - h / 2, w, h };
-  };
+  }, [stageRef, fitRef, viewRef]);
 
   /** Redraw the crop overlay: darkening, grid, frame and grips — all in screen
       pixels at the FIXED on-screen window position, independent of the view
@@ -474,6 +490,27 @@ function useCropWindow({
       h,
     });
   }, [stageRef]);
+
+  /** Keep the crop window inside the visible photo after a stage-only resize
+      (e.g. rotating the phone), where the window is otherwise left untouched.
+      The photo rect is passed in because it reflects the NEW fit size. */
+  const clampCropWindow = useCallback((img: Box) => {
+    const s = cropScreenRef.current;
+    const x = clamp(s.x, img.x, img.x + Math.max(0, img.w - s.w));
+    const y = clamp(s.y, img.y, img.y + Math.max(0, img.h - s.h));
+    if (x !== s.x || y !== s.y) setCropScreen({ ...s, x, y });
+  }, []);
+
+  /** Move the crop window by whole pixels (keyboard nudging). */
+  const nudgeCropWindow = useCallback((dx: number, dy: number) => {
+    const s = cropScreenRef.current;
+    const img = getImageScreenRect();
+    setCropScreen({
+      ...s,
+      x: clamp(s.x + dx, img.x, img.x + Math.max(0, img.w - s.w)),
+      y: clamp(s.y + dy, img.y, img.y + Math.max(0, img.h - s.h)),
+    });
+  }, [getImageScreenRect]);
 
   /** Derive the image-space crop box from the fixed on-screen window through
       the current view transform. */
@@ -669,6 +706,8 @@ function useCropWindow({
     redrawOverlay,
     clearOverlay,
     resetCropWindow,
+    clampCropWindow,
+    nudgeCropWindow,
     startCropDrag,
     moveCropDrag,
     endCropDrag,
@@ -732,8 +771,22 @@ function useCanvasHistory({
           const apply = () => {
             const ctx = canvas.getContext("2d");
             if (!ctx) return;
-            canvas.width = snap.width;
-            canvas.height = snap.height;
+            // No black flash on undo/redo: when the snapshot has the same size
+            // as the canvas we never reassign width/height (that would clear
+            // the buffer), so the previous frame stays visible until the
+            // decoded snapshot replaces it. When the size differs (undoing an
+            // applied crop), copy the current pixels out, resize, and draw the
+            // copy back before painting the snapshot on top.
+            if (canvas.width !== snap.width || canvas.height !== snap.height) {
+              const prev = document.createElement("canvas");
+              prev.width = canvas.width;
+              prev.height = canvas.height;
+              const pctx = prev.getContext("2d");
+              if (pctx) pctx.drawImage(canvas, 0, 0);
+              canvas.width = snap.width;
+              canvas.height = snap.height;
+              if (pctx) ctx.drawImage(prev, 0, 0, prev.width, prev.height);
+            }
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = "high";
             ctx.drawImage(img, 0, 0, snap.width, snap.height);
@@ -809,14 +862,18 @@ function useBrushGesture({
   const blurCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   /**
-   * Build a strongly blurred copy of the canvas to stamp from. Uses a
+   * Build a blurred copy of the canvas to stamp from. Uses a
    * downscale-then-upscale pass instead of ctx.filter, which is not supported
-   * in Safari/iOS — so the blur brush works everywhere.
+   * in Safari/iOS — so the blur brush works everywhere. The downscale factor
+   * is derived from the brush size alone (bigger brush = stronger blur), not
+   * from the photo resolution, so the same brush looks the same on any image.
    */
   const makeBlurLayer = (canvas: HTMLCanvasElement | null): HTMLCanvasElement | null => {
     if (!canvas) return null;
-    const longEdge = Math.max(canvas.width, canvas.height);
-    const s = Math.min(1, 80 / longEdge);
+    // Blur radius ≈ 1.5 / s in image pixels: size 6 → ~4px, 48 → ~29px,
+    // 96 → ~50px. Clamped so tiny brushes stay subtle and huge ones do not
+    // smear the whole image into one blob.
+    const s = clamp(2.5 / Math.max(1, brushSizeRef.current), 0.03, 0.5);
     const tw = Math.max(1, Math.round(canvas.width * s));
     const th = Math.max(1, Math.round(canvas.height * s));
     const small = document.createElement("canvas");
@@ -936,8 +993,11 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
   const fitRef = useRef(fit);
   fitRef.current = fit;
 
+  const brushMin = tool === "blur" ? 6 : 2;
+  const brushMax = tool === "blur" ? 96 : 48;
+
   const pinch = usePinchZoom({ overlayRef, fitRef });
-  const { viewRef, view, resetView, beginPinch, updatePinch, endPinch } = pinch;
+  const { viewRef, view, resetView, zoomBy, beginPinch, updatePinch, endPinch } = pinch;
   const crop = useCropWindow({
     canvasRef,
     overlayRef,
@@ -959,6 +1019,8 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     redrawOverlay,
     clearOverlay,
     resetCropWindow,
+    clampCropWindow,
+    nudgeCropWindow,
     startCropDrag,
     moveCropDrag,
     endCropDrag,
@@ -992,10 +1054,24 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
 
     const imgChanged = lastImgSizeRef.current.w !== iw || lastImgSizeRef.current.h !== ih;
     lastImgSizeRef.current = { w: iw, h: ih };
-    if (imgChanged) resetCropWindow(w, h);
+    if (imgChanged) {
+      resetCropWindow(w, h);
+    } else if (ready) {
+      // Stage-only resize (rotation, browser chrome): the crop window keeps
+      // its position and size but must stay inside the (newly fit) photo.
+      const v = viewRef.current;
+      const fw = w * v.zoom;
+      const fh = h * v.zoom;
+      clampCropWindow({
+        x: stage.clientWidth / 2 + v.x - fw / 2,
+        y: stage.clientHeight / 2 + v.y - fh / 2,
+        w: fw,
+        h: fh,
+      });
+    }
 
     redrawOverlay();
-  }, [resetCropWindow, redrawOverlay]);
+  }, [resetCropWindow, clampCropWindow, redrawOverlay, ready, viewRef]);
 
   const history = useCanvasHistory({ canvasRef, onRestore: syncStage });
   const brush = useBrushGesture({ canvasRef, pushUndo: history.pushUndo, tool, color, brushSize });
@@ -1077,6 +1153,61 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [aspectMenuOpen, setAspectMenuOpen]);
+
+  // Keyboard access for the canvas tools: 1/2/3 switch tools, arrows nudge the
+  // crop window (Shift = 10px), +/- zoom, [ ] resize the brush, 0 resets zoom.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      switch (event.key) {
+        case "1":
+          setTool("crop");
+          break;
+        case "2":
+          setTool("brush");
+          break;
+        case "3":
+          setTool("blur");
+          break;
+        case "0":
+          resetView();
+          break;
+        case "+":
+        case "=":
+          zoomBy(WHEEL_ZOOM_STEP);
+          break;
+        case "-":
+        case "_":
+          zoomBy(1 / WHEEL_ZOOM_STEP);
+          break;
+        case "[":
+          setBrushSize((size) => clamp(size - 2, brushMin, brushMax));
+          break;
+        case "]":
+          setBrushSize((size) => clamp(size + 2, brushMin, brushMax));
+          break;
+        case "ArrowUp":
+        case "ArrowDown":
+        case "ArrowLeft":
+        case "ArrowRight": {
+          if (tool !== "crop" || aspectMenuOpen) return;
+          event.preventDefault();
+          const step = event.shiftKey ? 10 : 1;
+          const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+          const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+          nudgeCropWindow(dx, dy);
+          break;
+        }
+        default:
+          break;
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [tool, aspectMenuOpen, brushMin, brushMax, zoomBy, resetView, nudgeCropWindow, setBrushSize]);
 
   // ─── Pointer handling ─────────────────────────────────────────────────────
 
@@ -1215,9 +1346,6 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       onApply(canvas.toDataURL("image/png"));
     }
   };
-
-  const brushMin = tool === "blur" ? 6 : 2;
-  const brushMax = tool === "blur" ? 96 : 48;
 
   const currentAspectLabel = ASPECTS.find((a) => a.id === aspect)?.label ?? "Свободно";
 
