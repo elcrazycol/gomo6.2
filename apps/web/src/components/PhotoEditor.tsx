@@ -37,7 +37,7 @@ const ASPECTS: { id: string; label: string; ratio: number | null }[] = [
 type Tool = "crop" | "brush" | "blur";
 type Box = { x: number; y: number; w: number; h: number };
 type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
-type Snapshot = { width: number; height: number; dataUrl: string };
+type Snapshot = { width: number; height: number; ready: Promise<string> };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -66,6 +66,49 @@ function loadImage(src: string): Promise<HTMLImageElement> {
       img.decode().then(done).catch(() => {});
     }
   });
+}
+
+/** Read a Blob back into a data URL (asynchronously). */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("readAsDataURL failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Encode a canvas to a PNG data URL without blocking the calling task:
+    OffscreenCanvas.convertToBlob where available, canvas.toBlob otherwise,
+    and a synchronous toDataURL only as a last resort (older browsers, and
+    test environments that only mock toDataURL). */
+function encodeSnapshotAsync(canvas: HTMLCanvasElement): Promise<string> {
+  const fallback = () => Promise.resolve(canvas.toDataURL("image/png"));
+  if (typeof OffscreenCanvas !== "undefined") {
+    try {
+      const off = new OffscreenCanvas(canvas.width, canvas.height);
+      const octx = off.getContext("2d");
+      if (octx) {
+        octx.drawImage(canvas, 0, 0);
+        return off.convertToBlob({ type: "image/png" }).then(blobToDataUrl, fallback);
+      }
+    } catch {
+      // fall through to the toBlob path
+    }
+  }
+  if (typeof canvas.toBlob === "function") {
+    try {
+      return new Promise<string>((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blobToDataUrl(blob));
+          else resolve(canvas.toDataURL("image/png"));
+        }, "image/png");
+      });
+    } catch {
+      // fall through to the synchronous fallback
+    }
+  }
+  return fallback();
 }
 
 interface PhotoEditorProps {
@@ -446,14 +489,26 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
   const takeSnapshot = useCallback((): Snapshot | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
-    return { width: canvas.width, height: canvas.height, dataUrl: canvas.toDataURL("image/png") };
+    // Freeze the pre-stroke pixels synchronously (a cheap drawImage copy); the
+    // PNG encoding runs in the background via encodeSnapshotAsync, so starting
+    // a stroke never blocks on a synchronous toDataURL of a multi-megapixel
+    // canvas.
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const cctx = copy.getContext("2d");
+    if (!cctx) return null;
+    cctx.drawImage(canvas, 0, 0);
+    return { width: canvas.width, height: canvas.height, ready: encodeSnapshotAsync(copy) };
   }, []);
 
   const pushUndo = useCallback(() => {
     const snap = takeSnapshot();
     if (!snap) return;
     undoStackRef.current.push(snap);
-    if (undoStackRef.current.length > 25) undoStackRef.current.shift();
+    // A bounded history keeps memory in check: each entry is a full-resolution
+    // PNG of a photo up to 2560px, so 10 steps is already tens of MB.
+    if (undoStackRef.current.length > 10) undoStackRef.current.shift();
     redoStackRef.current = [];
     setCanUndo(true);
     setCanRedo(false);
@@ -463,28 +518,32 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     (snap: Snapshot) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const apply = (img: HTMLImageElement) => {
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        canvas.width = snap.width;
-        canvas.height = snap.height;
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(img, 0, 0, snap.width, snap.height);
-        // Restoring pixels must not touch the view (zoom/pan) or the aspect
-        // lock: undo of a brush stroke keeps the user's context, and the
-        // derived crop box simply re-syncs with the unchanged screen window.
-        // The crop window is only reset inside syncStage when the photo size
-        // itself changed (e.g. undoing an applied crop).
-        syncStage();
-      };
-      const img = new Image();
-      img.src = snap.dataUrl;
-      if (typeof img.decode === "function") {
-        img.decode().then(() => apply(img)).catch(() => { img.onload = () => apply(img); });
-      } else {
-        img.onload = () => apply(img);
-      }
+      snap.ready
+        .then((dataUrl) => {
+          const img = new Image();
+          img.src = dataUrl;
+          const apply = () => {
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+            canvas.width = snap.width;
+            canvas.height = snap.height;
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.drawImage(img, 0, 0, snap.width, snap.height);
+            // Restoring pixels must not touch the view (zoom/pan) or the aspect
+            // lock: undo of a brush stroke keeps the user's context, and the
+            // derived crop box simply re-syncs with the unchanged screen window.
+            // The crop window is only reset inside syncStage when the photo size
+            // itself changed (e.g. undoing an applied crop).
+            syncStage();
+          };
+          if (typeof img.decode === "function") {
+            img.decode().then(() => apply()).catch(() => { img.onload = apply; });
+          } else {
+            img.onload = apply;
+          }
+        })
+        .catch((error) => console.error("Snapshot restore failed", error));
     },
     [syncStage]
   );
