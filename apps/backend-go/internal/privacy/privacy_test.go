@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gomo6/backend/internal/crud"
 )
 
 // newMock opens a sqlmock DB with the standard cleanup that verifies all
@@ -561,5 +562,211 @@ func TestWallVisibilityClause(t *testing.T) {
 		if !strings.Contains(clause, want) {
 			t.Errorf("WallVisibilityClause missing %q in: %s", want, clause)
 		}
+	}
+}
+
+// ──────────────────────────── WallAttachmentAccess ────────────────────────────
+
+// TestWallAttachmentAccess_PublishedOnPublicWall is the exact regression case
+// from the bug report: a private user posts with an image on a PUBLIC user's
+// wall. The object key is namespaced by the private uploader, but the photo is
+// published on the public wall, so a stranger must be allowed to fetch it.
+// The lookup is scoped to posts authored by the uploader (author_id = key
+// prefix), which this post satisfies.
+func TestWallAttachmentAccess_PublishedOnPublicWall(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPrivate/1786303495874_1exs5dwr0qc.jpeg"
+	pattern := "%" + crud.EscapeLikePattern(key) + "%"
+	// Visible branch of the EXISTS query (public wall) short-circuits to allow.
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "viewer", "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	found, allowed := WallAttachmentAccess(db, "viewer", "uPrivate", key)
+	if !found || !allowed {
+		t.Fatalf("expected found+allowed for a photo published on a public wall, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWallAttachmentAccess_PublishedOnPrivateWallStrangerDenied(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPrivate/1786303495874_1exs5dwr0qc.jpeg"
+	pattern := "%" + crud.EscapeLikePattern(key) + "%"
+	// Not visible to the viewer, but referenced by an uploader-authored post →
+	// deny (found, not allowed).
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "viewer", "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`(?s).*FROM profile_wall_posts p\s+WHERE p\.author_id.*`).
+		WithArgs(pattern, "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	found, allowed := WallAttachmentAccess(db, "viewer", "uPrivate", key)
+	if !found || allowed {
+		t.Fatalf("expected found but not allowed for a stranger on a private wall, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Anonymous viewers (the /og/wall crawler proxy passes viewerID = "") must
+// still be able to fetch images from PUBLIC walls. Regression: the uuid
+// columns were compared to the empty string directly, Postgres raised
+// "invalid input syntax for type uuid" and every anonymous wall-image
+// request 404ed even for public walls.
+func TestWallAttachmentAccess_AnonymousViewerPublicWallAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPublic/1786303495874_1exs5dwr0qc.jpeg"
+	pattern := "%" + crud.EscapeLikePattern(key) + "%"
+	// The public-wall branch of the EXISTS query short-circuits to allow — an
+	// anonymous viewer is bound as SQL NULL (never matching ownership or
+	// friendship), so the query must not fail or break the uuid cast.
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "uPublic").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	found, allowed := WallAttachmentAccess(db, "", "uPublic", key)
+	if !found || !allowed {
+		t.Fatalf("expected an anonymous viewer to fetch a public-wall image, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A derivative key (video poster / image preview) must authorize against its
+// BASE object: the suffix is stripped before the LIKE pattern is built, so a
+// poster referenced only by the base video URL still resolves. Regression for
+// og:video previews, which point og:image at <key>.poster.jpg through /og/wall.
+func TestWallAttachmentAccess_VideoPosterKeyAuthorizesAgainstBase(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPublic/1786303495874_clip.mp4.poster.jpg"
+	// The suffix is stripped, so the query pattern is the base video key.
+	pattern := "%" + crud.EscapeLikePattern("uPublic/1786303495874_clip.mp4") + "%"
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "uPublic").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	found, allowed := WallAttachmentAccess(db, "", "uPublic", key)
+	if !found || !allowed {
+		t.Fatalf("expected a public-wall video poster to be served, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWallAttachmentAccess_MutualFriendOnPrivateWallAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPrivate/1786303495874_1exs5dwr0qc.jpeg"
+	pattern := "%" + crud.EscapeLikePattern(key) + "%"
+	// The friendships branch of the SQL predicate matches → visible.
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "friend", "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	found, allowed := WallAttachmentAccess(db, "friend", "uPrivate", key)
+	if !found || !allowed {
+		t.Fatalf("expected a mutual friend of the wall owner to be allowed, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWallAttachmentAccess_NoPostReferencesKey guards the security boundary: a
+// guessed key with no post referencing it must NOT be counted as found, so the
+// caller falls back to the uploader gate (which denies for a private uploader).
+func TestWallAttachmentAccess_NoPostReferencesKey(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPrivate/1786303495874_1exs5dwr0qc.jpeg"
+	pattern := "%" + crud.EscapeLikePattern(key) + "%"
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "viewer", "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`(?s).*FROM profile_wall_posts p\s+WHERE p\.author_id.*`).
+		WithArgs(pattern, "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	found, allowed := WallAttachmentAccess(db, "viewer", "uPrivate", key)
+	if found || allowed {
+		t.Fatalf("expected not-found for a key no uploader-authored post references, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWallAttachmentAccess_AttackerReferenceDoesNotUnlock covers the bypass that
+// author-scoping prevents: an ATTACKER references a private user's key from a
+// post on their own public wall. The reference is not authored by the uploader,
+// so the lookup must not find it (found=false) — the caller then falls back to
+// the uploader gate, which denies for the private uploader.
+func TestWallAttachmentAccess_AttackerReferenceDoesNotUnlock(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPrivate/1786303495874_1exs5dwr0qc.jpeg"
+	pattern := "%" + crud.EscapeLikePattern(key) + "%"
+	// Both queries are scoped to p.author_id = uPrivate; the attacker's post
+	// (author = attacker) matches neither → found=false.
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "viewer", "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`(?s).*FROM profile_wall_posts p\s+WHERE p\.author_id.*`).
+		WithArgs(pattern, "uPrivate").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	found, allowed := WallAttachmentAccess(db, "viewer", "uPrivate", key)
+	if found || allowed {
+		t.Fatalf("an attacker's own post must not unlock another user's file, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWallAttachmentAccess_DBErrorFailsClosed(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	// No expectation → query error → fail closed (caller falls back to the
+	// uploader gate, which also denies on DB errors).
+
+	found, allowed := WallAttachmentAccess(db, "viewer", "u1", "u1/photo.jpg")
+	if found || allowed {
+		t.Fatalf("expected DB errors to deny access, got found=%v allowed=%v", found, allowed)
 	}
 }

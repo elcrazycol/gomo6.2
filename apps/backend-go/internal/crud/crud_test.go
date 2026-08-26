@@ -106,3 +106,19 @@ func TestValidateCustomEmojiTriggers(t *testing.T) {
 		}
 	}
 }
+
+func TestEscapeLikePattern(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// The '_' inside the timestamp segment of a storage key is a LIKE
+		// single-char wildcard and must be escaped to match literally.
+		{"u1/1786303495874_1exs5dwr0qc.jpeg", `u1/1786303495874\_1exs5dwr0qc.jpeg`},
+		{"100%", `100\%`},
+		{`a\b`, `a\\b`},
+		{`a_b%c`, `a\_b\%c`},
+	}
+	for _, tc := range cases {
+		if got := EscapeLikePattern(tc.in); got != tc.want {
+			t.Errorf("EscapeLikePattern(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

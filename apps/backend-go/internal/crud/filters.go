@@ -156,3 +156,16 @@ func SplitCSV(input string) []string {
 	}
 	return out
 }
+
+// EscapeLikePattern escapes LIKE wildcards so the input is matched literally:
+// a storage key (which legitimately contains '_' in the timestamp segment)
+// must not be interpreted as a single-char wildcard. Escape the escape char
+// first so a literal backslash in the input survives the round trip. Values
+// escaped with this are safe to interpolate inside a quoted pattern, not as a
+// bare identifier.
+func EscapeLikePattern(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
