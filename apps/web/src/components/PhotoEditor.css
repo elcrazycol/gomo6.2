@@ -158,21 +158,23 @@
   left: 14px;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 6;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   height: min(64%, 340px);
+  pointer-events: none;
 }
 
 .pe-vsize-track-wrap {
   position: relative;
   flex: 1;
   min-height: 120px;
-  width: 30px;
+  width: 34px;
   touch-action: none;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .pe-vsize-track {
@@ -182,6 +184,7 @@
   clip-path: polygon(0 0, 100% 0, 72% 100%, 28% 100%);
   background: rgb(255 255 255 / 0.16);
   overflow: hidden;
+  pointer-events: none;
 }
 
 .pe-vsize-fill {
@@ -190,6 +193,7 @@
   right: 0;
   bottom: 0;
   background: #2ea6ff;
+  pointer-events: none;
 }
 
 .pe-vsize-thumb {
@@ -209,6 +213,7 @@
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
+  pointer-events: none;
 }
 
 .pe-crop-row {

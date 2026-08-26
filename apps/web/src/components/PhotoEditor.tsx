@@ -71,7 +71,9 @@ interface PhotoEditorProps {
 
 /** Vertical brush-size slider: dragging up increases the size, down decreases
     it. The track widens towards the top and the thumb grows with the value, so
-    bigger is visually "up". Bounded height keeps it neat on any screen. */
+    bigger is visually "up". Bounded height keeps it neat on any screen.
+    Pointer capture is taken on the element on pointer-down and move/up are
+    tracked on window, so a fast drag that leaves the track still updates it. */
 function VerticalBrushSize({
   value,
   min,
@@ -85,10 +87,13 @@ function VerticalBrushSize({
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
+  const updateRef = useRef<(clientY: number) => void>(() => {});
   const pct = clamp(((value - min) / (max - min)) * 100, 0, 100);
   const thumbSize = 12 + pct * 0.22;
 
-  const updateFromClientY = (clientY: number) => {
+  // Keep the value-mapping callback fresh without re-subscribing window
+  // listeners on every render (they read it through the ref).
+  updateRef.current = (clientY: number) => {
     const el = trackRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -97,31 +102,37 @@ function VerticalBrushSize({
     onChange(Math.round(min + ratio * (max - min)));
   };
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    draggingRef.current = true;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    updateFromClientY(e.clientY);
-  };
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (draggingRef.current) updateFromClientY(e.clientY);
-  };
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleWindowMove = useCallback((e: PointerEvent) => {
+    if (draggingRef.current) updateRef.current(e.clientY);
+  }, []);
+
+  const stopDrag = useCallback(() => {
+    if (!draggingRef.current) return;
     draggingRef.current = false;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // already released
-    }
-  };
+    window.removeEventListener("pointermove", handleWindowMove);
+    window.removeEventListener("pointerup", stopDrag);
+    window.removeEventListener("pointercancel", stopDrag);
+  }, [handleWindowMove]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    draggingRef.current = true;
+    updateRef.current(e.clientY);
+    window.addEventListener("pointermove", handleWindowMove);
+    window.addEventListener("pointerup", stopDrag);
+    window.addEventListener("pointercancel", stopDrag);
+  }, [handleWindowMove, stopDrag]);
+
+  // Safety net: never leak window listeners if the component unmounts mid-drag.
+  useEffect(() => stopDrag, [stopDrag]);
 
   return (
     <div className="pe-vsize">
       <div
+        ref={trackRef}
         className="pe-vsize-track-wrap"
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
       >
         <div className="pe-vsize-track">
           <div className="pe-vsize-fill" style={{ height: `${pct}%` }} />
@@ -740,14 +751,6 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       </div>
 
       <div ref={stageRef} className="pe-stage">
-        {(tool === "brush" || tool === "blur") && ready && (
-          <VerticalBrushSize
-            value={brushSize}
-            min={brushMin}
-            max={brushMax}
-            onChange={setBrushSize}
-          />
-        )}
         <div
           className="pe-frame"
           style={{ width: fit.w || undefined, height: fit.h || undefined }}
@@ -762,6 +765,14 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
             onPointerCancel={handlePointerUp}
           />
         </div>
+        {(tool === "brush" || tool === "blur") && ready && (
+          <VerticalBrushSize
+            value={brushSize}
+            min={brushMin}
+            max={brushMax}
+            onChange={setBrushSize}
+          />
+        )}
       </div>
 
       {/* Tool-specific settings */}
