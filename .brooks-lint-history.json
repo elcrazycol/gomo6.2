@@ -174,5 +174,16 @@
       "suggestion": 1
     },
     "scope": "branch refactor/backend-handlers-rpc-gifts-drops vs main — F1 extraction of rpc/gifts/drops clusters + thin-handler splits (23 files, +556/-427, 15 renames)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "architecture-audit",
+    "score": 82,
+    "findings": {
+      "critical": 0,
+      "warning": 3,
+      "suggestion": 3
+    },
+    "scope": "monorepo (apps/web, apps/docs, apps/dev-dashboard, apps/backend-go, packages/bot-sdk) — main after merge of #57 (wall extraction) + #58 (handler splitting), 6b52692c"
   }
 ]
