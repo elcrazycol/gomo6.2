@@ -1,4 +1,4 @@
-package handlers
+package messenger
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 // ─── CreateGroupConversation: friends-only + size limit ─────────────────────
@@ -20,7 +21,7 @@ func TestCreateGroupConversation_SuccessWithFriends(t *testing.T) {
 		"name":       "Test Group",
 		"member_ids": []string{testUser2, testUser3},
 	}
-	c, w := newPOSTContext("/api/v1/messenger/groups", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups", body, claims, nil)
 
 	// Friend checks (both are friends of the creator)
 	mock.ExpectQuery(`SELECT EXISTS\(.*SELECT 1 FROM friendships`).
@@ -70,7 +71,7 @@ func TestCreateGroupConversation_NonFriendRejected(t *testing.T) {
 		"name":       "Test Group",
 		"member_ids": []string{testUser2},
 	}
-	c, w := newPOSTContext("/api/v1/messenger/groups", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups", body, claims, nil)
 
 	// testUser2 is NOT a friend of testUser1
 	mock.ExpectQuery(`SELECT EXISTS\(.*SELECT 1 FROM friendships`).
@@ -94,7 +95,7 @@ func TestCreateGroupConversation_TooManyMembers(t *testing.T) {
 		ids = append(ids, fmt.Sprintf("00000000-0000-0000-0000-%012d", i))
 	}
 	body := map[string]interface{}{"name": "Big Group", "member_ids": ids}
-	c, w := newPOSTContext("/api/v1/messenger/groups", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups", body, claims, nil)
 
 	handler.CreateGroupConversation(c)
 
@@ -108,7 +109,7 @@ func TestCreateGroupConversation_InvalidName(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"name": "", "member_ids": []string{}}
-	c, w := newPOSTContext("/api/v1/messenger/groups", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups", body, claims, nil)
 
 	handler.CreateGroupConversation(c)
 
@@ -121,7 +122,7 @@ func TestCreateGroupConversation_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 
 	body := map[string]interface{}{"name": "Test Group", "member_ids": []string{}}
-	c, w := newPOSTContext("/api/v1/messenger/groups", body, nil, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups", body, nil, nil)
 
 	handler.CreateGroupConversation(c)
 
@@ -137,7 +138,7 @@ func TestAddGroupMembers_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"user_ids": []string{testUser2, testUser3}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
 
 	// Admin check
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2 AND role = 'admin'\)`).
@@ -197,7 +198,7 @@ func TestAddGroupMembers_NonFriendRejected(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"user_ids": []string{testUser2}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2 AND role = 'admin'\)`).
 		WithArgs(testConv1, testUser1).
@@ -228,7 +229,7 @@ func TestAddGroupMembers_GroupFull(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"user_ids": []string{testUser2}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2 AND role = 'admin'\)`).
 		WithArgs(testConv1, testUser1).
@@ -255,7 +256,7 @@ func TestAddGroupMembers_AlreadyMembersSkipped(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"user_ids": []string{testUser2}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2 AND role = 'admin'\)`).
 		WithArgs(testConv1, testUser1).
@@ -285,7 +286,7 @@ func TestAddGroupMembers_FriendCheckDBError(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"user_ids": []string{testUser2}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2 AND role = 'admin'\)`).
 		WithArgs(testConv1, testUser1).
@@ -316,7 +317,7 @@ func TestAddGroupMembers_NotAdmin(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"user_ids": []string{testUser2}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2 AND role = 'admin'\)`).
 		WithArgs(testConv1, testUser1).
@@ -334,7 +335,7 @@ func TestAddGroupMembers_InvalidGroupID(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]interface{}{"user_ids": []string{testUser2}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/not-a-uuid/members", body, claims, map[string]string{"id": "not-a-uuid"})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/not-a-uuid/members", body, claims, map[string]string{"id": "not-a-uuid"})
 
 	handler.AddGroupMembers(c)
 
@@ -347,7 +348,7 @@ func TestAddGroupMembers_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 
 	body := map[string]interface{}{"user_ids": []string{testUser2}}
-	c, w := newPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/groups/"+testConv1+"/members", body, nil, map[string]string{"id": testConv1})
 
 	handler.AddGroupMembers(c)
 

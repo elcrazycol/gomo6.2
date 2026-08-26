@@ -141,7 +141,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	// viewers (viewerID = "") see public posts only. The user_id columns are
 	// compared as text so an empty viewer ID (anonymous) yields a plain false
 	// instead of a UUID cast error.
-	claims := getClaims(c)
+	claims := httpx.AuthenticatedClaims(c)
 	viewerID := ""
 	if claims != nil {
 		viewerID = claims.UserID
@@ -374,7 +374,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	// H2: private posts (is_private = true, i.e. a DM inside a thread) must only
 	// be visible to the author and the private recipient. A non-participant gets
 	// 404 (same as if the post did not exist).
-	claims := getClaims(c)
+	claims := httpx.AuthenticatedClaims(c)
 	viewerID := ""
 	if claims != nil {
 		viewerID = claims.UserID

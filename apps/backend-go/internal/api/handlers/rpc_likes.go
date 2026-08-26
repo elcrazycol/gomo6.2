@@ -20,7 +20,7 @@ import (
 // RPC surface, or "" for anonymous callers. Guests only ever match the public
 // branches of the visibility predicate below.
 func rpcLikesViewerID(c *gin.Context) string {
-	if claims := getClaims(c); claims != nil {
+	if claims := httpx.AuthenticatedClaims(c); claims != nil {
 		return claims.UserID
 	}
 	return ""

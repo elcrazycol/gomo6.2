@@ -16,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/backup"
 	"github.com/gomo6/backend/internal/crudengine"
+	"github.com/gomo6/backend/internal/messenger"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/oauth"
@@ -151,7 +152,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	engine.SetNotifier(notifService)
 	searchHandler := handlers.NewSearchHandler(db)
 	feedHandler := handlers.NewFeedHandler(db)
-	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
+	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
 	audioHandler := handlers.NewAudioHandler()

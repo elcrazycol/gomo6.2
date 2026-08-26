@@ -1,11 +1,18 @@
-package handlers
+// Package messenger implements the messenger domain: conversations (1:1,
+// groups, personal notes), messages with client-side E2E encryption, read
+// receipts, pinning, membership and group management. Extracted from the
+// former api/handlers god package as part of the F1 sweep — the domain is
+// self-contained (its own SQL, TLS/encryption layer, attachment validation,
+// push delivery and WebSocket broadcast), so it lives as a leaf package next
+// to socialpreview/translations/notifications and is wired into the router
+// from routes.go.
+package messenger
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 	"log"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -16,7 +23,6 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/middleware"
-	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
@@ -209,21 +215,12 @@ func (h *MessengerHandler) SetPushService(p *push.Service)      { h.push = p }
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 func getClaims(c *gin.Context) *auth.Claims {
-	claimsInterface, exists := c.Get("claims")
-	if !exists {
-		return nil
-	}
-	claims, ok := claimsInterface.(*auth.Claims)
-	if !ok {
-		return nil
-	}
-	return claims
+	return httpx.AuthenticatedClaims(c)
 }
 
 func ensureAuth(c *gin.Context) *auth.Claims {
-	claims := getClaims(c)
-	if claims == nil || claims.UserID == "" {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, models.ErrorResponse("Authentication required"))
+	claims := httpx.EnsureAuth(c)
+	if claims == nil {
 		return nil
 	}
 	if required, _ := c.Get("messenger_tx_required"); required == true {
@@ -371,8 +368,10 @@ func truncatePreview(s string) string {
 	return string(runes[:80])
 }
 
-// invalidateMessengerCaches clears Redis caches for messenger endpoints.
-func invalidateMessengerCaches(redis *redis.Client, conversationID, userID string) {
+// InvalidateMessengerCaches clears Redis caches for messenger endpoints.
+// Exported for the gifts handler, which writes gift messages into
+// conversations and must evict the same caches the messenger package owns.
+func InvalidateMessengerCaches(redisClient *redis.Client, conversationID, userID string) {
 	// Use wildcard patterns to invalidate all cached messenger data
 	patterns := []string{
 		"data:/api/v1/messenger/conversations*",
@@ -387,13 +386,13 @@ func invalidateMessengerCaches(redis *redis.Client, conversationID, userID strin
 	for _, pattern := range patterns {
 		var cursor uint64
 		for {
-			keys, nextCursor, err := redis.Scan(ctx, cursor, pattern, 100).Result()
+			keys, nextCursor, err := redisClient.Scan(ctx, cursor, pattern, 100).Result()
 			if err != nil {
 				log.Printf("[Messenger] cache invalidation scan error: %v", err)
 				break
 			}
 			if len(keys) > 0 {
-				redis.Del(ctx, keys...)
+				redisClient.Del(ctx, keys...)
 			}
 			cursor = nextCursor
 			if cursor == 0 {

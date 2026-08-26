@@ -1,4 +1,4 @@
-package handlers
+package messenger
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 // ─── MarkRead ────────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ func TestMarkRead_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := MarkReadRequest{MessageID: testMsg1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read", body, claims, map[string]string{"id": testConv1})
 
 	// Membership check
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
@@ -61,7 +62,7 @@ func TestMarkRead_MessageNotFound(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := MarkReadRequest{MessageID: testMsg999}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -154,7 +155,7 @@ func TestMarkRead_NotMember(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := MarkReadRequest{MessageID: testMsg1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -174,7 +175,7 @@ func TestMarkDelivered_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"message_id": testMsg1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/delivered", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/delivered", body, claims, map[string]string{"id": testConv1})
 
 	// Membership check (NEW)
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
@@ -203,7 +204,7 @@ func TestMarkDelivered_NotMember(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"message_id": testMsg1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/delivered", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/delivered", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -221,7 +222,7 @@ func TestMarkDelivered_MessageNotFound(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"message_id": testMsg999}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/delivered", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/delivered", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -244,7 +245,7 @@ func TestMessengerGetUnreadCount_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContext("/api/v1/messenger/unread-count", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/unread-count", nil)
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT COALESCE\(SUM\(unread_count\), 0\).*FROM chat_members.*WHERE user_id = \$1`).
@@ -270,7 +271,7 @@ func TestMessengerGetUnreadCount_Zero(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContext("/api/v1/messenger/unread-count", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/unread-count", nil)
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT COALESCE\(SUM\(unread_count\), 0\).*FROM chat_members.*`).
@@ -286,7 +287,7 @@ func TestMessengerGetUnreadCount_Zero(t *testing.T) {
 
 func TestMessengerGetUnreadCount_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newGETContext("/api/v1/messenger/unread-count", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/unread-count", nil)
 
 	handler.GetUnreadCount(c)
 
@@ -301,7 +302,7 @@ func TestGetReceipts_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/receipts", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/receipts", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
@@ -333,7 +334,7 @@ func TestGetReceipts_NotMember(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/receipts", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/receipts", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
@@ -354,7 +355,7 @@ func TestTogglePin_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"message_id": testMsg1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
 
 	// Membership check
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
@@ -388,7 +389,7 @@ func TestTogglePin_Unpin(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"message_id": testMsg1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -428,7 +429,7 @@ func TestTogglePin_MessageNotInConversation(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"message_id": "30000000-0000-0000-0000-000000000001"}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -449,7 +450,7 @@ func TestTogglePin_MessageNotInConversation(t *testing.T) {
 func TestTogglePin_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 	body := map[string]string{"message_id": testMsg1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, nil, map[string]string{"id": testConv1})
 
 	handler.TogglePin(c)
 

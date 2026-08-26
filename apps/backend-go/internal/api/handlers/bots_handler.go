@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -47,7 +48,7 @@ func generateBotToken() (rawToken string, hash string, err error) {
 // @Router       /bots [get]
 // @Security     BearerAuth
 func (h *BotsHandler) ListBots(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -89,7 +90,7 @@ func (h *BotsHandler) ListBots(c *gin.Context) {
 // @Router       /bots [post]
 // @Security     BearerAuth
 func (h *BotsHandler) CreateBot(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -201,7 +202,7 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 // @Router       /bots/{id} [get]
 // @Security     BearerAuth
 func (h *BotsHandler) GetBot(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -240,7 +241,7 @@ func (h *BotsHandler) GetBot(c *gin.Context) {
 // @Router       /bots/{id} [put]
 // @Security     BearerAuth
 func (h *BotsHandler) UpdateBot(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -285,7 +286,7 @@ func (h *BotsHandler) UpdateBot(c *gin.Context) {
 // @Router       /bots/{id} [delete]
 // @Security     BearerAuth
 func (h *BotsHandler) DeleteBot(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -343,7 +344,7 @@ func (h *BotsHandler) DeleteBot(c *gin.Context) {
 // @Router       /bots/{id}/toggle [post]
 // @Security     BearerAuth
 func (h *BotsHandler) ToggleBot(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -379,7 +380,7 @@ func (h *BotsHandler) ToggleBot(c *gin.Context) {
 // @Router       /bots/{id}/regenerate-token [post]
 // @Security     BearerAuth
 func (h *BotsHandler) RegenerateToken(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}

@@ -1,4 +1,4 @@
-package handlers
+package messenger
 
 import (
 	"net/http"
@@ -8,6 +8,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 // ─── GetMessages ─────────────────────────────────────────────────────────────
@@ -16,7 +17,7 @@ func TestGetMessages_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	// Membership check
@@ -70,7 +71,7 @@ func TestGetMessages_WithBefore(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", map[string]string{"before": testMsg5, "limit": "10"}, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", map[string]string{"before": testMsg5, "limit": "10"}, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
@@ -108,7 +109,7 @@ func TestGetMessages_NotMember(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
@@ -126,7 +127,7 @@ func TestGetMessages_Empty(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
@@ -160,7 +161,7 @@ func TestGetMessages_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
@@ -211,7 +212,7 @@ func TestGetMessages_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 
 func TestGetMessages_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 
 	handler.GetMessages(c)
 
@@ -227,7 +228,7 @@ func TestSendMessage_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "Hello, world!", ClientID: testClientID1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
 	// Notes check (regular conversation)
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
@@ -272,7 +273,7 @@ func TestSendMessage_EmptyContent(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "   ", ClientID: testClientID1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
 	handler.SendMessage(c)
 
@@ -286,7 +287,7 @@ func TestSendMessage_HtmlRejected(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "<script>alert('xss')</script>", ClientID: testClientID1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -304,7 +305,7 @@ func TestSendMessage_NotMember(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "Hello!", ClientID: testClientID1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -324,7 +325,7 @@ func TestSendMessage_NotMember(t *testing.T) {
 func TestSendMessage_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 	body := SendMessageRequest{Content: "Hello!", ClientID: testClientID1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, nil, map[string]string{"id": testConv1})
 
 	handler.SendMessage(c)
 
@@ -338,7 +339,7 @@ func TestSendMessage_Duplicate(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "Hello!", ClientID: testClientID2}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -373,7 +374,7 @@ func TestEditMessage_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := EditMessageRequest{Content: "Edited content"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -406,7 +407,7 @@ func TestEditMessage_EmptyContent(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := EditMessageRequest{Content: "   "}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	handler.EditMessage(c)
 
@@ -420,7 +421,7 @@ func TestEditMessage_HtmlRejected(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := EditMessageRequest{Content: "<b>bold</b>"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -438,7 +439,7 @@ func TestEditMessage_NotFound(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := EditMessageRequest{Content: "Edited content"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", body, claims, map[string]string{"id": testConv1, "msgId": testMsg999})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", body, claims, map[string]string{"id": testConv1, "msgId": testMsg999})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -461,7 +462,7 @@ func TestEditMessage_NotFound(t *testing.T) {
 func TestEditMessage_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 	body := EditMessageRequest{Content: "Edited"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, nil, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	handler.EditMessage(c)
 
@@ -475,7 +476,7 @@ func TestEditMessage_DBError(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := EditMessageRequest{Content: "Edited content"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -501,7 +502,7 @@ func TestDeleteMessage_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*WHERE id = \$1.*AND sender_user_id = \$2.*AND is_deleted = false.*AND conversation_id = \$3.*AND EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$3 AND user_id = \$2\)`).
@@ -519,7 +520,7 @@ func TestDeleteMessage_NotFound(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", nil, map[string]string{"id": testConv1, "msgId": testMsg999})
+	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", nil, map[string]string{"id": testConv1, "msgId": testMsg999})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*`).
@@ -535,7 +536,7 @@ func TestDeleteMessage_NotFound(t *testing.T) {
 
 func TestDeleteMessage_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	handler.DeleteMessage(c)
 
@@ -552,7 +553,7 @@ func TestSendMessage_NotesE2E(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	ciphertext := "e2enote1:abcdefghijklmnopqrstuvwxyz0123456789"
 	body := SendMessageRequest{Content: ciphertext, ClientID: testClientID1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
 	// Notes check — it IS the notes self-chat
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
@@ -608,7 +609,7 @@ func TestSendMessage_NotesRejectsNonMarkedPayload(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "plaintext must never reach the server", ClientID: testClientID1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -625,7 +626,7 @@ func TestGetMessages_NotesCiphertextPassthrough(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
@@ -682,7 +683,7 @@ func TestEditMessage_NotesE2E(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	ciphertext := "e2enote1:zyxwvutsrqponmlkjihgfedcba0123456789"
 	body := EditMessageRequest{Content: ciphertext}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -711,7 +712,7 @@ func TestUpdateNotesMeta_Success(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	meta := "e2enote1:abcdef0123456789abcdef0123456789"
 	body := UpdateNotesMetaRequest{Meta: meta}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	// It IS the notes self-chat.
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
@@ -741,7 +742,7 @@ func TestUpdateNotesMeta_NotNotesRejected(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := UpdateNotesMetaRequest{Meta: "e2enote1:abcdef0123456789abcdef0123456789"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -759,7 +760,7 @@ func TestUpdateNotesMeta_UnmarkedRejected(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := UpdateNotesMetaRequest{Meta: "plaintext metadata must never reach the server"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -778,7 +779,7 @@ func TestUpdateNotesMeta_NotFound(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	meta := "e2enote1:abcdef0123456789abcdef0123456789"
 	body := UpdateNotesMetaRequest{Meta: meta}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg999})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg999})
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
@@ -797,7 +798,7 @@ func TestUpdateNotesMeta_NotFound(t *testing.T) {
 func TestUpdateNotesMeta_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 	body := UpdateNotesMetaRequest{Meta: "e2enote1:abcdef0123456789abcdef0123456789"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, nil, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	handler.UpdateNotesMeta(c)
 

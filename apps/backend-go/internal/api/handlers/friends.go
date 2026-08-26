@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
@@ -85,7 +86,7 @@ func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) 
 // @Router       /friends/request [post]
 // @Security     BearerAuth
 func (h *FriendsHandler) SendRequest(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -236,7 +237,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 // @Router       /friends/request/{id}/accept [put]
 // @Security     BearerAuth
 func (h *FriendsHandler) AcceptRequest(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -338,7 +339,7 @@ func (h *FriendsHandler) acceptFriendRequest(c *gin.Context, requestID, senderID
 // @Router       /friends/request/{id}/reject [put]
 // @Security     BearerAuth
 func (h *FriendsHandler) RejectRequest(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -405,7 +406,7 @@ func (h *FriendsHandler) RejectRequest(c *gin.Context) {
 // @Router       /friends/request/{id} [delete]
 // @Security     BearerAuth
 func (h *FriendsHandler) CancelRequest(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -470,7 +471,7 @@ func (h *FriendsHandler) CancelRequest(c *gin.Context) {
 // @Router       /friends/{userId} [delete]
 // @Security     BearerAuth
 func (h *FriendsHandler) RemoveFriend(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -544,7 +545,7 @@ func (h *FriendsHandler) RemoveFriend(c *gin.Context) {
 // @Router       /friends [get]
 // @Security     BearerAuth
 func (h *FriendsHandler) GetFriends(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -611,7 +612,7 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 // @Router       /friends/requests [get]
 // @Security     BearerAuth
 func (h *FriendsHandler) GetRequests(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -667,7 +668,7 @@ func (h *FriendsHandler) GetRequests(c *gin.Context) {
 // @Router       /friends/status/{userId} [get]
 // @Security     BearerAuth
 func (h *FriendsHandler) GetFriendStatus(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
