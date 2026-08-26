@@ -2,10 +2,10 @@
 // groups, personal notes), messages with client-side E2E encryption, read
 // receipts, pinning, membership and group management. Extracted from the
 // former api/handlers god package as part of the F1 sweep — the domain is
-// self-contained (its own SQL, TLS/encryption layer, attachment validation,
-// push delivery and WebSocket broadcast), so it lives as a leaf package next
-// to socialpreview/translations/notifications and is wired into the router
-// from routes.go.
+// self-contained (its own SQL, client-side E2E encryption layer, attachment
+// validation, push delivery and WebSocket broadcast), so it lives as a leaf
+// package next to socialpreview/translations/notifications and is wired into
+// the router from routes.go.
 package messenger
 
 import (

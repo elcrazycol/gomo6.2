@@ -1,18 +1,13 @@
 package handlers
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 // setupPostsHandler creates a PostsHandler with a mock DB.
@@ -135,129 +130,46 @@ func setupNotificationsHandler(t *testing.T) (*NotificationsHandler, sqlmock.Sql
 	return handler, mock
 }
 
+// ─── gin test-context builders ─────────────────────────────────────────────
+//
+// The anonymous wrappers below delegate to internal/testutil — the single
+// implementation of these builders (added for the messenger extraction).
+// They exist so the ~400 existing call sites in this package's tests keep
+// compiling unchanged; new test code should call testutil directly.
+
 // newGETContext creates a gin test context for a GET request.
 // Returns (context, *httptest.ResponseRecorder).
 func newGETContext(url string, queryParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, url, nil)
-	q := req.URL.Query()
-	for k, v := range queryParams {
-		q.Set(k, v)
-	}
-	req.URL.RawQuery = q.Encode()
-	c.Request = req
-	return c, w
+	return testutil.NewGETContext(url, queryParams)
 }
 
 func newGETContextWithParams(url string, queryParams map[string]string, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, url, nil)
-	q := req.URL.Query()
-	for k, v := range queryParams {
-		q.Set(k, v)
-	}
-	req.URL.RawQuery = q.Encode()
-	c.Request = req
-	for k, v := range pathParams {
-		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
-	}
-	return c, w
+	return testutil.NewGETContextWithParams(url, queryParams, pathParams)
 }
 
 // newPOSTContext creates a gin test context for a POST request with JSON body and auth claims.
 // Returns (context, *httptest.ResponseRecorder).
 func newPOSTContext(url string, body interface{}, claims *auth.Claims, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-
-	var bodyReader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			panic(fmt.Sprintf("failed to marshal test body: %v", err))
-		}
-		bodyReader = bytes.NewReader(b)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, url, bodyReader)
-	req.Header.Set("Content-Type", "application/json")
-
-	c, _ := gin.CreateTestContext(w)
-	c.Request = req
-
-	for k, v := range pathParams {
-		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
-	}
-
-	if claims != nil {
-		c.Set("claims", claims)
-	}
-
-	return c, w
+	return testutil.NewPOSTContext(url, body, claims, pathParams)
 }
 
 // newDELETEPContext creates a gin test context for a DELETE request.
 // Returns (context, *httptest.ResponseRecorder).
 func newDELETEPContext(url string, queryParams map[string]string, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, url, nil)
-	q := req.URL.Query()
-	for k, v := range queryParams {
-		q.Set(k, v)
-	}
-	req.URL.RawQuery = q.Encode()
-
-	c, _ := gin.CreateTestContext(w)
-	c.Request = req
-
-	for k, v := range pathParams {
-		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
-	}
-
-	return c, w
+	return testutil.NewDELETEContext(url, queryParams, pathParams)
 }
 
 // newDELETEPContextWithClaims creates a gin test context for a DELETE request
 // with auth claims and path params (same shape as newDELETEPContext but sets
 // the authenticated claims on the context).
 func newDELETEPContextWithClaims(url string, queryParams map[string]string, pathParams map[string]string, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
-	c, w := newDELETEPContext(url, queryParams, pathParams)
-	if claims != nil {
-		c.Set("claims", claims)
-	}
-	return c, w
+	return testutil.NewDELETEContextWithClaims(url, queryParams, pathParams, claims)
 }
 
 // newPUTContext creates a gin test context for a PUT request with JSON body, auth claims, and path params.
 // Returns (context, *httptest.ResponseRecorder).
 func newPUTContext(url string, body interface{}, claims *auth.Claims, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-
-	var bodyReader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			panic(fmt.Sprintf("failed to marshal test body: %v", err))
-		}
-		bodyReader = bytes.NewReader(b)
-	}
-
-	req := httptest.NewRequest(http.MethodPut, url, bodyReader)
-	req.Header.Set("Content-Type", "application/json")
-
-	c, _ := gin.CreateTestContext(w)
-	c.Request = req
-
-	for k, v := range pathParams {
-		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
-	}
-
-	if claims != nil {
-		c.Set("claims", claims)
-	}
-
-	return c, w
+	return testutil.NewPUTContext(url, body, claims, pathParams)
 }
 
 // setupAuthHandler creates an AuthHandler with a mock DB.
@@ -302,66 +214,16 @@ func setupRPCHandler(t *testing.T) (*RPCHandler, sqlmock.Sqlmock) {
 
 // newGETContextWithClaims creates a gin test context for GET with auth claims.
 func newGETContextWithClaims(urlStr string, queryParams map[string]string, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-
-	u, _ := url.Parse(urlStr)
-	q := u.Query()
-	for k, v := range queryParams {
-		q.Set(k, v)
-	}
-	u.RawQuery = q.Encode()
-
-	req := httptest.NewRequest(http.MethodGet, u.String(), nil)
-	req.URL.RawQuery = q.Encode()
-	c.Request = req
-
-	if claims != nil {
-		c.Set("claims", claims)
-	}
-
-	return c, w
+	return testutil.NewGETContextWithClaims(urlStr, queryParams, claims)
 }
 
 // newRPCGETContext creates a gin test context for RPC methods that use c.Query() parameters.
 // RPC handlers are called via POST /rpc/<name> but read from query params.
 func newRPCGETContext(queryParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-
-	req := httptest.NewRequest(http.MethodPost, "/rpc/test", nil)
-	q := req.URL.Query()
-	for k, v := range queryParams {
-		q.Set(k, v)
-	}
-	req.URL.RawQuery = q.Encode()
-	c.Request = req
-
-	return c, w
+	return testutil.NewRPCGETContext(queryParams)
 }
 
 // newRPCPostContext creates a gin test context for RPC methods that use JSON body.
 func newRPCPostContext(body interface{}, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
-	w := httptest.NewRecorder()
-
-	var bodyReader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			panic(fmt.Sprintf("failed to marshal test body: %v", err))
-		}
-		bodyReader = bytes.NewReader(b)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/rpc/test", bodyReader)
-	req.Header.Set("Content-Type", "application/json")
-
-	c, _ := gin.CreateTestContext(w)
-	c.Request = req
-
-	if claims != nil {
-		c.Set("claims", claims)
-	}
-
-	return c, w
+	return testutil.NewRPCPostContext(body, claims)
 }
