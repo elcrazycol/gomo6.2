@@ -209,15 +209,23 @@ func TestEncryptKeyPadding(t *testing.T) {
 	initEncryptionKey()
 	defer func() { messengerEncryptionKey = nil }()
 
-	plaintext := "pad test"
-	encrypted, err := crypto.EncryptMaster(plaintext)
-	if err != nil {
-		t.Fatalf("crypto.EncryptMaster failed: %v", err)
+	// The handlers-side loader pads short legacy keys up to 32 bytes; crypto
+	// itself requires exactly 32 raw bytes or 64 hex chars and must reject the
+	// short env key on its own. Pass the padded key explicitly so the test
+	// never depends on key state loaded by an earlier test.
+	if len(messengerEncryptionKey) != 32 {
+		t.Fatalf("expected the 16-byte key padded to 32 bytes, got %d", len(messengerEncryptionKey))
 	}
 
-	decrypted, err := crypto.DecryptMaster(encrypted)
+	plaintext := "pad test"
+	encrypted, err := crypto.Encrypt(messengerEncryptionKey, plaintext)
 	if err != nil {
-		t.Fatalf("crypto.DecryptMaster failed: %v", err)
+		t.Fatalf("crypto.Encrypt failed: %v", err)
+	}
+
+	decrypted, err := crypto.Decrypt(messengerEncryptionKey, encrypted)
+	if err != nil {
+		t.Fatalf("crypto.Decrypt failed: %v", err)
 	}
 	if decrypted != plaintext {
 		t.Errorf("decrypted %q, want %q", decrypted, plaintext)

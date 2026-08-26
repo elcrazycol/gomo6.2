@@ -250,3 +250,36 @@ func TestDecryptBytes_TooShortFails(t *testing.T) {
 		t.Fatal("expected an error for ciphertext shorter than the nonce")
 	}
 }
+
+// The master key is re-read from the environment on every Init/GetMasterKey
+// call — test binaries set and clear MESSENGER_ENCRYPTION_KEY around cases,
+// and the loaded key must follow the environment instead of being cached for
+// the whole process (that made the handlers suite order-dependent).
+func TestInitReloadsMasterKeyPerEnv(t *testing.T) {
+	os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
+	os.Unsetenv("ENCRYPTION_KEY")
+
+	Init()
+	if masterKey != nil {
+		t.Fatalf("expected no master key with env unset, got %d bytes", len(masterKey))
+	}
+
+	os.Setenv("MESSENGER_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
+
+	Init()
+	if len(masterKey) != 32 {
+		t.Fatalf("expected 32-byte master key after env set, got %d bytes", len(masterKey))
+	}
+
+	m := GetMasterKey()
+	if len(m) != 32 {
+		t.Fatalf("GetMasterKey must return the reloaded key, got %d bytes", len(m))
+	}
+
+	os.Setenv("MESSENGER_ENCRYPTION_KEY", "too-short") // invalid: must clear the key, not keep the old one
+	Init()
+	if masterKey != nil {
+		t.Fatalf("expected key cleared on invalid env value, got %d bytes", len(masterKey))
+	}
+}
