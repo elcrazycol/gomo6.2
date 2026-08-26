@@ -749,99 +749,6 @@ func TestAdminOnlyMiddleware_DBErrorFailsClosed(t *testing.T) {
 	}
 }
 
-// ─── canViewUserWall ─────────────────────────────────────────────────────────
-
-func TestCanViewUserWall_SameUser(t *testing.T) {
-	db, _, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close()
-
-	if !canViewUserWall(db, "u1", "u1") {
-		t.Fatal("a user must always be able to view their own wall")
-	}
-}
-
-func TestCanViewUserWall_NoPrivacyRow_PublicByDefault(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close()
-	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
-		WithArgs("owner").
-		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}))
-
-	if !canViewUserWall(db, "viewer", "owner") {
-		t.Fatal("missing privacy row must default to public")
-	}
-}
-
-func TestCanViewUserWall_PublicProfile(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close()
-	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
-		WithArgs("owner").
-		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(false, false))
-
-	if !canViewUserWall(db, "viewer", "owner") {
-		t.Fatal("a public profile must be viewable")
-	}
-}
-
-func TestCanViewUserWall_PrivateAndNotFriend(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close()
-	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
-		WithArgs("owner").
-		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(true, true))
-	mock.ExpectQuery(`SELECT EXISTS`).
-		WithArgs("viewer", "owner").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-
-	if canViewUserWall(db, "viewer", "owner") {
-		t.Fatal("a stranger must not view a private wall")
-	}
-}
-
-func TestCanViewUserWall_PrivateMutualFriend(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close()
-	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
-		WithArgs("owner").
-		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(true, true))
-	mock.ExpectQuery(`SELECT EXISTS`).
-		WithArgs("viewer", "owner").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	if !canViewUserWall(db, "viewer", "owner") {
-		t.Fatal("a friend must be able to view the wall")
-	}
-}
-
-func TestCanViewUserWall_DBErrorFailsClosed(t *testing.T) {
-	db, _, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close()
-	// No expectation → query error → must fail closed.
-
-	if canViewUserWall(db, "viewer", "owner") {
-		t.Fatal("DB errors must deny wall access")
-	}
-}
-
 // ─── escapeLikePattern ──────────────────────────────────────────────────────
 
 func TestEscapeLikePattern(t *testing.T) {
@@ -929,10 +836,11 @@ func TestWallAttachmentAccess_AnonymousViewerPublicWallAllowed(t *testing.T) {
 	defer db.Close()
 	key := "uPublic/1786303495874_1exs5dwr0qc.jpeg"
 	pattern := "%" + escapeLikePattern(key) + "%"
-	// The public-wall branch of the EXISTS query short-circuits to allow — the
-	// empty viewer must not make the query fail or the uuid cast break.
+	// The public-wall branch of the EXISTS query short-circuits to allow — an
+	// anonymous viewer is bound as SQL NULL (never matching ownership or
+	// friendship), so the query must not fail or break the uuid cast.
 	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
-		WithArgs(pattern, "", "uPublic").
+		WithArgs(pattern, "uPublic").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	found, allowed := wallAttachmentAccess(db, "", "uPublic", key)
@@ -958,7 +866,7 @@ func TestWallAttachmentAccess_VideoPosterKeyAuthorizesAgainstBase(t *testing.T) 
 	// The suffix is stripped, so the query pattern is the base video key.
 	pattern := "%" + escapeLikePattern("uPublic/1786303495874_clip.mp4") + "%"
 	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
-		WithArgs(pattern, "", "uPublic").
+		WithArgs(pattern, "uPublic").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	found, allowed := wallAttachmentAccess(db, "", "uPublic", key)

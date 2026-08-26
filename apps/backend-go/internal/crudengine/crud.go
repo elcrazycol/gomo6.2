@@ -19,6 +19,7 @@ import (
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
 )
 
@@ -609,38 +610,11 @@ RETURNING *, (xmax = 0) AS inserted`
 }
 
 // wallOwnerVisibleToViewer reports whether viewerID may interact with the wall
-// of ownerID: the owner themself, owners of non-private profiles who have not
-// hidden their wall (private_hide_wall), or mutual friends. This mirrors the
-// REST read predicate (profileWallFinishSelectQuery) so the write path enforces
-// the exact same privacy rule.
+// of ownerID. This mirrors the REST read predicate (profileWallFinishSelectQuery)
+// so the write path enforces the exact same privacy rule; the rule itself lives
+// in the privacy package (privacy.CanViewWall) as the single source of truth.
 func (h *Engine) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
-	if viewerID == ownerID {
-		return true, nil
-	}
-	var private, hideWall bool
-	err := h.db.QueryRow(
-		"SELECT COALESCE(private_profile, false), COALESCE(private_hide_wall, false) FROM privacy_settings WHERE user_id = $1", ownerID,
-	).Scan(&private, &hideWall)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// No privacy settings row means the profile is public and the wall
-			// is not hidden.
-			return true, nil
-		}
-		return false, err
-	}
-	if !private && !hideWall {
-		return true, nil
-	}
-	var friend bool
-	err = h.db.QueryRow(`SELECT EXISTS(
-		SELECT 1 FROM friendships
-		WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
-	)`, viewerID, ownerID).Scan(&friend)
-	if err != nil {
-		return false, err
-	}
-	return friend, nil
+	return privacy.CanViewWall(h.db, viewerID, ownerID)
 }
 
 // enforceWallTargetPrivacy rejects interactions with walls that the caller may

@@ -287,8 +287,9 @@ func TestHandleProfileWallPostsGet_EmptyResult(t *testing.T) {
 // keep the (private_profile OR private_hide_wall) predicate in its WHERE clause
 // so a stranger asking for a private user's wall receives an empty array — not
 // the wall rows, not an error. The predicate logic itself is unit-tested in the
-// media gate (canViewUserWall) and the write gate (wallOwnerVisibleToViewer);
-// this test pins the SQL so the read path cannot silently drop the filter.
+// privacy package (privacy.CanViewWall) and exercised by the media gate and the
+// write gate (wallOwnerVisibleToViewer); this test pins the SQL so the read
+// path cannot silently drop the filter.
 func TestHandleProfileWallPostsGet_StrangerOnPrivateWall_GetsEmpty(t *testing.T) {
 	h, mock := setupEngine(t)
 

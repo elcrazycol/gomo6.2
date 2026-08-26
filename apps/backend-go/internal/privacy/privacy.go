@@ -32,6 +32,20 @@ const SettingsFlagColumns = `COALESCE(private_profile, false),
 	       COALESCE(private_hide_gifts, true),
 	       COALESCE(private_hide_achievements, true)`
 
+// Wall-visibility flags. Both CanViewWall's SELECT and WallVisibilityClause's
+// SQL text reference these columns through the constants below, so a rename
+// touches one place instead of three.
+const (
+	wallPrivateProfileCol  = "private_profile"
+	wallPrivateHideWallCol = "private_hide_wall"
+)
+
+// wallSettingsColumns is the two-flag SELECT fragment of the wall-visibility
+// gate. It mirrors SettingsFlagColumns for the two wall flags, but stays a
+// separate (shorter) fragment because CanViewWall's query shape is
+// load-bearing: the crudengine/routes/websocket tests pin this exact SELECT.
+const wallSettingsColumns = `COALESCE(` + wallPrivateProfileCol + `, false), COALESCE(` + wallPrivateHideWallCol + `, false)`
+
 // GetSettings loads private profile settings for a user.
 func GetSettings(db *sql.DB, userID string) (*Settings, error) {
 	var ps Settings
@@ -93,6 +107,55 @@ func ShouldFilterPrivateProfile(db *sql.DB, viewerID, targetID string) (bool, *S
 		return false, ps, nil
 	}
 	return true, ps, nil
+}
+
+// CanViewWall reports whether viewerID may view the wall of ownerID: the owner
+// themself, owners of non-private profiles who have not hidden their wall
+// (private_hide_wall), or mutual friends. This is the single Go form of the
+// wall-visibility rule — the crudengine write path, the wall media route and
+// the WebSocket room gate all call it instead of re-encoding the predicate.
+// viewerID may be empty for anonymous callers: they can never be the owner or
+// a friend, so only public non-hidden walls are visible. DB errors fail
+// closed (false, err).
+//
+// The two COALESCE defaults mirror GetSettings for the wall flags: a missing
+// privacy_settings row means a public profile with a visible wall.
+func CanViewWall(db *sql.DB, viewerID, ownerID string) (bool, error) {
+	if viewerID != "" && viewerID == ownerID {
+		return true, nil
+	}
+	var private, hideWall bool
+	err := db.QueryRow(`SELECT `+wallSettingsColumns+` FROM privacy_settings WHERE user_id = $1`, ownerID).Scan(&private, &hideWall)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// No privacy settings row means the profile is public and the wall
+			// is not hidden.
+			return true, nil
+		}
+		return false, err
+	}
+	if !private && !hideWall {
+		return true, nil
+	}
+	if viewerID == "" {
+		return false, nil
+	}
+	return IsMutualFriend(db, viewerID, ownerID)
+}
+
+// WallVisibilityClause returns the SQL WHERE fragment that admits rows of a
+// wall owned by ownerColumn whose privacy settings live in privacyAlias — the
+// single SQL form of CanViewWall, used by the efficient row-level wall/comment
+// read queries (crudengine) and the wall media gate so the rule is never
+// hand-written per call site. The caller supplies the viewer reference: a
+// `$N` placeholder for an authenticated viewer, or SQL NULL for anonymous
+// callers (NULL never matches the ownership or friendship comparisons, so
+// anonymous reads expose only public non-hidden walls). Keep this string in
+// sync with CanViewWall.
+func WallVisibilityClause(ownerColumn, privacyAlias, viewerArg string) string {
+	return "(" + ownerColumn + " = " + viewerArg +
+		" OR (COALESCE(" + privacyAlias + "." + wallPrivateProfileCol + ", false) = false AND COALESCE(" + privacyAlias + "." + wallPrivateHideWallCol + ", false) = false)" +
+		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = " + ownerColumn + " AND f.user2_id = " + viewerArg + ") OR (f.user1_id = " + viewerArg + " AND f.user2_id = " + ownerColumn + ")))"
 }
 
 // CanViewUserContent returns true if the viewer can see the target user's content.
