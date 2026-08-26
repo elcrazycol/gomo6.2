@@ -239,7 +239,6 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
   const readyRef = useRef(ready);
   readyRef.current = ready;
 
-  const imageRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
   // Image-space crop box derived from the fixed on-screen window; this is what
   // gets exported when applying the crop / pressing "Готово".
   const cropBoxRef = useRef<Box>({ x: 0, y: 0, w: 1, h: 1 });
@@ -420,7 +419,6 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
         const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(img.naturalWidth, img.naturalHeight));
         const width = Math.max(1, Math.round(img.naturalWidth * scale));
         const height = Math.max(1, Math.round(img.naturalHeight * scale));
-        imageRef.current = { width, height };
 
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -1025,7 +1023,6 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(out, 0, 0, w, h);
 
-    imageRef.current = { width: w, height: h };
     setView(IDENTITY_VIEW);
     syncStage();
   }, [pushUndo, syncStage]);
