@@ -411,4 +411,45 @@ describe("Lightbox editor", () => {
     expect(redo.disabled).toBe(true);
     expect(undo.disabled).toBe(false);
   });
+
+  it("zooms in and out with the mouse wheel around the cursor", async () => {
+    openEditor(vi.fn());
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    const frame = document.body.querySelector(".pe-frame") as HTMLElement;
+    expect(frame.style.transform).toContain("scale(1)");
+
+    // Wheel up (deltaY < 0) zooms in.
+    fireEvent.wheel(canvas, { clientX: 400, clientY: 300, deltaY: -100 });
+    expect(frame.style.transform).toContain("scale(1.15)");
+
+    // Wheel down zooms back out to exactly scale 1.
+    fireEvent.wheel(canvas, { clientX: 400, clientY: 300, deltaY: 100 });
+    expect(frame.style.transform).toContain("scale(1)");
+  });
+
+  it("pinches with two fingers to zoom the canvas", () => {
+    openEditor(vi.fn());
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    const frame = document.body.querySelector(".pe-frame") as HTMLElement;
+    stubCanvasPointer(canvas);
+
+    // First finger down, then second finger: pinch starts.
+    fireEvent.pointerDown(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerDown(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+    expect(frame.style.transform).toContain("scale(1)");
+
+    // Spread the fingers: distance doubles → zoom doubles.
+    fireEvent.pointerMove(canvas, { clientX: 200, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 600, clientY: 300, pointerId: 2 });
+    expect(frame.style.transform).toContain("scale(2)");
+
+    // Bring them back together → back to scale 1.
+    fireEvent.pointerMove(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+    expect(frame.style.transform).toContain("scale(1)");
+
+    fireEvent.pointerUp(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+  });
 });

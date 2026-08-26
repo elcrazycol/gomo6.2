@@ -5,6 +5,13 @@ import "./PhotoEditor.css";
 
 const MAX_IMAGE_DIMENSION = 2560;
 
+const MIN_VIEW_ZOOM = 1;
+const MAX_VIEW_ZOOM = 8;
+const WHEEL_ZOOM_STEP = 1.15;
+
+type View = { zoom: number; x: number; y: number };
+const IDENTITY_VIEW: View = { zoom: 1, x: 0, y: 0 };
+
 const BRUSH_COLORS = [
   "#ffffff",
   "#000000",
@@ -163,6 +170,9 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [cropBox, setCropBox] = useState<Box>({ x: 0, y: 0, w: 1, h: 1 });
   const [fit, setFit] = useState({ w: 0, h: 0 });
+  const [view, setView] = useState<View>(IDENTITY_VIEW);
+  const viewRef = useRef<View>(IDENTITY_VIEW);
+  viewRef.current = view;
   const [ready, setReady] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -183,6 +193,8 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
   const undoStackRef = useRef<Snapshot[]>([]);
   const redoStackRef = useRef<Snapshot[]>([]);
   const strokeRef = useRef<{ x: number; y: number; drawing: boolean } | null>(null);
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{ dist: number; zoom: number; x: number; y: number; midX: number; midY: number } | null>(null);
   const cropDragRef = useRef<{ handle: Handle | "move"; startX: number; startY: number; box: Box } | null>(null);
   const blurCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -406,6 +418,54 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     setCanRedo(stack.length > 0);
   }, [takeSnapshot, restoreSnapshot]);
 
+  // ─── Zoom / pan (pinch + mouse wheel) ────────────────────────────────────
+
+  const clampView = useCallback((next: View): View => {
+    const zoom = clamp(next.zoom, MIN_VIEW_ZOOM, MAX_VIEW_ZOOM);
+    // Pan bounded so the image never leaves the visible stage.
+    const maxX = (fit.w * (zoom - 1)) / 2;
+    const maxY = (fit.h * (zoom - 1)) / 2;
+    return {
+      zoom,
+      x: zoom === MIN_VIEW_ZOOM ? 0 : clamp(next.x, -maxX, maxX),
+      y: zoom === MIN_VIEW_ZOOM ? 0 : clamp(next.y, -maxY, maxY),
+    };
+  }, [fit.w, fit.h]);
+
+  const applyView = useCallback((next: View) => {
+    setView(clampView(next));
+  }, [clampView]);
+
+  // Zoom around an on-screen point (cursor for wheel, finger midpoint for pinch).
+  const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    // Point in unscaled frame coordinates (before the view transform).
+    const ux = (clientX - rect.left - rect.width / 2 - viewRef.current.x) / viewRef.current.zoom;
+    const uy = (clientY - rect.top - rect.height / 2 - viewRef.current.y) / viewRef.current.zoom;
+    const zoom = viewRef.current.zoom * factor;
+    applyView({
+      zoom,
+      x: clientX - rect.left - rect.width / 2 - ux * zoom,
+      y: clientY - rect.top - rect.height / 2 - uy * zoom,
+    });
+  }, [applyView]);
+
+  // Mouse-wheel zoom on desktop: wheel up zooms in around the cursor.
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const factor = event.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP;
+      zoomAt(event.clientX, event.clientY, factor);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
+
   // ─── Pointer handling ─────────────────────────────────────────────────────
 
   const getCanvasPoint = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -515,11 +575,61 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     return { x: left, y: top, w: right - left, h: bottom - top };
   };
 
+  const stampBlur = (x: number, y: number) => {
+    const canvas = canvasRef.current;
+    const blurCanvas = blurCanvasRef.current;
+    if (!canvas || !blurCanvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const radius = brushSizeRef.current / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(blurCanvas, 0, 0);
+    ctx.restore();
+  };
+
+  const beginPinch = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+    pinchRef.current = {
+      dist: Math.hypot(p2.x - p1.x, p2.y - p1.y),
+      zoom: viewRef.current.zoom,
+      x: viewRef.current.x,
+      y: viewRef.current.y,
+      midX: (p1.x + p2.x) / 2,
+      midY: (p1.y + p2.y) / 2,
+    };
+  };
+
+  const updatePinch = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+    const base = pinchRef.current;
+    if (!base || base.dist === 0) return;
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const zoom = base.zoom * (dist / base.dist);
+    applyView({
+      zoom,
+      x: base.x + (midX - base.midX),
+      y: base.y + (midY - base.midY),
+    });
+  };
+
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const point = getCanvasPoint(e);
     if (!point) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Two fingers down: start pinch-zoom, pause any in-flight stroke/crop.
+    if (pointersRef.current.size >= 2) {
+      const [p1, p2] = Array.from(pointersRef.current.values());
+      beginPinch(p1, p2);
+      strokeRef.current = null;
+      cropDragRef.current = null;
+      return;
+    }
 
     if (toolRef.current === "crop") {
       const handle = hitTestHandle(point.x, point.y, cropBoxRef.current);
@@ -568,22 +678,21 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     }
   };
 
-  const stampBlur = (x: number, y: number) => {
-    const canvas = canvasRef.current;
-    const blurCanvas = blurCanvasRef.current;
-    if (!canvas || !blurCanvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const radius = brushSizeRef.current / 2;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.drawImage(blurCanvas, 0, 0);
-    ctx.restore();
+  const endPinch = () => {
+    pinchRef.current = null;
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Keep pointer positions fresh for pinch tracking.
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pointersRef.current.size >= 2) {
+      const [p1, p2] = Array.from(pointersRef.current.values());
+      updatePinch(p1, p2);
+      return;
+    }
+
     const point = getCanvasPoint(e);
     if (!point) return;
 
@@ -633,6 +742,21 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) endPinch();
+    strokeRef.current = null;
+    cropDragRef.current = null;
+    blurCanvasRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // already released
+    }
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.clear();
+    endPinch();
     strokeRef.current = null;
     cropDragRef.current = null;
     blurCanvasRef.current = null;
@@ -753,7 +877,11 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       <div ref={stageRef} className="pe-stage">
         <div
           className="pe-frame"
-          style={{ width: fit.w || undefined, height: fit.h || undefined }}
+          style={{
+            width: fit.w || undefined,
+            height: fit.h || undefined,
+            transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.zoom})`,
+          }}
         >
           <canvas ref={canvasRef} className="pe-canvas" />
           <canvas
@@ -762,7 +890,7 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
           />
         </div>
         {(tool === "brush" || tool === "blur") && ready && (

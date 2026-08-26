@@ -79,6 +79,8 @@
   max-height: 100%;
   display: grid;
   place-items: center;
+  transform-origin: center center;
+  will-change: transform;
 }
 
 .pe-canvas {
