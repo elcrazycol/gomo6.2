@@ -51,7 +51,7 @@ func expectLayers(mock sqlmock.Sqlmock, layerTypes ...string) {
 }
 
 func expectRandomLayer(mock sqlmock.Sqlmock, layerType, id, url string) {
-	mock.ExpectQuery("SELECT id, image_url FROM gift_layers\\s*WHERE gift_catalog_id = \\$1 AND layer_type = '" + layerType + "'").
+	mock.ExpectQuery("SELECT id, image_url FROM gift_layers\\s*WHERE gift_catalog_id = \\$1 AND layer_type = \\$2").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "image_url"}).AddRow(id, url))
 }
 
@@ -213,7 +213,7 @@ func TestUpgradeGift_RandomLayerError(t *testing.T) {
 	mock.ExpectQuery("SELECT COALESCE\\(drops, 0\\) FROM users WHERE id = \\$1").
 		WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(1000))
 	// First random layer query fails
-	mock.ExpectQuery("SELECT id, image_url FROM gift_layers\\s*WHERE gift_catalog_id = \\$1 AND layer_type = 'gift'").
+	mock.ExpectQuery("SELECT id, image_url FROM gift_layers\\s*WHERE gift_catalog_id = \\$1 AND layer_type = \\$2").
 		WillReturnError(errors.New("db down"))
 
 	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})

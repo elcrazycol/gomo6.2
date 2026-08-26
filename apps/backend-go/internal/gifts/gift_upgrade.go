@@ -155,7 +155,7 @@ func (h *GiftsHandler) performGiftUpgrade(userID, giftRecordID string) (*models.
 		return nil, &upgradeFailure{http.StatusInternalServerError, "Failed to get balance"}
 	}
 
-	giftLayerID, bgLayerID, symLayerID, giftLayerURL, bgLayerURL, symLayerURL, err := h.pickRandomLayers(tx, giftCatalogID)
+	sel, err := h.pickRandomLayers(tx, giftCatalogID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (h *GiftsHandler) performGiftUpgrade(userID, giftRecordID string) (*models.
 		    symbol_layer_id = $3,
 		    upgraded_at = $4
 		WHERE id = $5
-	`, giftLayerID, bgLayerID, symLayerID, now, giftRecordID)
+	`, sel.gift.id, sel.background.id, sel.symbol.id, now, giftRecordID)
 	if err != nil {
 		return nil, &upgradeFailure{http.StatusInternalServerError, "Failed to save upgrade"}
 	}
@@ -193,46 +193,53 @@ func (h *GiftsHandler) performGiftUpgrade(userID, giftRecordID string) (*models.
 
 	return &models.GiftUpgradeResponse{
 		GiftRecordID:       giftRecordID,
-		GiftLayerID:        giftLayerID,
-		GiftLayerImageURL:  giftLayerURL,
-		BackgroundLayerID:  bgLayerID,
-		BackgroundImageURL: bgLayerURL,
-		SymbolLayerID:      symLayerID,
-		SymbolImageURL:     symLayerURL,
+		GiftLayerID:        sel.gift.id,
+		GiftLayerImageURL:  sel.gift.imageURL,
+		BackgroundLayerID:  sel.background.id,
+		BackgroundImageURL: sel.background.imageURL,
+		SymbolLayerID:      sel.symbol.id,
+		SymbolImageURL:     sel.symbol.imageURL,
 		UpgradedAt:         now.Format(time.RFC3339Nano),
 	}, nil
+}
+
+// layerPick is one randomly chosen layer for a catalog entry.
+type layerPick struct {
+	id       string
+	imageURL string
+}
+
+// layerSelection holds the three random layer picks (gift/background/symbol)
+// chosen for an upgrade, so pickRandomLayers returns a single value instead of
+// a six-field tuple whose order is easy to mix up.
+type layerSelection struct {
+	gift       layerPick
+	background layerPick
+	symbol     layerPick
 }
 
 // pickRandomLayers selects one random layer of each type (gift/background/
 // symbol) for the catalog entry, inside the upgrade transaction. Extracted
 // from performGiftUpgrade so the upgrade core stays compact.
-func (h *GiftsHandler) pickRandomLayers(tx *sql.Tx, giftCatalogID string) (giftLayerID, bgLayerID, symLayerID, giftLayerURL, bgLayerURL, symLayerURL string, err error) {
-	err = tx.QueryRow(`
-		SELECT id, image_url FROM gift_layers
-		WHERE gift_catalog_id = $1 AND layer_type = 'gift'
-		ORDER BY RANDOM() LIMIT 1
-	`, giftCatalogID).Scan(&giftLayerID, &giftLayerURL)
-	if err != nil {
-		return "", "", "", "", "", "", &upgradeFailure{http.StatusInternalServerError, "Failed to pick gift layer"}
+func (h *GiftsHandler) pickRandomLayers(tx *sql.Tx, giftCatalogID string) (layerSelection, error) {
+	var sel layerSelection
+	targets := []struct {
+		kind string
+		pick *layerPick
+	}{
+		{kind: "gift", pick: &sel.gift},
+		{kind: "background", pick: &sel.background},
+		{kind: "symbol", pick: &sel.symbol},
 	}
-
-	err = tx.QueryRow(`
-		SELECT id, image_url FROM gift_layers
-		WHERE gift_catalog_id = $1 AND layer_type = 'background'
-		ORDER BY RANDOM() LIMIT 1
-	`, giftCatalogID).Scan(&bgLayerID, &bgLayerURL)
-	if err != nil {
-		return "", "", "", "", "", "", &upgradeFailure{http.StatusInternalServerError, "Failed to pick background layer"}
+	for _, t := range targets {
+		err := tx.QueryRow(`
+			SELECT id, image_url FROM gift_layers
+			WHERE gift_catalog_id = $1 AND layer_type = $2
+			ORDER BY RANDOM() LIMIT 1
+		`, giftCatalogID, t.kind).Scan(&t.pick.id, &t.pick.imageURL)
+		if err != nil {
+			return layerSelection{}, &upgradeFailure{http.StatusInternalServerError, "Failed to pick " + t.kind + " layer"}
+		}
 	}
-
-	err = tx.QueryRow(`
-		SELECT id, image_url FROM gift_layers
-		WHERE gift_catalog_id = $1 AND layer_type = 'symbol'
-		ORDER BY RANDOM() LIMIT 1
-	`, giftCatalogID).Scan(&symLayerID, &symLayerURL)
-	if err != nil {
-		return "", "", "", "", "", "", &upgradeFailure{http.StatusInternalServerError, "Failed to pick symbol layer"}
-	}
-
-	return giftLayerID, bgLayerID, symLayerID, giftLayerURL, bgLayerURL, symLayerURL, nil
+	return sel, nil
 }
