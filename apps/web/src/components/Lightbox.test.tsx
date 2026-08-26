@@ -394,6 +394,29 @@ describe("Lightbox editor", () => {
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
   });
 
+  it("grabs a mid-edge handle from outside the photo (letterbox side of the grip)", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    const overlay = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(overlay);
+    // The photo is letterboxed inside the stage: its rect ends at x=700,
+    // while the crop window edge (the east grip) is at x=800. A press at
+    // x=810 is on the outer half of the grip — outside the photo — and must
+    // still start a resize.
+    const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement;
+    vi.spyOn(main, "getBoundingClientRect").mockReturnValue({
+      left: 100, top: 100, width: 600, height: 400, right: 700, bottom: 500, x: 100, y: 100, toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.pointerDown(overlay, { clientX: 810, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(overlay, { clientX: 700, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { clientX: 700, clientY: 300, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    // The east edge moved from 800 to 700; the crop box is now 700×600.
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 700, 600, 0, 0, 700, 600);
+  });
+
   it("draws with the brush tool and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
     await openEditorReady(onEditImage);

@@ -474,10 +474,12 @@ function useCropWindow({
     ctx.strokeRect(s.x, s.y, s.w, s.h);
 
     // Telegram-style grips: thick short strips along the frame with constant
-    // on-screen size (no canvas-scale factor — the overlay never zooms).
-    const thickness = isTouch ? 5 : 4;
-    const cornerLen = isTouch ? 26 : 22;
-    const midLen = isTouch ? 18 : 14;
+    // on-screen size (no canvas-scale factor — the overlay never zooms). On
+    // touch they are chunkier so the visible target matches the (larger)
+    // hit zones in hitTestHandle.
+    const thickness = isTouch ? 8 : 4;
+    const cornerLen = isTouch ? 34 : 22;
+    const midLen = isTouch ? 26 : 14;
     ctx.fillStyle = "#ffffff";
 
     const corners: { x: number; y: number; hx: 1 | -1; hy: 1 | -1 }[] = [
@@ -572,8 +574,11 @@ function useCropWindow({
 
   const hitTestHandle = (x: number, y: number, box: Box): Handle | null => {
     // Hit zones as rectangles around the Telegram-style grips — generous
-    // enough for touch, in the same screen coordinates as the overlay.
-    const half = (isTouch ? 26 : 18) / 2;
+    // enough for touch (48×48 on touch, 28×28 on desktop), in the same
+    // screen coordinates as the overlay. The zones extend past the photo
+    // edge on purpose: when the crop window touches the photo boundary the
+    // outer half of a grip sits outside the photo and must stay grabbable.
+    const half = isTouch ? 24 : 14;
     const midX = box.x + box.w / 2;
     const midY = box.y + box.h / 2;
     const zones: { id: Handle; cx: number; cy: number }[] = [
@@ -1302,8 +1307,10 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     }
 
     if (tool === "crop") {
-      const point = getCanvasPoint(e);
-      if (!point?.inside) return;
+      // No photo-rect gate here: the handles sit on the window edges, which
+      // can coincide with the photo boundary, so half of each grip sticks
+      // out of the photo. startCropDrag itself only enables moving the
+      // window when the press lands inside it.
       startCropDrag(screen.x, screen.y);
       return;
     }
