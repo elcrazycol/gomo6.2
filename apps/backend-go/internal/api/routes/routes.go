@@ -24,6 +24,7 @@ import (
 	"github.com/gomo6/backend/internal/push"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
+	"github.com/gomo6/backend/internal/translations"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -180,7 +181,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Client-side error reporting handler
 	clientErrorsHandler := handlers.NewClientErrorsHandler(db)
-	translationsHandler := handlers.NewTranslationsHandler(db)
+	translationsHandler := translations.New(db)
 
 	// Admin-only request metrics (per-route counts, latency, 4xx/5xx/429).
 	// Zero-dependency in-memory counters from MetricsMiddleware. Use this to spot

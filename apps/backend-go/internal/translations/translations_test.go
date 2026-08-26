@@ -1,8 +1,13 @@
-package handlers
+package translations
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -10,7 +15,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 )
 
-func setupTranslationsHandler(t *testing.T) (*TranslationsHandler, sqlmock.Sqlmock) {
+func setupTranslationsHandler(t *testing.T) (*Service, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -25,11 +30,89 @@ func setupTranslationsHandler(t *testing.T) (*TranslationsHandler, sqlmock.Sqlmo
 		db.Close()
 	})
 
-	return NewTranslationsHandler(db), mock
+	return New(db), mock
 }
 
 func claimsFor(userID string) *auth.Claims {
 	return &auth.Claims{UserID: userID}
+}
+
+// ─── Gin test-context builders ─────────────────────────────────────────────
+//
+// Local mirrors of the handlers package builders (handler_test_helpers.go):
+// a moved package cannot import test helpers from the god package it left.
+// The three builders below are copied verbatim so the moved tests read
+// identically; when a third domain is extracted, the shared builders move
+// into a leaf apitest package and both copies collapse onto it (R5).
+
+// newGETContext creates a gin test context for a GET request.
+func newGETContext(url string, queryParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	q := req.URL.Query()
+	for k, v := range queryParams {
+		q.Set(k, v)
+	}
+	req.URL.RawQuery = q.Encode()
+	c.Request = req
+	return c, w
+}
+
+// newPOSTContext creates a gin test context for a POST request with JSON body
+// and auth claims.
+func newPOSTContext(url string, body interface{}, claims *auth.Claims, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
+	w := httptest.NewRecorder()
+
+	var bodyReader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			panic(fmt.Sprintf("failed to marshal test body: %v", err))
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, url, bodyReader)
+	req.Header.Set("Content-Type", "application/json")
+
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+
+	for k, v := range pathParams {
+		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
+	}
+
+	if claims != nil {
+		c.Set("claims", claims)
+	}
+
+	return c, w
+}
+
+// newDELETEPContextWithClaims creates a gin test context for a DELETE request
+// with auth claims and path params.
+func newDELETEPContextWithClaims(url string, queryParams map[string]string, pathParams map[string]string, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, url, nil)
+	q := req.URL.Query()
+	for k, v := range queryParams {
+		q.Set(k, v)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+
+	for k, v := range pathParams {
+		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
+	}
+
+	if claims != nil {
+		c.Set("claims", claims)
+	}
+
+	return c, w
 }
 
 func TestListTranslations_AnonymousUsesNullUUID(t *testing.T) {
