@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/messenger"
 	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/privacy"
 
@@ -59,7 +60,7 @@ func (h *GiftsHandler) SetAchievementEngine(e *achievements.Engine) {
 // @Router       /gifts/send [post]
 // @Security     BearerAuth
 func (h *GiftsHandler) SendGift(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -265,7 +266,7 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 	giftContent := fmt.Sprintf("__GIFT__:%s:%s:%s", giftID, giftName, giftImageURL)
 	clientID := fmt.Sprintf("gift_%s", giftRecordID)
 
-	encryptedContent, err := encryptContentForConversation(convID, giftContent)
+	encryptedContent, err := messenger.EncryptContentForConversation(convID, giftContent)
 	if err != nil {
 		log.Printf("[Gifts] encrypt gift message error: %v", err)
 		return
@@ -314,7 +315,7 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 	}
 
 	if h.redis != nil {
-		go invalidateMessengerCaches(h.redis, convID, senderID)
+		go messenger.InvalidateMessengerCaches(h.redis, convID, senderID)
 	}
 }
 

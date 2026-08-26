@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/privacy"
 
 	"github.com/gin-gonic/gin"
@@ -82,7 +83,7 @@ func (h *IntegrationsHandler) GetSpotifyAuthURL(c *gin.Context) {
 		return
 	}
 
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -225,7 +226,7 @@ func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 // @Success 200
 // @Router /integrations/spotify/disconnect [delete]
 func (h *IntegrationsHandler) DisconnectSpotify(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -251,7 +252,7 @@ func (h *IntegrationsHandler) DisconnectSpotify(c *gin.Context) {
 // @Success 200 {object} integrations.IntegrationStatusResponse
 // @Router /integrations/spotify/status [get]
 func (h *IntegrationsHandler) GetSpotifyStatus(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -371,7 +372,7 @@ func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 // @Success 200 {object} integrations.NowPlayingResponse
 // @Router /integrations/spotify/me/state [get]
 func (h *IntegrationsHandler) GetSpotifyPlayerState(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
 )
@@ -27,7 +28,7 @@ import (
 // @Router       /gifts/{giftRecordID}/upgrade [post]
 // @Security     BearerAuth
 func (h *GiftsHandler) UpgradeGift(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}

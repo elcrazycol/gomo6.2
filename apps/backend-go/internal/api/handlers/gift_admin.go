@@ -41,7 +41,7 @@ func (h *GiftAdminHandler) isAdmin(userID string) bool {
 // @Router       /admin/gifts [get]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -117,7 +117,7 @@ func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
 // @Router       /admin/gifts [post]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) CreateGift(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -201,7 +201,7 @@ func (h *GiftAdminHandler) CreateGift(c *gin.Context) {
 // @Router       /admin/gifts/{id} [put]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -335,7 +335,7 @@ func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
 // @Router       /admin/gifts/{id} [delete]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) DeleteGift(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -370,7 +370,7 @@ func (h *GiftAdminHandler) DeleteGift(c *gin.Context) {
 // @Router       /admin/gifts/{id}/layers [get]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) ListLayers(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -438,7 +438,7 @@ func (h *GiftAdminHandler) ListLayers(c *gin.Context) {
 // @Router       /admin/gifts/{id}/layers [post]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) CreateLayer(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -520,7 +520,7 @@ func (h *GiftAdminHandler) CreateLayer(c *gin.Context) {
 // @Router       /admin/gifts/{id}/layers/{layerId} [delete]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) DeleteLayer(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}

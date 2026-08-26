@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -88,7 +89,7 @@ func (h *DropsHandler) loadKeys() {
 // @Router       /user/drops [get]
 // @Security     BearerAuth
 func (h *DropsHandler) GetDropsBalance(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -221,7 +222,7 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 	// requests must come from an authenticated browser session whose user_id
 	// matches the caller.
 	if !sigValid {
-		claims := ensureAuth(c)
+		claims := httpx.EnsureAuth(c)
 		if claims == nil {
 			return
 		}
@@ -480,7 +481,7 @@ func (h *DropsHandler) DropsCallback(c *gin.Context) {
 // @Router       /drops/history [get]
 // @Security     BearerAuth
 func (h *DropsHandler) GetDropsHistory(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -563,7 +564,7 @@ func (h *DropsHandler) isAdminUser(userID string) bool {
 }
 
 func (h *DropsHandler) ManualVerify(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -651,7 +652,7 @@ func (h *DropsHandler) ManualVerify(c *gin.Context) {
 // @Router       /drops/wallet [get]
 // @Security     BearerAuth
 func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -684,7 +685,7 @@ func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
 // @Router       /drops/transfer [post]
 // @Security     BearerAuth
 func (h *DropsHandler) TransferDrops(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}

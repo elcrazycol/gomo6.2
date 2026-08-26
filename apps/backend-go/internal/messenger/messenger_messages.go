@@ -1,4 +1,4 @@
-package handlers
+package messenger
 
 import (
 	"context"
@@ -315,7 +315,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
 			return
 		}
-		encryptedContent, err = encryptContentForConversation(conversationID, cleanContent)
+		encryptedContent, err = EncryptContentForConversation(conversationID, cleanContent)
 		if err != nil {
 			httpx.ServerError(c, "encrypt content", err)
 			return
@@ -456,7 +456,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		encryptedPreview = previewContent
 	} else {
 		var encErr error
-		encryptedPreview, encErr = encryptContentForConversation(conversationID, previewContent)
+		encryptedPreview, encErr = EncryptContentForConversation(conversationID, previewContent)
 		if encErr != nil {
 			httpx.ServerError(c, "encrypt preview", encErr)
 			return
@@ -485,7 +485,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// commits. Otherwise a client can fetch a message before PostgreSQL exposes it.
 	queueAfterCommit(c, func() {
 		if h.redis != nil {
-			go invalidateMessengerCaches(h.redis, conversationID, claims.UserID)
+			go InvalidateMessengerCaches(h.redis, conversationID, claims.UserID)
 		}
 		if h.hub != nil {
 			go h.broadcastNewMessage(conversationID, msg, claims, isNotes)
@@ -665,7 +665,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 			return
 		}
 		req.Content = cleanContent // keep plaintext for the broadcast below
-		encryptedContent, err = encryptContentForConversation(conversationID, cleanContent)
+		encryptedContent, err = EncryptContentForConversation(conversationID, cleanContent)
 		if err != nil {
 			httpx.ServerError(c, "encrypt edit content", err)
 			return
@@ -728,7 +728,7 @@ func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversatio
 		// event instead of publishing plaintext as if it were ciphertext — the
 		// recipient decrypt path would otherwise replace it with a placeholder
 		// anyway, and plaintext must never travel over Redis.
-		encrypted, err := encryptContentForConversation(conversationID, newContent)
+		encrypted, err := EncryptContentForConversation(conversationID, newContent)
 		if err != nil {
 			log.Printf("[Messenger] encrypt edit broadcast: %v — skipping broadcast", err)
 			return

@@ -1,4 +1,4 @@
-package handlers
+package messenger
 
 import (
 	"log"
@@ -33,7 +33,7 @@ func loadEncryptionKey() {
 	messengerEncryptionKey = k
 }
 
-func encryptContentForConversation(conversationID, plaintext string) (string, error) {
+func EncryptContentForConversation(conversationID, plaintext string) (string, error) {
 	return crypto.EncryptForConversation(conversationID, plaintext)
 }
 

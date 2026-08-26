@@ -1,4 +1,4 @@
-package handlers
+package messenger
 
 import (
 	"encoding/json"

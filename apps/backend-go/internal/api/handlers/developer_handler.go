@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/oauth"
 )
@@ -35,7 +36,7 @@ func NewDeveloperHandler(db *sql.DB, oauthSvc *oauth.OAuthService) *DeveloperHan
 // @Router       /developer/apps [get]
 // @Security     BearerAuth
 func (h *DeveloperHandler) ListApps(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -67,7 +68,7 @@ func (h *DeveloperHandler) ListApps(c *gin.Context) {
 // @Router       /developer/apps [post]
 // @Security     BearerAuth
 func (h *DeveloperHandler) CreateApp(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -146,7 +147,7 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 // @Router       /developer/apps/{id} [get]
 // @Security     BearerAuth
 func (h *DeveloperHandler) GetApp(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -180,7 +181,7 @@ func (h *DeveloperHandler) GetApp(c *gin.Context) {
 // @Router       /developer/apps/{id} [put]
 // @Security     BearerAuth
 func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -227,7 +228,7 @@ func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 // @Router       /developer/apps/{id} [delete]
 // @Security     BearerAuth
 func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -259,7 +260,7 @@ func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
 // @Router       /developer/apps/{id}/regenerate-secret [post]
 // @Security     BearerAuth
 func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -299,7 +300,7 @@ func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
 // @Router       /developer/apps/{id}/tokens [get]
 // @Security     BearerAuth
 func (h *DeveloperHandler) ListTokens(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
@@ -334,7 +335,7 @@ func (h *DeveloperHandler) ListTokens(c *gin.Context) {
 // @Router       /developer/apps/{id}/revoke-user-tokens [post]
 // @Security     BearerAuth
 func (h *DeveloperHandler) RevokeUserTokens(c *gin.Context) {
-	claims := ensureAuth(c)
+	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}

@@ -1,4 +1,4 @@
-package handlers
+package messenger
 
 import (
 	"net/http"
@@ -8,6 +8,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 // ─── ListConversations ───────────────────────────────────────────────────────
@@ -16,7 +17,7 @@ func TestListConversations_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContext("/api/v1/messenger/conversations", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
 	now := time.Now()
@@ -54,7 +55,7 @@ func TestListConversations_Empty(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContext("/api/v1/messenger/conversations", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
 	rows := sqlmock.NewRows([]string{
@@ -87,7 +88,7 @@ func TestListConversations_Empty(t *testing.T) {
 
 func TestListConversations_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newGETContext("/api/v1/messenger/conversations", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
 
 	handler.ListConversations(c)
 
@@ -100,7 +101,7 @@ func TestListConversations_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContext("/api/v1/messenger/conversations", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
 	now := time.Now()
@@ -144,7 +145,7 @@ func TestListConversations_DBError(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContext("/api/v1/messenger/conversations", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
@@ -165,7 +166,7 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"user_id": testUser2}
-	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
@@ -197,7 +198,7 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"user_id": testUser2}
-	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
@@ -229,7 +230,7 @@ func TestGetOrCreateConversation_UserNotFound(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"user_id": testUser999}
-	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists — nope
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
@@ -248,7 +249,7 @@ func TestGetOrCreateConversation_SelfChat(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{"user_id": testUser1}
-	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	handler.GetOrCreateConversation(c)
 
@@ -262,7 +263,7 @@ func TestGetOrCreateConversation_MissingUserID(t *testing.T) {
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{}
-	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	handler.GetOrCreateConversation(c)
 
@@ -274,7 +275,7 @@ func TestGetOrCreateConversation_MissingUserID(t *testing.T) {
 func TestGetOrCreateConversation_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 	body := map[string]string{"user_id": testUser2}
-	c, w := newPOSTContext("/api/v1/messenger/conversations", body, nil, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, nil, nil)
 
 	handler.GetOrCreateConversation(c)
 
@@ -289,7 +290,7 @@ func TestLeaveConversation_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	// Notes check (regular conversation)
@@ -318,7 +319,7 @@ func TestLeaveConversation_NotMember(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
@@ -338,7 +339,7 @@ func TestLeaveConversation_NotMember(t *testing.T) {
 
 func TestLeaveConversation_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 
 	handler.LeaveConversation(c)
 
@@ -353,7 +354,7 @@ func TestGetOrCreateNotesConversation_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newPOSTContext("/api/v1/messenger/notes", nil, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/notes", nil, claims, nil)
 
 	mock.ExpectQuery(`SELECT find_or_create_notes_conversation\(\$1\)`).
 		WithArgs(testUser1).
@@ -379,7 +380,7 @@ func TestGetOrCreateNotesConversation_Success(t *testing.T) {
 
 func TestGetOrCreateNotesConversation_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newPOSTContext("/api/v1/messenger/notes", nil, nil, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/notes", nil, nil, nil)
 
 	handler.GetOrCreateNotesConversation(c)
 
@@ -392,7 +393,7 @@ func TestListConversations_NotesPreviewPassthrough(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newGETContext("/api/v1/messenger/conversations", nil)
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
 	now := time.Now()
@@ -440,7 +441,7 @@ func TestLeaveConversation_NotesRejected(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	// It IS the notes self-chat: leaving must be rejected.
