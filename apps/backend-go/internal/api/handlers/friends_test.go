@@ -15,6 +15,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/notifications"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -33,7 +34,12 @@ func setupFriendsHandler(t *testing.T) (*FriendsHandler, sqlmock.Sqlmock) {
 		}
 		db.Close()
 	})
-	return NewFriendsHandler(db), mock
+	h := NewFriendsHandler(db)
+	// Wire the notification service with nil redis/hub so the notification
+	// INSERT still runs (asserted below) while cache invalidation and WS pushes
+	// are skipped.
+	h.SetNotifier(notifications.New(db, nil, nil, nil))
+	return h, mock
 }
 
 // notificationInsertRow builds the RETURNING row expected by CreateNotification.

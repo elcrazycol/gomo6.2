@@ -1,9 +1,10 @@
 // Package notifications holds the notification-insertion subsystem shared
-// between the api/handlers god package and the crudengine subsystem:
-// CreateNotification/CreateWallNotification plus the single INSERT + cache
-// invalidation + WebSocket broadcast path they both funnel through. Extracted
-// so the crudengine subsystem can leave the handlers package without dragging
-// the whole notification domain with it.
+// between the api/handlers god package and the crudengine subsystem: a Service
+// carrying the DB, Redis, WebSocket hub and optional push sender, plus the
+// single INSERT + cache invalidation + WebSocket broadcast path every
+// notification type funnels through. Extracted so the crudengine subsystem can
+// leave the handlers package without dragging the whole notification domain
+// with it.
 package notifications
 
 import (
@@ -21,15 +22,40 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// PushService is the optional Web Push sender wired by routes.setupRoutes.
-// Nil when VAPID keys are not configured (push disabled). afterNotificationCreated
-// uses it to deliver every notification as a push unless the user muted that
-// type; the messenger pushes through it too.
-var PushService *push.Service
+// Service is the notification subsystem. The push sender is optional: nil
+// disables Web Push delivery (VAPID keys not configured) while DB insert,
+// cache invalidation and WebSocket broadcast keep working.
+type Service struct {
+	db    *sql.DB
+	redis *redis.Client
+	hub   *websocket.Hub
+	push  *push.Service
+}
 
-// SetPushService wires the push sender (nil-safe). Called from routes.setupRoutes.
-func SetPushService(s *push.Service) {
-	PushService = s
+// New builds a Service from its dependencies. pushSvc may be nil.
+func New(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, pushSvc *push.Service) *Service {
+	return &Service{db: db, redis: redisClient, hub: hub, push: pushSvc}
+}
+
+// SetPushService wires (or unwires, with nil) the optional Web Push sender.
+// Called from routes.setupRoutes after the VAPID-backed service is built.
+func (s *Service) SetPushService(p *push.Service) {
+	s.push = p
+}
+
+// CreateParams carries the fields for a new notification. Fill only the
+// related-* pointers that apply to the notification type; leave the rest nil.
+type CreateParams struct {
+	UserID               string                     // recipient
+	Type                 string                     // notification type
+	Message              string                     // optional user-content snippet
+	Params               *models.NotificationParams // structured display data (language-neutral)
+	RelatedThreadID      *string
+	RelatedPostID        *string
+	RelatedUserID        *string // actor (who triggered the event)
+	RelatedWallPostID    *string
+	RelatedWallCommentID *string
+	RelatedWallUserID    *string // wall owner
 }
 
 // notificationPayload is the data sent over WebSocket for a new notification
@@ -57,33 +83,33 @@ type notificationPayload struct {
 // invalidates cache, and broadcasts via WebSocket. The display data is passed as
 // structured `params` (language-neutral); title/message are kept empty for new
 // rows except message, which may carry a user-content snippet.
-func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, userID, notifType, message string, params *models.NotificationParams, relatedThreadID, relatedPostID, relatedUserID *string) (*models.Notification, error) {
-	return insertNotification(db, redisClient, hub, &models.Notification{
-		UserID:          userID,
-		Type:            notifType,
+func (s *Service) CreateNotification(p CreateParams) (*models.Notification, error) {
+	return s.insertNotification(&models.Notification{
+		UserID:          p.UserID,
+		Type:            p.Type,
 		Title:           "",
-		Message:         message,
-		Params:          marshalNotificationParams(params),
-		RelatedThreadID: relatedThreadID,
-		RelatedPostID:   relatedPostID,
-		RelatedUserID:   relatedUserID,
+		Message:         p.Message,
+		Params:          MarshalNotificationParams(p.Params),
+		RelatedThreadID: p.RelatedThreadID,
+		RelatedPostID:   p.RelatedPostID,
+		RelatedUserID:   p.RelatedUserID,
 	})
 }
 
 // CreateWallNotification creates a wall notification (profile wall post/comment
 // references plus the actor). Shared cache invalidation + WebSocket delivery
 // with CreateNotification via insertNotification.
-func CreateWallNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, userID, notifType, message string, params *models.NotificationParams, relatedWallPostID, relatedWallCommentID, relatedWallUserID, relatedUserID *string) (*models.Notification, error) {
-	return insertNotification(db, redisClient, hub, &models.Notification{
-		UserID:               userID,
-		Type:                 notifType,
+func (s *Service) CreateWallNotification(p CreateParams) (*models.Notification, error) {
+	return s.insertNotification(&models.Notification{
+		UserID:               p.UserID,
+		Type:                 p.Type,
 		Title:                "",
-		Message:              message,
-		Params:               marshalNotificationParams(params),
-		RelatedUserID:        relatedUserID,
-		RelatedWallPostID:    relatedWallPostID,
-		RelatedWallCommentID: relatedWallCommentID,
-		RelatedWallUserID:    relatedWallUserID,
+		Message:              p.Message,
+		Params:               MarshalNotificationParams(p.Params),
+		RelatedUserID:        p.RelatedUserID,
+		RelatedWallPostID:    p.RelatedWallPostID,
+		RelatedWallCommentID: p.RelatedWallCommentID,
+		RelatedWallUserID:    p.RelatedWallUserID,
 	})
 }
 
@@ -98,11 +124,6 @@ func MarshalNotificationParams(p *models.NotificationParams) json.RawMessage {
 		return json.RawMessage("{}")
 	}
 	return b
-}
-
-// marshalNotificationParams is the package-local alias used inside this file.
-func marshalNotificationParams(p *models.NotificationParams) json.RawMessage {
-	return MarshalNotificationParams(p)
 }
 
 // unmarshalNotificationParams decodes the stored params payload (tolerating
@@ -128,14 +149,14 @@ func notificationParamsJSON(raw json.RawMessage) string {
 // broadcast path shared by every notification type across the codebase.
 // Repeated same-actor, same-type events within the grouping window are folded
 // into one row (group_count increments) instead of producing one row each.
-func insertNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, n *models.Notification) (*models.Notification, error) {
-	if db == nil {
+func (s *Service) insertNotification(n *models.Notification) (*models.Notification, error) {
+	if s.db == nil {
 		return nil, fmt.Errorf("database not available")
 	}
 
 	// Try to merge into an existing burst group first (best-effort).
-	if merged := mergeNotificationGroup(db, n); merged != nil {
-		afterNotificationCreated(redisClient, hub, merged)
+	if merged := mergeNotificationGroup(s.db, n); merged != nil {
+		s.afterNotificationCreated(merged)
 		return merged, nil
 	}
 
@@ -159,7 +180,7 @@ func insertNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 	`
 
 	var retCreatedAt time.Time
-	err := db.QueryRow(query,
+	err := s.db.QueryRow(query,
 		n.UserID, n.Type, n.Title, n.Message, n.RelatedThreadID, n.RelatedPostID, n.RelatedUserID,
 		n.RelatedWallPostID, n.RelatedWallCommentID, n.RelatedWallUserID, wallPostIDsJSON(ids), false, now, 1, notificationParamsJSON(n.Params),
 	).Scan(
@@ -174,7 +195,7 @@ func insertNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 	}
 
 	n.CreatedAt = &retCreatedAt
-	afterNotificationCreated(redisClient, hub, n)
+	s.afterNotificationCreated(n)
 
 	return n, nil
 }
@@ -239,7 +260,7 @@ func mergeNotificationGroup(db *sql.DB, n *models.Notification) *models.Notifica
 	merged.ID = existingID
 	merged.Title = ""
 	merged.Message = ""
-	merged.Params = marshalNotificationParams(&params)
+	merged.Params = MarshalNotificationParams(&params)
 	merged.RelatedWallPostID = firstNonNilString(n.RelatedWallPostID, existingWallPost)
 	merged.RelatedWallPostIDs = stringSliceToJSONB(ids)
 	merged.IsRead = false
@@ -319,12 +340,12 @@ func firstNonNilString(a, b *string) *string {
 // afterNotificationCreated invalidates the user's notification cache and
 // broadcasts the notification over WebSocket. Shared by the fresh-insert and
 // group-merge paths so both deliver identically.
-func afterNotificationCreated(redisClient *redis.Client, hub *websocket.Hub, n *models.Notification) {
-	if redisClient != nil {
-		middleware.InvalidateCacheForNotification(redisClient, n.UserID)
+func (s *Service) afterNotificationCreated(n *models.Notification) {
+	if s.redis != nil {
+		middleware.InvalidateCacheForNotification(s.redis, n.UserID)
 	}
 
-	if hub != nil {
+	if s.hub != nil {
 		params := map[string]interface{}{}
 		if len(n.Params) > 0 {
 			_ = json.Unmarshal(n.Params, &params)
@@ -337,12 +358,12 @@ func afterNotificationCreated(redisClient *redis.Client, hub *websocket.Hub, n *
 			Type:                 n.Type,
 			Title:                n.Title,
 			Message:              n.Message,
-			RelatedThreadID:      nullableString(n.RelatedThreadID),
-			RelatedPostID:        nullableString(n.RelatedPostID),
-			RelatedUserID:        nullableString(n.RelatedUserID),
-			RelatedWallPostID:    nullableString(n.RelatedWallPostID),
-			RelatedWallCommentID: nullableString(n.RelatedWallCommentID),
-			RelatedWallUserID:    nullableString(n.RelatedWallUserID),
+			RelatedThreadID:      jsonNullable(n.RelatedThreadID),
+			RelatedPostID:        jsonNullable(n.RelatedPostID),
+			RelatedUserID:        jsonNullable(n.RelatedUserID),
+			RelatedWallPostID:    jsonNullable(n.RelatedWallPostID),
+			RelatedWallCommentID: jsonNullable(n.RelatedWallCommentID),
+			RelatedWallUserID:    jsonNullable(n.RelatedWallUserID),
 			RelatedWallPostIDs:   n.RelatedWallPostIDs,
 			IsRead:               n.IsRead,
 			GroupCount:           n.GroupCount,
@@ -350,7 +371,7 @@ func afterNotificationCreated(redisClient *redis.Client, hub *websocket.Hub, n *
 			CreatedAt:            n.CreatedAt.Format(time.RFC3339Nano),
 		}
 
-		if err := hub.PublishNewNotification(payload); err != nil {
+		if err := s.hub.PublishNewNotification(payload); err != nil {
 			log.Printf("[Notifications] Error publishing WS event: %v", err)
 		}
 	}
@@ -359,7 +380,7 @@ func afterNotificationCreated(redisClient *redis.Client, hub *websocket.Hub, n *
 	// user. Runs in a goroutine so a slow push service never blocks the request
 	// that created the notification. Best-effort — failures are logged, not
 	// propagated, mirroring the WebSocket delivery above.
-	if PushService != nil {
+	if s.push != nil {
 		pn := push.Notification{
 			Title: pushTitleFor(n),
 			Body:  pushBodyFor(n),
@@ -371,12 +392,12 @@ func afterNotificationCreated(redisClient *redis.Client, hub *websocket.Hub, n *
 			// enrich later; the UI already renders the in-app list from them.
 			pn.Data = n.Params
 		}
-		go PushService.SendToUser(context.Background(), n.UserID, n.Type, pn)
+		go s.push.SendToUser(context.Background(), n.UserID, n.Type, pn)
 	}
 }
 
-// nullableString returns nil if s is nil, otherwise returns *s as string
-func nullableString(s *string) interface{} {
+// jsonNullable returns nil if s is nil, otherwise returns *s as string
+func jsonNullable(s *string) interface{} {
 	if s == nil {
 		return nil
 	}

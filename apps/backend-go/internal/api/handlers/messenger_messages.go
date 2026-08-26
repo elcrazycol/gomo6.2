@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/httpx"
-	"github.com/gomo6/backend/internal/notifications"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -523,13 +522,13 @@ func messagePushBody(content string, hasAttachments bool) string {
 }
 
 // deliverMessagePush sends a Web Push to every conversation member except the
-// sender and muted members. notifications.PushService.SendToUser additionally honors the
+// sender and muted members. push.Service.SendToUser additionally honors the
 // recipient's per-type push preferences (notifType "message"), so a user who
 // turned off message pushes receives nothing here even though they still get
 // the in-app unread badge. Best-effort: failures are logged, never propagated
 // (the message is already committed and delivered over WebSocket).
 func (h *MessengerHandler) deliverMessagePush(ctx context.Context, conversationID, senderID, senderUsername, body string) {
-	if notifications.PushService == nil {
+	if h.push == nil {
 		return
 	}
 
@@ -560,7 +559,7 @@ func (h *MessengerHandler) deliverMessagePush(ctx context.Context, conversationI
 	}
 
 	for _, recipientID := range recipients {
-		notifications.PushService.SendToUser(ctx, recipientID, "message", push.Notification{
+		h.push.SendToUser(ctx, recipientID, "message", push.Notification{
 			Title: "@" + senderUsername,
 			Body:  body,
 			URL:   "/messages",

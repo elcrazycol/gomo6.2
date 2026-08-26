@@ -10,6 +10,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -83,22 +84,26 @@ func TestNotificationParamsJSON_Empty(t *testing.T) {
 }
 
 func TestSetPushService(t *testing.T) {
-	prev := PushService
-	t.Cleanup(func() { PushService = prev })
+	svc := New(nil, nil, nil, nil)
 
 	// Nil-safe wiring — routes calls it even when VAPID keys are missing.
-	SetPushService(nil)
-	if PushService != nil {
-		t.Fatal("expected PushService to be nil after SetPushService(nil)")
+	svc.SetPushService(nil)
+	if svc.push != nil {
+		t.Fatal("expected push to be nil after SetPushService(nil)")
+	}
+
+	svc.SetPushService(&push.Service{})
+	if svc.push == nil {
+		t.Fatal("expected push to be set after SetPushService(&push.Service{})")
 	}
 }
 
-func TestNullableString(t *testing.T) {
+func TestJSONNullable(t *testing.T) {
 	s := "x"
-	if got := nullableString(nil); got != nil {
+	if got := jsonNullable(nil); got != nil {
 		t.Fatalf("expected nil for nil pointer, got %v", got)
 	}
-	if got := nullableString(&s); got != "x" {
+	if got := jsonNullable(&s); got != "x" {
 		t.Fatalf("expected x, got %v", got)
 	}
 }
@@ -213,7 +218,14 @@ func TestCreateNotification_Success(t *testing.T) {
 		WillReturnRows(rows)
 
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := CreateNotification(db, nil, nil, "u1", "like", "", params, strPtr("thread1"), strPtr("post1"), nil)
+	svc := New(db, nil, nil, nil)
+	notif, err := svc.CreateNotification(CreateParams{
+		UserID:          "u1",
+		Type:            "like",
+		Params:          params,
+		RelatedThreadID: strPtr("thread1"),
+		RelatedPostID:   strPtr("post1"),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -232,7 +244,12 @@ func TestCreateNotification_Success(t *testing.T) {
 }
 
 func TestCreateNotification_NilDB(t *testing.T) {
-	notif, err := CreateNotification(nil, nil, nil, "u1", "like", "Msg", nil, nil, nil, nil)
+	svc := New(nil, nil, nil, nil)
+	notif, err := svc.CreateNotification(CreateParams{
+		UserID:  "u1",
+		Type:    "like",
+		Message: "Msg",
+	})
 	if err == nil {
 		t.Fatal("expected error for nil db, got nil")
 	}
@@ -249,7 +266,13 @@ func TestCreateNotification_DBError(t *testing.T) {
 		WillReturnError(sqlmock.ErrCancelled)
 
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := CreateNotification(db, nil, nil, "u1", "like", "Msg", params, nil, nil, nil)
+	svc := New(db, nil, nil, nil)
+	notif, err := svc.CreateNotification(CreateParams{
+		UserID:  "u1",
+		Type:    "like",
+		Message: "Msg",
+		Params:  params,
+	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -278,7 +301,15 @@ func TestCreateWallNotification_MergesIntoGroup(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(now))
 
 	params := &models.NotificationParams{Actor: "actor1"}
-	notif, err := CreateWallNotification(db, nil, nil, "u1", "wall_post_like", "", params, strPtr("wp-new"), nil, strPtr("wu1"), strPtr("actor1"))
+	svc := New(db, nil, nil, nil)
+	notif, err := svc.CreateWallNotification(CreateParams{
+		UserID:            "u1",
+		Type:              "wall_post_like",
+		Params:            params,
+		RelatedUserID:     strPtr("actor1"),
+		RelatedWallPostID: strPtr("wp-new"),
+		RelatedWallUserID: strPtr("wu1"),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -324,7 +355,15 @@ func TestCreateWallNotification_GroupingErrorFallsBackToInsert(t *testing.T) {
 		WillReturnRows(rows)
 
 	params := &models.NotificationParams{Actor: "actor1"}
-	notif, err := CreateWallNotification(db, nil, nil, "u1", "wall_post_like", "", params, strPtr("wp1"), nil, strPtr("wu1"), strPtr("actor1"))
+	svc := New(db, nil, nil, nil)
+	notif, err := svc.CreateWallNotification(CreateParams{
+		UserID:            "u1",
+		Type:              "wall_post_like",
+		Params:            params,
+		RelatedUserID:     strPtr("actor1"),
+		RelatedWallPostID: strPtr("wp1"),
+		RelatedWallUserID: strPtr("wu1"),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -362,7 +401,12 @@ func TestCreateNotification_InvalidatesCacheAndPublishes(t *testing.T) {
 
 	hub := websocket.NewHub(client, nil)
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := CreateNotification(db, client, hub, "u1", "like", "", params, nil, nil, nil)
+	svc := New(db, client, hub, nil)
+	notif, err := svc.CreateNotification(CreateParams{
+		UserID: "u1",
+		Type:   "like",
+		Params: params,
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

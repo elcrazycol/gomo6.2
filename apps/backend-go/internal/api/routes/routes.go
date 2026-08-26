@@ -128,19 +128,29 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// push.New returns nil when VAPID keys are not configured, disabling push
 	// cleanly (no-op delivery + ServiceUnavailable on the management endpoints).
 	pushService := push.New(db)
-	notifications.SetPushService(pushService)
 	pushHandler := handlers.NewPushHandler(pushService)
+
+	// Notification service: one instance carries the DB, Redis, WebSocket hub
+	// and push sender. Injected into every handler and the CRUD engine that
+	// emits notifications so delivery, cache invalidation and push share one
+	// path instead of a package-level global.
+	notifService := notifications.New(db, redis, wsHub, pushService)
+	likesHandler.SetNotifier(notifService)
+
 	rpcHandler := handlers.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)
 	rpcHandler.SetAchievementEngine(achEngine)
+	rpcHandler.SetNotifier(notifService)
 	engine := crudengine.New(db, wsHub)
 	engine.SetRedis(redis)
 	engine.SetAchievementEngine(achEngine)
+	engine.SetNotifier(notifService)
 	searchHandler := handlers.NewSearchHandler(db)
 	feedHandler := handlers.NewFeedHandler(db)
 	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
+	messengerHandler.SetPushService(pushService)
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	giftsHandler := handlers.NewGiftsHandler(db)
@@ -151,6 +161,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	friendsHandler := handlers.NewFriendsHandler(db)
 	friendsHandler.SetRedis(redis)
 	friendsHandler.SetWebSocketHub(wsHub)
+	friendsHandler.SetNotifier(notifService)
 	emojiPacksHandler := handlers.NewEmojiPacksHandler(db)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()

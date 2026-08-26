@@ -25,6 +25,7 @@ type FriendsHandler struct {
 	db    *sql.DB
 	hub   *websocket.Hub
 	redis *redis.Client
+	notif *notifications.Service
 }
 
 func NewFriendsHandler(db *sql.DB) *FriendsHandler {
@@ -34,6 +35,8 @@ func NewFriendsHandler(db *sql.DB) *FriendsHandler {
 func (h *FriendsHandler) SetRedis(r *redis.Client) { h.redis = r }
 
 func (h *FriendsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
+
+func (h *FriendsHandler) SetNotifier(n *notifications.Service) { h.notif = n }
 
 // invalidateFriendCaches clears Redis caches for friend-related endpoints.
 func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) {
@@ -745,11 +748,16 @@ func (h *FriendsHandler) GetFriendStatus(c *gin.Context) {
 
 // createFriendNotification sends a WebSocket notification for friend events.
 func (h *FriendsHandler) createFriendNotification(userID, notifType, actorUsername string, relatedUserID *string) {
-	if h.db == nil {
+	if h.notif == nil {
 		return
 	}
 	params := &models.NotificationParams{Actor: actorUsername}
-	_, err := notifications.CreateNotification(h.db, h.redis, h.hub, userID, notifType, "", params, nil, nil, relatedUserID)
+	_, err := h.notif.CreateNotification(notifications.CreateParams{
+		UserID:        userID,
+		Type:          notifType,
+		Params:        params,
+		RelatedUserID: relatedUserID,
+	})
 	if err != nil {
 		log.Printf("[Friends] Failed to create notification: %v", err)
 	}

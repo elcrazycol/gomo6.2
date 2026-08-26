@@ -42,6 +42,7 @@ type RPCHandler struct {
 	wsHub            interface{}
 	recomputeStatsFn func(*sql.DB, string)
 	achEngine        *achievements.Engine
+	notif            *notifications.Service
 }
 
 // NewRPCHandler creates a new RPCHandler.
@@ -64,6 +65,10 @@ func (h *RPCHandler) SetRedis(redis *redis.Client) {
 
 func (h *RPCHandler) SetWebSocketHub(hub interface{}) {
 	h.wsHub = hub
+}
+
+func (h *RPCHandler) SetNotifier(n *notifications.Service) {
+	h.notif = n
 }
 
 // canWriteChannel checks if a user can write to a channel (handles private channels).
@@ -319,19 +324,21 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	// private_recipient_id. The thread author is not necessarily a participant in
 	// that DM, so no reply notification carrying a content snippet may reach them
 	// (it would leak the DM content via notifications REST + WS).
-	if threadAuthor != "" && threadAuthor != claims.UserID && !req.IsPrivate {
+	if threadAuthor != "" && threadAuthor != claims.UserID && !req.IsPrivate && h.notif != nil {
 		params := &models.NotificationParams{Actor: claims.Username}
 		shortContent := post.Content
 		if len(shortContent) > 100 {
 			shortContent = shortContent[:100] + "..."
 		}
-		var notifHub *websocket.Hub
-		if h.wsHub != nil {
-			if castHub, ok := h.wsHub.(*websocket.Hub); ok {
-				notifHub = castHub
-			}
-		}
-		_, _ = notifications.CreateNotification(h.db, h.redis, notifHub, threadAuthor, "reply", shortContent, params, &req.ThreadID, &post.ID, &claims.UserID)
+		_, _ = h.notif.CreateNotification(notifications.CreateParams{
+			UserID:          threadAuthor,
+			Type:            "reply",
+			Message:         shortContent,
+			Params:          params,
+			RelatedThreadID: &req.ThreadID,
+			RelatedPostID:   &post.ID,
+			RelatedUserID:   &claims.UserID,
+		})
 	}
 
 	if h.redis != nil {

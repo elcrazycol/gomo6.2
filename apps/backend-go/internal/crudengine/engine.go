@@ -17,6 +17,7 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -29,6 +30,7 @@ type Engine struct {
 	hub       *websocket.Hub
 	redis     *redis.Client
 	achEngine *achievements.Engine
+	notif     *notifications.Service
 
 	// achievementRecomputeAt debounces per-user achievement reconciliation
 	// (M-02/M-03): reconciling on EVERY page open would run 20+ source-count
@@ -55,6 +57,12 @@ func (h *Engine) SetRedis(redis *redis.Client) {
 // SetAchievementEngine wires the achievements engine for auto-unlock events.
 func (h *Engine) SetAchievementEngine(e *achievements.Engine) {
 	h.achEngine = e
+}
+
+// SetNotifier wires the notification service for wall notifications. Nil-safe:
+// without it, wall writes skip notification delivery entirely.
+func (h *Engine) SetNotifier(n *notifications.Service) {
+	h.notif = n
 }
 
 // ─── Main Router ────────────────────────────────────────────────────────────

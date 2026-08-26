@@ -143,11 +143,23 @@ func (h *Engine) wallCommentPostAndAuthor(c *gin.Context, commentID string) (pos
 // self-notifications. Best-effort — a failed notification must never fail the
 // underlying wall write.
 func (h *Engine) createWallNotification(c *gin.Context, recipientID, actorID, notifType, message, actorUsername string, wallPostID, wallCommentID, wallUserID *string) {
+	if h.notif == nil {
+		return
+	}
 	if recipientID == "" || actorID == "" || recipientID == actorID {
 		return
 	}
 	params := &models.NotificationParams{Actor: actorUsername}
-	if _, err := notifications.CreateWallNotification(h.db, h.redis, h.hub, recipientID, notifType, message, params, wallPostID, wallCommentID, wallUserID, &actorID); err != nil {
+	if _, err := h.notif.CreateWallNotification(notifications.CreateParams{
+		UserID:               recipientID,
+		Type:                 notifType,
+		Message:              message,
+		Params:               params,
+		RelatedUserID:        &actorID,
+		RelatedWallPostID:    wallPostID,
+		RelatedWallCommentID: wallCommentID,
+		RelatedWallUserID:    wallUserID,
+	}); err != nil {
 		fmt.Printf("[WallNotifications] error creating %s notification: %v\n", notifType, err)
 	}
 }

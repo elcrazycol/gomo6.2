@@ -328,7 +328,14 @@ func TestCreateNotification_Success(t *testing.T) {
 		WillReturnRows(rows)
 
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := notifications.CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "", params, strPtr("thread1"), strPtr("post1"), nil)
+	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
+	notif, err := svc.CreateNotification(notifications.CreateParams{
+		UserID:          "u1",
+		Type:            "like",
+		Params:          params,
+		RelatedThreadID: strPtr("thread1"),
+		RelatedPostID:   strPtr("post1"),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -355,7 +362,13 @@ func TestCreateNotification_SuccessNoRelated(t *testing.T) {
 		WillReturnRows(rows)
 
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := notifications.CreateNotification(handler.db, handler.redis, handler.hub, "u1", "reply", "Someone replied", params, nil, nil, nil)
+	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
+	notif, err := svc.CreateNotification(notifications.CreateParams{
+		UserID:  "u1",
+		Type:    "reply",
+		Message: "Someone replied",
+		Params:  params,
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -384,7 +397,16 @@ func TestCreateWallNotification_Success(t *testing.T) {
 		WillReturnRows(rows)
 
 	params := &models.NotificationParams{Actor: "actor1"}
-	notif, err := notifications.CreateWallNotification(handler.db, handler.redis, handler.hub, "u1", "wall_post_like", "", params, strPtr("wp1"), strPtr("wc1"), strPtr("wu1"), strPtr("actor1"))
+	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
+	notif, err := svc.CreateWallNotification(notifications.CreateParams{
+		UserID:               "u1",
+		Type:                 "wall_post_like",
+		Params:               params,
+		RelatedUserID:        strPtr("actor1"),
+		RelatedWallPostID:    strPtr("wp1"),
+		RelatedWallCommentID: strPtr("wc1"),
+		RelatedWallUserID:    strPtr("wu1"),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -423,7 +445,15 @@ func TestCreateWallNotification_MergesIntoGroup(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(now))
 
 	params := &models.NotificationParams{Actor: "actor1"}
-	notif, err := notifications.CreateWallNotification(handler.db, handler.redis, handler.hub, "u1", "wall_post_like", "", params, strPtr("wp-new"), nil, strPtr("wu1"), strPtr("actor1"))
+	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
+	notif, err := svc.CreateWallNotification(notifications.CreateParams{
+		UserID:            "u1",
+		Type:              "wall_post_like",
+		Params:            params,
+		RelatedUserID:     strPtr("actor1"),
+		RelatedWallPostID: strPtr("wp-new"),
+		RelatedWallUserID: strPtr("wu1"),
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -466,7 +496,13 @@ func TestCreateNotification_DBError(t *testing.T) {
 		WillReturnError(sqlmock.ErrCancelled)
 
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := notifications.CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Msg", params, nil, nil, nil)
+	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
+	notif, err := svc.CreateNotification(notifications.CreateParams{
+		UserID:  "u1",
+		Type:    "like",
+		Message: "Msg",
+		Params:  params,
+	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -478,7 +514,12 @@ func TestCreateNotification_DBError(t *testing.T) {
 // ──────────────────────────── CreateNotification (nil guards) ─────────────────
 
 func TestCreateNotification_NilDB(t *testing.T) {
-	notif, err := notifications.CreateNotification(nil, nil, nil, "u1", "like", "Msg", nil, nil, nil, nil)
+	svc := notifications.New(nil, nil, nil, nil)
+	notif, err := svc.CreateNotification(notifications.CreateParams{
+		UserID:  "u1",
+		Type:    "like",
+		Message: "Msg",
+	})
 	if err == nil {
 		t.Fatal("expected error for nil db, got nil")
 	}
@@ -500,7 +541,12 @@ func TestCreateNotification_NilRedisHub(t *testing.T) {
 
 	// redis=nil, hub=nil should work — just skips cache invalidation and WS publish
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := notifications.CreateNotification(handler.db, nil, nil, "u1", "like", "", params, nil, nil, nil)
+	svc := notifications.New(handler.db, nil, nil, nil)
+	notif, err := svc.CreateNotification(notifications.CreateParams{
+		UserID: "u1",
+		Type:   "like",
+		Params: params,
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -517,7 +563,13 @@ func TestCreateNotification_DBErrorPackage(t *testing.T) {
 		WillReturnError(sqlmock.ErrCancelled)
 
 	params := &models.NotificationParams{Actor: "alice"}
-	notif, err := notifications.CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Msg", params, nil, nil, nil)
+	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
+	notif, err := svc.CreateNotification(notifications.CreateParams{
+		UserID:  "u1",
+		Type:    "like",
+		Message: "Msg",
+		Params:  params,
+	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
