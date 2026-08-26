@@ -16,6 +16,8 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/backup"
 	"github.com/gomo6/backend/internal/crudengine"
+	"github.com/gomo6/backend/internal/drops"
+	"github.com/gomo6/backend/internal/gifts"
 	"github.com/gomo6/backend/internal/messenger"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/notifications"
@@ -23,6 +25,7 @@ import (
 	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
+	"github.com/gomo6/backend/internal/rpc"
 	"github.com/gomo6/backend/internal/socialpreview"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
@@ -141,7 +144,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	notifService := notifications.New(db, redis, wsHub, pushService)
 	likesHandler.SetNotifier(notifService)
 
-	rpcHandler := handlers.NewRPCHandler(db)
+	rpcHandler := rpc.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)
 	rpcHandler.SetAchievementEngine(achEngine)
@@ -157,11 +160,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	messengerHandler.SetPushService(pushService)
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
-	giftsHandler := handlers.NewGiftsHandler(db)
+	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
-	giftAdminHandler := handlers.NewGiftAdminHandler(db)
-	dropsHandler := handlers.NewDropsHandler(db)
+	giftAdminHandler := gifts.NewGiftAdminHandler(db)
+	dropsHandler := drops.NewDropsHandler(db)
 	friendsHandler := handlers.NewFriendsHandler(db)
 	friendsHandler.SetRedis(redis)
 	friendsHandler.SetWebSocketHub(wsHub)

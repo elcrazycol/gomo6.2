@@ -53,3 +53,14 @@ func EnsureAuth(c *gin.Context) *auth.Claims {
 	}
 	return claims
 }
+
+// BearerClaims returns the authenticated claims and whether a valid bearer
+// identity is present. Unlike EnsureAuth it never writes to the response — it
+// is for endpoints that treat auth as optional and branch on the result.
+func BearerClaims(c *gin.Context) (*auth.Claims, bool) {
+	claims := AuthenticatedClaims(c)
+	if claims == nil || claims.UserID == "" {
+		return nil, false
+	}
+	return claims, true
+}

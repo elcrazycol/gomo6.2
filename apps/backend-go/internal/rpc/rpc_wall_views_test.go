@@ -1,4 +1,4 @@
-package handlers
+package rpc
 
 import (
 	"encoding/json"
@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/testutil"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -37,7 +38,7 @@ func TestRecordWallViews_Authenticated(t *testing.T) {
 		WithArgs("viewer-1", nil, sqlmock.AnyArg(), "viewer-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs:   []string{viewPostUUID},
 		ViewerKey: "anon-key-1",
 	}, claims)
@@ -66,7 +67,7 @@ func TestRecordWallViews_AuthenticatedWithoutKey(t *testing.T) {
 		WithArgs("viewer-1", nil, sqlmock.AnyArg(), "viewer-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs: []string{viewPostUUID},
 	}, claims)
 	h.RecordWallViews(c)
@@ -92,7 +93,7 @@ func TestRecordWallViews_Anonymous(t *testing.T) {
 		WithArgs(nil, "anon-key-1", sqlmock.AnyArg(), "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs:   []string{viewPostUUID},
 		ViewerKey: "anon-key-1",
 	}, nil)
@@ -115,7 +116,7 @@ func TestRecordWallViews_Anonymous(t *testing.T) {
 func TestRecordWallViews_AnonymousWithoutKey(t *testing.T) {
 	h, _ := setupRPCHandler(t)
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs: []string{viewPostUUID},
 	}, nil)
 	h.RecordWallViews(c)
@@ -131,7 +132,7 @@ func TestRecordWallViews_AnonymousWithoutKey(t *testing.T) {
 func TestRecordWallViews_EmptyList(t *testing.T) {
 	h, _ := setupRPCHandler(t)
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs:   []string{},
 		ViewerKey: "anon-key-1",
 	}, nil)
@@ -160,7 +161,7 @@ func TestRecordWallViews_SkipsInvalidAndDuplicateIds(t *testing.T) {
 		WithArgs(nil, "anon-key-1", sqlmock.AnyArg(), "").
 		WillReturnResult(sqlmock.NewResult(1, 2))
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs:   []string{"not-a-uuid", viewPostUUID, viewPostUUID, "", other},
 		ViewerKey: "anon-key-1",
 	}, nil)
@@ -187,7 +188,7 @@ func TestRecordWallViews_InvisiblePostCountsZero(t *testing.T) {
 		WithArgs(nil, "anon-key-1", sqlmock.AnyArg(), "").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs:   []string{viewPostUUID},
 		ViewerKey: "anon-key-1",
 	}, nil)
@@ -221,7 +222,7 @@ func TestRecordWallViews_BatchCapped(t *testing.T) {
 		WithArgs(nil, "anon-key-1", sqlmock.AnyArg(), "").
 		WillReturnResult(sqlmock.NewResult(1, maxWallViewsBatch))
 
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs:   ids,
 		ViewerKey: "anon-key-1",
 	}, nil)
@@ -249,7 +250,7 @@ func TestRecordWallViews_OversizedBody(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		ids = append(ids, viewPostUUID)
 	}
-	c, w := newRPCPostContext(recordWallViewsRequest{
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
 		PostIDs:   ids,
 		ViewerKey: "anon-key-1",
 	}, nil)

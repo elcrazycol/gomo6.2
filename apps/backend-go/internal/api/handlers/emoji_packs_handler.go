@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/lib/pq"
 )
@@ -155,7 +156,7 @@ func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
 	// a slug must not expose a private pack's contents (or even its existence
 	// beyond a 404) to strangers.
 	if !pack.IsPublic {
-		claims, ok := bearerClaims(c)
+		claims, ok := httpx.BearerClaims(c)
 		if !ok {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("pack not found"))
 			return
@@ -198,7 +199,7 @@ func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
 // @Router       /my-emoji-packs [get]
 // @Security     BearerAuth
 func (h *EmojiPacksHandler) GetMyPacks(c *gin.Context) {
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("unauthorized"))
 		return
@@ -250,7 +251,7 @@ func (h *EmojiPacksHandler) GetMyPacks(c *gin.Context) {
 // @Router       /my-emoji-subscriptions [get]
 // @Security     BearerAuth
 func (h *EmojiPacksHandler) GetMySubscriptions(c *gin.Context) {
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("unauthorized"))
 		return

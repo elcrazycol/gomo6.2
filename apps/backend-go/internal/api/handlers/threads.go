@@ -45,7 +45,7 @@ func (h *ThreadsHandler) SetAuthService(authService *auth.AuthService) {
 // Returns empty string if no valid token is found (anonymous access).
 func (h *ThreadsHandler) getUserIDFromRequest(c *gin.Context) string {
 	// First try claims set by auth middleware
-	if claims, ok := bearerClaims(c); ok {
+	if claims, ok := httpx.BearerClaims(c); ok {
 		return claims.UserID
 	}
 	// Try to parse Authorization header directly (for public endpoints)

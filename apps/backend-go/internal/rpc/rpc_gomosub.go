@@ -1,4 +1,4 @@
-package handlers
+package rpc
 
 import (
 	"database/sql"
@@ -50,7 +50,7 @@ var gomosubSlugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,24}$`)
 // @Router       /rpc/create_gomosub [post]
 // @Security     BearerAuth
 func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
