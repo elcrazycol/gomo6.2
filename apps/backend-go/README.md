@@ -22,6 +22,10 @@ apps/backend-go/
 │   ├── crud/                   # Stateless SQL helpers (filters, ordering, emoji)
 │   ├── profiles/               # Profile stats + CSS sanitizers
 │   ├── backup/                 # Database backup handler
+│   ├── notifications/          # Notification Service (insert + cache + WS/push), инжектится в handlers/crudengine
+│   ├── privacy/                # Правила видимости профиля
+│   ├── httpx/                  # HTTP-хелперы (ServerError, AuthenticatedUserID)
+│   ├── textutil/               # Строковые хелперы (TruncateRunes)
 │   ├── auth/                   # JWT / WebAuthn / 2FA
 │   ├── middleware/             # Rate limit, auth, CORS, …
 │   ├── cache/                  # Redis cache layer
@@ -59,7 +63,7 @@ graph TD
     subgraph Domain
         profiles["profiles\n3 files — stats recomputation, CSS sanitizers, username lookup"]
         backup["backup\n1 file — database backup"]
-        notifications["notifications\n1 file — notification insertion subsystem"]
+        notifications["notifications\n1 file — Service: insert + cache invalidation + WS/push\n(deps: db, redis, hub, push) injected into handlers/crudengine"]
         privacy["privacy\n1 file — profile visibility rules"]
     end
 
@@ -101,6 +105,7 @@ graph TD
     routes --> websocket
     routes --> achievements
     routes --> push
+    routes --> notifications
 
     %% handlers → domain + shared + infra
     handlers --> auth
@@ -135,6 +140,12 @@ graph TD
     crudengine --> models
     crudengine --> profiles
     crudengine --> websocket
+
+    %% notifications.Service consumes infra; messenger pushes via push.Service
+    notifications --> middleware
+    notifications --> models
+    notifications --> push
+    notifications --> websocket
 
     profiles --> auth
     profiles --> models

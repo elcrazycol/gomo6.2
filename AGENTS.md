@@ -210,7 +210,7 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 | `crud` | 3 | Stateless SQL helpers: filters, ordering, emoji validation |
 | `profiles` | 3 | Profile stats recomputation, CSS/background sanitizers, username lookup |
 | `backup` | 1 | Database backup handler |
-| `notifications` | 1 | Notification insertion subsystem (insert + cache invalidation + WS/push) |
+| `notifications` | 1 | Notification Service: `notifications.New(db, redis, hub, push)` + `CreateParams`-based `CreateNotification`/`CreateWallNotification` (insert + cache invalidation + WS + push). No package globals — routes builds one instance and injects it into handlers/crudengine via `SetNotifier` |
 | `privacy` | 1 | Profile-visibility rules (private profile, mutual friends, per-content gates) |
 | `httpx` | 1 | Shared HTTP helpers: `ServerError`, `AuthenticatedUserID` |
 | `textutil` | 1 | Shared string helpers: `TruncateRunes` |
@@ -231,7 +231,9 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 | `metrics` | 1 | Prometheus metrics |
 | `database` | 2 | PostgreSQL + Redis connections |
 
-Dependency direction: `routes → {handlers, crudengine, backup, profiles, …}`, `handlers → {auth, cache, crud, …}`, `crudengine → {achievements, crud, middleware, models, notifications, privacy, profiles, httpx, textutil, …}` — all leaf packages, no handlers import. `crud`, `profiles`, `backup`, `notifications`, `privacy`, `httpx`, `textutil` are leaf-ish packages with minimal inbound deps.
+Dependency direction: `routes → {handlers, crudengine, backup, profiles, notifications, …}`, `handlers → {auth, cache, crud, …}`, `crudengine → {achievements, crud, middleware, models, notifications, privacy, profiles, httpx, textutil, …}` — all leaf packages, no handlers import. `crud`, `profiles`, `backup`, `notifications`, `privacy`, `httpx`, `textutil` are leaf-ish packages with minimal inbound deps.
+
+Composition note: `notifications` has **no package-level state**. `routes.setupRoutes` builds one `notifications.Service` (`New(db, redis, wsHub, pushService)`) and injects it into `LikesHandler`/`FriendsHandler`/`RPCHandler`/`crudengine.Engine` via `SetNotifier`; `MessengerHandler` receives the `*push.Service` directly via `SetPushService`. A nil notifier/push service silently disables that delivery path — no panic, no global to reset in tests.
 
 Migrations in `migrations/` (44+ files, auto-applied via docker-entrypoint-initdb.d).
 
