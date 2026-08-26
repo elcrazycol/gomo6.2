@@ -1,4 +1,5 @@
 import type { AchievementLevel } from "@/components/AchievementCard";
+import { useFileDrop } from "@/hooks/useFileDrop";
 
 /** Raw row returned by /profiles. */
 export interface Profile {
@@ -81,3 +82,7 @@ export interface ProfilePrivacyData {
   private_hide_gifts?: boolean;
   private_hide_achievements?: boolean;
 }
+
+/** Drag & drop handlers for the avatar upload zone — derived from the shared
+ * useFileDrop hook so the contract lives in exactly one place. */
+export type AvatarDragHandlers = ReturnType<typeof useFileDrop>["dragHandlers"];

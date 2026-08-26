@@ -11,19 +11,12 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { storageUrl } from "@/utils/storage";
 import { parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import type { ProfileBackgroundVariant } from "@/utils/profileBackground";
-import type { Profile } from "./types";
+import type { AvatarDragHandlers, Profile } from "./types";
 
 // Heavy interaction-only component — split into a separate chunk so the
 // profile page's initial JS is small on mobile. Loaded on first use (edit
 // mode) instead of on every visit.
 const EmojiPicker = lazy(() => import("@/components/EmojiPicker").then((m) => ({ default: m.EmojiPicker })));
-
-export interface AvatarDragHandlers {
-  onDragEnter: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent) => void;
-}
 
 export interface ProfileHeaderProps {
   profile: Profile;

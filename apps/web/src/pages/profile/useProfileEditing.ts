@@ -6,7 +6,7 @@ import { uploadFile } from "@/utils/storage";
 import { apiErrorMessage } from "@/utils/apiErrors";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { useFileDrop } from "@/hooks/useFileDrop";
-import type { AvatarHistoryItem, Profile } from "./types";
+import type { AvatarDragHandlers, AvatarHistoryItem, Profile } from "./types";
 
 export interface UseProfileEditingParams {
   userId: string | undefined;
@@ -46,12 +46,7 @@ export interface UseProfileEditingResult {
   backgroundUploading: boolean;
   showUsernameDialog: boolean;
   isAvatarDragging: boolean;
-  avatarDragHandlers: {
-    onDragEnter: (e: React.DragEvent) => void;
-    onDragOver: (e: React.DragEvent) => void;
-    onDragLeave: () => void;
-    onDrop: (e: React.DragEvent) => void;
-  };
+  avatarDragHandlers: AvatarDragHandlers;
   // Actions
   startEditing: () => void;
   handleSaveAndExit: () => Promise<void>;
