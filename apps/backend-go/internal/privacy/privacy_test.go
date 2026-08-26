@@ -3,6 +3,7 @@ package privacy
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -386,5 +387,179 @@ func TestCanViewUserGifts_PrivateNonFriend(t *testing.T) {
 	}
 	if can {
 		t.Fatal("expected gifts of private non-friend to be hidden")
+	}
+}
+
+// ──────────────────────────── CanViewWall ────────────────────────────
+
+// wallSettingsQuery matches the two-flag privacy_settings SELECT that
+// CanViewWall runs (the historical wall gate query shape, kept so the sqlmock
+// contracts in crudengine/routes/hub tests stay valid).
+const wallSettingsQuery = `SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`
+
+// wallSettingsRow builds a row for the two-flag privacy_settings SELECT that
+// CanViewWall runs.
+func wallSettingsRow(privateProfile, hideWall bool) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(privateProfile, hideWall)
+}
+
+const friendshipExistsQuery = `SELECT EXISTS.*FROM friendships.*`
+
+func TestCanViewWall_SameUser(t *testing.T) {
+	db, _ := newMock(t)
+
+	can, err := CanViewWall(db, "u1", "u1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !can {
+		t.Fatal("a user must always be able to view their own wall")
+	}
+}
+
+func TestCanViewWall_NoPrivacyRow_PublicByDefault(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(wallSettingsQuery).
+		WithArgs("owner").
+		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}))
+
+	can, err := CanViewWall(db, "viewer", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !can {
+		t.Fatal("missing privacy row must default to public")
+	}
+}
+
+func TestCanViewWall_PublicProfile(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(wallSettingsQuery).
+		WithArgs("owner").
+		WillReturnRows(wallSettingsRow(false, false))
+
+	can, err := CanViewWall(db, "viewer", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !can {
+		t.Fatal("a public profile must be viewable")
+	}
+}
+
+func TestCanViewWall_HiddenWallNonFriend(t *testing.T) {
+	db, mock := newMock(t)
+	// Public profile that hid the wall — non-friends are locked out.
+	mock.ExpectQuery(wallSettingsQuery).
+		WithArgs("owner").
+		WillReturnRows(wallSettingsRow(false, true))
+	mock.ExpectQuery(friendshipExistsQuery).
+		WithArgs("viewer", "owner").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	can, err := CanViewWall(db, "viewer", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if can {
+		t.Fatal("a hidden wall must not be viewable by a stranger")
+	}
+}
+
+func TestCanViewWall_PrivateAndNotFriend(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(wallSettingsQuery).
+		WithArgs("owner").
+		WillReturnRows(wallSettingsRow(true, true))
+	mock.ExpectQuery(friendshipExistsQuery).
+		WithArgs("viewer", "owner").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	can, err := CanViewWall(db, "viewer", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if can {
+		t.Fatal("a stranger must not view a private wall")
+	}
+}
+
+func TestCanViewWall_PrivateMutualFriend(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(wallSettingsQuery).
+		WithArgs("owner").
+		WillReturnRows(wallSettingsRow(true, true))
+	mock.ExpectQuery(friendshipExistsQuery).
+		WithArgs("viewer", "owner").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	can, err := CanViewWall(db, "viewer", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !can {
+		t.Fatal("a mutual friend must be able to view the wall")
+	}
+}
+
+func TestCanViewWall_AnonymousOnPrivateWall(t *testing.T) {
+	db, mock := newMock(t)
+	// Anonymous viewer: only the settings query runs — the friendship EXISTS is
+	// never reached (an empty viewer cannot be a friend).
+	mock.ExpectQuery(wallSettingsQuery).
+		WithArgs("owner").
+		WillReturnRows(wallSettingsRow(true, true))
+
+	can, err := CanViewWall(db, "", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if can {
+		t.Fatal("an anonymous caller must not view a private wall")
+	}
+}
+
+func TestCanViewWall_AnonymousOnPublicWall(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(wallSettingsQuery).
+		WithArgs("owner").
+		WillReturnRows(wallSettingsRow(false, false))
+
+	can, err := CanViewWall(db, "", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !can {
+		t.Fatal("an anonymous caller must still see public non-hidden walls")
+	}
+}
+
+func TestCanViewWall_DBErrorFailsClosed(t *testing.T) {
+	db, _ := newMock(t)
+	// No expectation → the settings query errors → must fail closed.
+
+	can, err := CanViewWall(db, "viewer", "owner")
+	if err == nil {
+		t.Fatal("expected an error from the DB")
+	}
+	if can {
+		t.Fatal("DB errors must deny wall access")
+	}
+}
+
+// ──────────────────────────── WallVisibilityClause ────────────────────────────
+
+func TestWallVisibilityClause(t *testing.T) {
+	clause := WallVisibilityClause("p.user_id", "ps", "$2")
+	for _, want := range []string{
+		"p.user_id = $2",
+		"COALESCE(ps.private_profile, false) = false AND COALESCE(ps.private_hide_wall, false) = false",
+		"SELECT 1 FROM friendships f",
+		"f.user1_id = p.user_id AND f.user2_id = $2",
+		"f.user1_id = $2 AND f.user2_id = p.user_id",
+	} {
+		if !strings.Contains(clause, want) {
+			t.Errorf("WallVisibilityClause missing %q in: %s", want, clause)
+		}
 	}
 }

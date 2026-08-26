@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 )
 
 const profileWallAuthorJSON = `COALESCE(
@@ -312,9 +313,9 @@ func (h *Engine) runWallSelectQuery(c *gin.Context, baseQuery, tableAlias string
 	// hidden the wall (private_hide_wall). private_profile = true always means
 	// a private wall (the sub-settings can never re-open it), and for public
 	// profiles private_hide_wall = true hides the wall from non-friends — the
-	// toggle must not be a no-op. This predicate is intentionally duplicated in
-	// the write path (enforcePostOwnership), the WebSocket room gate and the
-	// media route (canViewUserWall) so every channel enforces the same rule.
+	// toggle must not be a no-op. The clause comes from privacy.WallVisibilityClause
+	// (the single SQL form of privacy.CanViewWall), shared with the wall media
+	// gate, so every channel enforces the same rule.
 	//
 	// Guests get SQL NULL for the viewer reference (see {viewer} substitution
 	// below): an empty string would break the uuid comparisons in the count
@@ -325,10 +326,7 @@ func (h *Engine) runWallSelectQuery(c *gin.Context, baseQuery, tableAlias string
 		args = append(args, viewerID)
 		ai++
 	}
-	clauses = append(clauses, "("+
-		ownerColumn+" = "+viewerArg+
-		" OR (COALESCE("+privacyAlias+".private_profile, false) = false AND COALESCE("+privacyAlias+".private_hide_wall, false) = false)"+
-		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
+	clauses = append(clauses, privacy.WallVisibilityClause(ownerColumn, privacyAlias, viewerArg))
 
 	if opts.extraWhere != "" {
 		clauses = append(clauses, opts.extraWhere)

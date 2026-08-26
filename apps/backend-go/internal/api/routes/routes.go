@@ -19,6 +19,7 @@ import (
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/oauth"
+	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
 	stor "github.com/gomo6/backend/internal/storage"
@@ -669,7 +670,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 						// uploader placed on a private wall). The uploader gate applies
 						// only to keys no legitimate post references (orphans/guessing).
 						found, allowed := wallAttachmentAccess(db, viewerID, ownerID, key)
-						if (found && !allowed) || (!found && !canViewUserWall(db, viewerID, ownerID)) {
+						// Fallback for orphaned/guessed keys: the uploader gate applies
+						// only to keys no legitimate post references. The wall-visibility
+						// rule lives in privacy.CanViewWall; DB errors fail closed but
+						// are logged so an outage is not mistaken for a plain 403.
+						canViewWall, err := privacy.CanViewWall(db, viewerID, ownerID)
+						if err != nil {
+							log.Printf("[storage] wall visibility check failed for viewer=%s owner=%s: %v", viewerID, ownerID, err)
+						}
+						if (found && !allowed) || (!found && !canViewWall) {
 							c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 							return
 						}
@@ -992,30 +1001,37 @@ func wallAttachmentAccess(db *sql.DB, viewerID, uploaderID, key string) (found, 
 	}
 	pattern := "%" + escapeLikePattern(base) + "%"
 
-	// Single query mirroring the wall read predicate against each referencing
-	// post's wall owner (p.user_id). EXISTS short-circuits on the first
-	// visible wall, so a file published across several walls is served as soon
-	// as any of them is visible to the viewer.
+	// Single query applying the shared wall-visibility rule
+	// (privacy.WallVisibilityClause — the SQL form of privacy.CanViewWall)
+	// against each referencing post's wall owner (p.user_id). EXISTS
+	// short-circuits on the first visible wall, so a file published across
+	// several walls is served as soon as any of them is visible to the viewer.
 	// viewerID is the empty string for anonymous crawlers (the /og/wall
-	// proxy). The uuid columns must be compared via ::text: passing ""
-	// straight into a uuid parameter makes Postgres raise
-	// "invalid input syntax for type uuid", the query errors and every
-	// anonymous wall-image request 404s even for public walls.
+	// proxy): the viewer is bound as SQL NULL instead, because passing ""
+	// straight into a uuid parameter makes Postgres raise "invalid input
+	// syntax for type uuid" and every anonymous wall-image request would 404
+	// even for public walls. NULL never matches the ownership or friendship
+	// comparisons, so anonymous callers only see public non-hidden walls.
+	viewerArg := "NULL"
+	args := []interface{}{pattern}
+	if viewerID != "" {
+		viewerArg = "$2"
+		args = append(args, viewerID)
+	}
+	args = append(args, uploaderID)
+	uploaderIdx := strconv.Itoa(len(args))
+
 	var visible bool
 	if err := db.QueryRow(`
 SELECT EXISTS(
   SELECT 1
   FROM profile_wall_posts p
   LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
-  WHERE p.author_id = $3
+  WHERE p.author_id = $`+uploaderIdx+`
     AND (p.image_url LIKE $1 ESCAPE '\' OR p.attachments::text LIKE $1 ESCAPE '\')
-    AND (p.user_id::text = $2
-         OR (COALESCE(ps.private_profile, false) = false AND COALESCE(ps.private_hide_wall, false) = false)
-         OR EXISTS (SELECT 1 FROM friendships f
-                    WHERE (f.user1_id::text = p.user_id::text AND f.user2_id::text = $2)
-                       OR (f.user1_id::text = $2 AND f.user2_id::text = p.user_id::text)))
+    AND `+privacy.WallVisibilityClause("p.user_id", "ps", viewerArg)+`
   LIMIT 1
-)`, pattern, viewerID, uploaderID).Scan(&visible); err != nil {
+)`, args...).Scan(&visible); err != nil {
 		return false, false
 	}
 	if visible {
@@ -1035,34 +1051,6 @@ SELECT EXISTS(
 		return false, false
 	}
 	return referenced, false
-}
-
-// canViewUserWall reports whether viewerID may view the wall of ownerID
-// (owner, public profile whose wall is not hidden (private_hide_wall), or
-// mutual friend). Used by the private "wall" media bucket so photos are never
-// served to strangers even when the key is known. Mirrors the wall read
-// predicate in profileWallFinishSelectQuery.
-func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
-	if viewerID == ownerID {
-		return true
-	}
-	var private, hideWall bool
-	if err := db.QueryRow("SELECT COALESCE(private_profile, false), COALESCE(private_hide_wall, false) FROM privacy_settings WHERE user_id = $1", ownerID).Scan(&private, &hideWall); err != nil {
-		return err == sql.ErrNoRows
-	}
-	if !private && !hideWall {
-		return true
-	}
-	// Same ::text cast as in wallAttachmentAccess: viewerID may be empty for
-	// anonymous callers, and uuid-typed columns reject "" outright.
-	var friend bool
-	if err := db.QueryRow(`SELECT EXISTS(
-		SELECT 1 FROM friendships
-		WHERE (user1_id::text = $1 AND user2_id::text = $2) OR (user1_id::text = $2 AND user2_id::text = $1)
-	)`, viewerID, ownerID).Scan(&friend); err != nil {
-		return false
-	}
-	return friend
 }
 
 // ─── Universal CRUD route generation ────────────────────────────────────────
