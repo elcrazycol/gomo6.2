@@ -544,6 +544,34 @@ describe("Lightbox editor", () => {
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
   });
 
+  it("downscales sources bigger than the mobile texture limit instead of drawing black", async () => {
+    // jsdom's shared default is 800×600; simulate a photo exceeding the 4096
+    // GPU max texture size on mobile (9000×6000). One drawImage of such a
+    // source paints black on Android/iOS.
+    Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => 9000 });
+    Object.defineProperty(HTMLImageElement.prototype, "naturalHeight", { configurable: true, get: () => 6000 });
+
+    const onEditImage = vi.fn();
+    openEditor(onEditImage);
+
+    // The working canvas is capped at MAX_IMAGE_DIMENSION=2560: 2560×1707.
+    await waitFor(() => {
+      const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement | null;
+      expect(main?.width).toBe(2560);
+      expect(main?.height).toBe(1707);
+    });
+
+    // drawImageScaled halves the source twice before the final draw, so every
+    // step stays under the texture cap: 9000×6000 → 4500×3000 → 2250×1500 →
+    // 2560×1707.
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 4500, 3000);
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 2250, 1500);
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 2560, 1707);
+
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+  });
+
   it("keeps the crop square when a 1:1 aspect preset is applied", async () => {
     const onEditImage = vi.fn();
     await openEditorReady(onEditImage);
