@@ -11,6 +11,7 @@ const WHEEL_ZOOM_STEP = 1.15;
 
 type View = { zoom: number; x: number; y: number };
 const IDENTITY_VIEW: View = { zoom: 1, x: 0, y: 0 };
+type Point = { x: number; y: number };
 
 const BRUSH_COLORS = [
   "#ffffff",
@@ -217,71 +218,157 @@ function VerticalBrushSize({
   );
 }
 
-export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const overlayRef = useRef<HTMLCanvasElement | null>(null);
+// ─── Pinch / wheel zoom ─────────────────────────────────────────────────────
+// Owns the view transform (zoom + pan). The photo zooms under a screen-fixed
+// crop overlay, so zooming never moves the crop frame.
 
-  const [tool, setTool] = useState<Tool>("crop");
-  const [color, setColor] = useState("#e53935");
-  const [brushSize, setBrushSize] = useState(12);
-  const [aspect, setAspect] = useState<string | null>(null);
-  const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
+function usePinchZoom({
+  overlayRef,
+  fitRef,
+}: {
+  overlayRef: React.RefObject<HTMLCanvasElement | null>;
+  fitRef: React.MutableRefObject<{ w: number; h: number }>;
+}) {
+  const [view, setView] = useState<View>(IDENTITY_VIEW);
+  const viewRef = useRef<View>(IDENTITY_VIEW);
+  viewRef.current = view;
+  const pinchRef = useRef<{ dist: number; zoom: number; x: number; y: number; midX: number; midY: number } | null>(null);
+
+  const clampView = useCallback((next: View): View => {
+    const zoom = clamp(next.zoom, MIN_VIEW_ZOOM, MAX_VIEW_ZOOM);
+    // Pan is applied as a plain screen-space translate on a wrapper, so the
+    // visible displacement is exactly (x, y); bound it so the photo edge can
+    // never cross the stage centre.
+    const maxX = (fitRef.current.w * (zoom - 1)) / 2;
+    const maxY = (fitRef.current.h * (zoom - 1)) / 2;
+    return {
+      zoom,
+      x: zoom === MIN_VIEW_ZOOM ? 0 : clamp(next.x, -maxX, maxX),
+      y: zoom === MIN_VIEW_ZOOM ? 0 : clamp(next.y, -maxY, maxY),
+    };
+  }, [fitRef]);
+
+  const applyView = useCallback((next: View) => {
+    setView(clampView(next));
+  }, [clampView]);
+
+  // Zoom around an on-screen point (cursor for wheel, finger midpoint for pinch).
+  const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const zoom = viewRef.current.zoom * factor;
+    const x = clientX - rect.left - rect.width / 2 - ((clientX - rect.left - rect.width / 2 - viewRef.current.x) / viewRef.current.zoom) * zoom;
+    const y = clientY - rect.top - rect.height / 2 - ((clientY - rect.top - rect.height / 2 - viewRef.current.y) / viewRef.current.zoom) * zoom;
+    applyView({ zoom, x, y });
+  }, [overlayRef, applyView]);
+
+  // Mouse-wheel zoom on desktop: wheel up zooms in around the cursor.
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const factor = event.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP;
+      zoomAt(event.clientX, event.clientY, factor);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [overlayRef, zoomAt]);
+
+  const beginPinch = useCallback((p1: Point, p2: Point) => {
+    pinchRef.current = {
+      dist: Math.hypot(p2.x - p1.x, p2.y - p1.y),
+      zoom: viewRef.current.zoom,
+      x: viewRef.current.x,
+      y: viewRef.current.y,
+      midX: (p1.x + p2.x) / 2,
+      midY: (p1.y + p2.y) / 2,
+    };
+  }, []);
+
+  const updatePinch = useCallback((p1: Point, p2: Point) => {
+    const base = pinchRef.current;
+    if (!base || base.dist === 0) return;
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    applyView({
+      zoom: base.zoom * (dist / base.dist),
+      x: base.x + (midX - base.midX),
+      y: base.y + (midY - base.midY),
+    });
+  }, [applyView]);
+
+  const endPinch = useCallback(() => {
+    pinchRef.current = null;
+  }, []);
+
+  const resetView = useCallback(() => {
+    setView(IDENTITY_VIEW);
+  }, []);
+
+  return { view, viewRef, resetView, beginPinch, updatePinch, endPinch };
+}
+
+// ─── Crop window ────────────────────────────────────────────────────────────
+// Owns the on-screen crop window (screen coordinates, never zoomed), the
+// derived image-space crop box used for export, the aspect presets and the
+// overlay drawing. The component decides when to draw; this hook knows how.
+
+function useCropWindow({
+  canvasRef,
+  overlayRef,
+  stageRef,
+  viewRef,
+  view,
+  fitRef,
+  fit,
+  tool,
+  ready,
+}: {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  overlayRef: React.RefObject<HTMLCanvasElement | null>;
+  stageRef: React.RefObject<HTMLDivElement | null>;
+  viewRef: React.MutableRefObject<View>;
+  view: View;
+  fitRef: React.MutableRefObject<{ w: number; h: number }>;
+  fit: { w: number; h: number };
+  tool: Tool;
+  ready: boolean;
+}) {
   // The crop window lives in SCREEN coordinates on a layer that never zooms:
   // pinch/wheel zoom the photo underneath while the frame stays put, exactly
   // like Telegram. The image-space crop box is derived from it for export.
   const [cropScreen, setCropScreen] = useState<Box>({ x: 0, y: 0, w: 1, h: 1 });
-  const [fit, setFit] = useState({ w: 0, h: 0 });
-  const [view, setView] = useState<View>(IDENTITY_VIEW);
-  const viewRef = useRef<View>(IDENTITY_VIEW);
-  viewRef.current = view;
-  const [ready, setReady] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
+  const [aspect, setAspect] = useState<string | null>(null);
+  const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
 
-  // Refs mirroring state for use inside event handlers without re-subscribing.
-  const toolRef = useRef<Tool>("crop");
-  toolRef.current = tool;
-  const colorRef = useRef(color);
-  colorRef.current = color;
-  const brushSizeRef = useRef(brushSize);
-  brushSizeRef.current = brushSize;
-  const aspectRef = useRef(aspect);
-  aspectRef.current = aspect;
   const cropScreenRef = useRef(cropScreen);
   cropScreenRef.current = cropScreen;
-  const fitRef = useRef(fit);
-  fitRef.current = fit;
+  const aspectRef = useRef(aspect);
+  aspectRef.current = aspect;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
   const readyRef = useRef(ready);
   readyRef.current = ready;
-
   // Image-space crop box derived from the fixed on-screen window; this is what
   // gets exported when applying the crop / pressing "Готово".
   const cropBoxRef = useRef<Box>({ x: 0, y: 0, w: 1, h: 1 });
-  const undoStackRef = useRef<Snapshot[]>([]);
-  const redoStackRef = useRef<Snapshot[]>([]);
-  const strokeRef = useRef<{ x: number; y: number; drawing: boolean } | null>(null);
-  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const pinchRef = useRef<{ dist: number; zoom: number; x: number; y: number; midX: number; midY: number } | null>(null);
   const cropDragRef = useRef<{ handle: Handle | "move"; startX: number; startY: number; box: Box } | null>(null);
-  const blurCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastImgSizeRef = useRef({ w: 0, h: 0 });
 
   const isTouch = useMemo(
     () => typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0),
     []
   );
 
-  // ─── Stage / overlay ──────────────────────────────────────────────────────
-
-  const getOverlayCtx = useCallback(() => overlayRef.current?.getContext("2d") ?? null, []);
+  const getOverlayCtx = useCallback(() => overlayRef.current?.getContext("2d") ?? null, [overlayRef]);
 
   /** Screen rect of the visible (zoomed + panned) photo, in stage coordinates.
       Computed analytically so it works before the browser has laid the frame
       out (and in tests). */
-  const getImageScreenRect = useCallback((): Box => {
+  const getImageScreenRect = (): Box => {
     const stage = stageRef.current;
     const f = fitRef.current;
     const v = viewRef.current;
@@ -290,7 +377,7 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     const w = f.w * v.zoom;
     const h = f.h * v.zoom;
     return { x: cx - w / 2, y: cy - h / 2, w, h };
-  }, []);
+  };
 
   /** Redraw the crop overlay: darkening, grid, frame and grips — all in screen
       pixels at the FIXED on-screen window position, independent of the view
@@ -364,7 +451,7 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     ctx.fillRect(midX - midLen / 2, s.y + s.h - thickness / 2, midLen, thickness);
     ctx.fillRect(s.x - thickness / 2, midY - midLen / 2, thickness, midLen);
     ctx.fillRect(s.x + s.w - thickness / 2, midY - midLen / 2, thickness, midLen);
-  }, [getOverlayCtx, isTouch]);
+  }, [getOverlayCtx, stageRef, isTouch]);
 
   const clearOverlay = useCallback(() => {
     const ctx = getOverlayCtx();
@@ -373,99 +460,20 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
-  }, [getOverlayCtx]);
+  }, [getOverlayCtx, stageRef]);
 
-  /** Recompute the contain fit for the photo and keep the screen-fixed overlay
-      sized to the stage. Resets the crop window to the whole photo whenever
-      the image itself changed (load, undo/redo, applied crop). */
-  const syncStage = useCallback(() => {
-    const stage = stageRef.current;
-    const canvas = canvasRef.current;
-    const overlay = overlayRef.current;
-    if (!stage || !canvas || !overlay) return;
-    const iw = canvas.width;
-    const ih = canvas.height;
-    if (!iw || !ih) return;
-    const scale = Math.min(stage.clientWidth / iw, stage.clientHeight / ih);
-    const w = Math.max(1, Math.floor(iw * scale));
-    const h = Math.max(1, Math.floor(ih * scale));
-    setFit((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
-
-    // Size the overlay buffer to the stage in device pixels.
-    const dpr = window.devicePixelRatio || 1;
-    const ow = Math.max(1, Math.round(stage.clientWidth * dpr));
-    const oh = Math.max(1, Math.round(stage.clientHeight * dpr));
-    if (overlay.width !== ow || overlay.height !== oh) {
-      overlay.width = ow;
-      overlay.height = oh;
-    }
-
-    const imgChanged = lastImgSizeRef.current.w !== iw || lastImgSizeRef.current.h !== ih;
-    lastImgSizeRef.current = { w: iw, h: ih };
-    if (imgChanged) {
-      setCropScreen({
-        x: Math.max(0, (stage.clientWidth - w) / 2),
-        y: Math.max(0, (stage.clientHeight - h) / 2),
-        w,
-        h,
-      });
-    }
-
-    redrawOverlay();
-  }, [redrawOverlay]);
-
-  // Keep everything in sync with the stage size (rotation, browser chrome).
-  useEffect(() => {
+  /** Reset the crop window to cover the whole photo (centred). Called by the
+      component whenever the photo itself changed size. */
+  const resetCropWindow = useCallback((w: number, h: number) => {
     const stage = stageRef.current;
     if (!stage) return;
-    const observer = new ResizeObserver(syncStage);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [syncStage]);
-
-  // ─── Initial load ─────────────────────────────────────────────────────────
-  // Loads the photo ONCE per src (plus manual retry). Deliberately has no
-  // other deps: re-running would wipe the canvas (drawings, crop) and flash a
-  // black screen while decoding — the cause of the phone glitches.
-  useEffect(() => {
-    let cancelled = false;
-    setLoadError(false);
-    (async () => {
-      try {
-        const img = await loadImage(src);
-        if (cancelled) return;
-        const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(img.naturalWidth, img.naturalHeight));
-        const width = Math.max(1, Math.round(img.naturalWidth * scale));
-        const height = Math.max(1, Math.round(img.naturalHeight * scale));
-
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(img, 0, 0, width, height);
-
-        setView(IDENTITY_VIEW);
-        setAspect(null);
-        setReady(true);
-      } catch (error) {
-        console.error("PhotoEditor init failed", error);
-        if (!cancelled) setLoadError(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [src, reloadKey]);
-
-  // Fit the photo into the stage once it is ready.
-  useEffect(() => {
-    if (ready) syncStage();
-  }, [ready, syncStage]);
+    setCropScreen({
+      x: Math.max(0, (stage.clientWidth - w) / 2),
+      y: Math.max(0, (stage.clientHeight - h) / 2),
+      w,
+      h,
+    });
+  }, [stageRef]);
 
   /** Derive the image-space crop box from the fixed on-screen window through
       the current view transform. */
@@ -487,200 +495,33 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     const bw = clamp((s.w / fw) * canvas.width, 0, canvas.width - bx);
     const bh = clamp((s.h / fh) * canvas.height, 0, canvas.height - by);
     cropBoxRef.current = { x: bx, y: by, w: bw, h: bh };
-  }, []);
+  }, [canvasRef, stageRef, viewRef, fitRef]);
 
   useEffect(() => {
     syncCropBox();
   }, [cropScreen, view, fit, syncCropBox]);
 
-  // Redraw the overlay whenever the visible state changes.
-  useEffect(() => {
-    if (!ready) return;
-    if (tool === "crop") redrawOverlay();
-    else clearOverlay();
-  }, [ready, tool, cropScreen, view, fit, redrawOverlay, clearOverlay]);
-
-  // ─── Snapshots (undo / redo) ──────────────────────────────────────────────
-
-  const takeSnapshot = useCallback((): Snapshot | null => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    // Freeze the pre-stroke pixels synchronously (a cheap drawImage copy); the
-    // PNG encoding runs in the background via encodeSnapshotAsync, so starting
-    // a stroke never blocks on a synchronous toDataURL of a multi-megapixel
-    // canvas.
-    const copy = document.createElement("canvas");
-    copy.width = canvas.width;
-    copy.height = canvas.height;
-    const cctx = copy.getContext("2d");
-    if (!cctx) return null;
-    cctx.drawImage(canvas, 0, 0);
-    return { width: canvas.width, height: canvas.height, ready: encodeSnapshotAsync(copy) };
-  }, []);
-
-  const pushUndo = useCallback(() => {
-    const snap = takeSnapshot();
-    if (!snap) return;
-    undoStackRef.current.push(snap);
-    // A bounded history keeps memory in check: each entry is a full-resolution
-    // PNG of a photo up to 2560px, so 10 steps is already tens of MB.
-    if (undoStackRef.current.length > 10) undoStackRef.current.shift();
-    redoStackRef.current = [];
-    setCanUndo(true);
-    setCanRedo(false);
-  }, [takeSnapshot]);
-
-  const restoreSnapshot = useCallback(
-    (snap: Snapshot) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      snap.ready
-        .then((dataUrl) => {
-          const img = new Image();
-          img.src = dataUrl;
-          const apply = () => {
-            const ctx = canvas.getContext("2d");
-            if (!ctx) return;
-            canvas.width = snap.width;
-            canvas.height = snap.height;
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "high";
-            ctx.drawImage(img, 0, 0, snap.width, snap.height);
-            // Restoring pixels must not touch the view (zoom/pan) or the aspect
-            // lock: undo of a brush stroke keeps the user's context, and the
-            // derived crop box simply re-syncs with the unchanged screen window.
-            // The crop window is only reset inside syncStage when the photo size
-            // itself changed (e.g. undoing an applied crop).
-            syncStage();
-          };
-          if (typeof img.decode === "function") {
-            img.decode().then(() => apply()).catch(() => { img.onload = apply; });
-          } else {
-            img.onload = apply;
-          }
-        })
-        .catch((error) => console.error("Snapshot restore failed", error));
-    },
-    [syncStage]
-  );
-
-  const handleUndo = useCallback(() => {
-    const stack = undoStackRef.current;
-    const canvas = canvasRef.current;
-    if (stack.length === 0 || !canvas) return;
-    const current = takeSnapshot();
-    const prev = stack.pop();
-    if (current) redoStackRef.current.push(current);
-    if (prev) restoreSnapshot(prev);
-    setCanUndo(stack.length > 0);
-    setCanRedo(redoStackRef.current.length > 0);
-  }, [takeSnapshot, restoreSnapshot]);
-
-  const handleRedo = useCallback(() => {
-    const stack = redoStackRef.current;
-    const canvas = canvasRef.current;
-    if (stack.length === 0 || !canvas) return;
-    const current = takeSnapshot();
-    const next = stack.pop();
-    if (current) undoStackRef.current.push(current);
-    if (next) restoreSnapshot(next);
-    setCanUndo(undoStackRef.current.length > 0);
-    setCanRedo(stack.length > 0);
-  }, [takeSnapshot, restoreSnapshot]);
-
-  // ─── Zoom / pan (pinch + mouse wheel) ────────────────────────────────────
-
-  const clampView = useCallback((next: View): View => {
-    const zoom = clamp(next.zoom, MIN_VIEW_ZOOM, MAX_VIEW_ZOOM);
-    // Pan is applied as a plain screen-space translate on a wrapper, so the
-    // visible displacement is exactly (x, y); bound it so the photo edge can
-    // never cross the stage centre.
-    const maxX = (fitRef.current.w * (zoom - 1)) / 2;
-    const maxY = (fitRef.current.h * (zoom - 1)) / 2;
-    return {
-      zoom,
-      x: zoom === MIN_VIEW_ZOOM ? 0 : clamp(next.x, -maxX, maxX),
-      y: zoom === MIN_VIEW_ZOOM ? 0 : clamp(next.y, -maxY, maxY),
-    };
-  }, []);
-
-  const applyView = useCallback((next: View) => {
-    setView(clampView(next));
-  }, [clampView]);
-
-  // Zoom around an on-screen point (cursor for wheel, finger midpoint for pinch).
-  const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
-    const el = overlayRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const zoom = viewRef.current.zoom * factor;
-    const x = clientX - rect.left - rect.width / 2 - ((clientX - rect.left - rect.width / 2 - viewRef.current.x) / viewRef.current.zoom) * zoom;
-    const y = clientY - rect.top - rect.height / 2 - ((clientY - rect.top - rect.height / 2 - viewRef.current.y) / viewRef.current.zoom) * zoom;
-    applyView({ zoom, x, y });
-  }, [applyView]);
-
-  // Mouse-wheel zoom on desktop: wheel up zooms in around the cursor.
-  useEffect(() => {
-    const el = overlayRef.current;
-    if (!el) return;
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const factor = event.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP;
-      zoomAt(event.clientX, event.clientY, factor);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomAt]);
-
-  // ─── Pointer handling ─────────────────────────────────────────────────────
-
-  /** Pointer position in stage (screen) coordinates. */
-  const getScreenPoint = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    const el = overlayRef.current;
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }, []);
-
-  /** Pointer position in image coordinates, mapped through the zoomed frame. */
-  const getCanvasPoint = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return null;
-    return {
-      x: clamp(((e.clientX - rect.left) / rect.width) * canvas.width, 0, canvas.width),
-      y: clamp(((e.clientY - rect.top) / rect.height) * canvas.height, 0, canvas.height),
-      inside: e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom,
-    };
-  }, []);
-
-  const hitTestHandle = useCallback(
-    (x: number, y: number, box: Box): Handle | null => {
-      // Hit zones as rectangles around the Telegram-style grips — generous
-      // enough for touch, in the same screen coordinates as the overlay.
-      const half = (isTouch ? 26 : 18) / 2;
-      const midX = box.x + box.w / 2;
-      const midY = box.y + box.h / 2;
-      const zones: { id: Handle; cx: number; cy: number }[] = [
-        { id: "nw", cx: box.x, cy: box.y },
-        { id: "ne", cx: box.x + box.w, cy: box.y },
-        { id: "se", cx: box.x + box.w, cy: box.y + box.h },
-        { id: "sw", cx: box.x, cy: box.y + box.h },
-        { id: "n", cx: midX, cy: box.y },
-        { id: "s", cx: midX, cy: box.y + box.h },
-        { id: "w", cx: box.x, cy: midY },
-        { id: "e", cx: box.x + box.w, cy: midY },
-      ];
-      for (const zone of zones) {
-        if (Math.abs(x - zone.cx) <= half && Math.abs(y - zone.cy) <= half) return zone.id;
-      }
-      return null;
-    },
-    [isTouch]
-  );
+  const hitTestHandle = (x: number, y: number, box: Box): Handle | null => {
+    // Hit zones as rectangles around the Telegram-style grips — generous
+    // enough for touch, in the same screen coordinates as the overlay.
+    const half = (isTouch ? 26 : 18) / 2;
+    const midX = box.x + box.w / 2;
+    const midY = box.y + box.h / 2;
+    const zones: { id: Handle; cx: number; cy: number }[] = [
+      { id: "nw", cx: box.x, cy: box.y },
+      { id: "ne", cx: box.x + box.w, cy: box.y },
+      { id: "se", cx: box.x + box.w, cy: box.y + box.h },
+      { id: "sw", cx: box.x, cy: box.y + box.h },
+      { id: "n", cx: midX, cy: box.y },
+      { id: "s", cx: midX, cy: box.y + box.h },
+      { id: "w", cx: box.x, cy: midY },
+      { id: "e", cx: box.x + box.w, cy: midY },
+    ];
+    for (const zone of zones) {
+      if (Math.abs(x - zone.cx) <= half && Math.abs(y - zone.cy) <= half) return zone.id;
+    }
+    return null;
+  };
 
   /** Resize the on-screen crop window while dragging one handle, honouring a
       locked aspect. Works in screen coordinates against the visible photo. */
@@ -753,6 +594,220 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     return { x: left, y: top, w: right - left, h: bottom - top };
   };
 
+  /** Begin a crop drag (grip resize or window move) at a screen point. */
+  const startCropDrag = (x: number, y: number) => {
+    const box = cropScreenRef.current;
+    const handle = hitTestHandle(x, y, box);
+    if (handle) {
+      cropDragRef.current = { handle, startX: x, startY: y, box };
+    } else if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
+      cropDragRef.current = { handle: "move", startX: x, startY: y, box };
+    }
+  };
+
+  const moveCropDrag = (x: number, y: number) => {
+    const drag = cropDragRef.current;
+    if (!drag) return;
+    if (drag.handle === "move") {
+      const dx = x - drag.startX;
+      const dy = y - drag.startY;
+      const img = getImageScreenRect();
+      const box = drag.box;
+      setCropScreen({
+        x: clamp(box.x + dx, img.x, img.x + img.w - box.w),
+        y: clamp(box.y + dy, img.y, img.y + img.h - box.h),
+        w: box.w,
+        h: box.h,
+      });
+    } else {
+      setCropScreen(resizeBox(drag.box, drag.handle, x, y));
+    }
+  };
+
+  const endCropDrag = () => {
+    cropDragRef.current = null;
+  };
+
+  /** Apply an aspect preset: keep the current centre, grow/shrink to the
+      largest box that fits the visible photo, all in screen coordinates. */
+  const applyAspect = (id: string) => {
+    setAspect(id);
+    const ratio = ASPECTS.find((a) => a.id === id)?.ratio;
+    if (!ratio) return;
+
+    const img = getImageScreenRect();
+    const s = cropScreenRef.current;
+    const cx = s.x + s.w / 2;
+    const cy = s.y + s.h / 2;
+    let w = img.w;
+    let h = img.h;
+    if (ratio >= 1) {
+      h = w / ratio;
+      if (h > img.h) {
+        h = img.h;
+        w = h * ratio;
+      }
+    } else {
+      w = h * ratio;
+      if (w > img.w) {
+        w = img.w;
+        h = w / ratio;
+      }
+    }
+    const x = clamp(cx - w / 2, img.x, img.x + img.w - w);
+    const y = clamp(cy - h / 2, img.y, img.y + img.h - h);
+    setCropScreen({ x, y, w, h });
+  };
+
+  return {
+    cropScreen,
+    aspect,
+    setAspect,
+    aspectMenuOpen,
+    setAspectMenuOpen,
+    cropBoxRef,
+    redrawOverlay,
+    clearOverlay,
+    resetCropWindow,
+    startCropDrag,
+    moveCropDrag,
+    endCropDrag,
+    applyAspect,
+  };
+}
+
+// ─── Undo / redo history ────────────────────────────────────────────────────
+// Owns the snapshot stacks. Snapshots are async-encoded PNG data URLs (see
+// encodeSnapshotAsync); restoring redraws the canvas and lets the caller
+// re-sync the stage via onRestore.
+
+function useCanvasHistory({
+  canvasRef,
+  onRestore,
+}: {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  onRestore: () => void;
+}) {
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const undoStackRef = useRef<Snapshot[]>([]);
+  const redoStackRef = useRef<Snapshot[]>([]);
+
+  const takeSnapshot = useCallback((): Snapshot | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    // Freeze the pre-stroke pixels synchronously (a cheap drawImage copy); the
+    // PNG encoding runs in the background via encodeSnapshotAsync, so starting
+    // a stroke never blocks on a synchronous toDataURL of a multi-megapixel
+    // canvas.
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const cctx = copy.getContext("2d");
+    if (!cctx) return null;
+    cctx.drawImage(canvas, 0, 0);
+    return { width: canvas.width, height: canvas.height, ready: encodeSnapshotAsync(copy) };
+  }, [canvasRef]);
+
+  const pushUndo = useCallback(() => {
+    const snap = takeSnapshot();
+    if (!snap) return;
+    undoStackRef.current.push(snap);
+    // A bounded history keeps memory in check: each entry is a full-resolution
+    // PNG of a photo up to 2560px, so 10 steps is already tens of MB.
+    if (undoStackRef.current.length > 10) undoStackRef.current.shift();
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, [takeSnapshot]);
+
+  const restoreSnapshot = useCallback(
+    (snap: Snapshot) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      snap.ready
+        .then((dataUrl) => {
+          const img = new Image();
+          img.src = dataUrl;
+          const apply = () => {
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+            canvas.width = snap.width;
+            canvas.height = snap.height;
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.drawImage(img, 0, 0, snap.width, snap.height);
+            // Restoring pixels must not touch the view (zoom/pan) or the aspect
+            // lock: undo of a brush stroke keeps the user's context, and the
+            // derived crop box simply re-syncs with the unchanged screen window.
+            // The crop window is only reset inside onRestore when the photo
+            // size itself changed (e.g. undoing an applied crop).
+            onRestore();
+          };
+          if (typeof img.decode === "function") {
+            img.decode().then(() => apply()).catch(() => { img.onload = apply; });
+          } else {
+            img.onload = apply;
+          }
+        })
+        .catch((error) => console.error("Snapshot restore failed", error));
+    },
+    [canvasRef, onRestore]
+  );
+
+  const handleUndo = useCallback(() => {
+    const stack = undoStackRef.current;
+    const canvas = canvasRef.current;
+    if (stack.length === 0 || !canvas) return;
+    const current = takeSnapshot();
+    const prev = stack.pop();
+    if (current) redoStackRef.current.push(current);
+    if (prev) restoreSnapshot(prev);
+    setCanUndo(stack.length > 0);
+    setCanRedo(redoStackRef.current.length > 0);
+  }, [takeSnapshot, restoreSnapshot, canvasRef]);
+
+  const handleRedo = useCallback(() => {
+    const stack = redoStackRef.current;
+    const canvas = canvasRef.current;
+    if (stack.length === 0 || !canvas) return;
+    const current = takeSnapshot();
+    const next = stack.pop();
+    if (current) undoStackRef.current.push(current);
+    if (next) restoreSnapshot(next);
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(stack.length > 0);
+  }, [takeSnapshot, restoreSnapshot, canvasRef]);
+
+  return { canUndo, canRedo, pushUndo, handleUndo, handleRedo };
+}
+
+// ─── Brush / blur gesture ───────────────────────────────────────────────────
+// Owns the in-flight stroke: one undo step per stroke, a blur layer prepared
+// once at stroke start, and segment-interpolated stamping for fast swipes.
+
+function useBrushGesture({
+  canvasRef,
+  pushUndo,
+  tool,
+  color,
+  brushSize,
+}: {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  pushUndo: () => void;
+  tool: Tool;
+  color: string;
+  brushSize: number;
+}) {
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const colorRef = useRef(color);
+  colorRef.current = color;
+  const brushSizeRef = useRef(brushSize);
+  brushSizeRef.current = brushSize;
+  const strokeRef = useRef<{ x: number; y: number; drawing: boolean } | null>(null);
+  const blurCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   /**
    * Build a strongly blurred copy of the canvas to stamp from. Uses a
    * downscale-then-upscale pass instead of ctx.filter, which is not supported
@@ -799,63 +854,9 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     ctx.restore();
   };
 
-  const beginPinch = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
-    pinchRef.current = {
-      dist: Math.hypot(p2.x - p1.x, p2.y - p1.y),
-      zoom: viewRef.current.zoom,
-      x: viewRef.current.x,
-      y: viewRef.current.y,
-      midX: (p1.x + p2.x) / 2,
-      midY: (p1.y + p2.y) / 2,
-    };
-  };
-
-  const updatePinch = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
-    const base = pinchRef.current;
-    if (!base || base.dist === 0) return;
-    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    const midX = (p1.x + p2.x) / 2;
-    const midY = (p1.y + p2.y) / 2;
-    const zoom = base.zoom * (dist / base.dist);
-    applyView({
-      zoom,
-      x: base.x + (midX - base.midX),
-      y: base.y + (midY - base.midY),
-    });
-  };
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const screen = getScreenPoint(e);
-    if (!screen) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    e.preventDefault();
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    // Two fingers down: start pinch-zoom, pause any in-flight stroke/crop.
-    if (pointersRef.current.size >= 2) {
-      const [p1, p2] = Array.from(pointersRef.current.values());
-      beginPinch(p1, p2);
-      strokeRef.current = null;
-      cropDragRef.current = null;
-      return;
-    }
-
-    if (toolRef.current === "crop") {
-      const point = getCanvasPoint(e);
-      if (!point?.inside) return;
-      const box = cropScreenRef.current;
-      const handle = hitTestHandle(screen.x, screen.y, box);
-      if (handle) {
-        cropDragRef.current = { handle, startX: screen.x, startY: screen.y, box };
-      } else if (screen.x >= box.x && screen.x <= box.x + box.w && screen.y >= box.y && screen.y <= box.y + box.h) {
-        cropDragRef.current = { handle: "move", startX: screen.x, startY: screen.y, box };
-      }
-      return;
-    }
-
-    // Brush / blur stroke: snapshot once per stroke so undo steps are strokes.
-    const point = getCanvasPoint(e);
-    if (!point?.inside) return;
+  /** Begin a stroke at an image-space point: snapshot once per stroke so undo
+      steps are strokes. For blur, prepare the blurred stamp layer. */
+  const beginStroke = (point: Point) => {
     pushUndo();
     strokeRef.current = { x: point.x, y: point.y, drawing: true };
 
@@ -876,40 +877,10 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     }
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    // Keep pointer positions fresh for pinch tracking.
-    if (pointersRef.current.has(e.pointerId)) {
-      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    }
-    if (pointersRef.current.size >= 2) {
-      const [p1, p2] = Array.from(pointersRef.current.values());
-      updatePinch(p1, p2);
-      return;
-    }
-
-    if (toolRef.current === "crop") {
-      const drag = cropDragRef.current;
-      if (!drag) return;
-      const screen = getScreenPoint(e);
-      if (!screen) return;
-      if (drag.handle === "move") {
-        const dx = screen.x - drag.startX;
-        const dy = screen.y - drag.startY;
-        const img = getImageScreenRect();
-        const box = drag.box;
-        const x = clamp(box.x + dx, img.x, img.x + img.w - box.w);
-        const y = clamp(box.y + dy, img.y, img.y + img.h - box.h);
-        setCropScreen({ x, y, w: box.w, h: box.h });
-      } else {
-        setCropScreen(resizeBox(drag.box, drag.handle, screen.x, screen.y));
-      }
-      return;
-    }
-
+  /** Extend the stroke towards a new image-space point. */
+  const continueStroke = (point: Point) => {
     const stroke = strokeRef.current;
     if (!stroke?.drawing) return;
-    const point = getCanvasPoint(e);
-    if (!point) return;
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
 
@@ -935,69 +906,159 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     strokeRef.current = { x: point.x, y: point.y, drawing: true };
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    pointersRef.current.delete(e.pointerId);
-    if (pointersRef.current.size < 2) pinchRef.current = null;
+  const endStroke = () => {
     strokeRef.current = null;
-    cropDragRef.current = null;
     blurCanvasRef.current = null;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // already released
-    }
   };
 
-  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    pointersRef.current.clear();
-    pinchRef.current = null;
-    strokeRef.current = null;
-    cropDragRef.current = null;
-    blurCanvasRef.current = null;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // already released
+  return { beginStroke, continueStroke, endStroke };
+}
+
+// ─── Editor component ───────────────────────────────────────────────────────
+// Slim shell: owns the DOM refs, the toolbar/tool state and the stage fit, and
+// coordinates the gesture hooks. The public interface stays src/onApply/onCancel.
+
+export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  const pointersRef = useRef<Map<number, Point>>(new Map());
+  const lastImgSizeRef = useRef({ w: 0, h: 0 });
+
+  const [tool, setTool] = useState<Tool>("crop");
+  const [color, setColor] = useState("#e53935");
+  const [brushSize, setBrushSize] = useState(12);
+  const [fit, setFit] = useState({ w: 0, h: 0 });
+  const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+
+  const pinch = usePinchZoom({ overlayRef, fitRef });
+  const { viewRef, view, resetView, beginPinch, updatePinch, endPinch } = pinch;
+  const crop = useCropWindow({
+    canvasRef,
+    overlayRef,
+    stageRef,
+    viewRef,
+    view,
+    fitRef,
+    fit,
+    tool,
+    ready,
+  });
+  const {
+    cropScreen,
+    aspect,
+    setAspect,
+    aspectMenuOpen,
+    setAspectMenuOpen,
+    cropBoxRef,
+    redrawOverlay,
+    clearOverlay,
+    resetCropWindow,
+    startCropDrag,
+    moveCropDrag,
+    endCropDrag,
+    applyAspect,
+  } = crop;
+
+  /** Recompute the contain fit for the photo and keep the screen-fixed overlay
+      sized to the stage. Resets the crop window to the whole photo whenever
+      the image itself changed (load, undo/redo, applied crop). */
+  const syncStage = useCallback(() => {
+    const stage = stageRef.current;
+    const canvas = canvasRef.current;
+    const overlay = overlayRef.current;
+    if (!stage || !canvas || !overlay) return;
+    const iw = canvas.width;
+    const ih = canvas.height;
+    if (!iw || !ih) return;
+    const scale = Math.min(stage.clientWidth / iw, stage.clientHeight / ih);
+    const w = Math.max(1, Math.floor(iw * scale));
+    const h = Math.max(1, Math.floor(ih * scale));
+    setFit((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+
+    // Size the overlay buffer to the stage in device pixels.
+    const dpr = window.devicePixelRatio || 1;
+    const ow = Math.max(1, Math.round(stage.clientWidth * dpr));
+    const oh = Math.max(1, Math.round(stage.clientHeight * dpr));
+    if (overlay.width !== ow || overlay.height !== oh) {
+      overlay.width = ow;
+      overlay.height = oh;
     }
-  };
 
-  // ─── Aspect presets & apply ───────────────────────────────────────────────
+    const imgChanged = lastImgSizeRef.current.w !== iw || lastImgSizeRef.current.h !== ih;
+    lastImgSizeRef.current = { w: iw, h: ih };
+    if (imgChanged) resetCropWindow(w, h);
 
-  const applyAspect = (id: string) => {
-    setAspect(id);
-    const ratio = ASPECTS.find((a) => a.id === id)?.ratio;
-    if (!ratio) return;
+    redrawOverlay();
+  }, [resetCropWindow, redrawOverlay]);
 
-    // Keep the current centre, grow/shrink to the largest box that fits the
-    // visible photo, all in screen coordinates.
-    const img = getImageScreenRect();
-    const s = cropScreenRef.current;
-    const cx = s.x + s.w / 2;
-    const cy = s.y + s.h / 2;
-    let w = img.w;
-    let h = img.h;
-    if (ratio >= 1) {
-      h = w / ratio;
-      if (h > img.h) {
-        h = img.h;
-        w = h * ratio;
+  const history = useCanvasHistory({ canvasRef, onRestore: syncStage });
+  const brush = useBrushGesture({ canvasRef, pushUndo: history.pushUndo, tool, color, brushSize });
+
+  // Keep everything in sync with the stage size (rotation, browser chrome).
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const observer = new ResizeObserver(syncStage);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [syncStage]);
+
+  // ─── Initial load ─────────────────────────────────────────────────────────
+  // Loads the photo ONCE per src (plus manual retry). Deliberately has no
+  // other deps: re-running would wipe the canvas (drawings, crop) and flash a
+  // black screen while decoding — the cause of the phone glitches.
+  useEffect(() => {
+    let cancelled = false;
+    setLoadError(false);
+    (async () => {
+      try {
+        const img = await loadImage(src);
+        if (cancelled) return;
+        const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(img.naturalWidth, img.naturalHeight));
+        const width = Math.max(1, Math.round(img.naturalWidth * scale));
+        const height = Math.max(1, Math.round(img.naturalHeight * scale));
+
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, 0, width, height);
+
+        resetView();
+        setAspect(null);
+        setReady(true);
+      } catch (error) {
+        console.error("PhotoEditor init failed", error);
+        if (!cancelled) setLoadError(true);
       }
-    } else {
-      w = h * ratio;
-      if (w > img.w) {
-        w = img.w;
-        h = w / ratio;
-      }
-    }
-    const x = clamp(cx - w / 2, img.x, img.x + img.w - w);
-    const y = clamp(cy - h / 2, img.y, img.y + img.h - h);
-    setCropScreen({ x, y, w, h });
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [src, reloadKey, resetView, setAspect]);
 
-  const brushMin = tool === "blur" ? 6 : 2;
-  const brushMax = tool === "blur" ? 96 : 48;
+  // Fit the photo into the stage once it is ready.
+  useEffect(() => {
+    if (ready) syncStage();
+  }, [ready, syncStage]);
 
-  const currentAspectLabel = ASPECTS.find((a) => a.id === aspect)?.label ?? "Свободно";
+  // Redraw the overlay whenever the visible state changes.
+  useEffect(() => {
+    if (!ready) return;
+    if (tool === "crop") redrawOverlay();
+    else clearOverlay();
+  }, [ready, tool, cropScreen, view, fit, redrawOverlay, clearOverlay]);
 
   // Close the aspect menu on outside click / Escape.
   useEffect(() => {
@@ -1015,15 +1076,117 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       document.removeEventListener("mousedown", onDocMouseDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [aspectMenuOpen]);
+  }, [aspectMenuOpen, setAspectMenuOpen]);
 
-  const applyCrop = useCallback(() => {
+  // ─── Pointer handling ─────────────────────────────────────────────────────
+
+  /** Pointer position in stage (screen) coordinates. */
+  const getScreenPoint = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const el = overlayRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }, [overlayRef]);
+
+  /** Pointer position in image coordinates, mapped through the zoomed frame. */
+  const getCanvasPoint = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return {
+      x: clamp(((e.clientX - rect.left) / rect.width) * canvas.width, 0, canvas.width),
+      y: clamp(((e.clientY - rect.top) / rect.height) * canvas.height, 0, canvas.height),
+      inside: e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom,
+    };
+  }, [canvasRef]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const screen = getScreenPoint(e);
+    if (!screen) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // Two fingers down: start pinch-zoom, pause any in-flight stroke/crop.
+    if (pointersRef.current.size >= 2) {
+      const [p1, p2] = Array.from(pointersRef.current.values());
+      beginPinch(p1, p2);
+      brush.endStroke();
+      endCropDrag();
+      return;
+    }
+
+    if (tool === "crop") {
+      const point = getCanvasPoint(e);
+      if (!point?.inside) return;
+      startCropDrag(screen.x, screen.y);
+      return;
+    }
+
+    // Brush / blur stroke.
+    const point = getCanvasPoint(e);
+    if (!point?.inside) return;
+    brush.beginStroke(point);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Keep pointer positions fresh for pinch tracking.
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pointersRef.current.size >= 2) {
+      const [p1, p2] = Array.from(pointersRef.current.values());
+      updatePinch(p1, p2);
+      return;
+    }
+
+    if (tool === "crop") {
+      const screen = getScreenPoint(e);
+      if (!screen) return;
+      moveCropDrag(screen.x, screen.y);
+      return;
+    }
+
+    const point = getCanvasPoint(e);
+    if (!point) return;
+    brush.continueStroke(point);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) endPinch();
+    brush.endStroke();
+    endCropDrag();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // already released
+    }
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.clear();
+    endPinch();
+    brush.endStroke();
+    endCropDrag();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // already released
+    }
+  };
+
+  // ─── Crop apply & export ──────────────────────────────────────────────────
+
+  const applyCrop = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const box = cropBoxRef.current;
     if (Math.round(box.w) >= canvas.width && Math.round(box.h) >= canvas.height) return;
 
-    pushUndo();
+    history.pushUndo();
     const out = cropCanvas(canvas, box);
     if (!out) return;
 
@@ -1035,9 +1198,9 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(out, 0, 0, out.width, out.height);
 
-    setView(IDENTITY_VIEW);
+    resetView();
     syncStage();
-  }, [pushUndo, syncStage]);
+  };
 
   /** "Готово": export the canvas with any pending crop applied. */
   const handleApply = () => {
@@ -1052,6 +1215,11 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       onApply(canvas.toDataURL("image/png"));
     }
   };
+
+  const brushMin = tool === "blur" ? 6 : 2;
+  const brushMax = tool === "blur" ? 96 : 48;
+
+  const currentAspectLabel = ASPECTS.find((a) => a.id === aspect)?.label ?? "Свободно";
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -1186,10 +1354,10 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
           <Droplets size={20} />
         </button>
         <div className="pe-toolbar-divider" />
-        <button type="button" className="pe-tool" onClick={handleUndo} disabled={!canUndo} aria-label="Отменить" title="Отменить">
+        <button type="button" className="pe-tool" onClick={history.handleUndo} disabled={!history.canUndo} aria-label="Отменить" title="Отменить">
           <Undo2 size={20} />
         </button>
-        <button type="button" className="pe-tool" onClick={handleRedo} disabled={!canRedo} aria-label="Повторить" title="Повторить">
+        <button type="button" className="pe-tool" onClick={history.handleRedo} disabled={!history.canRedo} aria-label="Повторить" title="Повторить">
           <Redo2 size={20} />
         </button>
       </div>
