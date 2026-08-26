@@ -1,7 +1,7 @@
 // Package profiles holds the profile-domain helpers shared between the
-// api/handlers god package and the universal CRUD subsystem: the unified
+// api/handlers god package and the crudengine subsystem: the unified
 // profile stats recomputation and the profile-customization sanitizers.
-// Extracted during F1 so the universal subsystem can leave the handlers
+// Extracted during F1 so the crudengine subsystem can leave the handlers
 // package without dragging the whole profile domain with it.
 package profiles
 

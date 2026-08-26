@@ -47,11 +47,8 @@ func TestMessagePushBody_TrimsWhitespace(t *testing.T) {
 // deliverMessagePush is a no-op when the push service is disabled — it must not
 // query the DB (raises an unexpected-query error under sqlmock) nor panic.
 func TestDeliverMessagePush_DisabledServiceNoop(t *testing.T) {
-	prev := pushService
-	pushService = nil // simulate VAPID keys not configured
-	defer func() { pushService = prev }()
-
 	h, mock := setupMessengerHandler(t)
+	h.SetPushService(nil) // simulate VAPID keys not configured
 	h.deliverMessagePush(t.Context(), testConv1, testUser1, "bob", "hi")
 
 	if err := mock.ExpectationsWereMet(); err != nil {

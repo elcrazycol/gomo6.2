@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 // empty string would fail the uuid cast in the count subqueries), so the query
 // itself still enforces private walls.
 func TestHandleProfileWallPostsGet_Anonymous_ReadsPublicWall(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+	h, mock := setupEngine(t)
 
 	// Keyset first page: an empty pinned query + one unpinned post. Both carry
 	// the public-wall predicate and the user_id filter only (no viewer arg —
@@ -30,7 +30,7 @@ func TestHandleProfileWallPostsGet_Anonymous_ReadsPublicWall(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "Hello", "World", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.u1", nil, nil)
+	c, w := newRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.u1", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -51,13 +51,13 @@ func TestHandleProfileWallPostsGet_Anonymous_ReadsPublicWall(t *testing.T) {
 // subqueries (that produced a 500 on production). Guards the SQL from breaking
 // when the caller has no session.
 func TestHandleProfileWallPostsGet_Anonymous_PredicateUsesNullViewer(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+	h, mock := setupEngine(t)
 
 	mock.ExpectQuery(`(?s).*FROM profile_wall_posts p.*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
 
 	// No user_id filter: no args at all — the viewer reference is literal NULL.
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
+	c, w := newRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -70,7 +70,7 @@ func TestHandleProfileWallPostsGet_Anonymous_PredicateUsesNullViewer(t *testing.
 // the viewer reference (empty string cannot cast to uuid). The count subqueries
 // must use literal NULL for the viewer so the whole statement stays valid.
 func TestHandleProfileWallPostsGet_Anonymous_UUIDFilterWithOrder_No500(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+	h, mock := setupEngine(t)
 
 	// Real UUIDs + the exact profile-page order from ProfileWall.tsx. The
 	// keyset wall list replaces the profile-page ORDER BY with the pinned/
@@ -87,7 +87,7 @@ func TestHandleProfileWallPostsGet_Anonymous_UUIDFilterWithOrder_No500(t *testin
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "457e56d5-4f7b-43ee-b506-09299332541a", "457e56d5-4f7b-43ee-b506-09299332541a", "Hello", "World", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
 
-	c, w := newUniversalRequestContext("GET",
+	c, w := newRequestContext("GET",
 		"/api/v1/profile_wall_posts?user_id=eq.457e56d5-4f7b-43ee-b506-09299332541a&order=is_pinned.desc,pinned_order.asc,created_at.desc",
 		nil, nil)
 	h.HandleTableRequest(c)
@@ -110,9 +110,9 @@ func TestHandleProfileWallPostsGet_Anonymous_UUIDFilterWithOrder_No500(t *testin
 // Anonymous caller without a user_id filter must get an empty result instead of
 // enumerating every user's achievements (no DB query, no 401).
 func TestHandleUserAchievementsGet_Anonymous_WithoutUserID_ReturnsEmpty(t *testing.T) {
-	h, _ := setupUniversalHandler(t)
+	h, _ := setupEngine(t)
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/user_achievements", nil, nil)
+	c, w := newRequestContext("GET", "/api/v1/user_achievements", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -132,7 +132,7 @@ func TestHandleUserAchievementsGet_Anonymous_WithoutUserID_ReturnsEmpty(t *testi
 // Anonymous visitor reading the achievements of a PUBLIC profile: privacy check
 // passes, achievements are returned.
 func TestHandleUserAchievementsGet_Anonymous_ReadsPublicProfile(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+	h, mock := setupEngine(t)
 
 	// Privacy settings lookup — public profile, achievements not hidden.
 	mock.ExpectQuery(`(?s).*FROM privacy_settings WHERE user_id = \$1`).
@@ -147,7 +147,7 @@ func TestHandleUserAchievementsGet_Anonymous_ReadsPublicProfile(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "achievement_id", "unlocked_at", "level", "is_pinned", "pinned_order", "progress_current", "achievements"}).
 			AddRow("a1", "u1", "ach-1", "2025-01-01T00:00:00Z", 1, false, nil, 0, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/user_achievements?user_id=eq.u1", nil, nil)
+	c, w := newRequestContext("GET", "/api/v1/user_achievements?user_id=eq.u1", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -166,7 +166,7 @@ func TestHandleUserAchievementsGet_Anonymous_ReadsPublicProfile(t *testing.T) {
 // Achievements of a profile with private_hide_achievements stay hidden from
 // anonymous visitors.
 func TestHandleUserAchievementsGet_Anonymous_PrivateHiddenAchievements_Empty(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+	h, mock := setupEngine(t)
 
 	mock.ExpectQuery(`(?s).*FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u1").
@@ -175,7 +175,7 @@ func TestHandleUserAchievementsGet_Anonymous_PrivateHiddenAchievements_Empty(t *
 			"private_hide_stats", "private_hide_friends", "private_hide_gifts", "private_hide_achievements",
 		}).AddRow(true, false, false, false, false, false, false, true))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/user_achievements?user_id=eq.u1", nil, nil)
+	c, w := newRequestContext("GET", "/api/v1/user_achievements?user_id=eq.u1", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -196,7 +196,7 @@ func TestHandleUserAchievementsGet_Anonymous_PrivateHiddenAchievements_Empty(t *
 // Anonymous visitors may list channels of PUBLIC boards only — the SQL must
 // carry the board-visibility predicate with no owner/membership fallback args.
 func TestHandleGet_Channels_Anonymous_OnlyPublicBoards(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+	h, mock := setupEngine(t)
 
 	mock.ExpectQuery(`(?s).*FROM channels.*WHERE board_id = \$1.*` +
 		`b\.visibility IS DISTINCT FROM 'private'.*ORDER BY "sort_order" ASC`).
@@ -204,7 +204,7 @@ func TestHandleGet_Channels_Anonymous_OnlyPublicBoards(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id", "slug", "name", "description", "category", "sort_order", "is_private"}).
 			AddRow("ch-1", "board-1", "general", "Общий", nil, nil, 0, false))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/channels?board_id=eq.board-1&order=sort_order.asc", nil, nil)
+	c, w := newRequestContext("GET", "/api/v1/channels?board_id=eq.board-1&order=sort_order.asc", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -215,7 +215,7 @@ func TestHandleGet_Channels_Anonymous_OnlyPublicBoards(t *testing.T) {
 // A member/owner of a PRIVATE board may still read its channels: the predicate
 // gains the owner_id + membership branches bound to the viewer.
 func TestHandleGet_Channels_Member_SeesPrivateBoard(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+	h, mock := setupEngine(t)
 
 	mock.ExpectQuery(`(?s).*FROM channels.*WHERE board_id = \$1.*`+
 		`b\.visibility IS DISTINCT FROM 'private' OR b\.owner_id = \$2 OR b\.id IN \(SELECT gm\.board_id FROM gomosub_memberships gm WHERE gm\.user_id = \$3\).*`).
@@ -223,7 +223,7 @@ func TestHandleGet_Channels_Member_SeesPrivateBoard(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id", "slug", "name", "description", "category", "sort_order", "is_private"}).
 			AddRow("ch-1", "board-1", "private-channel", "Секрет", nil, nil, 0, true))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/channels?board_id=eq.board-1&order=sort_order.asc", nil,
+	c, w := newRequestContext("GET", "/api/v1/channels?board_id=eq.board-1&order=sort_order.asc", nil,
 		&auth.Claims{UserID: "member-1"})
 	h.HandleTableRequest(c)
 

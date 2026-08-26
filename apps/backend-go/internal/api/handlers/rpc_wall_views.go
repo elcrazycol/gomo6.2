@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
@@ -209,7 +211,7 @@ WHERE p.id::text = ANY($3)
                      OR (f.user1_id::text = $4 AND f.user2_id::text = p.user_id::text)))
 ON CONFLICT DO NOTHING`, viewerIDArg, viewerKeyArg, pq.Array(ids), viewerID)
 	if err != nil {
-		serverError(c, "failed to record wall views", err)
+		httpx.ServerError(c, "failed to record wall views", err)
 		return
 	}
 

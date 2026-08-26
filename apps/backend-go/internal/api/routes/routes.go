@@ -15,13 +15,14 @@ import (
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/backup"
+	"github.com/gomo6/backend/internal/crudengine"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/oauth"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
-	"github.com/gomo6/backend/internal/universal"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -127,19 +128,29 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// push.New returns nil when VAPID keys are not configured, disabling push
 	// cleanly (no-op delivery + ServiceUnavailable on the management endpoints).
 	pushService := push.New(db)
-	handlers.SetPushService(pushService)
 	pushHandler := handlers.NewPushHandler(pushService)
+
+	// Notification service: one instance carries the DB, Redis, WebSocket hub
+	// and push sender. Injected into every handler and the CRUD engine that
+	// emits notifications so delivery, cache invalidation and push share one
+	// path instead of a package-level global.
+	notifService := notifications.New(db, redis, wsHub, pushService)
+	likesHandler.SetNotifier(notifService)
+
 	rpcHandler := handlers.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)
 	rpcHandler.SetAchievementEngine(achEngine)
-	universalHandler := universal.NewUniversalHandler(db, wsHub)
-	universalHandler.SetRedis(redis)
-	universalHandler.SetAchievementEngine(achEngine)
+	rpcHandler.SetNotifier(notifService)
+	engine := crudengine.New(db, wsHub)
+	engine.SetRedis(redis)
+	engine.SetAchievementEngine(achEngine)
+	engine.SetNotifier(notifService)
 	searchHandler := handlers.NewSearchHandler(db)
 	feedHandler := handlers.NewFeedHandler(db)
 	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
+	messengerHandler.SetPushService(pushService)
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	giftsHandler := handlers.NewGiftsHandler(db)
@@ -150,6 +161,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	friendsHandler := handlers.NewFriendsHandler(db)
 	friendsHandler.SetRedis(redis)
 	friendsHandler.SetWebSocketHub(wsHub)
+	friendsHandler.SetNotifier(notifService)
 	emojiPacksHandler := handlers.NewEmojiPacksHandler(db)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
@@ -358,7 +370,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Additional tables (frontend compatibility)
 		//
 		// Universal CRUD routes are generated from the declarative table
-		// registry (universal.GenericTables) by registerGenericTableRoutes
+		// registry (crudengine.GenericTables) by registerGenericTableRoutes
 		// below — each table declares its read group (guest/authenticated),
 		// write methods and middleware group in ONE place. Previously every
 		// table needed ~8 manual registrations across three groups and a
@@ -397,7 +409,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Generate every generic CRUD route from the registry: guest GETs on
 		// genericRead, authenticated GETs and writes on genericProtected, and
 		// emoji writes on protected.
-		registerGenericTableRoutes(genericRead, genericProtected, protected, universalHandler.HandleTableRequest)
+		registerGenericTableRoutes(genericRead, genericProtected, protected, engine.HandleTableRequest)
 
 		// Protected endpoints (the `protected` group itself is declared above,
 		// next to the generic CRUD routes — see registerGenericTableRoutes).
@@ -1056,7 +1068,7 @@ func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
 // ─── Universal CRUD route generation ────────────────────────────────────────
 
 // registerGenericTableRoutes generates every generic CRUD route from the
-// declarative table registry (universal.GenericTables). The registry is the
+// declarative table registry (crudengine.GenericTables). The registry is the
 // single source of truth for which tables exist and how they are routed — the
 // handler allow-list (UniversalHandler.HandleTableRequest), the read/write
 // deny lists and the ownership/visibility scopes all read the same entries, so
@@ -1070,17 +1082,17 @@ func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
 //   - rls:       the authenticated group with the RLS middleware chain (the
 //     no-op RLSSetConfigMiddleware) — used by the emoji tables.
 func registerGenericTableRoutes(guest, protected, rls *gin.RouterGroup, handler func(*gin.Context)) {
-	for _, meta := range universal.GenericTables() {
+	for _, meta := range crudengine.GenericTables() {
 		base := "/" + meta.Name
 
 		// Reads (GET + optional wildcard) on the group the table declares.
 		switch meta.ReadAccess {
-		case universal.GuestRead:
+		case crudengine.GuestRead:
 			guest.GET(base, handler)
 			if meta.ReadWildcard {
 				guest.GET(base+"/*path", handler)
 			}
-		case universal.ProtectedRead:
+		case crudengine.ProtectedRead:
 			protected.GET(base, handler)
 			if meta.ReadWildcard {
 				protected.GET(base+"/*path", handler)
@@ -1091,7 +1103,7 @@ func registerGenericTableRoutes(guest, protected, rls *gin.RouterGroup, handler 
 		// generic group; emoji tables go through the RLS group).
 		for _, route := range meta.Writes {
 			target := protected
-			if meta.WriteGroup == universal.RLSWrite {
+			if meta.WriteGroup == crudengine.RLSWrite {
 				target = rls
 			}
 			target.Handle(route.Method, base, handler)

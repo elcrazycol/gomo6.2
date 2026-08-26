@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"context"
@@ -9,15 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/privacy"
+
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 )
 
 // handleUserAchievementsGet returns rows shaped like PostgREST embeds: nested "achievements" object
 // with multi-level support (levels JSONB, current_level, max_level).
-func (h *UniversalHandler) handleUserAchievementsGet(c *gin.Context) {
+func (h *Engine) handleUserAchievementsGet(c *gin.Context) {
 	// Whenever a user opens their own achievements page, reconcile every group
 	// from live data (debounced, in the background — see
 	// scheduleAchievementRecompute). Counter groups self-heal in the engine,
@@ -26,7 +28,7 @@ func (h *UniversalHandler) handleUserAchievementsGet(c *gin.Context) {
 	// would otherwise carry the mismatch forward until their next event. This
 	// makes the page reflect reality when viewed without blocking the request
 	// or hammering the DB on every visit.
-	if owner := strings.TrimPrefix(c.Query("user_id"), "eq."); owner != "" && owner == authenticatedUserID(c) && h.achEngine != nil {
+	if owner := strings.TrimPrefix(c.Query("user_id"), "eq."); owner != "" && owner == httpx.AuthenticatedUserID(c) && h.achEngine != nil {
 		h.scheduleAchievementRecompute(owner)
 	}
 
@@ -99,7 +101,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	// Anonymous callers may read OTHER users' achievements (profile pages are
 	// public for guests), but without an explicit user_id filter there is
 	// nothing to bind the query to — guests get an empty result set.
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 	targetUserID := strings.TrimPrefix(c.Query("user_id"), "eq.")
 	if targetUserID == "" {
 		if viewerID == "" {
@@ -117,9 +119,9 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	// Private profile: hide achievements from non-friends
 	if userID := c.Query("user_id"); userID != "" {
 		uid := strings.TrimPrefix(userID, "eq.")
-		canView, err := handlers.CanViewUserAchievements(h.db, viewerID, uid)
+		canView, err := privacy.CanViewUserAchievements(h.db, viewerID, uid)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if !canView {
@@ -153,7 +155,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -167,7 +169,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		row := make(map[string]interface{})
@@ -218,7 +220,7 @@ const achievementRecomputeWindow = 60 * time.Second
 // engine's own event increments already keep counters fresh; this is only a
 // drift-healing safety net for rows that predate an emit or a missed event, so
 // a short debounce is plenty.
-func (h *UniversalHandler) scheduleAchievementRecompute(userID string) {
+func (h *Engine) scheduleAchievementRecompute(userID string) {
 	if userID == "" || h.achEngine == nil {
 		return
 	}

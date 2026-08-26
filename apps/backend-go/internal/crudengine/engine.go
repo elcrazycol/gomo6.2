@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"bytes"
@@ -11,22 +11,26 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-// UniversalHandler handles generic CRUD operations for any table
-type UniversalHandler struct {
+// Engine handles generic CRUD operations for any table
+type Engine struct {
 	db        *sql.DB
 	hub       *websocket.Hub
 	redis     *redis.Client
 	achEngine *achievements.Engine
+	notif     *notifications.Service
 
 	// achievementRecomputeAt debounces per-user achievement reconciliation
 	// (M-02/M-03): reconciling on EVERY page open would run 20+ source-count
@@ -37,8 +41,8 @@ type UniversalHandler struct {
 	achievementRecomputeAt map[string]time.Time
 }
 
-func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
-	return &UniversalHandler{
+func New(db *sql.DB, hub *websocket.Hub) *Engine {
+	return &Engine{
 		db:                     db,
 		hub:                    hub,
 		achievementRecomputeAt: make(map[string]time.Time),
@@ -46,19 +50,25 @@ func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
 }
 
 // SetRedis sets the Redis client for cache invalidation
-func (h *UniversalHandler) SetRedis(redis *redis.Client) {
+func (h *Engine) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
 // SetAchievementEngine wires the achievements engine for auto-unlock events.
-func (h *UniversalHandler) SetAchievementEngine(e *achievements.Engine) {
+func (h *Engine) SetAchievementEngine(e *achievements.Engine) {
 	h.achEngine = e
+}
+
+// SetNotifier wires the notification service for wall notifications. Nil-safe:
+// without it, wall writes skip notification delivery entirely.
+func (h *Engine) SetNotifier(n *notifications.Service) {
+	h.notif = n
 }
 
 // ─── Main Router ────────────────────────────────────────────────────────────
 
 // HandleTableRequest handles requests to any table
-func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
+func (h *Engine) HandleTableRequest(c *gin.Context) {
 	// Extract table name from URL path
 	path := c.Request.URL.Path
 	tableName := strings.TrimPrefix(path, "/api/v1/")
@@ -157,17 +167,6 @@ func filterWritableColumns(tableName string, data map[string]interface{}) {
 	}
 }
 
-// authenticatedUserID returns the authenticated user ID from the request
-// context, or "" when the request is unauthenticated.
-func authenticatedUserID(c *gin.Context) string {
-	claimsValue, exists := c.Get("claims")
-	claims, ok := claimsValue.(*auth.Claims)
-	if !exists || !ok || claims == nil || claims.UserID == "" {
-		return ""
-	}
-	return claims.UserID
-}
-
 // genericReadScopeUser returns the authenticated user ID for tables where the
 // compatibility read endpoint must be user-scoped (TableMeta.UserScopedRead).
 // An unscoped table is left untouched so public-ish compatibility queries
@@ -200,7 +199,7 @@ func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (s
 	if meta == nil || !meta.GomosubVisibility {
 		return "", nil, argIndex
 	}
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 	var clause string
 	var args []interface{}
 
@@ -236,7 +235,7 @@ func genericEmojiVisibility(c *gin.Context, tableName string, argIndex int) (str
 	if meta == nil || !meta.EmojiVisibility {
 		return "", nil, argIndex
 	}
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 	switch tableName {
 	case "emoji_packs":
 		if viewerID == "" {
@@ -308,7 +307,7 @@ func isGomosubManagementTable(table string) bool {
 }
 
 // isSelfJoin checks if a POST to gomosub_memberships is a user joining a board themselves.
-func (h *UniversalHandler) isSelfJoin(c *gin.Context) bool {
+func (h *Engine) isSelfJoin(c *gin.Context) bool {
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
 		return false
@@ -333,7 +332,7 @@ func (h *UniversalHandler) isSelfJoin(c *gin.Context) bool {
 }
 
 // isSelfLeave checks if a DELETE on gomosub_memberships targets the user's own membership.
-func (h *UniversalHandler) isSelfLeave(c *gin.Context) bool {
+func (h *Engine) isSelfLeave(c *gin.Context) bool {
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
 		return false
@@ -347,7 +346,7 @@ func (h *UniversalHandler) isSelfLeave(c *gin.Context) bool {
 // checkGomosubWritePermission verifies the user has management permissions for the
 // gomosub board. It extracts board_id from the request body or query params.
 // Returns true if allowed, false if denied (response already sent).
-func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName string) bool {
+func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) bool {
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -397,7 +396,7 @@ func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName
 		return false
 	}
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		c.Abort()
 		return false
 	}

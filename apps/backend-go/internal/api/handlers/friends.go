@@ -9,6 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/notifications"
+	"github.com/gomo6/backend/internal/privacy"
+	"github.com/gomo6/backend/internal/profiles"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
@@ -21,6 +25,7 @@ type FriendsHandler struct {
 	db    *sql.DB
 	hub   *websocket.Hub
 	redis *redis.Client
+	notif *notifications.Service
 }
 
 func NewFriendsHandler(db *sql.DB) *FriendsHandler {
@@ -30,6 +35,8 @@ func NewFriendsHandler(db *sql.DB) *FriendsHandler {
 func (h *FriendsHandler) SetRedis(r *redis.Client) { h.redis = r }
 
 func (h *FriendsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
+
+func (h *FriendsHandler) SetNotifier(n *notifications.Service) { h.notif = n }
 
 // invalidateFriendCaches clears Redis caches for friend-related endpoints.
 func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) {
@@ -157,7 +164,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 			return
 		}
 		// Notify the reverse request sender that their request was accepted
-		h.createFriendNotification(receiverID, "friend_accepted", getUsernameFromDB(h.db, senderID), &senderID)
+		h.createFriendNotification(receiverID, "friend_accepted", profiles.UsernameByID(h.db, senderID), &senderID)
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 			"status":  "friends",
 			"message": "Friend request accepted automatically",
@@ -207,7 +214,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 	invalidateFriendCaches(h.redis, senderID, receiverID)
 
 	// Notify the receiver
-	senderUsername := getUsernameFromDB(h.db, senderID)
+	senderUsername := profiles.UsernameByID(h.db, senderID)
 	h.createFriendNotification(receiverID, "friend_request", senderUsername, &senderID)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
@@ -273,7 +280,7 @@ func (h *FriendsHandler) AcceptRequest(c *gin.Context) {
 	}
 
 	// Notify the sender
-	receiverUsername := getUsernameFromDB(h.db, claims.UserID)
+	receiverUsername := profiles.UsernameByID(h.db, claims.UserID)
 	h.createFriendNotification(request.SenderID, "friend_accepted", receiverUsername, &request.ReceiverID)
 
 	// Invalidate caches for both users
@@ -552,7 +559,7 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 	}
 
 	// Private profile: block friends list from non-friends
-	shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, claims.UserID, targetUserID)
+	shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, claims.UserID, targetUserID)
 	if err == nil && shouldFilter && ps.PrivateHideFriends {
 		c.JSON(http.StatusOK, models.SuccessResponse([]models.FriendResponse{}))
 		return
@@ -741,22 +748,17 @@ func (h *FriendsHandler) GetFriendStatus(c *gin.Context) {
 
 // createFriendNotification sends a WebSocket notification for friend events.
 func (h *FriendsHandler) createFriendNotification(userID, notifType, actorUsername string, relatedUserID *string) {
-	if h.db == nil {
+	if h.notif == nil {
 		return
 	}
 	params := &models.NotificationParams{Actor: actorUsername}
-	_, err := CreateNotification(h.db, h.redis, h.hub, userID, notifType, "", params, nil, nil, relatedUserID)
+	_, err := h.notif.CreateNotification(notifications.CreateParams{
+		RecipientID: userID,
+		Type:        notifType,
+		Params:      params,
+		ActorID:     relatedUserID,
+	})
 	if err != nil {
 		log.Printf("[Friends] Failed to create notification: %v", err)
 	}
-}
-
-// getUsernameFromDB fetches a username by user ID.
-func getUsernameFromDB(db *sql.DB, userID string) string {
-	var username string
-	err := db.QueryRow("SELECT username FROM profiles WHERE id = $1", userID).Scan(&username)
-	if err != nil {
-		return "unknown"
-	}
-	return username
 }

@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"github.com/gin-gonic/gin"
@@ -6,25 +6,25 @@ import (
 
 // ─── Table Registry ─────────────────────────────────────────────────────────
 //
-// The generic CRUD surface (UniversalHandler.HandleTableRequest + the
-// universal routes) serves ~30 tables. Every fact the surface knows about a
+// The generic CRUD surface (Engine.HandleTableRequest + the
+// generic CRUD routes) serves ~30 tables. Every fact the surface knows about a
 // table — whether it is routable, which middleware group serves reads and
 // writes, which methods are registered, which columns a client may write, how
 // rows are scoped to the caller, and how reads are visibility-gated — used to
 // live in ~8 separate switch statements:
 //
 //   - routes.go         : per-table route registrations across 3 groups
-//   - allowedTables     : the handler's allow-list (universal.go)
-//   - genericReadDeniedTable / genericWriteDeniedTable (universal.go)
-//   - writableColumnsForTable (universal.go)
-//   - genericReadScopeUser (universal.go)
-//   - isGomosubManagementTable (universal.go)
-//   - genericGomosubVisibility / genericEmojiVisibility (universal.go)
-//   - upsertInsertQuery gating (universal_crud.go)
-//   - invalidateCacheForTableResult (universal_crud.go): the per-table cache
+//   - allowedTables     : the handler's allow-list (engine.go)
+//   - genericReadDeniedTable / genericWriteDeniedTable (engine.go)
+//   - writableColumnsForTable (engine.go)
+//   - genericReadScopeUser (engine.go)
+//   - isGomosubManagementTable (engine.go)
+//   - genericGomosubVisibility / genericEmojiVisibility (engine.go)
+//   - upsertInsertQuery gating (crud.go)
+//   - invalidateCacheForTableResult (crud.go): the per-table cache
 //     invalidation switch — now TableMeta.InvalidateCache, a hook referenced
 //     here and implemented in table_hooks.go
-//   - emitUniversalAchievementEvents (achievement_emit.go): the per-table
+//   - emitAchievementEvents (achievement_emit.go): the per-table
 //     achievement switch — now TableMeta.EmitAchievements (same file)
 //
 // Adding a table required touching all of them, and a missed one silently
@@ -144,13 +144,13 @@ type TableMeta struct {
 // TableInvalidator invalidates the Redis caches that embed data of a row
 // written through the generic CRUD surface. Runs after the write with the
 // written row; h.redis is guaranteed non-nil by the dispatcher.
-type TableInvalidator func(h *UniversalHandler, c *gin.Context, result map[string]interface{})
+type TableInvalidator func(h *Engine, c *gin.Context, result map[string]interface{})
 
 // AchievementEmitter fires the achievement events implied by a row written
 // through the generic CRUD surface. Runs after the write, best-effort
 // (emissions are async and swallowed); h.achEngine is guaranteed non-nil by
 // the dispatcher.
-type AchievementEmitter func(h *UniversalHandler, result map[string]interface{})
+type AchievementEmitter func(h *Engine, result map[string]interface{})
 
 // fullWrites is the most common write surface: POST/PUT/DELETE with the
 // wildcard variant each.
@@ -536,7 +536,7 @@ func GenericTableByName(name string) *TableMeta {
 }
 
 // GenericTables returns a copy of the registry entries. routes.go iterates it
-// to generate the universal CRUD routes. A copy (instead of the internal slice)
+// to generate the generic CRUD routes. A copy (instead of the internal slice)
 // keeps callers from mutating the shared backing array and silently desyncing
 // genericTablesByName, which the handler allow-list and every permission check
 // read.

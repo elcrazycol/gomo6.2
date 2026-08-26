@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"testing"
@@ -34,7 +34,7 @@ func TestRevokeSubscriptionsAfterPrivacyChange_PrivateProfile(t *testing.T) {
 
 	hub := websocket.NewHub(nil, nil)
 	hub.SetDB(db)
-	handler := NewUniversalHandler(db, hub)
+	handler := New(db, hub)
 
 	strangerWall := subscribeWS(t, hub, "user-x", "Xavier", "profile_wall_user-a")
 	friendWall := subscribeWS(t, hub, "user-f", "Frank", "profile_wall_user-a")
@@ -81,7 +81,7 @@ func TestRevokeSubscriptionsAfterPrivacyChange_HideWallOnly(t *testing.T) {
 
 	hub := websocket.NewHub(nil, nil)
 	hub.SetDB(db)
-	handler := NewUniversalHandler(db, hub)
+	handler := New(db, hub)
 
 	strangerWall := subscribeWS(t, hub, "user-x", "Xavier", "profile_wall_user-a")
 	strangerNP := subscribeWS(t, hub, "user-y", "Yara", "profile_now_playing_user-a")
@@ -106,7 +106,7 @@ func TestRevokeSubscriptionsAfterPrivacyChange_HideWallOnly(t *testing.T) {
 
 // Without a hub or for unrelated tables the helper must be a no-op.
 func TestRevokeSubscriptionsAfterPrivacyChange_NoopCases(t *testing.T) {
-	handler, mock := setupUniversalHandler(t) // hub = nil
+	handler, mock := setupEngine(t) // hub = nil
 
 	handler.revokeSubscriptionsAfterPrivacyChange("privacy_settings", map[string]interface{}{
 		"user_id":         "user-a",

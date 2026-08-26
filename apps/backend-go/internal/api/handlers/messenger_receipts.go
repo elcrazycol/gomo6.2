@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
@@ -53,7 +55,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	// Verify membership
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check membership", err)
+		httpx.ServerError(c, "check membership", err)
 		return
 	}
 	if !member {
@@ -84,7 +86,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	// begun by this handler (direct tests / legacy callers) may be rolled back.
 	tx, ownsTx, err := h.txFor(c)
 	if err != nil {
-		serverError(c, "begin tx", err)
+		httpx.ServerError(c, "begin tx", err)
 		return
 	}
 	defer func() {
@@ -111,7 +113,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		DO UPDATE SET read_at = COALESCE(chat_receipts.read_at, NOW()), delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
 	`, conversationID, claims.UserID, req.MessageID)
 	if err != nil {
-		serverError(c, "mark read receipts", err)
+		httpx.ServerError(c, "mark read receipts", err)
 		return
 	}
 
@@ -138,13 +140,13 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		)
 	`, conversationID, req.MessageID, claims.UserID)
 	if err != nil {
-		serverError(c, "mark read unread reset", err)
+		httpx.ServerError(c, "mark read unread reset", err)
 		return
 	}
 
 	if ownsTx {
 		if err := tx.Commit(); err != nil {
-			serverError(c, "commit tx", err)
+			httpx.ServerError(c, "commit tx", err)
 			return
 		}
 	}
@@ -213,7 +215,7 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 	// Verify membership
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check membership", err)
+		httpx.ServerError(c, "check membership", err)
 		return
 	}
 	if !member {
@@ -243,7 +245,7 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 		DO UPDATE SET delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
 	`, conversationID, claims.UserID, sentAt)
 	if err != nil {
-		serverError(c, "mark delivered", err)
+		httpx.ServerError(c, "mark delivered", err)
 		return
 	}
 
@@ -278,7 +280,7 @@ func (h *MessengerHandler) GetUnreadCount(c *gin.Context) {
 		WHERE user_id = $1
 	`, claims.UserID).Scan(&count)
 	if err != nil {
-		serverError(c, "get unread count", err)
+		httpx.ServerError(c, "get unread count", err)
 		return
 	}
 
@@ -317,7 +319,7 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check membership", err)
+		httpx.ServerError(c, "check membership", err)
 		return
 	}
 	if !member {
@@ -354,7 +356,7 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 
 	rows, err := h.dbFor(c).Query(query, args...)
 	if err != nil {
-		serverError(c, "get receipts", err)
+		httpx.ServerError(c, "get receipts", err)
 		return
 	}
 	defer rows.Close()
@@ -433,7 +435,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	// Check membership
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check membership", err)
+		httpx.ServerError(c, "check membership", err)
 		return
 	}
 	if !member {
@@ -448,7 +450,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		req.MessageID, conversationID,
 	).Scan(&msgExists)
 	if err != nil {
-		serverError(c, "check message exists", err)
+		httpx.ServerError(c, "check message exists", err)
 		return
 	}
 	if !msgExists {
@@ -460,7 +462,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	var currentPin sql.NullString
 	err = h.dbFor(c).QueryRow("SELECT pinned_message_id FROM chat_conversations WHERE id = $1", conversationID).Scan(&currentPin)
 	if err != nil {
-		serverError(c, "get current pin", err)
+		httpx.ServerError(c, "get current pin", err)
 		return
 	}
 
@@ -468,7 +470,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		// Unpin
 		_, err = h.dbFor(c).Exec("UPDATE chat_conversations SET pinned_message_id = NULL WHERE id = $1", conversationID)
 		if err != nil {
-			serverError(c, "unpin message", err)
+			httpx.ServerError(c, "unpin message", err)
 			return
 		}
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": nil}))
@@ -476,7 +478,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		// Pin
 		_, err = h.dbFor(c).Exec("UPDATE chat_conversations SET pinned_message_id = $2 WHERE id = $1", conversationID, req.MessageID)
 		if err != nil {
-			serverError(c, "pin message", err)
+			httpx.ServerError(c, "pin message", err)
 			return
 		}
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": req.MessageID}))

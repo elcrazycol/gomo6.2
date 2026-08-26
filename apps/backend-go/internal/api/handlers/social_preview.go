@@ -7,7 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/gomo6/backend/internal/textutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/middleware"
@@ -585,9 +586,9 @@ func imageURL(c *gin.Context, raw, defaultBucket string) string {
 
 // finalize absolutizes URLs, cleans the description and fills defaults.
 func (m *ogMeta) finalize(c *gin.Context) {
-	m.Title = truncateRunes(cleanText(m.Title), 70)
-	m.Description = truncateRunes(cleanText(m.Description), 200)
-	m.BodyContent = truncateRunes(cleanText(m.BodyContent), 600)
+	m.Title = textutil.TruncateRunes(cleanText(m.Title), 70)
+	m.Description = textutil.TruncateRunes(cleanText(m.Description), 200)
+	m.BodyContent = textutil.TruncateRunes(cleanText(m.BodyContent), 600)
 	m.URL = absoluteURL(c, c.Request.URL.Path)
 	if m.ImageBucket == "" {
 		m.ImageBucket = "post-images"
@@ -633,17 +634,6 @@ func cleanText(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.Join(strings.Fields(s), " ")
 	return strings.TrimSpace(s)
-}
-
-func truncateRunes(s string, max int) string {
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	if max <= 0 {
-		return ""
-	}
-	return string(runes[:max-1]) + "…"
 }
 
 func splitPath(path string) []string {

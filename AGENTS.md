@@ -175,7 +175,7 @@ docker compose up -d
 ## Key gotchas
 
 - **Repo is named `gomo6.2`** (not `gomo6`). Deploy scripts search for `/root/gomo6.2` or `/home/*/gomo6.2`. Wrong directory name = deploy fails.
-- **Cache invalidation for new tables**: `universal_crud.go` handles generic CRUD. Adding a new table to the frontend requires adding a cache invalidation case in the `invalidateCacheForTableResult` switch. Missing this = stale data.
+- **Cache invalidation for new tables**: `crud.go` handles generic CRUD. Adding a new table to the frontend requires adding a cache invalidation case in the `invalidateCacheForTableResult` switch. Missing this = stale data.
 - **Rate limit budgets are per-surface**: the generic REST surface uses `RATE_LIMIT_PER_USER` / `RATE_LIMIT_PER_IP` (900/300 per minute); the public `/api/rpc` surface (likes batch, recent likers, emoji resolve, avatar history — reachable by guests) has its own stricter budgets `RPC_RATE_LIMIT_PER_USER` / `RPC_RATE_LIMIT_PER_IP` (900/120 per minute) namespaced under the `rpc` Redis prefix. Tune via env without a rebuild.
 - **Caddy depends on all services**: backend crash = entire site 502s. Healthcheck at `/health` registered before heavy init.
 - **Garage S3 init can be slow**: `garage-init` retries up to 180 times waiting for RPC.
@@ -204,12 +204,16 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 
 | Package | Files | Role |
 |---------|-------|------|
-| `api/handlers` | 48 src | Dedicated HTTP handlers (posts, threads, boards, messenger, auth, …) |
+| `api/handlers` | 45 src | Dedicated HTTP handlers (posts, threads, boards, messenger, auth, …) |
 | `api/routes` | 1 | Route registration + wiring |
-| `universal` | 12 | Generic CRUD engine, table registry, wall, achievement dispatch (ex-god-pakage) |
+| `crudengine` | 10 | Generic CRUD engine, entity registry, wall, achievements dispatch (ex-god-pakage) |
 | `crud` | 3 | Stateless SQL helpers: filters, ordering, emoji validation |
-| `profiles` | 2 | Profile stats recomputation, CSS/background sanitizers |
+| `profiles` | 3 | Profile stats recomputation, CSS/background sanitizers, username lookup |
 | `backup` | 1 | Database backup handler |
+| `notifications` | 1 | Notification Service: `notifications.New(db, redis, hub, push)` + `CreateParams`-based `CreateNotification`/`CreateWallNotification` (insert + cache invalidation + WS + push). No package globals — routes builds one instance and injects it into handlers/crudengine via `SetNotifier` |
+| `privacy` | 1 | Profile-visibility rules (private profile, mutual friends, per-content gates) |
+| `httpx` | 1 | Shared HTTP helpers: `ServerError`, `AuthenticatedUserID` |
+| `textutil` | 1 | Shared string helpers: `TruncateRunes` |
 | `auth` | 1 | JWT, WebAuthn, 2FA |
 | `middleware` | 20 | Rate limiting, auth, CORS, uploads |
 | `cache` | 2 | Redis cache layer |
@@ -227,7 +231,9 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 | `metrics` | 1 | Prometheus metrics |
 | `database` | 2 | PostgreSQL + Redis connections |
 
-Dependency direction: `routes → {handlers, universal, backup, profiles, …}`, `handlers → {auth, cache, crud, …}`, `universal → handlers` (3 exports only: `CreateWallNotification`, `EmitAchievement`, `CanViewUserAchievements`). `crud`, `profiles`, `backup` are leaf-ish packages with minimal inbound deps.
+Dependency direction: `routes → {handlers, crudengine, backup, profiles, notifications, …}`, `handlers → {auth, cache, crud, …}`, `crudengine → {achievements, crud, middleware, models, notifications, privacy, profiles, httpx, textutil, …}` — all leaf packages, no handlers import. `crud`, `profiles`, `backup`, `notifications`, `privacy`, `httpx`, `textutil` are leaf-ish packages with minimal inbound deps.
+
+Composition note: `notifications` has **no package-level state**. `routes.setupRoutes` builds one `notifications.Service` (`New(db, redis, wsHub, pushService)`) and injects it into `LikesHandler`/`FriendsHandler`/`RPCHandler`/`crudengine.Engine` via `SetNotifier`; `MessengerHandler` receives the `*push.Service` directly via `SetPushService`. A nil notifier/push service silently disables that delivery path — no panic, no global to reset in tests.
 
 Migrations in `migrations/` (44+ files, auto-applied via docker-entrypoint-initdb.d).
 

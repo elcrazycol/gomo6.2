@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/notifications"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
@@ -21,6 +24,7 @@ type LikesHandler struct {
 	redis     *redis.Client
 	hub       *websocket.Hub
 	achEngine *achievements.Engine
+	notif     *notifications.Service
 }
 
 func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
@@ -36,6 +40,10 @@ func (h *LikesHandler) SetWebSocketHub(hub *websocket.Hub) {
 
 func (h *LikesHandler) SetAchievementEngine(e *achievements.Engine) {
 	h.achEngine = e
+}
+
+func (h *LikesHandler) SetNotifier(n *notifications.Service) {
+	h.notif = n
 }
 
 // LikeThread godoc
@@ -80,7 +88,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_likes WHERE thread_id = $1 AND user_id = $2)",
 		threadID, userClaims.UserID).Scan(&likeExists)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -102,7 +110,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	)
 
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -111,15 +119,21 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	profiles.RecomputeUserProfileStats(h.db, threadOwner)
 
 	// Create notification for thread author (if not self-like)
-	if threadOwner != "" && threadOwner != userClaims.UserID {
+	if threadOwner != "" && threadOwner != userClaims.UserID && h.notif != nil {
 		params := &models.NotificationParams{Actor: userClaims.Username}
-		_, _ = CreateNotification(h.db, h.redis, h.hub, threadOwner, "like", "", params, &threadID, nil, &userClaims.UserID)
+		_, _ = h.notif.CreateNotification(notifications.CreateParams{
+			RecipientID:     threadOwner,
+			Type:            "like",
+			Params:          params,
+			RelatedThreadID: &threadID,
+			ActorID:         &userClaims.UserID,
+		})
 	}
 
 	// Achievements: the liker gave a like; the thread author received one.
-	EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	achievements.EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
 	if threadOwner != "" && threadOwner != userClaims.UserID {
-		EmitAchievement(h.achEngine, threadOwner, achievements.EventLikeReceived)
+		achievements.EmitAchievement(h.achEngine, threadOwner, achievements.EventLikeReceived)
 	}
 
 	// Invalidate cache for thread and its posts
@@ -163,7 +177,7 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 	query := "DELETE FROM thread_likes WHERE thread_id = $1 AND user_id = $2"
 	result, err := h.db.Exec(query, threadID, userClaims.UserID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -227,7 +241,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)",
 		postID, userClaims.UserID).Scan(&likeExists)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -249,7 +263,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	)
 
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -258,16 +272,23 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	profiles.RecomputeUserProfileStats(h.db, postAuthor)
 
 	// Create notification for post author (if not self-like)
-	if postAuthor != "" && postAuthor != userClaims.UserID {
+	if postAuthor != "" && postAuthor != userClaims.UserID && h.notif != nil {
 		params := &models.NotificationParams{Actor: userClaims.Username}
 		// Try to create notification (best-effort)
-		_, _ = CreateNotification(h.db, h.redis, h.hub, postAuthor, "like", "", params, &threadID, &postID, &userClaims.UserID)
+		_, _ = h.notif.CreateNotification(notifications.CreateParams{
+			RecipientID:     postAuthor,
+			Type:            "like",
+			Params:          params,
+			RelatedThreadID: &threadID,
+			RelatedPostID:   &postID,
+			ActorID:         &userClaims.UserID,
+		})
 	}
 
 	// Achievements: the liker gave a like; the post author received one.
-	EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	achievements.EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
 	if postAuthor != "" && postAuthor != userClaims.UserID {
-		EmitAchievement(h.achEngine, postAuthor, achievements.EventLikeReceived)
+		achievements.EmitAchievement(h.achEngine, postAuthor, achievements.EventLikeReceived)
 	}
 
 	// Invalidate cache for post and its thread
@@ -311,7 +332,7 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 	query := "DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2"
 	result, err := h.db.Exec(query, postID, userClaims.UserID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -384,7 +405,7 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 
 	rows, err := h.db.Query(query, threadID, limit, offset)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -401,7 +422,7 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 
 		err := rows.Scan(&like.ID, &like.ThreadID, &like.UserID, &like.CreatedAt, &username, &avatarURL)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 

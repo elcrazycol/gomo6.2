@@ -33,7 +33,7 @@ func cacheTTLByPath(path string, defaultTTL time.Duration) time.Duration {
 	}
 	// Profile walls embed interaction counts (likes/comments/reposts) that
 	// change on every interaction — short TTL as a safety net on top of the
-	// write-path invalidation in universal_crud.go.
+	// write-path invalidation in crud.go.
 	if strings.Contains(path, "/profile_wall_") {
 		return 30 * time.Second
 	}

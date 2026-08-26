@@ -18,10 +18,14 @@ apps/backend-go/
 │   ├── api/
 │   │   ├── handlers/           # HTTP хендлеры (dedicated: posts, threads, boards, …)
 │   │   └── routes/             # Роуты, wiring
-│   ├── universal/              # Generic CRUD + wall + registry (ex-god-pakage)
+│   ├── crudengine/             # Generic CRUD engine + wall + registry (ex-god-pakage)
 │   ├── crud/                   # Stateless SQL helpers (filters, ordering, emoji)
 │   ├── profiles/               # Profile stats + CSS sanitizers
 │   ├── backup/                 # Database backup handler
+│   ├── notifications/          # Notification Service (insert + cache + WS/push), инжектится в handlers/crudengine
+│   ├── privacy/                # Правила видимости профиля
+│   ├── httpx/                  # HTTP-хелперы (ServerError, AuthenticatedUserID)
+│   ├── textutil/               # Строковые хелперы (TruncateRunes)
 │   ├── auth/                   # JWT / WebAuthn / 2FA
 │   ├── middleware/             # Rate limit, auth, CORS, …
 │   ├── cache/                  # Redis cache layer
@@ -52,18 +56,22 @@ graph TD
     end
 
     subgraph Application
-        handlers["api/handlers\n48 files — dedicated CRUD + auth + messenger"]
-        universal["universal\n12 files — generic CRUD, wall, registry, achievements"]
+        handlers["api/handlers\n45 files — dedicated CRUD + auth + messenger"]
+        crudengine["crudengine\n10 files — generic CRUD, wall, registry, achievements"]
     end
 
     subgraph Domain
-        profiles["profiles\n2 files — stats recomputation, CSS sanitizers"]
+        profiles["profiles\n3 files — stats recomputation, CSS sanitizers, username lookup"]
         backup["backup\n1 file — database backup"]
+        notifications["notifications\n1 file — Service: insert + cache invalidation + WS/push\n(deps: db, redis, hub, push) injected into handlers/crudengine"]
+        privacy["privacy\n1 file — profile visibility rules"]
     end
 
     subgraph Shared helpers
         crud["crud\n3 files — SQL filters, ordering, emoji validation"]
-        achievements["achievements\n5 files — event definitions"]
+        achievements["achievements\n6 files — event definitions + emit"]
+        httpx["httpx\n1 file — HTTP responders, auth context"]
+        textutil["textutil\n1 file — string helpers"]
     end
 
     subgraph Infrastructure
@@ -86,7 +94,7 @@ graph TD
 
     %% routes wires everything
     routes --> handlers
-    routes --> universal
+    routes --> crudengine
     routes --> backup
     routes --> profiles
     routes --> middleware
@@ -97,6 +105,7 @@ graph TD
     routes --> websocket
     routes --> achievements
     routes --> push
+    routes --> notifications
 
     %% handlers → domain + shared + infra
     handlers --> auth
@@ -114,17 +123,29 @@ graph TD
     handlers --> storageh
     handlers --> websocket
     handlers --> achievements
+    handlers --> notifications
+    handlers --> privacy
+    handlers --> httpx
+    handlers --> textutil
 
-    %% universal → handlers (3 exports: CreateWallNotification, EmitAchievement, CanViewUserAchievements)
-    universal --> handlers
-    universal --> achievements
-    universal --> auth
-    universal --> cache
-    universal --> crud
-    universal --> middleware
-    universal --> models
-    universal --> profiles
-    universal --> websocket
+    crudengine --> achievements
+    crudengine --> notifications
+    crudengine --> privacy
+    crudengine --> httpx
+    crudengine --> textutil
+    crudengine --> auth
+    crudengine --> cache
+    crudengine --> crud
+    crudengine --> middleware
+    crudengine --> models
+    crudengine --> profiles
+    crudengine --> websocket
+
+    %% notifications.Service consumes infra; messenger pushes via push.Service
+    notifications --> middleware
+    notifications --> models
+    notifications --> push
+    notifications --> websocket
 
     profiles --> auth
     profiles --> models
@@ -155,7 +176,7 @@ graph TD
     oauth --> auth
 
     style handlers fill:#f9f,stroke:#333,stroke-width:2px
-    style universal fill:#bbf,stroke:#333,stroke-width:2px
+    style crudengine fill:#bbf,stroke:#333,stroke-width:2px
     style crud fill:#bfb,stroke:#333
     style profiles fill:#bfb,stroke:#333
     style backup fill:#bfb,stroke:#333

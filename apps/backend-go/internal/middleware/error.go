@@ -11,10 +11,11 @@ func ErrorHandler() gin.HandlerFunc {
 		c.Next()
 
 		// Only synthesize a response for errors the handler did NOT already
-		// serialize. Handlers that call serverError()/AbortWithStatusJSON write
-		// the body themselves (pushing the error to c.Errors purely for logs);
-		// appending a second JSON document here corrupted every client's parse
-		// ("Unexpected non-whitespace character after JSON") on 5xx responses.
+		// serialize. Handlers that call httpx.ServerError()/AbortWithStatusJSON
+		// write the body themselves (pushing the error to c.Errors purely for
+		// logs); appending a second JSON document here corrupted every client's
+		// parse ("Unexpected non-whitespace character after JSON") on 5xx
+		// responses.
 		if c.Writer.Written() || c.IsAborted() {
 			return
 		}

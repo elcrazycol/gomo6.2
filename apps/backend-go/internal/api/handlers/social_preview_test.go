@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gomo6/backend/internal/textutil"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
@@ -454,10 +456,10 @@ func TestCleanTextAndTruncate(t *testing.T) {
 	if got := cleanText("**жирный** и [ссылка](https://x.test) осталась"); got != "жирный и ссылка осталась" {
 		t.Errorf("cleanText = %q", got)
 	}
-	if got := truncateRunes("абвгде", 4); got != "абв…" {
+	if got := textutil.TruncateRunes("абвгде", 4); got != "абв…" {
 		t.Errorf("truncateRunes = %q", got)
 	}
-	if got := truncateRunes("коротко", 20); got != "коротко" {
+	if got := textutil.TruncateRunes("коротко", 20); got != "коротко" {
 		t.Errorf("truncateRunes should keep short strings, got %q", got)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 )
@@ -81,7 +83,7 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 	// The viewer comes from the optional-auth claims set by the middleware.
 	// Anonymous callers get the global stream (user_uuid = NULL in SQL).
 	var userID interface{}
-	if uid := authenticatedUserID(c); uid != "" {
+	if uid := httpx.AuthenticatedUserID(c); uid != "" {
 		userID = uid
 	}
 
@@ -128,7 +130,7 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 		userID, limit, sinceTS, beforeSort, beforeID,
 	)
 	if err != nil {
-		serverError(c, "feed query failed", err)
+		httpx.ServerError(c, "feed query failed", err)
 		return
 	}
 	defer rows.Close()
@@ -161,7 +163,7 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 			&it.ViewsCount,
 		)
 		if err != nil {
-			serverError(c, "feed row scan failed", err)
+			httpx.ServerError(c, "feed row scan failed", err)
 			return
 		}
 

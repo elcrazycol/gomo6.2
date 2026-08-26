@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/notifications"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
@@ -39,6 +42,7 @@ type RPCHandler struct {
 	wsHub            interface{}
 	recomputeStatsFn func(*sql.DB, string)
 	achEngine        *achievements.Engine
+	notif            *notifications.Service
 }
 
 // NewRPCHandler creates a new RPCHandler.
@@ -61,6 +65,10 @@ func (h *RPCHandler) SetRedis(redis *redis.Client) {
 
 func (h *RPCHandler) SetWebSocketHub(hub interface{}) {
 	h.wsHub = hub
+}
+
+func (h *RPCHandler) SetNotifier(n *notifications.Service) {
+	h.notif = n
 }
 
 // canWriteChannel checks if a user can write to a channel (handles private channels).
@@ -145,7 +153,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -174,7 +182,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 	}
 
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -294,7 +302,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	)
 
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	if len(retContentJSON) > 0 {
@@ -308,7 +316,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	h.recomputeStatsFn(h.db, claims.UserID)
 
-	EmitAchievement(h.achEngine, claims.UserID, achievements.EventCommentCreated)
+	achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventCommentCreated)
 
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
@@ -316,19 +324,21 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	// private_recipient_id. The thread author is not necessarily a participant in
 	// that DM, so no reply notification carrying a content snippet may reach them
 	// (it would leak the DM content via notifications REST + WS).
-	if threadAuthor != "" && threadAuthor != claims.UserID && !req.IsPrivate {
+	if threadAuthor != "" && threadAuthor != claims.UserID && !req.IsPrivate && h.notif != nil {
 		params := &models.NotificationParams{Actor: claims.Username}
 		shortContent := post.Content
 		if len(shortContent) > 100 {
 			shortContent = shortContent[:100] + "..."
 		}
-		var notifHub *websocket.Hub
-		if h.wsHub != nil {
-			if castHub, ok := h.wsHub.(*websocket.Hub); ok {
-				notifHub = castHub
-			}
-		}
-		_, _ = CreateNotification(h.db, h.redis, notifHub, threadAuthor, "reply", shortContent, params, &req.ThreadID, &post.ID, &claims.UserID)
+		_, _ = h.notif.CreateNotification(notifications.CreateParams{
+			RecipientID:     threadAuthor,
+			Type:            "reply",
+			Message:         shortContent,
+			Params:          params,
+			RelatedThreadID: &req.ThreadID,
+			RelatedPostID:   &post.ID,
+			ActorID:         &claims.UserID,
+		})
 	}
 
 	if h.redis != nil {
@@ -437,7 +447,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		}
 		canWrite, err := h.canWriteChannel(claims.UserID, *req.ChannelID)
 		if err != nil && err != sql.ErrNoRows {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if !canWrite {
@@ -466,7 +476,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	tx, err := h.db.Begin()
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer tx.Rollback()
@@ -491,7 +501,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	if len(retContentJSON) > 0 {
@@ -524,15 +534,15 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	}
 
 	if err := tx.Commit(); err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
 	h.recomputeStatsFn(h.db, claims.UserID)
 
-	EmitAchievement(h.achEngine, claims.UserID, achievements.EventEntryCreated)
+	achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventEntryCreated)
 	if len(req.ImageURLs) > 0 {
-		EmitAchievement(h.achEngine, claims.UserID, achievements.EventImageUploaded)
+		achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventImageUploaded)
 	}
 
 	if h.redis != nil {
@@ -627,7 +637,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -660,7 +670,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 6 achievements can be pinned"))
 				return
 			}
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 	} else {
@@ -672,7 +682,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 	}
 
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -714,7 +724,7 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -748,7 +758,7 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 

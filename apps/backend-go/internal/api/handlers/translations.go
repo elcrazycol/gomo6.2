@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 )
@@ -58,7 +60,7 @@ func (h *TranslationsHandler) ListTranslations(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("locale is required"))
 		return
 	}
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 
 	query := `
 		SELECT v.id, v.key, v.locale, v.value, v.user_id, v.votes, v.created_at,
@@ -87,7 +89,7 @@ func (h *TranslationsHandler) ListTranslations(c *gin.Context) {
 
 	rows, err := h.db.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
-		serverError(c, "list translations", err)
+		httpx.ServerError(c, "list translations", err)
 		return
 	}
 	defer rows.Close()
@@ -96,7 +98,7 @@ func (h *TranslationsHandler) ListTranslations(c *gin.Context) {
 	for rows.Next() {
 		var v translationValue
 		if err := rows.Scan(&v.ID, &v.Key, &v.Locale, &v.Value, &v.UserID, &v.Votes, &v.CreatedAt, &v.Username, &v.MyVote); err != nil {
-			serverError(c, "scan translation", err)
+			httpx.ServerError(c, "scan translation", err)
 			return
 		}
 		results = append(results, v)
@@ -113,7 +115,7 @@ type submitTranslationRequest struct {
 // SubmitTranslation stores a new proposal for (key, locale). Identical
 // proposals by the same author are deduped (returns the existing row).
 func (h *TranslationsHandler) SubmitTranslation(c *gin.Context) {
-	userID := authenticatedUserID(c)
+	userID := httpx.AuthenticatedUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
@@ -157,7 +159,7 @@ func (h *TranslationsHandler) SubmitTranslation(c *gin.Context) {
 		return
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		serverError(c, "dedupe translation", err)
+		httpx.ServerError(c, "dedupe translation", err)
 		return
 	}
 
@@ -169,7 +171,7 @@ func (h *TranslationsHandler) SubmitTranslation(c *gin.Context) {
 
 	var v translationValue
 	if err := row.Scan(&v.ID, &v.Key, &v.Locale, &v.Value, &v.UserID, &v.Votes, &v.CreatedAt); err != nil {
-		serverError(c, "insert translation", err)
+		httpx.ServerError(c, "insert translation", err)
 		return
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(v))
@@ -183,7 +185,7 @@ type voteTranslationRequest struct {
 // Voting the same direction again toggles the vote off; the opposite direction
 // flips it. The denormalized votes counter is kept consistent atomically.
 func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
-	userID := authenticatedUserID(c)
+	userID := httpx.AuthenticatedUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
@@ -206,7 +208,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 
 	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		serverError(c, "begin vote tx", err)
+		httpx.ServerError(c, "begin vote tx", err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -215,7 +217,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 	if err := tx.QueryRowContext(c.Request.Context(),
 		`SELECT direction FROM translation_votes WHERE value_id = $1 AND user_id = $2 FOR UPDATE`,
 		valueID, userID).Scan(&existing); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		serverError(c, "read vote", err)
+		httpx.ServerError(c, "read vote", err)
 		return
 	}
 
@@ -226,7 +228,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 		if _, err := tx.ExecContext(c.Request.Context(),
 			`INSERT INTO translation_votes (value_id, user_id, direction) VALUES ($1, $2, $3)`,
 			valueID, userID, req.Direction); err != nil {
-			serverError(c, "insert vote", err)
+			httpx.ServerError(c, "insert vote", err)
 			return
 		}
 		delta = req.Direction
@@ -235,7 +237,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 		if _, err := tx.ExecContext(c.Request.Context(),
 			`DELETE FROM translation_votes WHERE value_id = $1 AND user_id = $2`,
 			valueID, userID); err != nil {
-			serverError(c, "delete vote", err)
+			httpx.ServerError(c, "delete vote", err)
 			return
 		}
 		delta = -req.Direction
@@ -243,7 +245,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 		if _, err := tx.ExecContext(c.Request.Context(),
 			`UPDATE translation_votes SET direction = $3, created_at = NOW() WHERE value_id = $1 AND user_id = $2`,
 			valueID, userID, req.Direction); err != nil {
-			serverError(c, "update vote", err)
+			httpx.ServerError(c, "update vote", err)
 			return
 		}
 		delta = 2 * req.Direction // from -dir to +dir
@@ -258,12 +260,12 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Translation not found"))
 			return
 		}
-		serverError(c, "apply vote", err)
+		httpx.ServerError(c, "apply vote", err)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		serverError(c, "commit vote tx", err)
+		httpx.ServerError(c, "commit vote tx", err)
 		return
 	}
 
@@ -273,7 +275,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 // DeleteTranslation removes the caller's own proposal (admins/moderators may
 // remove any proposal).
 func (h *TranslationsHandler) DeleteTranslation(c *gin.Context) {
-	userID := authenticatedUserID(c)
+	userID := httpx.AuthenticatedUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
@@ -293,7 +295,7 @@ func (h *TranslationsHandler) DeleteTranslation(c *gin.Context) {
 		res, err = h.db.ExecContext(c.Request.Context(), `DELETE FROM translation_values WHERE id = $1 AND user_id = $2`, id, userID)
 	}
 	if err != nil {
-		serverError(c, "delete translation", err)
+		httpx.ServerError(c, "delete translation", err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
@@ -306,7 +308,7 @@ func (h *TranslationsHandler) DeleteTranslation(c *gin.Context) {
 // userIsPlatformModerator reports whether the caller holds the admin or
 // moderator platform role. Best-effort: a lookup failure returns false.
 func userIsPlatformModerator(c *gin.Context, db *sql.DB) bool {
-	userID := authenticatedUserID(c)
+	userID := httpx.AuthenticatedUserID(c)
 	if userID == "" {
 		return false
 	}

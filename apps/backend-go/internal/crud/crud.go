@@ -1,7 +1,7 @@
 // Package crud holds the pure machinery of the generic CRUD surface
 // (UniversalHandler in internal/api/handlers): row decoding, result-map
 // helpers and emoji write validation. These functions have no dependency on
-// the handlers package, so they can live here and be shared by the universal
+// the handlers package, so they can live here and be shared by the crudengine
 // subsystem as it is gradually extracted from the api/handlers god package
 // (F1). Nothing in this package may import internal/api/handlers — keep it a
 // leaf.

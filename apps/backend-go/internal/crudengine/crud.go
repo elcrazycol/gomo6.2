@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"database/sql"
@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/notifications"
+	"github.com/gomo6/backend/internal/textutil"
+
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/middleware"
@@ -26,7 +29,7 @@ import (
 // registry (TableMeta.InvalidateCache, implemented in table_hooks.go) — tables
 // without a hook fall back to the generic table invalidation keyed by the row
 // id, so a new table can never silently skip invalidation entirely.
-func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableName string, result map[string]interface{}) {
+func (h *Engine) invalidateCacheForTableResult(c *gin.Context, tableName string, result map[string]interface{}) {
 	if h.redis == nil {
 		fmt.Printf("[CacheInvalidator] Redis is nil, skipping invalidation for %s\n", tableName)
 		return
@@ -56,7 +59,7 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 // (likes/comments/reposts + viewer state), so a like/comment/repost must
 // invalidate the owner's list key (user_id=eq.<owner>) — the post-scoped
 // patterns alone only match the standalone post page.
-func (h *UniversalHandler) invalidateWallListCache(c *gin.Context, postID string) {
+func (h *Engine) invalidateWallListCache(c *gin.Context, postID string) {
 	if h.redis == nil || postID == "" {
 		return
 	}
@@ -70,7 +73,7 @@ func (h *UniversalHandler) invalidateWallListCache(c *gin.Context, postID string
 
 // invalidateCommentLikesCache invalidates every cache whose response embeds
 // comment like counts: the post's comments list and the owner's wall list.
-func (h *UniversalHandler) invalidateCommentLikesCache(c *gin.Context, commentID string) {
+func (h *Engine) invalidateCommentLikesCache(c *gin.Context, commentID string) {
 	if h.redis == nil || commentID == "" {
 		return
 	}
@@ -87,7 +90,7 @@ func (h *UniversalHandler) invalidateCommentLikesCache(c *gin.Context, commentID
 // counters a wall-post like changes: the post's author (likes_received) and
 // the liker (likes_given). The author is resolved from the DB because the
 // generic CRUD result only carries the like's foreign key.
-func (h *UniversalHandler) recomputeStatsForWallPostLike(c *gin.Context, postID, likerID string) {
+func (h *Engine) recomputeStatsForWallPostLike(c *gin.Context, postID, likerID string) {
 	if postID != "" {
 		var authorID string
 		if err := h.db.QueryRowContext(c.Request.Context(),
@@ -103,7 +106,7 @@ func (h *UniversalHandler) recomputeStatsForWallPostLike(c *gin.Context, postID,
 // recomputeStatsForWallCommentLike — same as recomputeStatsForWallPostLike but
 // for likes on wall comments: the comment's author (likes_received) and the
 // liker (likes_given).
-func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, commentID, likerID string) {
+func (h *Engine) recomputeStatsForWallCommentLike(c *gin.Context, commentID, likerID string) {
 	if commentID != "" {
 		var authorID string
 		if err := h.db.QueryRowContext(c.Request.Context(),
@@ -117,7 +120,7 @@ func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, comm
 }
 
 // wallPostOwnerAuthor resolves the wall owner and author of a wall post.
-func (h *UniversalHandler) wallPostOwnerAuthor(c *gin.Context, postID string) (ownerID, authorID string) {
+func (h *Engine) wallPostOwnerAuthor(c *gin.Context, postID string) (ownerID, authorID string) {
 	if postID == "" {
 		return "", ""
 	}
@@ -127,7 +130,7 @@ func (h *UniversalHandler) wallPostOwnerAuthor(c *gin.Context, postID string) (o
 }
 
 // wallCommentPostAndAuthor resolves a wall comment's post_id and author.
-func (h *UniversalHandler) wallCommentPostAndAuthor(c *gin.Context, commentID string) (postID, authorID string) {
+func (h *Engine) wallCommentPostAndAuthor(c *gin.Context, commentID string) (postID, authorID string) {
 	if commentID == "" {
 		return "", ""
 	}
@@ -139,19 +142,31 @@ func (h *UniversalHandler) wallCommentPostAndAuthor(c *gin.Context, commentID st
 // createWallNotification creates a wall notification for recipientID, skipping
 // self-notifications. Best-effort — a failed notification must never fail the
 // underlying wall write.
-func (h *UniversalHandler) createWallNotification(c *gin.Context, recipientID, actorID, notifType, message, actorUsername string, wallPostID, wallCommentID, wallUserID *string) {
+func (h *Engine) createWallNotification(c *gin.Context, recipientID, actorID, notifType, message, actorUsername string, wallPostID, wallCommentID, wallUserID *string) {
+	if h.notif == nil {
+		return
+	}
 	if recipientID == "" || actorID == "" || recipientID == actorID {
 		return
 	}
 	params := &models.NotificationParams{Actor: actorUsername}
-	if _, err := handlers.CreateWallNotification(h.db, h.redis, h.hub, recipientID, notifType, message, params, wallPostID, wallCommentID, wallUserID, &actorID); err != nil {
+	if _, err := h.notif.CreateWallNotification(notifications.CreateParams{
+		RecipientID:          recipientID,
+		Type:                 notifType,
+		Message:              message,
+		Params:               params,
+		ActorID:              &actorID,
+		RelatedWallPostID:    wallPostID,
+		RelatedWallCommentID: wallCommentID,
+		WallOwnerID:          wallUserID,
+	}); err != nil {
 		fmt.Printf("[WallNotifications] error creating %s notification: %v\n", notifType, err)
 	}
 }
 
 // notifyWallPostLike creates the "wall_post_like" notification for the wall
 // post author.
-func (h *UniversalHandler) notifyWallPostLike(c *gin.Context, postID, actorID string) {
+func (h *Engine) notifyWallPostLike(c *gin.Context, postID, actorID string) {
 	if postID == "" || actorID == "" {
 		return
 	}
@@ -159,12 +174,12 @@ func (h *UniversalHandler) notifyWallPostLike(c *gin.Context, postID, actorID st
 	if authorID == "" || authorID == actorID {
 		return
 	}
-	h.createWallNotification(c, authorID, actorID, "wall_post_like", "", getUsernameFromDB(h.db, actorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(ownerID))
+	h.createWallNotification(c, authorID, actorID, "wall_post_like", "", profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(ownerID))
 }
 
 // notifyWallComment creates the wall comment / reply notifications for a newly
 // inserted wall comment.
-func (h *UniversalHandler) notifyWallComment(c *gin.Context, result map[string]interface{}) {
+func (h *Engine) notifyWallComment(c *gin.Context, result map[string]interface{}) {
 	commentID := crud.WallResultString(result["id"])
 	postID := crud.WallResultString(result["post_id"])
 	actorID := crud.WallResultString(result["user_id"])
@@ -173,27 +188,27 @@ func (h *UniversalHandler) notifyWallComment(c *gin.Context, result map[string]i
 		return
 	}
 
-	snippet := truncateRunes(crud.WallResultString(result["content"]), 100)
+	snippet := textutil.TruncateRunes(crud.WallResultString(result["content"]), 100)
 	ownerID, postAuthorID := h.wallPostOwnerAuthor(c, postID)
 
 	// Reply to another comment → notify the parent comment's author.
 	if parentID != "" {
 		_, parentAuthorID := h.wallCommentPostAndAuthor(c, parentID)
 		if parentAuthorID != "" && parentAuthorID != actorID {
-			h.createWallNotification(c, parentAuthorID, actorID, "wall_comment_reply", snippet, getUsernameFromDB(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
+			h.createWallNotification(c, parentAuthorID, actorID, "wall_comment_reply", snippet, profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
 		}
 		return
 	}
 
 	// Top-level comment → notify the post author.
 	if postAuthorID != "" && postAuthorID != actorID {
-		h.createWallNotification(c, postAuthorID, actorID, "wall_comment", snippet, getUsernameFromDB(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
+		h.createWallNotification(c, postAuthorID, actorID, "wall_comment", snippet, profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
 	}
 }
 
 // notifyWallRepost creates the "wall_repost" notification for the author of the
 // original wall post.
-func (h *UniversalHandler) notifyWallRepost(c *gin.Context, result map[string]interface{}) {
+func (h *Engine) notifyWallRepost(c *gin.Context, result map[string]interface{}) {
 	originalPostID := crud.WallResultString(result["post_id"])
 	actorID := crud.WallResultString(result["user_id"])
 	if originalPostID == "" || actorID == "" {
@@ -203,12 +218,12 @@ func (h *UniversalHandler) notifyWallRepost(c *gin.Context, result map[string]in
 	if originalAuthorID == "" || originalAuthorID == actorID {
 		return
 	}
-	h.createWallNotification(c, originalAuthorID, actorID, "wall_repost", "", getUsernameFromDB(h.db, actorID), crud.WallIDPtr(originalPostID), nil, crud.WallIDPtr(ownerID))
+	h.createWallNotification(c, originalAuthorID, actorID, "wall_repost", "", profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(originalPostID), nil, crud.WallIDPtr(ownerID))
 }
 
 // ─── GET ────────────────────────────────────────────────────────────────────
 
-func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
+func (h *Engine) handleGet(c *gin.Context, tableName string) {
 	if tableName == "user_achievements" {
 		h.handleUserAchievementsGet(c)
 		return
@@ -330,7 +345,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "database error", err)
+		httpx.ServerError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -345,7 +360,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			serverError(c, "database error", err)
+			httpx.ServerError(c, "database error", err)
 			return
 		}
 
@@ -598,7 +613,7 @@ RETURNING *, (xmax = 0) AS inserted`
 // hidden their wall (private_hide_wall), or mutual friends. This mirrors the
 // REST read predicate (profileWallFinishSelectQuery) so the write path enforces
 // the exact same privacy rule.
-func (h *UniversalHandler) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
+func (h *Engine) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
 	if viewerID == ownerID {
 		return true, nil
 	}
@@ -632,7 +647,7 @@ func (h *UniversalHandler) wallOwnerVisibleToViewer(viewerID, ownerID string) (b
 // not view: posting on a private wall, commenting on/liking a post of a private
 // wall, or reposting a private wall post onto the caller's own wall.
 // It writes the HTTP response and returns false when the request is rejected.
-func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName string, data map[string]interface{}, userID string) bool {
+func (h *Engine) enforceWallTargetPrivacy(c *gin.Context, tableName string, data map[string]interface{}, userID string) bool {
 	// Resolve the wall owner this interaction targets.
 	var wallOwner string
 	switch tableName {
@@ -655,7 +670,7 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 			if err == sql.ErrNoRows {
 				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
 			} else {
-				serverError(c, "lookup wall post", err)
+				httpx.ServerError(c, "lookup wall post", err)
 			}
 			return false
 		}
@@ -676,7 +691,7 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 			if err == sql.ErrNoRows {
 				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall comment not found"))
 			} else {
-				serverError(c, "lookup wall comment", err)
+				httpx.ServerError(c, "lookup wall comment", err)
 			}
 			return false
 		}
@@ -696,7 +711,7 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 			if err == sql.ErrNoRows {
 				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
 			} else {
-				serverError(c, "lookup wall post", err)
+				httpx.ServerError(c, "lookup wall post", err)
 			}
 			return false
 		}
@@ -720,7 +735,7 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 	}
 	visible, err := h.wallOwnerVisibleToViewer(userID, wallOwner)
 	if err != nil {
-		serverError(c, "check wall privacy", err)
+		httpx.ServerError(c, "check wall privacy", err)
 		return false
 	}
 	if !visible {
@@ -736,14 +751,14 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 // OwnSingle forces user_id, OwnWallPost forces author_id (with the wall owner
 // allowed when privacy permits), OwnWallRepost forces user_id AND wall_user_id.
 // It writes the HTTP response and returns false when the request is rejected.
-func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string, data map[string]interface{}) bool {
+func (h *Engine) enforcePostOwnership(c *gin.Context, tableName string, data map[string]interface{}) bool {
 	meta := GenericTableByName(tableName)
 	if meta == nil {
 		return true
 	}
 	switch meta.PostOwner {
 	case OwnWallPost:
-		userID := authenticatedUserID(c)
+		userID := httpx.AuthenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return false
@@ -766,7 +781,7 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 				`SELECT COALESCE(allow_wall_posts_from_others, true) FROM privacy_settings WHERE user_id = $1`,
 				wallOwner).Scan(&allowed)
 			if err != nil && err != sql.ErrNoRows {
-				serverError(c, "check wall privacy", err)
+				httpx.ServerError(c, "check wall privacy", err)
 				return false
 			}
 			if err == sql.ErrNoRows {
@@ -779,7 +794,7 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 		}
 	case OwnSingle:
 		// Single-owner tables: the owner is always the authenticated user.
-		userID := authenticatedUserID(c)
+		userID := httpx.AuthenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return false
@@ -791,7 +806,7 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 	case OwnWallRepost:
 		// Reposts are always authored by and placed on the caller's own wall;
 		// wall_user_id must never be client-controlled (foreign-wall bypass).
-		userID := authenticatedUserID(c)
+		userID := httpx.AuthenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return false
@@ -818,7 +833,7 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 	}
 	switch meta.WriteOwner {
 	case OwnWallPost:
-		userID := authenticatedUserID(c)
+		userID := httpx.AuthenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return clauses, args, argIndex, false
@@ -828,7 +843,7 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 		args = append(args, userID)
 		argIndex++
 	case OwnSingle:
-		userID := authenticatedUserID(c)
+		userID := httpx.AuthenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return clauses, args, argIndex, false
@@ -840,7 +855,7 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 	return clauses, args, argIndex, true
 }
 
-func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
+func (h *Engine) handlePost(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -866,7 +881,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
-		if err := crud.ValidateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
+		if err := crud.ValidateCustomEmojiAsset(data, httpx.AuthenticatedUserID(c)); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
@@ -876,7 +891,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	// these checks here because the generic table surface otherwise accepts any
 	// valid UUID/pack_id supplied by the client.
 	if tableName == "emoji_packs" {
-		uid := authenticatedUserID(c)
+		uid := httpx.AuthenticatedUserID(c)
 		if uid == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
@@ -884,7 +899,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		data["author_id"] = uid
 	}
 	if tableName == "custom_emojis" {
-		uid := authenticatedUserID(c)
+		uid := httpx.AuthenticatedUserID(c)
 		packID, _ := data["pack_id"].(string)
 		if uid == "" || packID == "" {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("pack_id is required"))
@@ -906,7 +921,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	// membership — a client-supplied role_id would let anyone promote themselves
 	// to a privileged role or inherit another board's permission set.
 	if tableName == "gomosub_memberships" {
-		if uid, _ := data["user_id"].(string); uid != "" && uid == authenticatedUserID(c) {
+		if uid, _ := data["user_id"].(string); uid != "" && uid == httpx.AuthenticatedUserID(c) {
 			if rid, ok := data["role_id"]; ok && rid != nil && fmt.Sprint(rid) != "" {
 				c.JSON(http.StatusForbidden, models.ErrorResponse("Joining a board cannot assign a role"))
 				return
@@ -923,7 +938,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	if upsertQuery, upsertArgs, useUpsert := upsertInsertQuery(tableName, data); useUpsert {
 		rows, err := h.db.Query(upsertQuery, upsertArgs...)
 		if err != nil {
-			serverError(c, "database error", err)
+			httpx.ServerError(c, "database error", err)
 			return
 		}
 		defer rows.Close()
@@ -933,7 +948,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		}
 		result, err := crud.ScanRowToMap(rows)
 		if err != nil {
-			serverError(c, "database error", err)
+			httpx.ServerError(c, "database error", err)
 			return
 		}
 
@@ -964,7 +979,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 		// Achievements: fires for writes that map to events (daily visit,
 		// wall likes, rules acceptance, profile customization, …).
-		h.emitUniversalAchievementEvents(tableName, result)
+		h.emitAchievementEvents(tableName, result)
 
 		c.JSON(http.StatusOK, models.SuccessResponse(result))
 		return
@@ -993,7 +1008,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "database error", err)
+		httpx.ServerError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -1005,7 +1020,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	result, err := crud.ScanRowToMap(rows)
 	if err != nil {
-		serverError(c, "database error", err)
+		httpx.ServerError(c, "database error", err)
 		return
 	}
 
@@ -1025,15 +1040,15 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		authorID := crud.WallResultString(result["author_id"])
 		if wallOwnerID != "" && authorID != "" && wallOwnerID != authorID {
 			postID := crud.WallResultString(result["id"])
-			msg := truncateRunes(crud.WallResultString(result["content"]), 100)
-			h.createWallNotification(c, wallOwnerID, authorID, "wall_post", msg, getUsernameFromDB(h.db, authorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(wallOwnerID))
+			msg := textutil.TruncateRunes(crud.WallResultString(result["content"]), 100)
+			h.createWallNotification(c, wallOwnerID, authorID, "wall_post", msg, profiles.UsernameByID(h.db, authorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(wallOwnerID))
 		}
 
 		// Build enriched payload with author data for WebSocket
 		if h.hub != nil {
 			var wsPayload map[string]interface{}
 			if idStr := fmt.Sprint(result["id"]); idStr != "" {
-				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr, authenticatedUserID(c)); enrichErr == nil && enriched != nil {
+				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr, httpx.AuthenticatedUserID(c)); enrichErr == nil && enriched != nil {
 					wsPayload = enriched
 				} else {
 					wsPayload = result
@@ -1107,7 +1122,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	// Achievements: fires for wall posts/comments/reposts/likes, sub joins,
 	// rules acceptance, customization — before the enriched early-return below.
-	h.emitUniversalAchievementEvents(tableName, result)
+	h.emitAchievementEvents(tableName, result)
 
 	if h.tryRespondProfileWallEnriched(c, tableName, result) {
 		return
@@ -1136,7 +1151,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 // content. private_profile → both the wall and the now-playing room become
 // friends-only; private_hide_wall alone → only the wall room becomes
 // friends-only. Calls on other tables or without a hub are no-ops.
-func (h *UniversalHandler) revokeSubscriptionsAfterPrivacyChange(tableName string, result map[string]interface{}) {
+func (h *Engine) revokeSubscriptionsAfterPrivacyChange(tableName string, result map[string]interface{}) {
 	if tableName != "privacy_settings" || h.hub == nil {
 		return
 	}
@@ -1155,7 +1170,7 @@ func (h *UniversalHandler) revokeSubscriptionsAfterPrivacyChange(tableName strin
 
 // ─── PUT ────────────────────────────────────────────────────────────────────
 
-func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
+func (h *Engine) handlePut(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -1181,7 +1196,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
-		if err := crud.ValidateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
+		if err := crud.ValidateCustomEmojiAsset(data, httpx.AuthenticatedUserID(c)); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
@@ -1189,7 +1204,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	// K1: never allow rewriting authorship through a generic update.
 	if tableName == "profile_wall_posts" {
-		userID := authenticatedUserID(c)
+		userID := httpx.AuthenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
@@ -1264,7 +1279,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	// marked HandlerScope is actually scoped here — the declaration and the
 	// enforcement cannot drift.
 	if meta := GenericTableByName(tableName); meta != nil && meta.HandlerScope != "" {
-		uid := authenticatedUserID(c)
+		uid := httpx.AuthenticatedUserID(c)
 		if uid == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
@@ -1332,7 +1347,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "database error", err)
+		httpx.ServerError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -1350,7 +1365,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	}
 
 	if err := rows.Scan(valuePtrs...); err != nil {
-		serverError(c, "database error", err)
+		httpx.ServerError(c, "database error", err)
 		return
 	}
 
@@ -1376,7 +1391,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		if h.hub != nil {
 			var wsPayload map[string]interface{}
 			if idStr := fmt.Sprint(result["id"]); idStr != "" {
-				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr, authenticatedUserID(c)); enrichErr == nil && enriched != nil {
+				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr, httpx.AuthenticatedUserID(c)); enrichErr == nil && enriched != nil {
 					wsPayload = enriched
 				} else {
 					wsPayload = result
@@ -1423,7 +1438,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 // ─── DELETE ─────────────────────────────────────────────────────────────────
 
-func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
+func (h *Engine) handleDelete(c *gin.Context, tableName string) {
 	// Wall comments are soft-deleted: the row must survive so the replies
 	// underneath it (parent_id has ON DELETE CASCADE — a hard delete used to
 	// wipe the whole subtree) and the thread structure stay intact. The content
@@ -1451,7 +1466,7 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 	// marked HandlerScope is actually scoped here — the declaration and the
 	// enforcement cannot drift.
 	if meta := GenericTableByName(tableName); meta != nil && meta.HandlerScope != "" {
-		uid := authenticatedUserID(c)
+		uid := httpx.AuthenticatedUserID(c)
 		if uid == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 			return
@@ -1513,7 +1528,7 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 	query += " WHERE " + strings.Join(clauses, " AND ") + " RETURNING *"
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "database error", err)
+		httpx.ServerError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -1531,7 +1546,7 @@ SET content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, upda
 	}
 
 	if err := rows.Scan(valuePtrs...); err != nil {
-		serverError(c, "database error", err)
+		httpx.ServerError(c, "database error", err)
 		return
 	}
 

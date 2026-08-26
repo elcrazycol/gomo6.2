@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"unicode"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
@@ -61,7 +63,7 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	var storedHash sql.NullString
 	err := h.db.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userClaims.UserID).Scan(&storedHash)
 	if err != nil {
-		serverError(c, "load password hash", err)
+		httpx.ServerError(c, "load password hash", err)
 		return
 	}
 
@@ -91,7 +93,7 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 
 	_, err = h.db.Exec(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, string(hashedPassword), userClaims.UserID)
 	if err != nil {
-		serverError(c, "update password hash", err)
+		httpx.ServerError(c, "update password hash", err)
 		return
 	}
 

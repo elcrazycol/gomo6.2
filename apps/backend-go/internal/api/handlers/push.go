@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"net/http"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
@@ -82,7 +84,7 @@ func (h *PushHandler) Subscribe(c *gin.Context) {
 	}
 
 	if err := h.srv.UpsertSubscription(c.Request.Context(), userID, req.Endpoint, req.P256dh, req.Auth, req.UserAgent); err != nil {
-		serverError(c, "failed to save subscription", err)
+		httpx.ServerError(c, "failed to save subscription", err)
 		return
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"subscribed": true}))
@@ -112,7 +114,7 @@ func (h *PushHandler) Unsubscribe(c *gin.Context) {
 	}
 
 	if err := h.srv.DeleteSubscription(c.Request.Context(), userID, req.Endpoint); err != nil {
-		serverError(c, "failed to remove subscription", err)
+		httpx.ServerError(c, "failed to remove subscription", err)
 		return
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"unsubscribed": true}))
@@ -133,7 +135,7 @@ func (h *PushHandler) GetPreferences(c *gin.Context) {
 
 	prefs, err := h.srv.Preferences(c.Request.Context(), userID)
 	if err != nil {
-		serverError(c, "failed to load preferences", err)
+		httpx.ServerError(c, "failed to load preferences", err)
 		return
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
@@ -170,7 +172,7 @@ func (h *PushHandler) UpdatePreferences(c *gin.Context) {
 		return
 	}
 	if err := h.srv.SetPreferences(c.Request.Context(), userID, req.TypeMap); err != nil {
-		serverError(c, "failed to save preferences", err)
+		httpx.ServerError(c, "failed to save preferences", err)
 		return
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))

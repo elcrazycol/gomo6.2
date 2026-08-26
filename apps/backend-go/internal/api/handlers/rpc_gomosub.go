@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/models"
@@ -100,7 +102,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		return
 	}
 	if err != sql.ErrNoRows {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -149,7 +151,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 			c.JSON(http.StatusConflict, models.ErrorResponseWithCode(models.ErrSlugTaken, "This slug is already taken", nil))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -159,7 +161,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	`, board.ID, claims.UserID)
 
 	// Achievements: created a gomosub.
-	EmitAchievement(h.achEngine, claims.UserID, achievements.EventSubCreated)
+	achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventSubCreated)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }

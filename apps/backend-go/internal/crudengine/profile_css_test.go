@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"encoding/json"
@@ -163,8 +163,8 @@ func TestSanitizeProfileCustomizationRow(t *testing.T) {
 
 // ─── Write path: POST /profile_customization stores sanitized CSS ────────────
 
-func TestUniversalPost_ProfileCustomization_SanitizesCSS(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+func TestEnginePost_ProfileCustomization_SanitizesCSS(t *testing.T) {
+	h, mock := setupEngine(t)
 
 	const cleanUsername = "color: red; text-shadow: 0 0 4px #ff4500"
 	// Partial upsert: only the fields present in the body are written.
@@ -173,7 +173,7 @@ func TestUniversalPost_ProfileCustomization_SanitizesCSS(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css", "background_url"}).
 			AddRow("1", "u1", cleanUsername, "VIP", "color: #fff", nil))
 
-	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+	c, w := newRequestContext("POST", "/api/v1/profile_customization", map[string]string{
 		"user_id":            "u1",
 		"username_css":       "color: red; position: fixed; z-index: 999999; background: url(https://evil.example/leak); text-shadow: 0 0 4px #ff4500",
 		"profile_badge_text": "V\tI\rP\n",
@@ -188,8 +188,8 @@ func TestUniversalPost_ProfileCustomization_SanitizesCSS(t *testing.T) {
 
 // ─── background_url: write path stores only sanitized storage keys ──────────
 
-func TestUniversalPost_ProfileCustomization_SanitizesBackgroundURL(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+func TestEnginePost_ProfileCustomization_SanitizesBackgroundURL(t *testing.T) {
+	h, mock := setupEngine(t)
 
 	// The absolute URL is sanitized down to an empty string before storage.
 	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, background_url, updated_at\).*RETURNING \*`).
@@ -197,7 +197,7 @@ func TestUniversalPost_ProfileCustomization_SanitizesBackgroundURL(t *testing.T)
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css", "background_url"}).
 			AddRow("1", "u1", nil, nil, nil, ""))
 
-	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+	c, w := newRequestContext("POST", "/api/v1/profile_customization", map[string]string{
 		"user_id":        "u1",
 		"background_url": "https://evil.example/tracker.png",
 	}, &auth.Claims{UserID: "u1"})
@@ -213,7 +213,7 @@ func TestUniversalPost_ProfileCustomization_SanitizesBackgroundURL(t *testing.T)
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css", "background_url"}).
 			AddRow("1", "u1", nil, nil, nil, "u1/background_456.png"))
 
-	c2, w2 := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+	c2, w2 := newRequestContext("POST", "/api/v1/profile_customization", map[string]string{
 		"user_id":        "u1",
 		"background_url": "u1/background_456.png",
 	}, &auth.Claims{UserID: "u1"})
@@ -226,8 +226,8 @@ func TestUniversalPost_ProfileCustomization_SanitizesBackgroundURL(t *testing.T)
 
 // ─── background_variant: owner-set display variant is allow-listed ──────────
 
-func TestUniversalPost_ProfileCustomization_SanitizesBackgroundVariant(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+func TestEnginePost_ProfileCustomization_SanitizesBackgroundVariant(t *testing.T) {
+	h, mock := setupEngine(t)
 
 	// An unknown variant falls back to the banner default.
 	mock.ExpectQuery(`(?s).*INSERT INTO profile_customization \(user_id, background_variant, updated_at\).*RETURNING \*`).
@@ -235,7 +235,7 @@ func TestUniversalPost_ProfileCustomization_SanitizesBackgroundVariant(t *testin
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "background_variant"}).
 			AddRow("1", "u1", "banner"))
 
-	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+	c, w := newRequestContext("POST", "/api/v1/profile_customization", map[string]string{
 		"user_id":            "u1",
 		"background_variant": "evil-overlay",
 	}, &auth.Claims{UserID: "u1"})
@@ -251,7 +251,7 @@ func TestUniversalPost_ProfileCustomization_SanitizesBackgroundVariant(t *testin
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "background_variant"}).
 			AddRow("1", "u1", "page"))
 
-	c2, w2 := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]string{
+	c2, w2 := newRequestContext("POST", "/api/v1/profile_customization", map[string]string{
 		"user_id":            "u1",
 		"background_variant": "page",
 	}, &auth.Claims{UserID: "u1"})
@@ -264,8 +264,8 @@ func TestUniversalPost_ProfileCustomization_SanitizesBackgroundVariant(t *testin
 
 // ─── Partial upserts: toggling the theme must not wipe other fields ─────────
 
-func TestUniversalPost_ProfileCustomization_PartialThemeToggle(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+func TestEnginePost_ProfileCustomization_PartialThemeToggle(t *testing.T) {
+	h, mock := setupEngine(t)
 
 	// The theme toggle sends ONLY user_id + theme_enabled. The partial upsert
 	// must touch just that column — background_url and theme_tokens (already
@@ -275,7 +275,7 @@ func TestUniversalPost_ProfileCustomization_PartialThemeToggle(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "theme_enabled", "background_url", "theme_tokens"}).
 			AddRow("1", "u1", true, "u1/background_1.png", `{"--primary":"120 60% 35%"}`))
 
-	c, w := newUniversalRequestContext("POST", "/api/v1/profile_customization", map[string]interface{}{
+	c, w := newRequestContext("POST", "/api/v1/profile_customization", map[string]interface{}{
 		"user_id":       "u1",
 		"theme_enabled": true,
 	}, &auth.Claims{UserID: "u1"})
@@ -300,15 +300,15 @@ func TestUniversalPost_ProfileCustomization_PartialThemeToggle(t *testing.T) {
 
 // ─── Read path: GET /profile_customization neutralizes legacy rows ───────────
 
-func TestUniversalGet_ProfileCustomization_SanitizesLegacyRows(t *testing.T) {
-	h, mock := setupUniversalHandler(t)
+func TestEngineGet_ProfileCustomization_SanitizesLegacyRows(t *testing.T) {
+	h, mock := setupEngine(t)
 
 	mock.ExpectQuery(`SELECT \* FROM profile_customization WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "username_css", "profile_badge_text", "profile_badge_css"}).
 			AddRow("1", "u1", "color: red; position: fixed; z-index: 999999", "V\tI\rP", "background: url(https://evil.example/x)"))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_customization", nil, &auth.Claims{UserID: "u1"})
+	c, w := newRequestContext("GET", "/api/v1/profile_customization", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {

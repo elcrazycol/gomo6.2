@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
@@ -108,7 +110,7 @@ func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
 		`
 		WHERE pl.post_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -150,7 +152,7 @@ func (h *RPCHandler) GetThreadLikesCount(c *gin.Context) {
 		`
 		WHERE tl.thread_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -203,7 +205,7 @@ func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
 		`
 		WHERE pl.post_id = $1 AND pl.user_id = $2 AND `+pred+`)`, args...).Scan(&exists)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -255,7 +257,7 @@ func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
 		`
 		WHERE tl.thread_id = $1 AND tl.user_id = $2 AND `+pred+`)`, args...).Scan(&exists)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -290,7 +292,7 @@ func (h *RPCHandler) GetUserLikesGivenCount(c *gin.Context) {
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE user_id = $1", userID).Scan(&count)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -335,7 +337,7 @@ func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
 		JOIN posts p ON pl.post_id = p.id`+postVisibilityExtraJoins+`
 		WHERE p.user_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -370,7 +372,7 @@ func (h *RPCHandler) GetUserThreadLikesGivenCount(c *gin.Context) {
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE user_id = $1", userID).Scan(&count)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -413,7 +415,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
 		JOIN threads t ON tl.thread_id = t.id`+threadVisibilityExtraJoins+`
 		WHERE t.user_id = $1 AND `+pred, args...).Scan(&count)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -470,7 +472,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 	args = append(args, predArgs...)
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -495,7 +497,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 
 		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
@@ -561,7 +563,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 	args = append(args, predArgs...)
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -586,7 +588,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 
 		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
@@ -639,7 +641,7 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 		ORDER BY pl.created_at ASC
 	`, userID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -648,7 +650,7 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
@@ -730,7 +732,7 @@ func (h *RPCHandler) GetPostLikesBatch(c *gin.Context) {
 		GROUP BY pl.post_id`
 	countRows, err := h.db.Query(countQuery, countArgs...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer countRows.Close()
@@ -861,7 +863,7 @@ func (h *RPCHandler) GetThreadLikesBatch(c *gin.Context) {
 		GROUP BY tl.thread_id`
 	countRows, err := h.db.Query(countQuery, countArgs...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer countRows.Close()
@@ -956,7 +958,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 		ORDER BY tl.created_at ASC
 	`, userID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -965,7 +967,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
@@ -1009,7 +1011,7 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 		ORDER BY p.created_at ASC
 	`, userID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -1018,7 +1020,7 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})

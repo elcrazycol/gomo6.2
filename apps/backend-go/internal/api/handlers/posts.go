@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crud"
@@ -304,7 +306,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -322,7 +324,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			&username, &nicknameEmojiID, &avatarURL,
 		)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if username.Valid {
@@ -427,7 +429,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	if username.Valid {
@@ -490,7 +492,7 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -502,7 +504,7 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	if !authorID.Valid || authorID.String != userClaims.UserID {
 		isStaff, staffErr := isModeratorOrAdmin(h.db, userClaims.UserID)
 		if staffErr != nil {
-			serverError(c, "check moderation role", staffErr)
+			httpx.ServerError(c, "check moderation role", staffErr)
 			return
 		}
 		if !isStaff {
@@ -530,7 +532,7 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 
 	result, err := h.db.Exec(query, id)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -606,7 +608,7 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	if !authorID.Valid || authorID.String != userClaims.UserID {
@@ -641,7 +643,7 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 	)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	if len(retJSON) > 0 {

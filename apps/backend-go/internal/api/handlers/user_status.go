@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/privacy"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
@@ -54,7 +57,7 @@ func (h *UserStatusHandler) GetOnlineUsers(c *gin.Context) {
 	}
 	filtered := onlineUserIDs[:0]
 	for _, id := range onlineUserIDs {
-		if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && !shouldFilter {
+		if shouldFilter, _, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && !shouldFilter {
 			filtered = append(filtered, id)
 		}
 	}
@@ -87,7 +90,7 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 			viewerID = uc.UserID
 		}
 	}
-	if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, userID); err == nil && shouldFilter {
+	if shouldFilter, _, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, userID); err == nil && shouldFilter {
 		c.JSON(http.StatusOK, UserStatusResponse{UserID: userID, IsOnline: false})
 		return
 	}
@@ -134,7 +137,7 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("User not found"))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -211,7 +214,7 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 
 	rows, err := h.db.Query(query, pq.Array(request.UserIDs))
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -233,7 +236,7 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 		}
 
 		// Private profile + non-friend → strip online state and last_seen.
-		if shouldFilter, _, ferr := ShouldFilterPrivateProfile(h.db, viewerID, status.UserID); ferr == nil && shouldFilter {
+		if shouldFilter, _, ferr := privacy.ShouldFilterPrivateProfile(h.db, viewerID, status.UserID); ferr == nil && shouldFilter {
 			status.IsOnline = false
 			status.LastSeen = nil
 			statuses = append(statuses, status)
@@ -288,7 +291,7 @@ func (h *UserStatusHandler) bulkStatusFromRedis(c *gin.Context, userIDs []string
 	result := make([]UserStatusResponse, 0, len(userIDs))
 	fetch := make([]string, 0, len(userIDs))
 	for _, id := range userIDs {
-		if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && shouldFilter {
+		if shouldFilter, _, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && shouldFilter {
 			result = append(result, UserStatusResponse{UserID: id, IsOnline: false})
 		} else {
 			fetch = append(fetch, id)
