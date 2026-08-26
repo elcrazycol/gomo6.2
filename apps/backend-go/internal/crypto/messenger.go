@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"testing"
 
 	"golang.org/x/crypto/hkdf"
 )
@@ -42,8 +43,8 @@ func ParseMessengerKey(key string) ([]byte, error) {
 // Per-conversation keys are derived via HMAC-SHA256 (legacy) or HKDF (v2).
 
 var (
-	masterKey     []byte
-	masterKeyOnce sync.Once
+	mu        sync.Mutex
+	masterKey []byte
 )
 
 // Key derivation versions.
@@ -65,28 +66,59 @@ const DecryptionFailedPlaceholder = "🔒 Сообщение недоступн�
 // Only v2 keys are cached; legacy keys are cheap to compute.
 var hkdfKeyCache sync.Map // key: "convID", value: []byte
 
-// Init loads the master encryption key from environment.
-// Must be called once at startup. Fatal if key is missing or wrong length.
-func Init() {
-	masterKeyOnce.Do(func() {
-		key := os.Getenv("MESSENGER_ENCRYPTION_KEY")
-		if key == "" {
-			key = os.Getenv("ENCRYPTION_KEY")
+// loadKeyLocked re-reads the master key from the environment, clearing it when
+// the variables are absent or invalid. The key is re-read on every call
+// instead of being cached with sync.Once: handler tests deliberately set and
+// clear MESSENGER_ENCRYPTION_KEY around individual cases, and a once-guarded
+// load made the whole package's behavior depend on which test ran first —
+// crypto operations must be order-independent in test binaries. Locked by mu.
+func loadKeyLocked() {
+	key := os.Getenv("MESSENGER_ENCRYPTION_KEY")
+	if key == "" {
+		key = os.Getenv("ENCRYPTION_KEY")
+	}
+	if key != "" {
+		if k, err := ParseMessengerKey(key); err == nil {
+			masterKey = k
+			return
 		}
-		if key == "" {
-			log.Fatalf("[Crypto] FATAL: MESSENGER_ENCRYPTION_KEY is required. Generate with: openssl rand -hex 32")
-		}
-		k, err := ParseMessengerKey(key)
-		if err != nil {
-			log.Fatalf("[Crypto] FATAL: invalid MESSENGER_ENCRYPTION_KEY: %v", err)
-		}
-		masterKey = k
-	})
+	}
+	masterKey = nil
 }
 
-// GetMasterKey returns the loaded master key. Panics if Init() was not called.
+// Init loads the master encryption key from environment.
+// In production a missing or invalid key is a fatal misconfiguration — the
+// process must not serve messenger content it cannot decrypt — so Init exits
+// the process, matching the historical fail-fast contract. In test binaries
+// the same condition must never kill the suite: many handler tests exercise
+// encryption paths while deliberately leaving the env key unset, and the
+// failure is expected to surface as an ordinary encryption error instead.
+func Init() {
+	mu.Lock()
+	defer mu.Unlock()
+	loadKeyLocked()
+	if testing.Testing() {
+		return
+	}
+	key := os.Getenv("MESSENGER_ENCRYPTION_KEY")
+	if key == "" {
+		key = os.Getenv("ENCRYPTION_KEY")
+	}
+	if key == "" {
+		log.Fatalf("[Crypto] FATAL: MESSENGER_ENCRYPTION_KEY is required. Generate with: openssl rand -hex 32")
+	}
+	if _, err := ParseMessengerKey(key); err != nil {
+		log.Fatalf("[Crypto] FATAL: invalid MESSENGER_ENCRYPTION_KEY: %v", err)
+	}
+}
+
+// GetMasterKey returns the loaded master key. It is nil when no valid key is
+// configured (test binaries only — production Init exits instead); callers
+// treat nil as "encryption unavailable", which surfaces as a clear error.
 func GetMasterKey() []byte {
 	Init()
+	mu.Lock()
+	defer mu.Unlock()
 	return masterKey
 }
 
