@@ -39,11 +39,11 @@
   transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
-.pe-top-btn:hover {
+.pe-top-btn:hover:not(:disabled) {
   background: rgb(255 255 255 / 0.2);
 }
 
-.pe-top-btn:active {
+.pe-top-btn:active:not(:disabled) {
   transform: scale(0.92);
 }
 
@@ -51,8 +51,13 @@
   background: #2ea6ff;
 }
 
-.pe-top-btn.pe-done:hover {
+.pe-top-btn.pe-done:hover:not(:disabled) {
   background: #55b7ff;
+}
+
+.pe-top-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .pe-title {

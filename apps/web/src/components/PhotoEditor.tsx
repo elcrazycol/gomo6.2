@@ -1335,6 +1335,7 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
 
   /** "Готово": export the canvas with any pending crop applied. */
   const handleApply = () => {
+    if (!ready || loadError) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const box = cropBoxRef.current;
@@ -1358,7 +1359,7 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
           <X size={22} />
         </button>
         <span className="pe-title">Редактирование фото</span>
-        <button type="button" className="pe-top-btn pe-done" onClick={handleApply} aria-label="Готово" title="Готово">
+        <button type="button" className="pe-top-btn pe-done" onClick={handleApply} disabled={!ready || loadError} aria-label="Готово" title="Готово">
           <Check size={22} />
         </button>
       </div>
