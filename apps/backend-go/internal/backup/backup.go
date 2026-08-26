@@ -319,10 +319,74 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 		return nil, fmt.Errorf("ghost user: %w", err)
 	}
 
+	newBoardID, slug, name, err := importBoard(tx, ctx, importerID, archiveData)
+	if err != nil {
+		return nil, err
+	}
+
+	userMapping := buildUserMapping(tx, archiveData, importerID, ghostID)
+
+	channelMapping, err := importChannels(tx, ctx, newBoardID, archiveData)
+	if err != nil {
+		return nil, err
+	}
+
+	roleMapping, err := importRoles(tx, ctx, newBoardID, archiveData)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := importChannelPermissions(tx, ctx, archiveData, channelMapping, roleMapping); err != nil {
+		return nil, err
+	}
+
+	if err := importMemberships(tx, ctx, archiveData, userMapping, newBoardID); err != nil {
+		return nil, err
+	}
+
+	threadMapping, err := importThreads(tx, ctx, newBoardID, archiveData, userMapping, channelMapping, ghostID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Posts — two-pass for reply_to
+	postMapping, err := importPosts(tx, ctx, archiveData, userMapping, threadMapping, ghostID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := importThreadLikes(tx, ctx, archiveData, userMapping, threadMapping, ghostID); err != nil {
+		return nil, err
+	}
+
+	if err := importPostLikes(tx, ctx, archiveData, userMapping, postMapping, ghostID); err != nil {
+		return nil, err
+	}
+
+	pollMapping, err := importPolls(tx, ctx, archiveData, threadMapping)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := importPollVotes(tx, ctx, archiveData, userMapping, pollMapping, ghostID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	return &importResult{boardID: newBoardID, slug: slug + "-import", name: name}, nil
+}
+
+// importBoard creates the board row for a backup archive, giving it a fresh ID
+// and appending "-import" to the slug so the import never collides with an
+// existing board.
+func importBoard(tx *sql.Tx, ctx context.Context, importerID string, archiveData map[string]interface{}) (boardID, slug, name string, err error) {
 	boardData := archiveData["board.json"].(map[string]interface{})
-	newBoardID := uuid.New().String()
-	slug := jsonStr(boardData, "slug")
-	name := jsonStr(boardData, "name")
+	boardID = uuid.New().String()
+	slug = jsonStr(boardData, "slug")
+	name = jsonStr(boardData, "name")
 	description := jsonStrPtr(boardData, "description")
 	visibility := jsonStr(boardData, "visibility")
 	if visibility == "" {
@@ -337,14 +401,16 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO boards (id, slug, name, description, is_gomosub, is_rules_board, owner_id, visibility, gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown)
 		VALUES ($1, $2, $3, $4, $5, false, $6, $7, $8, $9, $10, $11)
-	`, newBoardID, slug+"-import", name, description, isGomosub, importerID, visibility, gomosubAvatarURL, coverImageURL, gomosubTags, rulesMarkdown)
+	`, boardID, slug+"-import", name, description, isGomosub, importerID, visibility, gomosubAvatarURL, coverImageURL, gomosubTags, rulesMarkdown)
 	if err != nil {
-		return nil, fmt.Errorf("create board: %w", err)
+		return "", "", "", fmt.Errorf("create board: %w", err)
 	}
+	return boardID, slug, name, nil
+}
 
-	userMapping := buildUserMapping(tx, archiveData, importerID, ghostID)
-
-	// Channels
+// importChannels recreates the board channels, mapping old IDs to fresh ones
+// so threads, permissions and polls can reference them.
+func importChannels(tx *sql.Tx, ctx context.Context, boardID string, archiveData map[string]interface{}) (map[string]string, error) {
 	channelMapping := make(map[string]string)
 	if channels, ok := archiveData["channels.json"].([]interface{}); ok {
 		for _, ch := range channels {
@@ -358,15 +424,19 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO channels (id, board_id, slug, name, description, category, sort_order, is_private)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			`, newID, newBoardID, jsonStr(chMap, "slug"), jsonStr(chMap, "name"),
+			`, newID, boardID, jsonStr(chMap, "slug"), jsonStr(chMap, "name"),
 				jsonStrPtr(chMap, "description"), jsonStrPtr(chMap, "category"),
 				jsonInt(chMap, "sort_order"), jsonBool(chMap, "is_private")); err != nil {
 				return nil, fmt.Errorf("import channel %q: %w", jsonStr(chMap, "slug"), err)
 			}
 		}
 	}
+	return channelMapping, nil
+}
 
-	// Roles
+// importRoles recreates the gomosub roles, mapping old IDs to fresh ones so
+// channel permissions can reference them.
+func importRoles(tx *sql.Tx, ctx context.Context, boardID string, archiveData map[string]interface{}) (map[string]string, error) {
 	roleMapping := make(map[string]string)
 	if roles, ok := archiveData["roles.json"].([]interface{}); ok {
 		for _, r := range roles {
@@ -380,14 +450,20 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO gomosub_roles (id, board_id, name, color, position, permissions)
 				VALUES ($1, $2, $3, $4, $5, $6)
-			`, newID, newBoardID, jsonStr(rMap, "name"), jsonStr(rMap, "color"),
+			`, newID, boardID, jsonStr(rMap, "name"), jsonStr(rMap, "color"),
 				jsonInt(rMap, "position"), jsonRaw(rMap, "permissions")); err != nil {
 				return nil, fmt.Errorf("import role %q: %w", jsonStr(rMap, "name"), err)
 			}
 		}
 	}
+	return roleMapping, nil
+}
 
-	// Channel permissions
+// importChannelPermissions links the imported roles to the imported channels.
+// Permissions whose channel or role was skipped (or mapped to nothing) are
+// dropped; per-row failures are logged, not fatal — a permission grid is a
+// best-effort decoration of the imported content.
+func importChannelPermissions(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, channelMapping, roleMapping map[string]string) error {
 	if perms, ok := archiveData["channel_permissions.json"].([]interface{}); ok {
 		for _, p := range perms {
 			pMap, ok := p.(map[string]interface{})
@@ -408,8 +484,13 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			}
 		}
 	}
+	return nil
+}
 
-	// Memberships
+// importMemberships joins the previously known members to the imported board;
+// locally unknown users are skipped (their content is attributed to the ghost
+// user by mapUserID).
+func importMemberships(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping map[string]string, boardID string) error {
 	if mems, ok := archiveData["memberships.json"].([]interface{}); ok {
 		for _, m := range mems {
 			mMap, ok := m.(map[string]interface{})
@@ -428,13 +509,17 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO gomosub_memberships (user_id, board_id, role)
 				VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
-			`, localUserID, newBoardID, role); err != nil {
+			`, localUserID, boardID, role); err != nil {
 				log.Printf("backup import: membership: %v", err)
 			}
 		}
 	}
+	return nil
+}
 
-	// Threads
+// importThreads recreates the board threads, mapping old IDs to fresh ones and
+// re-homing channel references through channelMapping.
+func importThreads(tx *sql.Tx, ctx context.Context, boardID string, archiveData map[string]interface{}, userMapping, channelMapping map[string]string, ghostID string) (map[string]string, error) {
 	threadMapping := make(map[string]string)
 	if threads, ok := archiveData["threads.json"].([]interface{}); ok {
 		for _, th := range threads {
@@ -457,7 +542,7 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO threads (id, board_id, channel_id, user_id, title, content, content_json, image_url, image_urls, attachments, tags, post_count, server_domain, created_at, updated_at, is_remote)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-			`, newID, newBoardID, channelID, userID,
+			`, newID, boardID, channelID, userID,
 				jsonStr(thMap, "title"), jsonStr(thMap, "content"), jsonRaw(thMap, "content_json"),
 				jsonStrPtr(thMap, "image_url"), jsonRaw(thMap, "image_urls"), jsonRaw(thMap, "attachments"),
 				jsonRaw(thMap, "tags"), jsonInt(thMap, "post_count"), jsonStr(thMap, "server_domain"),
@@ -466,8 +551,13 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			}
 		}
 	}
+	return threadMapping, nil
+}
 
-	// Posts — two-pass for reply_to
+// importPosts recreates the thread posts in two passes: rows are inserted with
+// reply_to NULL first, then the reply links are patched once every post has a
+// fresh ID.
+func importPosts(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping, threadMapping map[string]string, ghostID string) (map[string]string, error) {
 	type postImport struct {
 		newID   string
 		replyTo *string
@@ -520,8 +610,12 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			}
 		}
 	}
+	return postMapping, nil
+}
 
-	// Thread likes
+// importThreadLikes re-attaches thread likes to the imported threads; rows for
+// threads that failed to import (or users unknown locally) are dropped.
+func importThreadLikes(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping, threadMapping map[string]string, ghostID string) error {
 	if likes, ok := archiveData["thread_likes.json"].([]interface{}); ok {
 		for _, l := range likes {
 			lMap, ok := l.(map[string]interface{})
@@ -541,8 +635,12 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			}
 		}
 	}
+	return nil
+}
 
-	// Post likes
+// importPostLikes re-attaches post likes to the imported posts; rows for posts
+// that failed to import are dropped.
+func importPostLikes(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping, postMapping map[string]string, ghostID string) error {
 	if likes, ok := archiveData["post_likes.json"].([]interface{}); ok {
 		for _, l := range likes {
 			lMap, ok := l.(map[string]interface{})
@@ -562,8 +660,12 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			}
 		}
 	}
+	return nil
+}
 
-	// Polls
+// importPolls recreates the thread polls, mapping old IDs to fresh ones so
+// the imported votes can reference them.
+func importPolls(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, threadMapping map[string]string) (map[string]string, error) {
 	pollMapping := make(map[string]string)
 	if polls, ok := archiveData["polls.json"].([]interface{}); ok {
 		for _, p := range polls {
@@ -588,8 +690,12 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			}
 		}
 	}
+	return pollMapping, nil
+}
 
-	// Poll votes
+// importPollVotes re-attaches poll votes to the imported polls; votes for
+// polls that failed to import are dropped.
+func importPollVotes(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping, pollMapping map[string]string, ghostID string) error {
 	if votes, ok := archiveData["poll_votes.json"].([]interface{}); ok {
 		for _, v := range votes {
 			vMap, ok := v.(map[string]interface{})
@@ -609,15 +715,8 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 			}
 		}
 	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit: %w", err)
-	}
-
-	return &importResult{boardID: newBoardID, slug: slug + "-import", name: name}, nil
-}
-
-// ── ImportInfo ────────────────────────────────────────────────────────────
+	return nil
+} // ── ImportInfo ────────────────────────────────────────────────────────────
 
 // ImportInfo godoc
 // @Summary      Inspect backup archive

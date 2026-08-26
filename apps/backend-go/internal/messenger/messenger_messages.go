@@ -39,6 +39,7 @@ import (
 // @Failure      403 {object} models.APIResponse
 // @Router       /messenger/conversations/{id}/messages [get]
 // @Security     BearerAuth
+
 func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -70,44 +71,77 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
-	// Pagination and reconnect delta cursor. The two cursor modes are
-	// deliberately mutually exclusive so a reconnect cannot silently turn into
-	// an unrelated backwards page.
-	limit := 50
-	before := c.Query("before")
-	sinceEventRaw := c.Query("since_event_id")
-	if before != "" && sinceEventRaw != "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("before and since_event_id cannot be combined"))
+	limit, before, sinceEventRaw, sinceEventID, ok := parseMessageCursor(c)
+	if !ok {
 		return
 	}
-	var sinceEventID int64
+
+	messages, ok := h.fetchMessagePage(c, conversationID, isNotes, limit, before, sinceEventID, sinceEventRaw != "")
+	if !ok {
+		return
+	}
+
+	if messages == nil {
+		messages = []MessageResponse{}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(messages))
+}
+
+// parseMessageCursor reads the pagination and reconnect-delta cursor of a
+// GetMessages request. The two cursor modes are deliberately mutually
+// exclusive so a reconnect cannot silently turn into an unrelated backwards
+// page. On invalid input it writes a 400 and returns ok=false.
+func parseMessageCursor(c *gin.Context) (limit int, before string, sinceEventRaw string, sinceEventID int64, ok bool) {
+	limit = 50
+	before = c.Query("before")
+	sinceEventRaw = c.Query("since_event_id")
+	if before != "" && sinceEventRaw != "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("before and since_event_id cannot be combined"))
+		return 0, "", "", 0, false
+	}
 	if sinceEventRaw != "" {
 		var parseErr error
 		sinceEventID, parseErr = strconv.ParseInt(sinceEventRaw, 10, 64)
 		if parseErr != nil || sinceEventID < 0 {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid since_event_id"))
-			return
+			return 0, "", "", 0, false
 		}
 	}
-
 	if l := c.Query("limit"); l != "" {
 		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
 			limit = n
 		}
 	}
+	return limit, before, sinceEventRaw, sinceEventID, true
+}
 
-	// Notes conversations additionally carry client-encrypted metadata
-	// (pin/folder/tags): select the column only for the notes self-chat so
-	// regular conversations keep the lean projection.
+// buildMessageSelectColumns returns the lean message projection of GetMessages.
+// Notes conversations additionally carry client-encrypted metadata
+// (pin/folder/tags): the column is selected only for the notes self-chat so
+// regular conversations keep the lean projection.
+func buildMessageSelectColumns(isNotes bool) string {
 	selectColumns := `SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
 			m.parent_message_id, m.content, m.is_edited, m.is_deleted,
 			m.edited_at, m.sent_at, m.client_id`
 	if isNotes {
 		selectColumns += `, m.notes_meta`
 	}
+	return selectColumns
+}
+
+// fetchMessagePage runs the cursor-mode query, decodes every row (server-side
+// decryption for regular conversations, verbatim forwarding for notes) and
+// attaches the batch-fetched attachments. Delta pages are returned in
+// event_id ASC order so they can be appended directly; backward pages return
+// in chronological order (sent_at DESC was reversed).
+func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID string, isNotes bool, limit int, before string, sinceEventID int64, delta bool) ([]MessageResponse, bool) {
+	selectColumns := buildMessageSelectColumns(isNotes)
 
 	var rows *sql.Rows
-	if sinceEventRaw != "" {
+	var err error
+	switch {
+	case delta:
 		rows, err = h.dbFor(c).Query(`
 			`+selectColumns+`
 			FROM chat_messages m
@@ -116,7 +150,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			ORDER BY m.event_id ASC
 			LIMIT $3
 		`, conversationID, sinceEventID, limit)
-	} else if before != "" {
+	case before != "":
 		rows, err = h.dbFor(c).Query(`
 			`+selectColumns+`
 			FROM chat_messages m
@@ -127,7 +161,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			ORDER BY m.sent_at DESC
 			LIMIT $3
 		`, conversationID, before, limit)
-	} else {
+	default:
 		rows, err = h.dbFor(c).Query(`
 			`+selectColumns+`
 			FROM chat_messages m
@@ -137,75 +171,24 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			LIMIT $2
 		`, conversationID, limit)
 	}
-
 	if err != nil {
 		httpx.ServerError(c, "get messages", err)
-		return
+		return nil, false
 	}
 	defer rows.Close()
 
 	messages := []MessageResponse{}
 	for rows.Next() {
-		var msg MessageResponse
-		var parentID, editedAt, senderUsername sql.NullString
-		var encryptedContent string
-		var isDeleted bool
-
-		var notesMeta sql.NullString
-		dest := []interface{}{
-			&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
-			&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
-			&editedAt, &msg.SentAt, &msg.ClientID,
+		msg, scanErr := scanMessageRow(rows, conversationID, isNotes)
+		if scanErr != nil {
+			httpx.ServerError(c, "scan message row", scanErr)
+			return nil, false
 		}
-		if isNotes {
-			dest = append(dest, &notesMeta)
-		}
-
-		if err := rows.Scan(dest...); err != nil {
-			httpx.ServerError(c, "scan message row", err)
-			return
-		}
-
-		if senderUsername.Valid {
-			msg.SenderUsername = senderUsername.String
-		}
-
-		if isNotes && notesMeta.Valid {
-			// Client-encrypted pin/folder/tags blob — forward verbatim, the
-			// device decrypts it locally.
-			msg.NotesMeta = &notesMeta.String
-		}
-
-		msg.IsDeleted = isDeleted
-		if isDeleted {
-			msg.Content = ""
-		} else if isNotes {
-			// Client-side E2E blob: forward as-is, the device decrypts locally.
-			msg.Content = encryptedContent
-		} else {
-			// Try per-conversation key first, fall back to master key (for legacy messages).
-			// If decryption fails, replace the ciphertext with a placeholder — the
-			// encrypted blob must never be returned to the client.
-			decrypted, decErr := decryptContentForConversation(conversationID, encryptedContent)
-			if decErr != nil {
-				decrypted, decErr = decryptContent(encryptedContent)
-			}
-			if decErr == nil {
-				msg.Content = decrypted
-			} else {
-				msg.Content = crypto.DecryptionFailedPlaceholder
-			}
-		}
-
-		if parentID.Valid {
-			msg.ParentMessageID = &parentID.String
-		}
-		if editedAt.Valid {
-			s := editedAt.String
-			msg.EditedAt = &s
-		}
-
-		messages = append(messages, msg)
+		messages = append(messages, *msg)
+	}
+	if err := rows.Err(); err != nil {
+		httpx.ServerError(c, "iterate messages", err)
+		return nil, false
 	}
 
 	// Batch-fetch attachments for all messages
@@ -217,7 +200,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		attMap, err := h.getAttachmentsByMessageIDs(c, ids)
 		if err != nil {
 			httpx.ServerError(c, "get attachments", err)
-			return
+			return nil, false
 		}
 		for i := range messages {
 			if atts, ok := attMap[messages[i].ID]; ok {
@@ -228,20 +211,81 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 
 	// Backward pages are returned by sent_at DESC and must be reversed. Delta
 	// pages are already event_id ASC so they can be appended directly.
-	if sinceEventRaw == "" {
+	if !delta {
 		for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 			messages[i], messages[j] = messages[j], messages[i]
 		}
 	}
 
-	if messages == nil {
-		messages = []MessageResponse{}
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(messages))
+	return messages, true
 }
 
-// ─── Send Message ───────────────────────────────────────────────────────────
+// scanMessageRow decodes a single chat_messages row. Regular conversations
+// are decrypted server-side (per-conversation key first, then master key for
+// legacy messages); a failed decryption is replaced with a placeholder — the
+// encrypted blob must never be returned to the client. Notes rows are
+// forwarded verbatim, the device decrypts them locally.
+func scanMessageRow(rows *sql.Rows, conversationID string, isNotes bool) (*MessageResponse, error) {
+	var msg MessageResponse
+	var parentID, editedAt, senderUsername sql.NullString
+	var encryptedContent string
+	var isDeleted bool
+
+	var notesMeta sql.NullString
+	dest := []interface{}{
+		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
+		&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
+		&editedAt, &msg.SentAt, &msg.ClientID,
+	}
+	if isNotes {
+		dest = append(dest, &notesMeta)
+	}
+
+	if err := rows.Scan(dest...); err != nil {
+		return nil, err
+	}
+
+	if senderUsername.Valid {
+		msg.SenderUsername = senderUsername.String
+	}
+
+	if isNotes && notesMeta.Valid {
+		// Client-encrypted pin/folder/tags blob — forward verbatim, the
+		// device decrypts it locally.
+		msg.NotesMeta = &notesMeta.String
+	}
+
+	msg.IsDeleted = isDeleted
+	if isDeleted {
+		msg.Content = ""
+	} else if isNotes {
+		// Client-side E2E blob: forward as-is, the device decrypts locally.
+		msg.Content = encryptedContent
+	} else {
+		// Try per-conversation key first, fall back to master key (for legacy
+		// messages). If decryption fails, replace the ciphertext with a
+		// placeholder — the encrypted blob must never be returned to the client.
+		decrypted, decErr := decryptContentForConversation(conversationID, encryptedContent)
+		if decErr != nil {
+			decrypted, decErr = decryptContent(encryptedContent)
+		}
+		if decErr == nil {
+			msg.Content = decrypted
+		} else {
+			msg.Content = crypto.DecryptionFailedPlaceholder
+		}
+	}
+
+	if parentID.Valid {
+		msg.ParentMessageID = &parentID.String
+	}
+	if editedAt.Valid {
+		s := editedAt.String
+		msg.EditedAt = &s
+	}
+
+	return &msg, nil
+} // ─── Send Message ───────────────────────────────────────────────────────────
 // POST /api/v1/messenger/conversations/:id/messages
 
 // SendMessage godoc
@@ -256,6 +300,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 // @Failure      400 {object} models.APIResponse
 // @Router       /messenger/conversations/{id}/messages [post]
 // @Security     BearerAuth
+
 func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -289,37 +334,9 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	var encryptedContent string
-	if isNotes {
-		// Client E2E payload: require the marker and enforce a generous cap
-		// (base64 of up to ~4k runes of plaintext). Stored verbatim — the
-		// server must never attempt to decrypt it.
-		if cleanContent != "" {
-			if !strings.HasPrefix(cleanContent, notesContentMarker) {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid encrypted note payload"))
-				return
-			}
-			if len(cleanContent) > maxNotesContentLen {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("note payload too large"))
-				return
-			}
-		}
-		encryptedContent = cleanContent
-	} else {
-		// Regular server-encrypted message: validate plaintext before encryption.
-		if len([]rune(cleanContent)) > 4000 {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
-			return
-		}
-		if hasHTML(cleanContent) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
-			return
-		}
-		encryptedContent, err = EncryptContentForConversation(conversationID, cleanContent)
-		if err != nil {
-			httpx.ServerError(c, "encrypt content", err)
-			return
-		}
+	encryptedContent, ok := prepareOutgoingContent(c, conversationID, isNotes, cleanContent)
+	if !ok {
+		return
 	}
 
 	// Verify membership
@@ -359,43 +376,11 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// ON CONFLICT avoids aborting the transaction on an idempotent retry. That
 	// matters when this handler is running inside the middleware transaction:
 	// after a constraint error PostgreSQL would reject every subsequent query.
-	var msg MessageResponse
-	msg.EncryptedContent = encryptedContent
-	var parentID, editedAt sql.NullString
-	err = tx.QueryRow(`
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (conversation_id, client_id) DO NOTHING
-		RETURNING event_id, id, conversation_id, sender_user_id, parent_message_id,
-			content, is_edited, is_deleted, edited_at, sent_at, client_id
-	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID).Scan(
-		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
-		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
-		&editedAt, &msg.SentAt, &msg.ClientID,
-	)
+	msg, err := insertChatMessageRow(tx, conversationID, claims.UserID, req, encryptedContent)
 	if err == sql.ErrNoRows {
 		// Idempotent retry: read the already-persisted message in the same tx.
-		err = tx.QueryRow(`
-			SELECT event_id, id, conversation_id, sender_user_id, parent_message_id,
-				content, is_edited, is_deleted, edited_at, sent_at, client_id
-			FROM chat_messages
-			WHERE conversation_id = $1 AND client_id = $2
-		`, conversationID, req.ClientID).Scan(
-			&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
-			&msg.Content, &msg.IsEdited, &msg.IsDeleted,
-			&editedAt, &msg.SentAt, &msg.ClientID,
-		)
+		msg, err = h.loadMessageForRetry(c, tx, conversationID, req.ClientID, isNotes)
 		if err == nil {
-			if !isNotes {
-				decryptMessageContent(conversationID, &msg)
-			}
-			if parentID.Valid {
-				msg.ParentMessageID = &parentID.String
-			}
-			atts, _ := h.getAttachmentsByMessageIDs(c, []string{msg.ID})
-			if a, ok := atts[msg.ID]; ok {
-				msg.Attachments = a
-			}
 			c.JSON(http.StatusOK, models.SuccessResponse(msg))
 			return
 		}
@@ -416,58 +401,11 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 
 	// Return plaintext only after the server has persisted its ciphertext.
 	msg.Content = cleanContent
-
-	if parentID.Valid {
-		msg.ParentMessageID = &parentID.String
-	}
-	if editedAt.Valid {
-		s := editedAt.String
-		msg.EditedAt = &s
-	}
-
-	// Build attachment response
 	if len(req.Attachments) > 0 {
-		msg.Attachments = make([]Attachment, len(req.Attachments))
-		for i, att := range req.Attachments {
-			msg.Attachments[i] = Attachment{
-				Type:      att.Type,
-				URL:       att.URL,
-				Name:      att.Name,
-				Size:      att.Size,
-				Mime:      att.Mime,
-				Meta:      att.Meta,
-				SortOrder: i,
-			}
-		}
+		msg.Attachments = buildAttachmentResponse(req.Attachments)
 	}
 
-	// Update the preview in the same transaction as the message. This keeps
-	// the request-scoped RLS binding intact and avoids using a closed tx from a
-	// background goroutine.
-	previewContent := cleanContent
-	if !isNotes {
-		previewContent = truncatePreview(cleanContent)
-	}
-	// For notes the preview must be the full client ciphertext — truncating it
-	// would break local decryption (GCM authentication). The device decrypts
-	// the preview locally.
-	var encryptedPreview string
-	if isNotes {
-		encryptedPreview = previewContent
-	} else {
-		var encErr error
-		encryptedPreview, encErr = EncryptContentForConversation(conversationID, previewContent)
-		if encErr != nil {
-			httpx.ServerError(c, "encrypt preview", encErr)
-			return
-		}
-	}
-	if _, err := tx.Exec(`
-		UPDATE chat_conversations
-		SET last_message_preview = $1, last_message_sender_id = $2, updated_at = NOW()
-		WHERE id = $3
-	`, encryptedPreview, claims.UserID, conversationID); err != nil {
-		httpx.ServerError(c, "update conversation preview", err)
+	if !updateConversationPreview(c, tx, conversationID, isNotes, cleanContent, claims.UserID) {
 		return
 	}
 
@@ -482,27 +420,192 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 
 	// These side effects must run only after the middleware-owned transaction
-	// commits. Otherwise a client can fetch a message before PostgreSQL exposes it.
+	// commits. Otherwise a client can fetch a message before PostgreSQL exposes
+	// it.
 	queueAfterCommit(c, func() {
-		if h.redis != nil {
-			go InvalidateMessengerCaches(h.redis, conversationID, claims.UserID)
-		}
-		if h.hub != nil {
-			go h.broadcastNewMessage(conversationID, msg, claims, isNotes)
-		}
-		// Web Push (PWA): deliver to the other conversation members. Notes
-		// (self-chat) have no other members, so nothing is sent — and the notes
-		// payload is client-side E2E ciphertext we cannot (and must not) read.
-		if !isNotes {
-			body := messagePushBody(cleanContent, len(req.Attachments) > 0)
-			go h.deliverMessagePush(context.Background(), conversationID, claims.UserID, claims.Username, body)
-		}
+		scheduleMessageSideEffects(h, conversationID, claims, msg, isNotes, cleanContent, len(req.Attachments) > 0)
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(msg))
 }
 
-// messagePushBody builds the short human-readable push body for a message:
+// prepareOutgoingContent validates and encrypts the outgoing message content.
+// Notes conversations require the client-E2E marker and enforce a generous cap
+// (base64 of up to ~4k runes of plaintext); the blob is stored verbatim — the
+// server must never attempt to decrypt it. Regular conversations validate the
+// plaintext before server-side encryption. On any rejection it writes the
+// error response and returns ok=false.
+func prepareOutgoingContent(c *gin.Context, conversationID string, isNotes bool, cleanContent string) (string, bool) {
+	if isNotes {
+		// Client E2E payload: require the marker and enforce a generous cap
+		// (base64 of up to ~4k runes of plaintext). Stored verbatim — the
+		// server must never attempt to decrypt it.
+		if cleanContent != "" {
+			if !strings.HasPrefix(cleanContent, notesContentMarker) {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid encrypted note payload"))
+				return "", false
+			}
+			if len(cleanContent) > maxNotesContentLen {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("note payload too large"))
+				return "", false
+			}
+		}
+		return cleanContent, true
+	}
+
+	// Regular server-encrypted message: validate plaintext before encryption.
+	if len([]rune(cleanContent)) > 4000 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
+		return "", false
+	}
+	if hasHTML(cleanContent) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
+		return "", false
+	}
+	encryptedContent, err := EncryptContentForConversation(conversationID, cleanContent)
+	if err != nil {
+		httpx.ServerError(c, "encrypt content", err)
+		return "", false
+	}
+	return encryptedContent, true
+}
+
+// insertChatMessageRow persists a message with ON CONFLICT DO NOTHING so an
+// idempotent retry cannot abort the middleware-owned transaction. ErrNoRows
+// from the RETURNING clause signals that the row already existed — the caller
+// must read it back instead.
+func insertChatMessageRow(tx *sql.Tx, conversationID, userID string, req SendMessageRequest, encryptedContent string) (MessageResponse, error) {
+	var msg MessageResponse
+	msg.EncryptedContent = encryptedContent
+	var parentID, editedAt sql.NullString
+	err := tx.QueryRow(`
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (conversation_id, client_id) DO NOTHING
+		RETURNING event_id, id, conversation_id, sender_user_id, parent_message_id,
+			content, is_edited, is_deleted, edited_at, sent_at, client_id
+	`, conversationID, userID, encryptedContent, req.ClientID, req.ParentMessageID).Scan(
+		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
+		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
+		&editedAt, &msg.SentAt, &msg.ClientID,
+	)
+	if err != nil {
+		return msg, err
+	}
+	if parentID.Valid {
+		msg.ParentMessageID = &parentID.String
+	}
+	if editedAt.Valid {
+		s := editedAt.String
+		msg.EditedAt = &s
+	}
+	return msg, nil
+}
+
+// loadMessageForRetry reloads the message an idempotent replay hit
+// (ON CONFLICT DO NOTHING) and — for regular conversations — resolves its
+// plaintext so the client sees decryptable content instead of raw ciphertext.
+func (h *MessengerHandler) loadMessageForRetry(c *gin.Context, tx *sql.Tx, conversationID, clientID string, isNotes bool) (MessageResponse, error) {
+	var msg MessageResponse
+	var parentID, editedAt sql.NullString
+	err := tx.QueryRow(`
+		SELECT event_id, id, conversation_id, sender_user_id, parent_message_id,
+			content, is_edited, is_deleted, edited_at, sent_at, client_id
+		FROM chat_messages
+		WHERE conversation_id = $1 AND client_id = $2
+	`, conversationID, clientID).Scan(
+		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
+		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
+		&editedAt, &msg.SentAt, &msg.ClientID,
+	)
+	if err != nil {
+		return msg, err
+	}
+	if !isNotes {
+		decryptMessageContent(conversationID, &msg)
+	}
+	if parentID.Valid {
+		msg.ParentMessageID = &parentID.String
+	}
+	if editedAt.Valid {
+		s := editedAt.String
+		msg.EditedAt = &s
+	}
+	atts, _ := h.getAttachmentsByMessageIDs(c, []string{msg.ID})
+	if a, ok := atts[msg.ID]; ok {
+		msg.Attachments = a
+	}
+	return msg, nil
+}
+
+// buildAttachmentResponse mirrors the validated attachment inputs into the
+// response shape, keeping the client-supplied sort order.
+func buildAttachmentResponse(attachments []AttachmentInput) []Attachment {
+	out := make([]Attachment, len(attachments))
+	for i, att := range attachments {
+		out[i] = Attachment{
+			Type:      att.Type,
+			URL:       att.URL,
+			Name:      att.Name,
+			Size:      att.Size,
+			Mime:      att.Mime,
+			Meta:      att.Meta,
+			SortOrder: i,
+		}
+	}
+	return out
+}
+
+// updateConversationPreview refreshes the conversation's last-message preview
+// in the same transaction as the message. This keeps the request-scoped RLS
+// binding intact and avoids using a closed tx from a background goroutine.
+// For notes the preview must be the full client ciphertext — truncating it
+// would break local decryption (GCM authentication); the device decrypts the
+// preview locally.
+func updateConversationPreview(c *gin.Context, tx *sql.Tx, conversationID string, isNotes bool, cleanContent, userID string) bool {
+	previewContent := cleanContent
+	if !isNotes {
+		previewContent = truncatePreview(cleanContent)
+	}
+	var encryptedPreview string
+	if isNotes {
+		encryptedPreview = previewContent
+	} else {
+		var encErr error
+		encryptedPreview, encErr = EncryptContentForConversation(conversationID, previewContent)
+		if encErr != nil {
+			httpx.ServerError(c, "encrypt preview", encErr)
+			return false
+		}
+	}
+	if _, err := tx.Exec(`
+		UPDATE chat_conversations
+		SET last_message_preview = $1, last_message_sender_id = $2, updated_at = NOW()
+		WHERE id = $3
+	`, encryptedPreview, userID, conversationID); err != nil {
+		httpx.ServerError(c, "update conversation preview", err)
+		return false
+	}
+	return true
+}
+
+// scheduleMessageSideEffects registers the post-commit side effects of a sent
+// message: cache invalidation, the realtime broadcast and — for regular
+// conversations only — the Web Push (PWA) delivery to the other members.
+// Notes (self-chat) have no other members, so nothing is sent — and the notes
+// payload is client-side E2E ciphertext we cannot (and must not) read.
+func scheduleMessageSideEffects(h *MessengerHandler, conversationID string, claims *auth.Claims, msg MessageResponse, isNotes bool, cleanContent string, hasAttachments bool) {
+	if h.redis != nil {
+		go InvalidateMessengerCaches(h.redis, conversationID, claims.UserID)
+	}
+	if h.hub != nil {
+		go h.broadcastNewMessage(conversationID, msg, claims, isNotes)
+	}
+	if !isNotes {
+		body := messagePushBody(cleanContent, hasAttachments)
+		go h.deliverMessagePush(context.Background(), conversationID, claims.UserID, claims.Username, body)
+	}
+} // messagePushBody builds the short human-readable push body for a message:
 // the plaintext when present, otherwise a placeholder for an attachment-only
 // message. Truncated so a long message never floods the OS notification.
 func messagePushBody(content string, hasAttachments bool) string {

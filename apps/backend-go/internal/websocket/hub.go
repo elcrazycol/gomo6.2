@@ -417,11 +417,23 @@ func (h *Hub) disconnectSession(userID, sessionID string) {
 }
 
 // handleRedisEvent processes events from Redis and broadcasts to clients
+
 func (h *Hub) handleRedisEvent(event RealtimeEvent) {
+	message, messageBytes, ok := marshalRealtimeMessage(event)
+	if !ok {
+		return
+	}
+	h.dispatchRealtimeBroadcast(event.Type, event.Payload, message, messageBytes)
+}
+
+// marshalRealtimeMessage wraps an event payload into a typed websocket message
+// and serializes both layers. ok=false means a marshal failure was logged and
+// the event must be dropped.
+func marshalRealtimeMessage(event RealtimeEvent) (Message, []byte, bool) {
 	data, err := json.Marshal(event.Payload)
 	if err != nil {
 		log.Printf("[WebSocket] Error marshaling event payload: %v", err)
-		return
+		return Message{}, nil, false
 	}
 
 	message := Message{
@@ -433,103 +445,60 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 	messageBytes, err := json.Marshal(message)
 	if err != nil {
 		log.Printf("[WebSocket] Error marshaling message: %v", err)
-		return
+		return Message{}, nil, false
 	}
+	return message, messageBytes, true
+}
 
-	// Determine which room to broadcast to based on event type
-	switch event.Type {
+// dispatchRealtimeBroadcast routes a realtime event to the room(s) that own
+// it. Every event is scoped: content to thread/board/feed rooms, chat to the
+// conversation room, wall/presence/now-playing to the target user's room, and
+// notifications to the recipient's room. Unknown event types still fall back
+// to the global fan-out channel so legacy publishers keep working.
+func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, message Message, messageBytes []byte) {
+	switch eventType {
 	case MessageTypeNewPost, MessageTypeNewReply:
 		// Extract thread_id from payload for room-based broadcasting
-		if roomID := extractRoomID(event.Payload, "thread_id"); roomID != "" {
+		if roomID := extractRoomID(payload, "thread_id"); roomID != "" {
 			h.BroadcastToRoom(fmt.Sprintf("thread_%s", roomID), messageBytes)
 		}
 		// Also broadcast to global feed room
 		h.BroadcastToRoom("feed", messageBytes)
 
 	case MessageTypeNewThread:
-		// Private boards must not leak into the global feed room: any authenticated
-		// client can subscribe to "feed", so a thread created on a private board
-		// would otherwise broadcast its title/creator to everyone online even
-		// though it is invisible to non-members via REST. The board room still
-		// receives the event (it only triggers a refetch on that board's page).
-		if visibility := extractRoomID(event.Payload, "visibility"); visibility != "private" {
-			h.BroadcastToRoom("feed", messageBytes)
-		}
-		// Also broadcast to board-specific room so board pages update in realtime
-		if boardID := extractRoomID(event.Payload, "board_id"); boardID != "" {
-			h.BroadcastToRoom(fmt.Sprintf("board_%s", boardID), messageBytes)
-		}
+		h.broadcastNewThread(payload, messageBytes)
 
 	case MessageTypeLike, MessageTypeUnlike:
 		// Broadcast to relevant thread room
-		if roomID := extractRoomID(event.Payload, "thread_id"); roomID != "" {
+		if roomID := extractRoomID(payload, "thread_id"); roomID != "" {
 			h.BroadcastToRoom(fmt.Sprintf("thread_%s", roomID), messageBytes)
 		}
 
 	case MessageTypeNewWallPost, MessageTypeUpdateWallPost, MessageTypeDeleteWallPost:
-		// Extract user_id from payload for profile wall broadcasting
-		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
-			wallRoom := fmt.Sprintf("profile_wall_%s", userID)
-			h.BroadcastToRoom(wallRoom, messageBytes)
-		}
+		h.broadcastWallPostEvent(payload, messageBytes)
 
 	case MessageTypeNewChatMessage:
-		if payload, ok := event.Payload.(map[string]interface{}); ok {
-			messageBytes = decryptChatPayloadForBroadcast(payload, message, messageBytes, event.Type)
-		}
-		// Extract conversation_id from payload for chat broadcasting
-		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
-			chatRoom := fmt.Sprintf("chat_%s", conversationID)
-			h.BroadcastToRoom(chatRoom, messageBytes)
-			// Auto-subscribe bot members to this chat room
-			go h.autoSubscribeBotsToChat(conversationID, chatRoom)
-		}
+		messageBytes = decryptChatMessage(payload, message, messageBytes, eventType)
+		h.broadcastChatEvent(payload, messageBytes, true)
 
 	case MessageTypeMessageEdited:
-		if payload, ok := event.Payload.(map[string]interface{}); ok {
-			messageBytes = decryptChatPayloadForBroadcast(payload, message, messageBytes, event.Type)
-		}
-		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
-			chatRoom := fmt.Sprintf("chat_%s", conversationID)
-			h.BroadcastToRoom(chatRoom, messageBytes)
-		}
+		messageBytes = decryptChatMessage(payload, message, messageBytes, eventType)
+		h.broadcastChatEvent(payload, messageBytes, false)
 
-	case MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping:
+	case MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping, "member_left":
 		// These events don't carry encrypted content
-		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
-			chatRoom := fmt.Sprintf("chat_%s", conversationID)
-			h.BroadcastToRoom(chatRoom, messageBytes)
-		}
-
-	case "member_left":
-		// Member left event carries conversation_id
-		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
-			chatRoom := fmt.Sprintf("chat_%s", conversationID)
-			h.BroadcastToRoom(chatRoom, messageBytes)
-		}
+		h.broadcastChatEvent(payload, messageBytes, false)
 
 	case MessageTypeNewNotification:
-		// Broadcast to specific user's notification room
-		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
-			notifRoom := fmt.Sprintf("notifications_%s", userID)
-			h.BroadcastToRoom(notifRoom, messageBytes)
+		if userID := extractRoomID(payload, "user_id"); userID != "" {
+			h.BroadcastToRoom(fmt.Sprintf("notifications_%s", userID), messageBytes)
 		}
 
 	case MessageTypeUserOnline, MessageTypeUserOffline:
-		// Presence events are scoped to the target user's presence room — there
-		// is NO global presence feed. The previous behavior broadcast every
-		// user's online/offline transition to all connected clients (M2); now a
-		// client only receives events for users it actually follows/views.
-		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
-			h.BroadcastToRoom(fmt.Sprintf("presence_%s", userID), messageBytes)
-		}
+		h.broadcastPresenceEvent(payload, messageBytes)
 
 	case "now_playing":
-		// Broadcast to the user's profile room so visitors see live updates
-		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
-			room := fmt.Sprintf("profile_now_playing_%s", userID)
-			h.BroadcastToRoom(room, messageBytes)
-		}
+		h.broadcastNowPlayingEvent(payload, messageBytes)
 
 	default:
 		// Broadcast to all clients for unknown types
@@ -537,7 +506,71 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 	}
 }
 
-// decryptChatPayloadForBroadcast tries to decrypt a chat payload's
+// broadcastNewThread publishes a new thread to the global feed (unless it was
+// created on a private board — the feed room is subscribable by any
+// authenticated client, so a private-board thread must not leak its
+// title/creator to everyone online even though it is invisible via REST) and
+// to the board room (it only triggers a refetch on that board's page).
+func (h *Hub) broadcastNewThread(payload interface{}, messageBytes []byte) {
+	if visibility := extractRoomID(payload, "visibility"); visibility != "private" {
+		h.BroadcastToRoom("feed", messageBytes)
+	}
+	// Also broadcast to board-specific room so board pages update in realtime
+	if boardID := extractRoomID(payload, "board_id"); boardID != "" {
+		h.BroadcastToRoom(fmt.Sprintf("board_%s", boardID), messageBytes)
+	}
+}
+
+// broadcastWallPostEvent routes wall post events to the author's profile wall
+// room so the profile page updates in realtime.
+func (h *Hub) broadcastWallPostEvent(payload interface{}, messageBytes []byte) {
+	// Extract user_id from payload for profile wall broadcasting
+	if userID := extractRoomID(payload, "user_id"); userID != "" {
+		h.BroadcastToRoom(fmt.Sprintf("profile_wall_%s", userID), messageBytes)
+	}
+}
+
+// decryptChatMessage replaces an encrypted chat payload with its decrypted
+// form for broadcast (see decryptChatPayloadForBroadcast).
+func decryptChatMessage(payload interface{}, message Message, messageBytes []byte, eventType string) []byte {
+	if payloadMap, ok := payload.(map[string]interface{}); ok {
+		return decryptChatPayloadForBroadcast(payloadMap, message, messageBytes, eventType)
+	}
+	return messageBytes
+}
+
+// broadcastChatEvent publishes a chat event to the conversation room. New
+// messages additionally auto-subscribe bot members so they receive future
+// events.
+func (h *Hub) broadcastChatEvent(payload interface{}, messageBytes []byte, subscribeBots bool) {
+	// Extract conversation_id from payload for chat broadcasting
+	if conversationID := extractRoomID(payload, "conversation_id"); conversationID != "" {
+		chatRoom := fmt.Sprintf("chat_%s", conversationID)
+		h.BroadcastToRoom(chatRoom, messageBytes)
+		if subscribeBots {
+			go h.autoSubscribeBotsToChat(conversationID, chatRoom)
+		}
+	}
+}
+
+// broadcastPresenceEvent routes online/offline transitions to the target
+// user's presence room — there is NO global presence feed. The previous
+// behavior broadcast every user's transition to all connected clients (M2);
+// now a client only receives events for users it actually follows/views.
+func (h *Hub) broadcastPresenceEvent(payload interface{}, messageBytes []byte) {
+	if userID := extractRoomID(payload, "user_id"); userID != "" {
+		h.BroadcastToRoom(fmt.Sprintf("presence_%s", userID), messageBytes)
+	}
+}
+
+// broadcastNowPlayingEvent routes now-playing updates to the user's profile
+// room so visitors see live updates.
+func (h *Hub) broadcastNowPlayingEvent(payload interface{}, messageBytes []byte) {
+	if userID := extractRoomID(payload, "user_id"); userID != "" {
+		room := fmt.Sprintf("profile_now_playing_%s", userID)
+		h.BroadcastToRoom(room, messageBytes)
+	}
+} // decryptChatPayloadForBroadcast tries to decrypt a chat payload's
 // encrypted_content using the per-conversation key, falling back to the master
 // key for legacy messages. It returns updated message bytes with the decrypted
 // content and the encrypted_content key removed. If decryption fails, the

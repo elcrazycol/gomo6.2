@@ -85,6 +85,7 @@ func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) 
 // @Failure      409 {object} models.APIResponse
 // @Router       /friends/request [post]
 // @Security     BearerAuth
+
 func (h *FriendsHandler) SendRequest(c *gin.Context) {
 	claims := httpx.EnsureAuth(c)
 	if claims == nil {
@@ -100,115 +101,14 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 	senderID := claims.UserID
 	receiverID := req.ReceiverID
 
-	// Validate receiver exists
-	var exists bool
-	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", receiverID).Scan(&exists)
-	if err != nil || !exists {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("User not found"))
+	if !h.validateSendRequest(c, senderID, receiverID) {
 		return
 	}
-
-	// Cannot add yourself
-	if senderID == receiverID {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot add yourself as a friend"))
+	if h.tryAutoAcceptReverseRequest(c, senderID, receiverID) {
 		return
 	}
-
-	// Check if already friends
-	var alreadyFriends bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM friendships 
-			WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
-		)`, senderID, receiverID).Scan(&alreadyFriends)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+	if !h.createOrReuseFriendRequest(c, senderID, receiverID) {
 		return
-	}
-	if alreadyFriends {
-		c.JSON(http.StatusConflict, models.ErrorResponse("Already friends"))
-		return
-	}
-
-	// Check if there's already a pending request from sender to receiver
-	var existingPending bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM friend_requests 
-			WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-		)`, senderID, receiverID).Scan(&existingPending)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-	if existingPending {
-		c.JSON(http.StatusConflict, models.ErrorResponse("Friend request already sent"))
-		return
-	}
-
-	// Check if there's a pending request from receiver to sender (auto-accept)
-	var reverseRequestID sql.NullString
-	err = h.db.QueryRow(`
-		SELECT id FROM friend_requests 
-		WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-	`, receiverID, senderID).Scan(&reverseRequestID)
-	if err != nil && err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	if reverseRequestID.Valid {
-		// Auto-accept the reverse request (both want to be friends)
-		err = h.acceptFriendRequest(c, reverseRequestID.String, receiverID, senderID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-			return
-		}
-		// Notify the reverse request sender that their request was accepted
-		h.createFriendNotification(receiverID, "friend_accepted", profiles.UsernameByID(h.db, senderID), &senderID)
-		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-			"status":  "friends",
-			"message": "Friend request accepted automatically",
-		}))
-		return
-	}
-
-	// Check if there's a rejected request and update it to pending
-	var existingRejectedID sql.NullString
-	err = h.db.QueryRow(`
-		SELECT id FROM friend_requests 
-		WHERE sender_id = $1 AND receiver_id = $2 AND status = 'rejected'
-	`, senderID, receiverID).Scan(&existingRejectedID)
-	if err != nil && err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	if existingRejectedID.Valid {
-		// Update the rejected request back to pending
-		_, err = h.db.Exec(`
-			UPDATE friend_requests SET status = 'pending', updated_at = NOW() WHERE id = $1
-		`, existingRejectedID.String)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-			return
-		}
-	} else {
-		// Create new request
-		var requestID string
-		err = h.db.QueryRow(`
-			INSERT INTO friend_requests (sender_id, receiver_id, status)
-			VALUES ($1, $2, 'pending')
-			RETURNING id
-		`, senderID, receiverID).Scan(&requestID)
-		if err != nil {
-			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
-				c.JSON(http.StatusConflict, models.ErrorResponse("Friend request already sent"))
-				return
-			}
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-			return
-		}
 	}
 
 	// Invalidate caches for both users
@@ -224,7 +124,135 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 	}))
 }
 
-// AcceptRequest godoc
+// validateSendRequest applies the preconditions of a friend request: the
+// receiver must exist, must not be the sender, must not already be a friend,
+// and must not hold a pending request already. It writes the rejection
+// response and returns false on any violation.
+func (h *FriendsHandler) validateSendRequest(c *gin.Context, senderID, receiverID string) bool {
+	// Validate receiver exists
+	var exists bool
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", receiverID).Scan(&exists)
+	if err != nil || !exists {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("User not found"))
+		return false
+	}
+
+	// Cannot add yourself
+	if senderID == receiverID {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot add yourself as a friend"))
+		return false
+	}
+
+	// Check if already friends
+	var alreadyFriends bool
+	err = h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM friendships 
+			WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+		)`, senderID, receiverID).Scan(&alreadyFriends)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return false
+	}
+	if alreadyFriends {
+		c.JSON(http.StatusConflict, models.ErrorResponse("Already friends"))
+		return false
+	}
+
+	// Check if there's already a pending request from sender to receiver
+	var existingPending bool
+	err = h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM friend_requests 
+			WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
+		)`, senderID, receiverID).Scan(&existingPending)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return false
+	}
+	if existingPending {
+		c.JSON(http.StatusConflict, models.ErrorResponse("Friend request already sent"))
+		return false
+	}
+	return true
+}
+
+// tryAutoAcceptReverseRequest handles the mutual-friendship path: if the
+// receiver already sent the sender a pending request, this request is accepted
+// (both want to be friends), the reverse sender is notified, and the request
+// flow is complete. Returns handled=true once the flow is done.
+func (h *FriendsHandler) tryAutoAcceptReverseRequest(c *gin.Context, senderID, receiverID string) bool {
+	var reverseRequestID sql.NullString
+	err := h.db.QueryRow(`
+		SELECT id FROM friend_requests 
+		WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
+	`, receiverID, senderID).Scan(&reverseRequestID)
+	if err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return true
+	}
+	if !reverseRequestID.Valid {
+		return false
+	}
+
+	// Auto-accept the reverse request (both want to be friends)
+	if err := h.acceptFriendRequest(c, reverseRequestID.String, receiverID, senderID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return true
+	}
+	// Notify the reverse request sender that their request was accepted
+	h.createFriendNotification(receiverID, "friend_accepted", profiles.UsernameByID(h.db, senderID), &senderID)
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"status":  "friends",
+		"message": "Friend request accepted automatically",
+	}))
+	return true
+}
+
+// createOrReuseFriendRequest reactivates a previously rejected request
+// (status -> pending) or inserts a fresh one, mapping duplicate-key races to a
+// 409. Returns false after writing the error response.
+func (h *FriendsHandler) createOrReuseFriendRequest(c *gin.Context, senderID, receiverID string) bool {
+	// Check if there's a rejected request and update it to pending
+	var existingRejectedID sql.NullString
+	err := h.db.QueryRow(`
+		SELECT id FROM friend_requests 
+		WHERE sender_id = $1 AND receiver_id = $2 AND status = 'rejected'
+	`, senderID, receiverID).Scan(&existingRejectedID)
+	if err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return false
+	}
+
+	if existingRejectedID.Valid {
+		// Update the rejected request back to pending
+		_, err = h.db.Exec(`
+			UPDATE friend_requests SET status = 'pending', updated_at = NOW() WHERE id = $1
+		`, existingRejectedID.String)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+			return false
+		}
+		return true
+	}
+
+	// Create new request
+	var requestID string
+	err = h.db.QueryRow(`
+		INSERT INTO friend_requests (sender_id, receiver_id, status)
+		VALUES ($1, $2, 'pending')
+		RETURNING id
+	`, senderID, receiverID).Scan(&requestID)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
+			c.JSON(http.StatusConflict, models.ErrorResponse("Friend request already sent"))
+			return false
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return false
+	}
+	return true
+} // AcceptRequest godoc
 // @Summary      Accept friend request
 // @Description  Accept an incoming friend request
 // @Tags         Friends
