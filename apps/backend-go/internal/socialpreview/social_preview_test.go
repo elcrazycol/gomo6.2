@@ -1,4 +1,4 @@
-package handlers
+package socialpreview
 
 import (
 	"net/http"
@@ -35,7 +35,7 @@ func newOGContext(method, path, ua string) (*gin.Context, *httptest.ResponseReco
 	return c, w
 }
 
-func setupSocialPreview(t *testing.T) (*SocialPreviewHandler, sqlmock.Sqlmock) {
+func setupSocialPreview(t *testing.T) (*Service, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
@@ -48,7 +48,7 @@ func setupSocialPreview(t *testing.T) (*SocialPreviewHandler, sqlmock.Sqlmock) {
 		}
 		db.Close()
 	})
-	return NewSocialPreviewHandler(db), mock
+	return New(db), mock
 }
 
 func TestRenderRejectsNonCrawler(t *testing.T) {
