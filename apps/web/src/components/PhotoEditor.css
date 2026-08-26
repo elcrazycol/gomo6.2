@@ -1,0 +1,453 @@
+/* ── Photo editor (Telegram-style) ──────────────────────────────────────────
+   Fullscreen editor overlay used from the Lightbox. Dark stage with a top
+   action bar (cancel / done) and a bottom toolbar + tool-specific settings,
+   mimicking the Telegram photo editor. */
+
+.pe-root {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: rgb(5 8 14 / 0.97);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Top bar ── */
+
+.pe-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  flex-shrink: 0;
+}
+
+.pe-top-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.pe-top-btn:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.2);
+}
+
+.pe-top-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.pe-top-btn.pe-done {
+  background: #2ea6ff;
+}
+
+.pe-top-btn.pe-done:hover:not(:disabled) {
+  background: #55b7ff;
+}
+
+.pe-top-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pe-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ── Stage: photo always fits inside the visible area ── */
+
+.pe-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+/* The pan wrapper moves the photo on screen; the frame inside scales it. The
+   crop overlay is a separate screen-fixed layer, so zooming never moves the
+   crop frame. */
+.pe-frame-pan {
+  position: relative;
+  display: grid;
+  place-items: center;
+  will-change: transform;
+}
+
+.pe-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.pe-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  box-shadow: 0 4px 40px rgb(0 0 0 / 0.5);
+}
+
+/* Full-stage hit surface: receives pointer/wheel events and hosts the crop
+   overlay, drawn in screen pixels on top of the (zooming) photo. */
+.pe-canvas.pe-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* ── Settings panel (tool-specific) ── */
+
+.pe-settings {
+  flex-shrink: 0;
+  padding: 10px 16px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pe-colors {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pe-swatch {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid rgb(255 255 255 / 0.35);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.pe-swatch:hover {
+  transform: scale(1.12);
+}
+
+.pe-swatch.is-active {
+  border-color: #2ea6ff;
+  box-shadow: 0 0 0 3px rgb(46 166 255 / 0.35);
+}
+
+.pe-swatch.pe-custom {
+  overflow: hidden;
+}
+
+.pe-swatch.pe-custom input {
+  position: absolute;
+  inset: -8px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ── Vertical brush-size slider (left of the canvas) ── */
+
+.pe-vsize {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  height: min(64%, 340px);
+  pointer-events: none;
+}
+
+.pe-vsize-track-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 120px;
+  width: 34px;
+  touch-action: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pe-vsize-track {
+  position: absolute;
+  inset: 0;
+  /* Widens towards the top: big is up. */
+  clip-path: polygon(0 0, 100% 0, 72% 100%, 28% 100%);
+  background: rgb(255 255 255 / 0.16);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pe-vsize-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #2ea6ff;
+  pointer-events: none;
+}
+
+.pe-vsize-thumb {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #2ea6ff;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+
+.pe-vsize-value {
+  color: rgb(255 255 255 / 0.85);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── Load error ── */
+
+.pe-error {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: rgb(255 255 255 / 0.85);
+  font-size: 14px;
+}
+
+.pe-error button {
+  height: 34px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: #2ea6ff;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pe-crop-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 2px 4px;
+}
+
+.pe-aspect-trigger-wrap {
+  position: relative;
+}
+
+.pe-aspect-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  color: rgb(255 255 255 / 0.9);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.pe-aspect-trigger:hover,
+.pe-aspect-trigger.is-open {
+  background: rgb(255 255 255 / 0.16);
+  border-color: rgb(255 255 255 / 0.4);
+}
+
+.pe-aspect-trigger-label {
+  min-width: 58px;
+  text-align: left;
+}
+
+.pe-aspect-chevron {
+  color: rgb(255 255 255 / 0.6);
+  transition: transform 0.15s ease;
+}
+
+.pe-aspect-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.pe-aspect-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 170px;
+  padding: 5px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 14px;
+  background: rgb(20 26 38 / 0.97);
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(14px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pe-aspect-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgb(255 255 255 / 0.9);
+  font-size: 13px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.pe-aspect-option:hover {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.pe-aspect-option.is-active {
+  color: #fff;
+  background: rgb(46 166 255 / 0.22);
+}
+
+.pe-aspect-option.is-active svg {
+  color: #2ea6ff;
+}
+
+.pe-apply-crop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #2ea6ff;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.pe-apply-crop:hover:not(:disabled) {
+  background: #55b7ff;
+}
+
+.pe-apply-crop:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Toolbar ── */
+
+.pe-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px 14px;
+}
+
+.pe-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.9);
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.pe-tool:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.2);
+}
+
+.pe-tool:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.pe-tool.is-active {
+  background: #2ea6ff;
+  color: #fff;
+}
+
+.pe-tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.pe-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: rgb(255 255 255 / 0.2);
+  margin: 0 6px;
+}
+
+@media (max-width: 767px) {
+  .pe-topbar {
+    padding: 10px 12px;
+  }
+
+  .pe-tool {
+    width: 44px;
+    height: 44px;
+  }
+
+  .pe-settings {
+    padding: 8px 12px 4px;
+  }
+}

@@ -69,12 +69,6 @@ function counterText(): string {
   return query(".msg-lightbox-counter").textContent ?? "";
 }
 
-function findButton(text: string): HTMLButtonElement {
-  const btn = [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes(text));
-  expect(btn, `button containing "${text}"`).not.toBeUndefined();
-  return btn as HTMLButtonElement;
-}
-
 describe("Lightbox", () => {
   const items = [makeItem("a.jpg"), makeItem("b.jpg"), makeItem("c.jpg")];
 
@@ -239,18 +233,23 @@ describe("Lightbox", () => {
   });
 });
 
-// ─── Editor (crop / epstein) ────────────────────────────────────────────────
+// ─── Editor (crop / brush / blur) ───────────────────────────────────────────
 // jsdom has no canvas implementation: stub getContext/toDataURL and the image
 // loading flags the editor reads (complete, naturalWidth/Height, decode).
 
 describe("Lightbox editor", () => {
   const items = [makeItem("a.jpg"), makeItem("b.jpg"), makeItem("c.jpg")];
 
+  // Shared spy: the mocked canvas context is one object for every getContext
+  // call, so tests can assert on the drawImage arguments (e.g. the crop box).
+  let drawImageSpy: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
+    drawImageSpy = vi.fn();
     const ctx = {
       setTransform: vi.fn(),
       clearRect: vi.fn(),
-      drawImage: vi.fn(),
+      drawImage: drawImageSpy,
       fillRect: vi.fn(),
       save: vi.fn(),
       beginPath: vi.fn(),
@@ -261,6 +260,16 @@ describe("Lightbox editor", () => {
       fill: vi.fn(),
       stroke: vi.fn(),
       arc: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: "high",
+      filter: "none",
+      lineCap: "round",
+      lineJoin: "round",
+      strokeStyle: "#000",
+      fillStyle: "#000",
+      lineWidth: 1,
     } as unknown as CanvasRenderingContext2D;
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
     vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,FAKE");
@@ -290,18 +299,37 @@ describe("Lightbox editor", () => {
     fireEvent.click(document.body.querySelector('[aria-label="Редактировать"]')!);
   }
 
+  // The photo loads asynchronously (decode → draw → setReady), so tests that
+  // depend on the working canvas state (fit, crop window, undo) must wait for
+  // it: the main canvas gets its real size only once init has finished.
+  async function openEditorReady(onEditImage: (i: number, dataUrl: string) => void) {
+    openEditor(onEditImage);
+    await waitFor(() => {
+      const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement | null;
+      expect(main?.width).toBe(800);
+    });
+  }
+
   function stubCanvasPointer(canvas: HTMLCanvasElement) {
-    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+    // Screen coordinates are read from the full-stage overlay; image
+    // coordinates are mapped through the zoomed photo canvas. Stub both.
+    const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement;
+    const rect = {
       left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}),
-    } as DOMRect);
+    } as DOMRect;
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(rect);
+    if (main && main !== canvas) vi.spyOn(main, "getBoundingClientRect").mockReturnValue(rect);
     (canvas as unknown as Record<string, unknown>).setPointerCapture = vi.fn();
     (canvas as unknown as Record<string, unknown>).releasePointerCapture = vi.fn();
   }
 
   it("opens the editor when onEditImage is provided", () => {
     openEditor(vi.fn());
-    expect(document.body.textContent).toContain("Кадрировать");
-    expect(document.body.textContent).toContain("Epstein");
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Кисть"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Размытие"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Отменить"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[aria-label="Повторить"]')).toBeInTheDocument();
     expect(document.body.querySelectorAll(".msg-lightbox-thumbnail")).toHaveLength(0);
   });
 
@@ -309,38 +337,42 @@ describe("Lightbox editor", () => {
     render(
       <Lightbox items={items} initialIndex={0} onClose={vi.fn()} onEditImage={vi.fn()} startInEditMode />,
     );
-    expect(document.body.textContent).toContain("Кадрировать");
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).toBeInTheDocument();
     expect(document.body.querySelector('[aria-label="Редактировать"]')).not.toBeInTheDocument();
   });
 
   it("ignores startInEditMode when onEditImage is missing", () => {
     render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} startInEditMode />);
-    expect(document.body.textContent).not.toContain("Кадрировать");
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).not.toBeInTheDocument();
   });
 
   it("cancels the editor back to the viewer", () => {
     openEditor(vi.fn());
-    fireEvent.click(findButton("Отмена"));
-    expect(document.body.textContent).not.toContain("Кадрировать");
+    fireEvent.click(document.body.querySelector('[aria-label="Отмена"]')!);
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')).not.toBeInTheDocument();
     expect(document.body.querySelectorAll(".msg-lightbox-thumbnail")).toHaveLength(3);
     expect(document.body.querySelector('[aria-label="Редактировать"]')).toBeInTheDocument();
   });
 
-  it("switches between the crop and epstein tools", () => {
+  it("switches between the crop, brush and blur tools", () => {
     openEditor(vi.fn());
-    const crop = findButton("Кадрировать");
-    const epstein = findButton("Epstein");
-    expect(crop.className).toContain("bg-white/25");
-    expect(epstein.className).not.toContain("bg-white/25");
-    fireEvent.click(epstein);
-    expect(epstein.className).toContain("bg-white/25");
-    expect(crop.className).not.toContain("bg-white/25");
+    const crop = document.body.querySelector('[aria-label="Кадрировать"]')!;
+    const brush = document.body.querySelector('[aria-label="Кисть"]')!;
+    const blur = document.body.querySelector('[aria-label="Размытие"]')!;
+    expect(crop.className).toContain("is-active");
+    expect(brush.className).not.toContain("is-active");
+    fireEvent.click(brush);
+    expect(brush.className).toContain("is-active");
+    expect(crop.className).not.toContain("is-active");
+    fireEvent.click(blur);
+    expect(blur.className).toContain("is-active");
+    expect(brush.className).not.toContain("is-active");
   });
 
-  it("applies a crop edit and reports the edited data URL", async () => {
+  it("applies the edit and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
     openEditor(onEditImage);
-    fireEvent.click(findButton("Применить"));
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
     // Editor closes back to the viewer after applying.
@@ -350,28 +382,214 @@ describe("Lightbox editor", () => {
   it("resizes the crop box by dragging the south-east handle", async () => {
     const onEditImage = vi.fn();
     openEditor(onEditImage);
-    const canvas = document.body.querySelector("canvas") as HTMLCanvasElement;
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     expect(canvas).not.toBeNull();
     stubCanvasPointer(canvas);
     fireEvent.pointerDown(canvas, { clientX: 796, clientY: 596, pointerId: 1 });
     fireEvent.pointerMove(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
-    fireEvent.click(findButton("Применить"));
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
   });
 
-  it("draws a redaction box with the epstein tool", async () => {
+  it("draws with the brush tool and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
     openEditor(onEditImage);
-    fireEvent.click(findButton("Epstein"));
-    const canvas = document.body.querySelector("canvas") as HTMLCanvasElement;
+    fireEvent.click(document.body.querySelector('[aria-label="Кисть"]')!);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     stubCanvasPointer(canvas);
     fireEvent.pointerDown(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
-    fireEvent.click(findButton("Применить"));
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
+  });
+
+  it("enables undo after a brush stroke and redo after undo", async () => {
+    const onEditImage = vi.fn();
+    openEditor(onEditImage);
+    const undo = document.body.querySelector('[aria-label="Отменить"]') as HTMLButtonElement;
+    const redo = document.body.querySelector('[aria-label="Повторить"]') as HTMLButtonElement;
+    expect(undo.disabled).toBe(true);
+    expect(redo.disabled).toBe(true);
+
+    // Draw a stroke: undo becomes available.
+    fireEvent.click(document.body.querySelector('[aria-label="Кисть"]')!);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 200, clientY: 150, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 200, clientY: 150, pointerId: 1 });
+    expect(undo.disabled).toBe(false);
+
+    fireEvent.click(undo);
+    expect(undo.disabled).toBe(true);
+    expect(redo.disabled).toBe(false);
+
+    fireEvent.click(redo);
+    expect(redo.disabled).toBe(true);
+    expect(undo.disabled).toBe(false);
+  });
+
+  it("zooms in and out with the mouse wheel around the cursor", async () => {
+    openEditor(vi.fn());
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    const frame = document.body.querySelector(".pe-frame") as HTMLElement;
+    expect(frame.style.transform).toContain("scale(1)");
+
+    // Wheel up (deltaY < 0) zooms in.
+    fireEvent.wheel(canvas, { clientX: 400, clientY: 300, deltaY: -100 });
+    expect(frame.style.transform).toContain("scale(1.15)");
+
+    // Wheel down zooms back out to exactly scale 1.
+    fireEvent.wheel(canvas, { clientX: 400, clientY: 300, deltaY: 100 });
+    expect(frame.style.transform).toContain("scale(1)");
+  });
+
+  it("pinches with two fingers to zoom the canvas", () => {
+    openEditor(vi.fn());
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    const frame = document.body.querySelector(".pe-frame") as HTMLElement;
+    stubCanvasPointer(canvas);
+
+    // First finger down, then second finger: pinch starts.
+    fireEvent.pointerDown(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerDown(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+    expect(frame.style.transform).toContain("scale(1)");
+
+    // Spread the fingers: distance doubles → zoom doubles.
+    fireEvent.pointerMove(canvas, { clientX: 200, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 600, clientY: 300, pointerId: 2 });
+    expect(frame.style.transform).toContain("scale(2)");
+
+    // Bring them back together → back to scale 1.
+    fireEvent.pointerMove(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+    expect(frame.style.transform).toContain("scale(1)");
+
+    fireEvent.pointerUp(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+  });
+
+  it("pans the photo with a two-finger drag after zooming in", async () => {
+    await openEditorReady(vi.fn());
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    const pan = document.body.querySelector(".pe-frame-pan") as HTMLElement;
+    stubCanvasPointer(canvas);
+
+    // Zoom in first: pan is clamped to zero at scale 1.
+    fireEvent.wheel(canvas, { clientX: 400, clientY: 300, deltaY: -100 });
+
+    // Two fingers moving together shift the midpoint → the photo pans.
+    fireEvent.pointerDown(canvas, { clientX: 300, clientY: 300, pointerId: 1 });
+    fireEvent.pointerDown(canvas, { clientX: 500, clientY: 300, pointerId: 2 });
+    fireEvent.pointerMove(canvas, { clientX: 330, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 530, clientY: 300, pointerId: 2 });
+    expect(pan.style.transform).toContain("translate3d(30px, 0px, 0)");
+    fireEvent.pointerUp(canvas, { clientX: 330, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 530, clientY: 300, pointerId: 2 });
+  });
+
+  it("draws with the blur brush and reports the edited data URL", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    fireEvent.click(document.body.querySelector('[aria-label="Размытие"]')!);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 300, clientY: 200, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
+  });
+
+  it("exports the pending crop from Готово without applying it first", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 796, clientY: 596, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    // The pending crop goes through cropCanvas: drawImage receives the crop
+    // box as (source, sx, sy, sw, sh, dx, dy, dw, dh).
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 600, 450, 0, 0, 600, 450);
+  });
+
+  it("bakes the crop into the canvas with Применить кадр and exports it", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 796, clientY: 596, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 600, clientY: 450, pointerId: 1 });
+    fireEvent.click(document.body.querySelector(".pe-apply-crop")!);
+
+    // The working canvas is now the cropped size and the crop is undoable.
+    const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement;
+    expect(main.width).toBe(600);
+    expect(main.height).toBe(450);
+    expect((document.body.querySelector('[aria-label="Отменить"]') as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
+  });
+
+  it("keeps the crop square when a 1:1 aspect preset is applied", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+
+    // Pick the 1:1 preset from the dropdown.
+    fireEvent.click(document.body.querySelector(".pe-aspect-trigger")!);
+    const option = Array.from(document.body.querySelectorAll(".pe-aspect-option")).find(
+      (el) => el.textContent === "1:1"
+    ) as HTMLElement;
+    fireEvent.click(option);
+    // The menu closes on selection; the trigger now shows the chosen preset.
+    expect(document.body.querySelector(".pe-aspect-trigger-label")).toHaveTextContent("1:1");
+
+    // Drag the south-east corner of the now-square window.
+    const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(canvas);
+    fireEvent.pointerDown(canvas, { clientX: 700, clientY: 600, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 500, clientY: 450, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 500, clientY: 450, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    // Exported box {100, 0, 400, 400} — width equals height.
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 100, 0, 400, 400, 0, 0, 400, 400);
+  });
+
+  it("nudges the crop window with the arrow keys and switches tools with 1/2/3", () => {
+    openEditor(vi.fn());
+    // Arrow keys only move the window in crop mode; the toolbar stays on crop.
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    fireEvent.keyDown(document, { key: "2" });
+    expect(document.body.querySelector('[aria-label="Кисть"]')!.className).toContain("is-active");
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    fireEvent.keyDown(document, { key: "1" });
+    expect(document.body.querySelector('[aria-label="Кадрировать"]')!.className).toContain("is-active");
+  });
+
+  it("shows a retry button when the photo fails to load and recovers on retry", async () => {
+    // First decode attempt fails, subsequent ones succeed.
+    Object.defineProperty(HTMLImageElement.prototype, "decode", {
+      configurable: true,
+      value: vi.fn().mockRejectedValueOnce(new Error("decode failed")).mockResolvedValue(undefined),
+    });
+    openEditor(vi.fn());
+    await waitFor(() => expect(document.body.querySelector(".pe-error")).toBeInTheDocument());
+    fireEvent.click(document.body.querySelector(".pe-error button")!);
+    await waitFor(() => expect(document.body.querySelector(".pe-error")).not.toBeInTheDocument());
+    expect(document.body.querySelector(".pe-overlay")).toBeInTheDocument();
   });
 });
