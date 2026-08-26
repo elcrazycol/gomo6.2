@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/privacy"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crud"
@@ -238,9 +241,9 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	// Private profile: hide threads from non-friends
 	if threadOwnerID != "" {
 		viewerID := h.getUserIDFromRequest(c)
-		canView, err := CanViewUserContent(h.db, viewerID, threadOwnerID)
+		canView, err := privacy.CanViewUserContent(h.db, viewerID, threadOwnerID)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if !canView {
@@ -268,7 +271,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		userID := h.getUserIDFromRequest(c)
 		canAccess, err := h.canAccessChannel(userID, channelIDParam, false)
 		if err != nil && err != sql.ErrNoRows {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if !canAccess {
@@ -360,7 +363,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -384,7 +387,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 		)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if channelID.Valid {
@@ -482,7 +485,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -567,7 +570,7 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -579,7 +582,7 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	if !ownerID.Valid || ownerID.String != userClaims.UserID {
 		isStaff, staffErr := isModeratorOrAdmin(h.db, userClaims.UserID)
 		if staffErr != nil {
-			serverError(c, "check moderation role", staffErr)
+			httpx.ServerError(c, "check moderation role", staffErr)
 			return
 		}
 		if !isStaff {
@@ -605,7 +608,7 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 
 	result, err := h.db.Exec("DELETE FROM threads WHERE id = $1", id)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -675,7 +678,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	if !ownerID.Valid || ownerID.String != userClaims.UserID {
@@ -713,7 +716,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		thread.ContentJSON = json.RawMessage(retJSON)
 	}
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 

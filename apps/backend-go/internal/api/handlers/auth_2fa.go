@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
@@ -162,7 +164,7 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 	if err := h.db.QueryRow(
 		`SELECT password_hash, totp_enabled FROM users WHERE id = $1`, userClaims.UserID,
 	).Scan(&storedHash, &totpEnabled); err != nil {
-		serverError(c, "load account state", err)
+		httpx.ServerError(c, "load account state", err)
 		return
 	}
 	if totpEnabled {
@@ -319,7 +321,7 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	if err := h.db.QueryRow(
 		`SELECT totp_secret, totp_enabled FROM users WHERE id = $1`, userClaims.UserID,
 	).Scan(&totpSecret, &totpEnabled); err != nil {
-		serverError(c, "load 2fa state", err)
+		httpx.ServerError(c, "load 2fa state", err)
 		return
 	}
 	if !totpEnabled || totpSecret == nil || *totpSecret == "" {
@@ -337,7 +339,7 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	if err != nil {
 		// A DB failure inside recovery-code lookup is not a wrong code — do not
 		// burn a lockout attempt on infrastructure errors.
-		serverError(c, "validate 2fa code", err)
+		httpx.ServerError(c, "validate 2fa code", err)
 		return
 	}
 	if !valid {

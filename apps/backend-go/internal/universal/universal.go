@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
@@ -157,17 +159,6 @@ func filterWritableColumns(tableName string, data map[string]interface{}) {
 	}
 }
 
-// authenticatedUserID returns the authenticated user ID from the request
-// context, or "" when the request is unauthenticated.
-func authenticatedUserID(c *gin.Context) string {
-	claimsValue, exists := c.Get("claims")
-	claims, ok := claimsValue.(*auth.Claims)
-	if !exists || !ok || claims == nil || claims.UserID == "" {
-		return ""
-	}
-	return claims.UserID
-}
-
 // genericReadScopeUser returns the authenticated user ID for tables where the
 // compatibility read endpoint must be user-scoped (TableMeta.UserScopedRead).
 // An unscoped table is left untouched so public-ish compatibility queries
@@ -200,7 +191,7 @@ func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (s
 	if meta == nil || !meta.GomosubVisibility {
 		return "", nil, argIndex
 	}
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 	var clause string
 	var args []interface{}
 
@@ -236,7 +227,7 @@ func genericEmojiVisibility(c *gin.Context, tableName string, argIndex int) (str
 	if meta == nil || !meta.EmojiVisibility {
 		return "", nil, argIndex
 	}
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 	switch tableName {
 	case "emoji_packs":
 		if viewerID == "" {
@@ -397,7 +388,7 @@ func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName
 		return false
 	}
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		c.Abort()
 		return false
 	}

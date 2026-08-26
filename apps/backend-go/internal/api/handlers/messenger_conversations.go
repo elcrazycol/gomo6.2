@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/models"
@@ -50,7 +52,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		ORDER BY c.last_message_at DESC NULLS LAST
 	`, claims.UserID)
 	if err != nil {
-		serverError(c, "list conversations", err)
+		httpx.ServerError(c, "list conversations", err)
 		return
 	}
 	defer rows.Close()
@@ -73,7 +75,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&otherID, &otherUsername, &otherDisplayName, &otherNicknameEmojiID,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
 		); err != nil {
-			serverError(c, "scan conversation row", err)
+			httpx.ServerError(c, "scan conversation row", err)
 			return
 		}
 
@@ -195,7 +197,7 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	var otherExists bool
 	err := h.dbFor(c).QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", req.UserID).Scan(&otherExists)
 	if err != nil {
-		serverError(c, "check user exists", err)
+		httpx.ServerError(c, "check user exists", err)
 		return
 	}
 	if !otherExists {
@@ -206,7 +208,7 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	// Atomic find-or-create via DB function (race-safe via ON CONFLICT)
 	convID, err := h.FindOrCreateConversation(c, claims.UserID, req.UserID)
 	if err != nil {
-		serverError(c, "find or create conversation", err)
+		httpx.ServerError(c, "find or create conversation", err)
 		return
 	}
 
@@ -238,7 +240,7 @@ func (h *MessengerHandler) GetOrCreateNotesConversation(c *gin.Context) {
 
 	var convID string
 	if err := h.dbFor(c).QueryRow("SELECT find_or_create_notes_conversation($1)", claims.UserID).Scan(&convID); err != nil {
-		serverError(c, "find or create notes conversation", err)
+		httpx.ServerError(c, "find or create notes conversation", err)
 		return
 	}
 
@@ -290,7 +292,7 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 	// storage, and leaving would orphan the stored ciphertext.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
-		serverError(c, "check notes conversation", err)
+		httpx.ServerError(c, "check notes conversation", err)
 		return
 	}
 	if isNotes {
@@ -301,7 +303,7 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 	// Check membership
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check membership", err)
+		httpx.ServerError(c, "check membership", err)
 		return
 	}
 	if !member {
@@ -314,7 +316,7 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 		conversationID, claims.UserID,
 	)
 	if err != nil {
-		serverError(c, "leave conversation", err)
+		httpx.ServerError(c, "leave conversation", err)
 		return
 	}
 
@@ -414,7 +416,7 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 	for _, id := range memberIDs {
 		friends, err := h.areFriends(c, claims.UserID, id)
 		if err != nil {
-			serverError(c, "check friendship", err)
+			httpx.ServerError(c, "check friendship", err)
 			return
 		}
 		if !friends {
@@ -431,7 +433,7 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 		RETURNING id
 	`, name, claims.UserID, crypto.KeyVersionHKDF).Scan(&convID)
 	if err != nil {
-		serverError(c, "create group", err)
+		httpx.ServerError(c, "create group", err)
 		return
 	}
 
@@ -441,7 +443,7 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 		VALUES ($1, $2, 'admin')
 	`, convID, claims.UserID)
 	if err != nil {
-		serverError(c, "add creator as admin", err)
+		httpx.ServerError(c, "add creator as admin", err)
 		return
 	}
 
@@ -508,13 +510,13 @@ func (h *MessengerHandler) UpdateGroup(c *gin.Context) {
 
 	if req.Name != nil {
 		if _, err := h.dbFor(c).Exec(`UPDATE chat_conversations SET group_name = $1, updated_at = NOW() WHERE id = $2`, *req.Name, groupID); err != nil {
-			serverError(c, "update group name", err)
+			httpx.ServerError(c, "update group name", err)
 			return
 		}
 	}
 	if req.AvatarURL != nil {
 		if _, err := h.dbFor(c).Exec(`UPDATE chat_conversations SET group_avatar_url = $1, updated_at = NOW() WHERE id = $2`, *req.AvatarURL, groupID); err != nil {
-			serverError(c, "update group avatar", err)
+			httpx.ServerError(c, "update group avatar", err)
 			return
 		}
 	}
@@ -577,7 +579,7 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 		}
 		var already bool
 		if err := h.dbFor(c).QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)`, groupID, id).Scan(&already); err != nil {
-			serverError(c, "check existing member", err)
+			httpx.ServerError(c, "check existing member", err)
 			return
 		}
 		if already {
@@ -595,7 +597,7 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 	// Enforce the maximum group size.
 	var currentCount int
 	if err := h.dbFor(c).QueryRow(`SELECT COUNT(*) FROM chat_members WHERE conversation_id = $1`, groupID).Scan(&currentCount); err != nil {
-		serverError(c, "count group members", err)
+		httpx.ServerError(c, "count group members", err)
 		return
 	}
 	if currentCount+len(newIDs) > maxGroupSize {
@@ -607,7 +609,7 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 	for _, id := range newIDs {
 		friends, err := h.areFriends(c, claims.UserID, id)
 		if err != nil {
-			serverError(c, "check friendship", err)
+			httpx.ServerError(c, "check friendship", err)
 			return
 		}
 		if !friends {
@@ -752,7 +754,7 @@ func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
 		ORDER BY cm.role DESC, cm.joined_at ASC
 	`, groupID)
 	if err != nil {
-		serverError(c, "get group members", err)
+		httpx.ServerError(c, "get group members", err)
 		return
 	}
 	defer rows.Close()
@@ -768,7 +770,7 @@ func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
 			&m.Role, &m.JoinedAt,
 			&online, &lastSeen,
 		); err != nil {
-			serverError(c, "scan member row", err)
+			httpx.ServerError(c, "scan member row", err)
 			return
 		}
 		if displayName.Valid {

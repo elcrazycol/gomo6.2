@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
@@ -162,7 +164,7 @@ func (h *UniversalHandler) handleProfileWallPostsGetKeyset(c *gin.Context) {
 			limit:      100,
 		})
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
@@ -172,7 +174,7 @@ func (h *UniversalHandler) handleProfileWallPostsGetKeyset(c *gin.Context) {
 			limit:      limit + 1,
 		})
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 	} else {
@@ -189,7 +191,7 @@ func (h *UniversalHandler) handleProfileWallPostsGetKeyset(c *gin.Context) {
 			limit:      limit + 1,
 		})
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 	}
@@ -258,7 +260,7 @@ func (h *UniversalHandler) runWallSelectQuery(c *gin.Context, baseQuery, tableAl
 	// empty viewer ID, which matches no ownership/friendship rows and therefore
 	// only exposes walls of public profiles that have not hidden their wall
 	// (private_hide_wall). Private walls stay hidden from anonymous callers.
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 
 	var args []interface{}
 	ai := argIndex
@@ -424,7 +426,7 @@ func (h *UniversalHandler) runWallSelectQuery(c *gin.Context, baseQuery, tableAl
 func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int, ownerColumn, privacyAlias string) {
 	results, err := h.runWallSelectQuery(c, baseQuery, tableAlias, argIndex, ownerColumn, privacyAlias, wallSelectOptions{})
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(results))
@@ -546,7 +548,7 @@ func (h *UniversalHandler) tryRespondProfileWallEnriched(c *gin.Context, tableNa
 		return false
 	}
 	idStr := fmt.Sprint(id)
-	viewerID := authenticatedUserID(c)
+	viewerID := httpx.AuthenticatedUserID(c)
 	var row map[string]interface{}
 	var err error
 	if tableName == "profile_wall_posts" {

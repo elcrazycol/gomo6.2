@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/privacy"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
@@ -234,7 +237,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -257,7 +260,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			&themeTokensJSON,
 		)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if bioJSON.Valid && len(bioJSON.String) > 0 {
@@ -301,7 +304,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		if viewerID != profiles[i].ID {
 			profiles[i].Email = nil
 		}
-		shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, profiles[i].ID)
+		shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, profiles[i].ID)
 		if err != nil {
 			continue
 		}
@@ -331,7 +334,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			if ps.PrivateHideAvatar || ps.PrivateHideStats {
 				isFriend := false
 				if viewerID != "" {
-					isFriend, _ = IsMutualFriend(h.db, viewerID, profiles[i].ID)
+					isFriend, _ = privacy.IsMutualFriend(h.db, viewerID, profiles[i].ID)
 				}
 				if ps.PrivateHideAvatar && !isFriend {
 					profiles[i].AvatarURL = nil
@@ -405,7 +408,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -446,7 +449,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	if viewerID != id {
 		profile.Email = nil
 	}
-	shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, id)
+	shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, id)
 	if err == nil && shouldFilter {
 		if ps.PrivateHideAvatar {
 			profile.AvatarURL = nil
@@ -470,7 +473,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		if ps.PrivateHideAvatar || ps.PrivateHideStats {
 			isFriend := false
 			if viewerID != "" {
-				isFriend, _ = IsMutualFriend(h.db, viewerID, id)
+				isFriend, _ = privacy.IsMutualFriend(h.db, viewerID, id)
 			}
 			if ps.PrivateHideAvatar && !isFriend {
 				profile.AvatarURL = nil
@@ -650,7 +653,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 
 	_, err := h.db.Exec(query, args...)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -668,10 +671,10 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 
 	// Achievements: avatar / bio set → unlock events.
 	if updates.AvatarURL != nil && *updates.AvatarURL != "" {
-		EmitAchievement(h.achEngine, id, achievements.EventAvatarUpdated)
+		achievements.EmitAchievement(h.achEngine, id, achievements.EventAvatarUpdated)
 	}
 	if updates.Bio != nil && *updates.Bio != "" {
-		EmitAchievement(h.achEngine, id, achievements.EventBioUpdated)
+		achievements.EmitAchievement(h.achEngine, id, achievements.EventBioUpdated)
 	}
 
 	// Return updated profile

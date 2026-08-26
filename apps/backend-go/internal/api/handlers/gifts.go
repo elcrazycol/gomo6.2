@@ -9,6 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/notifications"
+	"github.com/gomo6/backend/internal/privacy"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
@@ -170,8 +174,8 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 	}
 
 	// Achievements: the sender sent a gift; the recipient received one.
-	EmitAchievement(h.achEngine, senderID, achievements.EventGiftSent)
-	EmitAchievement(h.achEngine, recipientID.String(), achievements.EventGiftReceived)
+	achievements.EmitAchievement(h.achEngine, senderID, achievements.EventGiftSent)
+	achievements.EmitAchievement(h.achEngine, recipientID.String(), achievements.EventGiftReceived)
 
 	// Send notification to recipient
 	go h.sendGiftNotification(recipientID.String(), senderID, giftID.String(), giftRecordID, req.IsAnonymous)
@@ -204,7 +208,7 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 	}
 
 	params := models.NotificationParams{Actor: senderName, Anonymous: isAnonymous, GiftName: giftName}
-	paramsJSON := string(marshalNotificationParams(&params))
+	paramsJSON := string(notifications.MarshalNotificationParams(&params))
 
 	var notificationID string
 	var createdAt time.Time
@@ -398,9 +402,9 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	// L2: honor the dedicated private_hide_gifts setting on top of profile
 	// visibility. A user who hides gifts must not show them to non-friends even
 	// when the rest of the profile is public.
-	canView, err := CanViewUserGifts(h.db, viewerID, recipientID)
+	canView, err := privacy.CanViewUserGifts(h.db, viewerID, recipientID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	if !canView {
@@ -461,7 +465,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		LIMIT $2 OFFSET $3
 	`, recipientID, limit, offset)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -486,7 +490,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 			&g.giftRarity, &g.bgRarity, &g.symRarity,
 		)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if g.giftLayerURL.Valid {
@@ -562,7 +566,7 @@ func (h *GiftsHandler) GetGiftCatalog(c *gin.Context) {
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -577,7 +581,7 @@ func (h *GiftsHandler) GetGiftCatalog(c *gin.Context) {
 			&g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		gifts = append(gifts, g)

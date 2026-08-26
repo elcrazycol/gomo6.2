@@ -52,18 +52,22 @@ graph TD
     end
 
     subgraph Application
-        handlers["api/handlers\n48 files — dedicated CRUD + auth + messenger"]
-        universal["universal\n12 files — generic CRUD, wall, registry, achievements"]
+        handlers["api/handlers\n45 files — dedicated CRUD + auth + messenger"]
+        universal["universal\n10 files — generic CRUD, wall, registry, achievements"]
     end
 
     subgraph Domain
-        profiles["profiles\n2 files — stats recomputation, CSS sanitizers"]
+        profiles["profiles\n3 files — stats recomputation, CSS sanitizers, username lookup"]
         backup["backup\n1 file — database backup"]
+        notifications["notifications\n1 file — notification insertion subsystem"]
+        privacy["privacy\n1 file — profile visibility rules"]
     end
 
     subgraph Shared helpers
         crud["crud\n3 files — SQL filters, ordering, emoji validation"]
-        achievements["achievements\n5 files — event definitions"]
+        achievements["achievements\n6 files — event definitions + emit"]
+        httpx["httpx\n1 file — HTTP responders, auth context"]
+        textutil["textutil\n1 file — string helpers"]
     end
 
     subgraph Infrastructure
@@ -114,10 +118,16 @@ graph TD
     handlers --> storageh
     handlers --> websocket
     handlers --> achievements
+    handlers --> notifications
+    handlers --> privacy
+    handlers --> httpx
+    handlers --> textutil
 
-    %% universal → handlers (3 exports: CreateWallNotification, EmitAchievement, CanViewUserAchievements)
-    universal --> handlers
     universal --> achievements
+    universal --> notifications
+    universal --> privacy
+    universal --> httpx
+    universal --> textutil
     universal --> auth
     universal --> cache
     universal --> crud

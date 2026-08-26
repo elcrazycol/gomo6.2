@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/notifications"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
@@ -52,7 +55,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	// Verify membership
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check membership", err)
+		httpx.ServerError(c, "check membership", err)
 		return
 	}
 	if !member {
@@ -64,7 +67,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	// it verbatim and never attempts to decrypt it.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
-		serverError(c, "check notes conversation", err)
+		httpx.ServerError(c, "check notes conversation", err)
 		return
 	}
 
@@ -137,7 +140,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	}
 
 	if err != nil {
-		serverError(c, "get messages", err)
+		httpx.ServerError(c, "get messages", err)
 		return
 	}
 	defer rows.Close()
@@ -160,7 +163,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		}
 
 		if err := rows.Scan(dest...); err != nil {
-			serverError(c, "scan message row", err)
+			httpx.ServerError(c, "scan message row", err)
 			return
 		}
 
@@ -214,7 +217,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		}
 		attMap, err := h.getAttachmentsByMessageIDs(c, ids)
 		if err != nil {
-			serverError(c, "get attachments", err)
+			httpx.ServerError(c, "get attachments", err)
 			return
 		}
 		for i := range messages {
@@ -283,7 +286,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// conversations keep the server-side AES-GCM encryption.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
-		serverError(c, "check notes conversation", err)
+		httpx.ServerError(c, "check notes conversation", err)
 		return
 	}
 
@@ -315,7 +318,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		}
 		encryptedContent, err = encryptContentForConversation(conversationID, cleanContent)
 		if err != nil {
-			serverError(c, "encrypt content", err)
+			httpx.ServerError(c, "encrypt content", err)
 			return
 		}
 	}
@@ -323,7 +326,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// Verify membership
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check membership", err)
+		httpx.ServerError(c, "check membership", err)
 		return
 	}
 	if !member {
@@ -345,7 +348,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// transaction is only for direct handler tests/legacy callers.
 	tx, ownsTx, err := h.txFor(c)
 	if err != nil {
-		serverError(c, "begin transaction", err)
+		httpx.ServerError(c, "begin transaction", err)
 		return
 	}
 	defer func() {
@@ -399,7 +402,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		}
 	}
 	if err != nil {
-		serverError(c, "insert message", err)
+		httpx.ServerError(c, "insert message", err)
 		return
 	}
 
@@ -407,7 +410,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// insert. A client cannot attach an arbitrary URL or another user's key.
 	if len(req.Attachments) > 0 {
 		if err := h.insertAttachments(tx, msg.ID, req.Attachments); err != nil {
-			serverError(c, "insert attachments", err)
+			httpx.ServerError(c, "insert attachments", err)
 			return
 		}
 	}
@@ -456,7 +459,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		var encErr error
 		encryptedPreview, encErr = encryptContentForConversation(conversationID, previewContent)
 		if encErr != nil {
-			serverError(c, "encrypt preview", encErr)
+			httpx.ServerError(c, "encrypt preview", encErr)
 			return
 		}
 	}
@@ -465,7 +468,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		SET last_message_preview = $1, last_message_sender_id = $2, updated_at = NOW()
 		WHERE id = $3
 	`, encryptedPreview, claims.UserID, conversationID); err != nil {
-		serverError(c, "update conversation preview", err)
+		httpx.ServerError(c, "update conversation preview", err)
 		return
 	}
 
@@ -474,7 +477,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// message are committed atomically there.
 	if ownsTx {
 		if err := tx.Commit(); err != nil {
-			serverError(c, "commit transaction", err)
+			httpx.ServerError(c, "commit transaction", err)
 			return
 		}
 	}
@@ -520,13 +523,13 @@ func messagePushBody(content string, hasAttachments bool) string {
 }
 
 // deliverMessagePush sends a Web Push to every conversation member except the
-// sender and muted members. pushService.SendToUser additionally honors the
+// sender and muted members. notifications.PushService.SendToUser additionally honors the
 // recipient's per-type push preferences (notifType "message"), so a user who
 // turned off message pushes receives nothing here even though they still get
 // the in-app unread badge. Best-effort: failures are logged, never propagated
 // (the message is already committed and delivered over WebSocket).
 func (h *MessengerHandler) deliverMessagePush(ctx context.Context, conversationID, senderID, senderUsername, body string) {
-	if pushService == nil {
+	if notifications.PushService == nil {
 		return
 	}
 
@@ -557,7 +560,7 @@ func (h *MessengerHandler) deliverMessagePush(ctx context.Context, conversationI
 	}
 
 	for _, recipientID := range recipients {
-		pushService.SendToUser(ctx, recipientID, "message", push.Notification{
+		notifications.PushService.SendToUser(ctx, recipientID, "message", push.Notification{
 			Title: "@" + senderUsername,
 			Body:  body,
 			URL:   "/messages",
@@ -641,7 +644,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 	// Notes messages carry client-encrypted ciphertext, stored verbatim.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
-		serverError(c, "check notes conversation", err)
+		httpx.ServerError(c, "check notes conversation", err)
 		return
 	}
 
@@ -665,7 +668,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		req.Content = cleanContent // keep plaintext for the broadcast below
 		encryptedContent, err = encryptContentForConversation(conversationID, cleanContent)
 		if err != nil {
-			serverError(c, "encrypt edit content", err)
+			httpx.ServerError(c, "encrypt edit content", err)
 			return
 		}
 	}
@@ -675,7 +678,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 	// conversation boundary even if a message ID is guessed.
 	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "check edit membership", err)
+		httpx.ServerError(c, "check edit membership", err)
 		return
 	}
 	if !member {
@@ -689,7 +692,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		WHERE id = $1 AND conversation_id = $2 AND sender_user_id = $3 AND is_deleted = false
 	`, messageID, conversationID, claims.UserID, encryptedContent)
 	if err != nil {
-		serverError(c, "edit message", err)
+		httpx.ServerError(c, "edit message", err)
 		return
 	}
 
@@ -790,7 +793,7 @@ func (h *MessengerHandler) UpdateNotesMeta(c *gin.Context) {
 	// Notes metadata exists only in the personal notes self-chat.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
-		serverError(c, "check notes conversation", err)
+		httpx.ServerError(c, "check notes conversation", err)
 		return
 	}
 	if !isNotes {
@@ -817,7 +820,7 @@ func (h *MessengerHandler) UpdateNotesMeta(c *gin.Context) {
 		WHERE id = $2 AND conversation_id = $3 AND sender_user_id = $4 AND is_deleted = false
 	`, req.Meta, messageID, conversationID, claims.UserID)
 	if err != nil {
-		serverError(c, "update notes meta", err)
+		httpx.ServerError(c, "update notes meta", err)
 		return
 	}
 
@@ -893,7 +896,7 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 		  AND EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $3 AND user_id = $2)
 	`, messageID, claims.UserID, conversationID)
 	if err != nil {
-		serverError(c, "delete message", err)
+		httpx.ServerError(c, "delete message", err)
 		return
 	}
 

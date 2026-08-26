@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
@@ -223,19 +225,11 @@ func ensureAuth(c *gin.Context) *auth.Claims {
 	}
 	if required, _ := c.Get("messenger_tx_required"); required == true {
 		if tx, ok := c.Value("messenger_tx").(*sql.Tx); !ok || tx == nil {
-			serverError(c, "missing request transaction", fmt.Errorf("messenger transaction is missing"))
+			httpx.ServerError(c, "missing request transaction", fmt.Errorf("messenger transaction is missing"))
 			return nil
 		}
 	}
 	return claims
-}
-
-// serverError logs the real error and returns a generic 500 to the client.
-// NEVER leaks raw error messages to the client.
-func serverError(c *gin.Context, context string, err error) {
-	log.Printf("[Messenger] %s: %v", context, err)
-	_ = c.Error(err)
-	c.AbortWithStatusJSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 }
 
 // dbExecutor is implemented by both *sql.DB and *sql.Tx. Messenger handlers

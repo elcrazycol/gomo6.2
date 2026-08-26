@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/privacy"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
@@ -53,9 +56,9 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		viewerID = claims.UserID
 	}
 	if viewerID != req.UserUUID {
-		ps, err := GetPrivacySettings(h.db, req.UserUUID)
+		ps, err := privacy.GetSettings(h.db, req.UserUUID)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if ps.PrivateProfile && ps.PrivateHideAvatar {
@@ -63,9 +66,9 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 			return
 		}
 		if ps.PrivateProfile {
-			isFriend, err := IsMutualFriend(h.db, viewerID, req.UserUUID)
+			isFriend, err := privacy.IsMutualFriend(h.db, viewerID, req.UserUUID)
 			if err != nil {
-				serverError(c, "handler error", err)
+				httpx.ServerError(c, "handler error", err)
 				return
 			}
 			if !isFriend {
@@ -82,7 +85,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		ORDER BY uploaded_at DESC
 	`, req.UserUUID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -94,7 +97,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		var isCurrent bool
 
 		if err := rows.Scan(&id, &avatarURL, &uploadedAt, &isCurrent); err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
@@ -178,7 +181,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -190,7 +193,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 
 	tx, err := h.db.Begin()
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 	defer tx.Rollback()
@@ -198,7 +201,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 	// Delete the avatar
 	_, err = tx.Exec("DELETE FROM avatar_history WHERE id = $1", req.AvatarID)
 	if err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 
@@ -207,7 +210,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		// Mark all as not current first
 		_, err = tx.Exec("UPDATE avatar_history SET is_current = FALSE WHERE user_id = $1", avatarUserID)
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
@@ -221,7 +224,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		`, avatarUserID).Scan(&prevAvatarURL)
 
 		if err != nil && err != sql.ErrNoRows {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
@@ -234,7 +237,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 			`, avatarUserID, prevAvatarURL.String)
 
 			if err != nil {
-				serverError(c, "handler error", err)
+				httpx.ServerError(c, "handler error", err)
 				return
 			}
 		}
@@ -242,7 +245,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		// Disable trigger temporarily to prevent duplicate
 		_, err = tx.Exec("SET session_replication_role = replica")
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
@@ -254,20 +257,20 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		}
 
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 
 		// Re-enable trigger
 		_, err = tx.Exec("SET session_replication_role = DEFAULT")
 		if err != nil {
-			serverError(c, "handler error", err)
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		serverError(c, "handler error", err)
+		httpx.ServerError(c, "handler error", err)
 		return
 	}
 

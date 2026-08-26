@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gomo6/backend/internal/profiles"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
@@ -717,7 +719,7 @@ func TestGetUsernameFromDB_Found(t *testing.T) {
 	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("carol"))
 
-	got := getUsernameFromDB(db, "user-1")
+	got := profiles.UsernameByID(db, "user-1")
 	if got != "carol" {
 		t.Errorf("expected carol, got %q", got)
 	}
@@ -733,7 +735,7 @@ func TestGetUsernameFromDB_ErrorReturnsUnknown(t *testing.T) {
 	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
 		WillReturnError(errors.New("db down"))
 
-	got := getUsernameFromDB(db, "user-1")
+	got := profiles.UsernameByID(db, "user-1")
 	if got != "unknown" {
 		t.Errorf("expected unknown, got %q", got)
 	}

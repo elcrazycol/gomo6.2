@@ -16,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/backup"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/oauth"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
@@ -127,7 +128,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// push.New returns nil when VAPID keys are not configured, disabling push
 	// cleanly (no-op delivery + ServiceUnavailable on the management endpoints).
 	pushService := push.New(db)
-	handlers.SetPushService(pushService)
+	notifications.SetPushService(pushService)
 	pushHandler := handlers.NewPushHandler(pushService)
 	rpcHandler := handlers.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)

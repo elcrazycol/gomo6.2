@@ -204,12 +204,16 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 
 | Package | Files | Role |
 |---------|-------|------|
-| `api/handlers` | 48 src | Dedicated HTTP handlers (posts, threads, boards, messenger, auth, …) |
+| `api/handlers` | 45 src | Dedicated HTTP handlers (posts, threads, boards, messenger, auth, …) |
 | `api/routes` | 1 | Route registration + wiring |
-| `universal` | 12 | Generic CRUD engine, table registry, wall, achievement dispatch (ex-god-pakage) |
+| `universal` | 10 | Generic CRUD engine, entity registry, wall, achievements dispatch |
 | `crud` | 3 | Stateless SQL helpers: filters, ordering, emoji validation |
-| `profiles` | 2 | Profile stats recomputation, CSS/background sanitizers |
+| `profiles` | 3 | Profile stats recomputation, CSS/background sanitizers, username lookup |
 | `backup` | 1 | Database backup handler |
+| `notifications` | 1 | Notification insertion subsystem (insert + cache invalidation + WS/push) |
+| `privacy` | 1 | Profile-visibility rules (private profile, mutual friends, per-content gates) |
+| `httpx` | 1 | Shared HTTP helpers: `ServerError`, `AuthenticatedUserID` |
+| `textutil` | 1 | Shared string helpers: `TruncateRunes` |
 | `auth` | 1 | JWT, WebAuthn, 2FA |
 | `middleware` | 20 | Rate limiting, auth, CORS, uploads |
 | `cache` | 2 | Redis cache layer |
@@ -227,7 +231,7 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 | `metrics` | 1 | Prometheus metrics |
 | `database` | 2 | PostgreSQL + Redis connections |
 
-Dependency direction: `routes → {handlers, universal, backup, profiles, …}`, `handlers → {auth, cache, crud, …}`, `universal → handlers` (3 exports only: `CreateWallNotification`, `EmitAchievement`, `CanViewUserAchievements`). `crud`, `profiles`, `backup` are leaf-ish packages with minimal inbound deps.
+Dependency direction: `routes → {handlers, universal, backup, profiles, …}`, `handlers → {auth, cache, crud, …}`, `universal → {achievements, crud, middleware, models, notifications, privacy, profiles, httpx, textutil, …}` — all leaf packages, no handlers import. `crud`, `profiles`, `backup`, `notifications`, `privacy`, `httpx`, `textutil` are leaf-ish packages with minimal inbound deps.
 
 Migrations in `migrations/` (44+ files, auto-applied via docker-entrypoint-initdb.d).
 

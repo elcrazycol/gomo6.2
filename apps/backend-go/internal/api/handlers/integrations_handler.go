@@ -11,6 +11,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/gomo6/backend/internal/privacy"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
@@ -213,7 +215,7 @@ func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 
 	h.redirectToSettings(c, "success", "Spotify подключён!")
 
-	EmitAchievement(h.achEngine, userID, achievements.EventIntegrationConnected)
+	achievements.EmitAchievement(h.achEngine, userID, achievements.EventIntegrationConnected)
 }
 
 // DisconnectSpotify removes the Spotify integration for the authenticated user
@@ -336,7 +338,7 @@ func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 			viewerID = uc.UserID
 		}
 	}
-	if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, userID); err == nil && shouldFilter {
+	if shouldFilter, _, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, userID); err == nil && shouldFilter {
 		c.JSON(http.StatusOK, &integrations.NowPlayingResponse{IsConnected: false})
 		return
 	}
