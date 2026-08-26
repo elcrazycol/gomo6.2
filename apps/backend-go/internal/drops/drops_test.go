@@ -1,4 +1,4 @@
-package handlers
+package drops
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 func setupDropsHandler(t *testing.T) (*DropsHandler, sqlmock.Sqlmock) {
@@ -71,7 +72,7 @@ func TestGetDropsBalance_Success(t *testing.T) {
 
 	mock.ExpectQuery("SELECT COALESCE").WithArgs("user-123").WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(100))
 
-	c, w := newPOSTContext("/api/v1/user/drops", nil, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/user/drops", nil, claims, nil)
 	c.Request.Method = "GET"
 	handler.GetDropsBalance(c)
 
@@ -86,7 +87,7 @@ func TestGetDropsBalance_DBError(t *testing.T) {
 
 	mock.ExpectQuery("SELECT COALESCE").WithArgs("user-123").WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newPOSTContext("/api/v1/user/drops", nil, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/user/drops", nil, claims, nil)
 	c.Request.Method = "GET"
 	handler.GetDropsBalance(c)
 
@@ -101,7 +102,7 @@ func TestGetDropsPackages_Success(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"id", "name", "drops_amount", "price_usd", "is_active", "sort_order"})
 	mock.ExpectQuery("SELECT (.+) FROM drops_packages").WillReturnRows(rows)
 
-	c, w := newGETContext("/api/v1/drops/packages", nil)
+	c, w := testutil.NewGETContext("/api/v1/drops/packages", nil)
 	handler.GetDropsPackages(c)
 
 	if w.Code != 200 {
@@ -112,7 +113,7 @@ func TestGetDropsPackages_Success(t *testing.T) {
 func TestDropsConfig_InvalidBody(t *testing.T) {
 	handler, _ := setupDropsHandler(t)
 
-	c, w := newPOSTContext("/api/v1/drops/config", "invalid json", nil, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", "invalid json", nil, nil)
 	c.Request.Header.Set("Content-Type", "application/json")
 	handler.DropsConfig(c)
 
@@ -124,7 +125,7 @@ func TestDropsConfig_InvalidBody(t *testing.T) {
 func TestDropsConfig_RequiresAuth(t *testing.T) {
 	handler, _ := setupDropsHandler(t)
 
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 100,
 		"user_id":      "user-123",
 	}, nil, nil)
@@ -139,7 +140,7 @@ func TestDropsConfig_MissingUserID(t *testing.T) {
 	handler, _ := setupDropsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 100,
 	}, claims, nil)
 	handler.DropsConfig(c)
@@ -153,7 +154,7 @@ func TestDropsConfig_InvalidAmount_Zero(t *testing.T) {
 	handler, _ := setupDropsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 0,
 		"user_id":      "user-123",
 	}, claims, nil)
@@ -168,7 +169,7 @@ func TestDropsConfig_InvalidAmount_TooHigh(t *testing.T) {
 	handler, _ := setupDropsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 200000,
 		"user_id":      "user-123",
 	}, claims, nil)
@@ -185,7 +186,7 @@ func TestDropsConfig_InvalidUser(t *testing.T) {
 
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 100,
 		"user_id":      "nonexistent",
 	}, claims, nil)
@@ -203,7 +204,7 @@ func TestDropsConfig_RejectsForeignUserID(t *testing.T) {
 	// C2 (security audit): an unsigned pending payment must be bound to the
 	// authenticated session — an attacker cannot create a payment intent for
 	// another user.
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 100,
 		"user_id":      "victim-456",
 	}, claims, nil)
@@ -228,7 +229,7 @@ func TestDropsConfig_AuthenticatedOwnUser_Allowed(t *testing.T) {
 		WithArgs("user-123", 100, 2.0).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("pending-1"))
 
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 100,
 		"user_id":      "user-123",
 	}, claims, nil)
@@ -244,7 +245,7 @@ func TestDropsConfig_UnsignedWithoutAuth_Rejected(t *testing.T) {
 
 	// C2: an unsigned config request without a browser session must be rejected
 	// (no anonymous pending minting for arbitrary users).
-	c, w := newPOSTContext("/api/v1/drops/config", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/config", map[string]interface{}{
 		"drops_amount": 100,
 		"user_id":      "user-123",
 	}, nil, nil)
@@ -437,7 +438,7 @@ func TestGetDropsHistory_Success(t *testing.T) {
 		"description", "blockchain", "tx_hash", "created_at"})
 	mock.ExpectQuery("SELECT (.+) FROM drops_transactions").WillReturnRows(rows)
 
-	c, w := newGETContextWithClaims("/api/v1/drops/history", nil, claims)
+	c, w := testutil.NewGETContextWithClaims("/api/v1/drops/history", nil, claims)
 	handler.GetDropsHistory(c)
 
 	if w.Code != 200 {
@@ -454,7 +455,7 @@ func TestManualVerify_RequiresAdmin(t *testing.T) {
 		WithArgs("user-123").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	c, w := newPOSTContext("/api/v1/drops/manual-verify", nil, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/drops/manual-verify", nil, claims, nil)
 	handler.ManualVerify(c)
 
 	if w.Code != http.StatusForbidden {
@@ -470,7 +471,7 @@ func TestManualVerify_MissingFields(t *testing.T) {
 		WithArgs("user-123").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	c, w := newPOSTContext("/api/v1/drops/manual-verify", nil, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/drops/manual-verify", nil, claims, nil)
 	handler.ManualVerify(c)
 
 	if w.Code != 400 {
@@ -485,7 +486,7 @@ func TestGetWalletInfo_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT wallet_address").WithArgs("user-123").
 		WillReturnRows(sqlmock.NewRows([]string{"wallet_address", "drops"}).AddRow("0xabc", 50))
 
-	c, w := newPOSTContext("/api/v1/drops/wallet", nil, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/drops/wallet", nil, claims, nil)
 	c.Request.Method = "GET"
 	handler.GetWalletInfo(c)
 
@@ -501,7 +502,7 @@ func TestTransferDrops_SelfTransfer(t *testing.T) {
 	mock.ExpectQuery("SELECT id, username FROM users").WithArgs("user-123").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "username"}).AddRow("user-123", "user-123"))
 
-	c, w := newPOSTContext("/api/v1/drops/transfer", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/transfer", map[string]interface{}{
 		"recipient_username": "user-123",
 		"amount":             10,
 	}, claims, nil)
@@ -516,7 +517,7 @@ func TestTransferDrops_MissingRecipient(t *testing.T) {
 	handler, _ := setupDropsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/drops/transfer", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/drops/transfer", map[string]interface{}{
 		"amount": 10,
 	}, claims, nil)
 	handler.TransferDrops(c)
@@ -530,7 +531,7 @@ func TestSearchUsers_EmptyQuery(t *testing.T) {
 	handler, _ := setupDropsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newGETContextWithClaims("/api/v1/drops/users/search", nil, claims)
+	c, w := testutil.NewGETContextWithClaims("/api/v1/drops/users/search", nil, claims)
 	handler.SearchUsers(c)
 
 	if w.Code != 200 {

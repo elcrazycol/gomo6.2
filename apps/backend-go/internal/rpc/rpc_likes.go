@@ -1,4 +1,4 @@
-package handlers
+package rpc
 
 import (
 	"database/sql"
@@ -628,7 +628,7 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 		return
 	}
 
-	if _, ok := bearerClaims(c); !ok {
+	if _, ok := httpx.BearerClaims(c); !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization Bearer token required"))
 		return
 	}
@@ -945,7 +945,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 		return
 	}
 
-	if _, ok := bearerClaims(c); !ok {
+	if _, ok := httpx.BearerClaims(c); !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization Bearer token required"))
 		return
 	}
@@ -998,7 +998,7 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 		return
 	}
 
-	if _, ok := bearerClaims(c); !ok {
+	if _, ok := httpx.BearerClaims(c); !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization Bearer token required"))
 		return
 	}

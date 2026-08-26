@@ -1,10 +1,11 @@
-package handlers
+package gifts
 
 import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 func setupGiftsHandler(t *testing.T) (*GiftsHandler, sqlmock.Sqlmock) {
@@ -30,7 +31,7 @@ func TestGetGiftCatalog_Success(t *testing.T) {
 		"is_active", "is_limited", "max_quantity", "sold_count", "sort_order", "created_at", "updated_at"})
 	mock.ExpectQuery("SELECT (.+) FROM gift_catalog").WillReturnRows(rows)
 
-	c, w := newGETContext("/api/v1/gift_catalog", nil)
+	c, w := testutil.NewGETContext("/api/v1/gift_catalog", nil)
 	handler.GetGiftCatalog(c)
 
 	if w.Code != 200 {
@@ -45,7 +46,7 @@ func TestGetGiftCatalog_InvalidLimit(t *testing.T) {
 		"is_active", "is_limited", "max_quantity", "sold_count", "sort_order", "created_at", "updated_at"})
 	mock.ExpectQuery("SELECT (.+) FROM gift_catalog").WillReturnRows(rows)
 
-	c, w := newGETContext("/api/v1/gift_catalog", map[string]string{"limit": "abc"})
+	c, w := testutil.NewGETContext("/api/v1/gift_catalog", map[string]string{"limit": "abc"})
 	handler.GetGiftCatalog(c)
 
 	if w.Code != 200 {
@@ -56,7 +57,7 @@ func TestGetGiftCatalog_InvalidLimit(t *testing.T) {
 func TestGetUserGifts_MissingRecipientID(t *testing.T) {
 	handler, _ := setupGiftsHandler(t)
 
-	c, w := newGETContext("/api/v1/user_gifts", nil)
+	c, w := testutil.NewGETContext("/api/v1/user_gifts", nil)
 	handler.GetUserGifts(c)
 
 	if w.Code != 400 {
@@ -82,7 +83,7 @@ func TestGetUserGifts_Success(t *testing.T) {
 		"sender_username", "sender_avatar_url"})
 	mock.ExpectQuery("SELECT (.+) FROM user_gifts").WillReturnRows(rows)
 
-	c, w := newGETContext("/api/v1/user_gifts", map[string]string{"recipient_id": "user-123"})
+	c, w := testutil.NewGETContext("/api/v1/user_gifts", map[string]string{"recipient_id": "user-123"})
 	handler.GetUserGifts(c)
 
 	if w.Code != 200 {
@@ -100,7 +101,7 @@ func TestGetUserGifts_PrivateHideGifts(t *testing.T) {
 		"private_hide_gifts", "private_hide_achievements",
 	}).AddRow(false, true, true, true, true, true, true, true))
 
-	c, w := newGETContext("/api/v1/user_gifts", map[string]string{"recipient_id": "user-123"})
+	c, w := testutil.NewGETContext("/api/v1/user_gifts", map[string]string{"recipient_id": "user-123"})
 	handler.GetUserGifts(c)
 
 	if w.Code != 200 {
@@ -123,7 +124,7 @@ func TestGetUserGifts_LimitZero(t *testing.T) {
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 
-	c, w := newGETContext("/api/v1/user_gifts", map[string]string{"recipient_id": "user-123", "limit": "0"})
+	c, w := testutil.NewGETContext("/api/v1/user_gifts", map[string]string{"recipient_id": "user-123", "limit": "0"})
 	handler.GetUserGifts(c)
 
 	if w.Code != 200 {
@@ -135,7 +136,7 @@ func TestSendGift_SelfGift(t *testing.T) {
 	handler, _ := setupGiftsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/gifts/send", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/send", map[string]interface{}{
 		"gift_id":      "550e8400-e29b-41d4-a716-446655440000",
 		"recipient_id": "user-123",
 	}, claims, nil)
@@ -150,7 +151,7 @@ func TestSendGift_InvalidGiftID(t *testing.T) {
 	handler, _ := setupGiftsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/gifts/send", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/send", map[string]interface{}{
 		"gift_id":      "not-a-uuid",
 		"recipient_id": "550e8400-e29b-41d4-a716-446655440001",
 	}, claims, nil)
@@ -165,7 +166,7 @@ func TestSendGift_InvalidRecipientID(t *testing.T) {
 	handler, _ := setupGiftsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/gifts/send", map[string]interface{}{
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/send", map[string]interface{}{
 		"gift_id":      "550e8400-e29b-41d4-a716-446655440000",
 		"recipient_id": "not-a-uuid",
 	}, claims, nil)
@@ -180,7 +181,7 @@ func TestSendGift_InvalidBody(t *testing.T) {
 	handler, _ := setupGiftsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	c, w := newPOSTContext("/api/v1/gifts/send", nil, claims, nil)
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/send", nil, claims, nil)
 	handler.SendGift(c)
 
 	if w.Code != 400 {

@@ -66,3 +66,6 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Go build cache (sandboxed GOCACHE inside repo during agent sessions)
+.gocache

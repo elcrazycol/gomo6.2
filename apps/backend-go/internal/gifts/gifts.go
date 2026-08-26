@@ -1,4 +1,11 @@
-package handlers
+// Package gifts implements the gift economy: catalog, sending gift records
+// (with messenger message delivery, notifications and achievements), gift
+// upgrades and the admin CRUD for catalog entries and layers. Extracted from
+// the former api/handlers god package as part of the F1 sweep — the domain is
+// self-contained (its own SQL, wallet-style ledger and WebSocket fan-out), so
+// it lives as a leaf package next to messenger/rpc/drops and is wired into
+// the router from routes.go.
+package gifts
 
 import (
 	"database/sql"
@@ -426,14 +433,26 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		}
 	}
 
+	gifts, totalCount, err := h.listUserGifts(recipientID, limit, offset)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponseWithCount(gifts, totalCount))
+}
+
+// listUserGifts queries the user_gifts ledger for recipientID with the layer
+// image/rarity enrichment and anonymous-sender masking, returning the page plus
+// the total count. Extracted from GetUserGifts so the handler stays thin.
+func (h *GiftsHandler) listUserGifts(recipientID string, limit, offset int) ([]models.UserGift, int, error) {
 	// Get total count
 	var totalCount int
 	h.db.QueryRow(`SELECT COUNT(*) FROM user_gifts WHERE recipient_id = $1`, recipientID).Scan(&totalCount)
 
 	// If limit=0, return only count
 	if limit == 0 {
-		c.JSON(http.StatusOK, models.SuccessResponseWithCount([]models.UserGift{}, totalCount))
-		return
+		return []models.UserGift{}, totalCount, nil
 	}
 
 	rows, err := h.db.Query(`
@@ -455,19 +474,18 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		       CASE WHEN ug.symbol_layer_id IS NOT NULL
 		           THEN 100 / NULLIF((SELECT COUNT(*) FROM user_gifts ug2 WHERE ug2.gift_id = ug.gift_id AND ug2.symbol_layer_id = ug.symbol_layer_id AND ug2.is_upgraded = TRUE), 0)
 		           ELSE NULL END AS symbol_layer_rarity
-		FROM user_gifts ug
-		JOIN gift_catalog gc ON gc.id = ug.gift_id
-		LEFT JOIN users u ON u.id = ug.sender_id
-		LEFT JOIN gift_layers gl ON gl.id = ug.gift_layer_id
-		LEFT JOIN gift_layers bgl ON bgl.id = ug.background_layer_id
-		LEFT JOIN gift_layers sl ON sl.id = ug.symbol_layer_id
-		WHERE ug.recipient_id = $1
-		ORDER BY ug.created_at DESC
-		LIMIT $2 OFFSET $3
+	FROM user_gifts ug
+	JOIN gift_catalog gc ON gc.id = ug.gift_id
+	LEFT JOIN users u ON u.id = ug.sender_id
+	LEFT JOIN gift_layers gl ON gl.id = ug.gift_layer_id
+	LEFT JOIN gift_layers bgl ON bgl.id = ug.background_layer_id
+	LEFT JOIN gift_layers sl ON sl.id = ug.symbol_layer_id
+	WHERE ug.recipient_id = $1
+	ORDER BY ug.created_at DESC
+	LIMIT $2 OFFSET $3
 	`, recipientID, limit, offset)
 	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -480,7 +498,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	var gifts []models.UserGift
 	for rows.Next() {
 		var g ScanGift
-		err := rows.Scan(
+		if err := rows.Scan(
 			&g.ID, &g.GiftID, &g.SenderID, &g.RecipientID, &g.Message,
 			&g.IsAnonymous, &g.CreatedAt,
 			&g.IsUpgraded, &g.GiftLayerID, &g.BackgroundLayerID, &g.SymbolLayerID, &g.UpgradedAt,
@@ -489,10 +507,8 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 			&g.SenderUsername, &g.SenderAvatarURL,
 			&g.giftLayerURL, &g.bgLayerURL, &g.symLayerURL,
 			&g.giftRarity, &g.bgRarity, &g.symRarity,
-		)
-		if err != nil {
-			httpx.ServerError(c, "handler error", err)
-			return
+		); err != nil {
+			return nil, 0, err
 		}
 		if g.giftLayerURL.Valid {
 			g.GiftLayerImageURL = &g.giftLayerURL.String
@@ -528,7 +544,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		gifts = []models.UserGift{}
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponseWithCount(gifts, totalCount))
+	return gifts, totalCount, nil
 }
 
 // GetGiftCatalog — GET /api/v1/gift_catalog (public)

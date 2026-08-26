@@ -1,4 +1,11 @@
-package handlers
+// Package rpc implements the public /api/rpc surface: likes batches and
+// counts, recent likers, emoji resolve, avatar history, wall views and
+// gomosub RPC. Extracted from the former api/handlers god package as part of
+// the F1 sweep — the domain is self-contained (its own SQL, visibility and
+// privacy-gated predicates and per-surface rate budgets), so it lives as a
+// leaf package next to messenger/gifts/drops and is wired into the router
+// from routes.go.
+package rpc
 
 import (
 	"database/sql"
@@ -13,7 +20,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
@@ -21,19 +27,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
-
-// bearerClaims extracts auth claims from Gin context.
-func bearerClaims(c *gin.Context) (*auth.Claims, bool) {
-	v, exists := c.Get("claims")
-	if !exists || v == nil {
-		return nil, false
-	}
-	claims, ok := v.(*auth.Claims)
-	if !ok || claims == nil || claims.UserID == "" {
-		return nil, false
-	}
-	return claims, true
-}
 
 // RPCHandler handles all RPC endpoints for the forum.
 type RPCHandler struct {
@@ -126,7 +119,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 	// parameter is client-controlled and must never be trusted: otherwise any
 	// authenticated user could pin/unpin posts on someone else's wall by
 	// passing the victim's ID.
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
@@ -208,7 +201,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 // @Router       /rpc/create_post [post]
 // @Security     BearerAuth
 func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
@@ -262,7 +255,20 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 			}
 		}
 	}
+	post, createErr := h.insertPostAndNotify(claims.UserID, claims.Username, &req, postBoardID)
+	if createErr != nil {
+		httpx.ServerError(c, "create post", createErr)
+		return
+	}
 
+	c.JSON(http.StatusCreated, models.SuccessResponse(post))
+}
+
+// insertPostAndNotify inserts the post row and runs the write side effects
+// (thread counter, profile stats, achievements, reply notification, cache
+// invalidation and WebSocket fan-out). Extracted from CreatePostRPC so the
+// handler stays thin and the DB+fan-out work is a separable unit.
+func (h *RPCHandler) insertPostAndNotify(userID, username string, req *models.CreatePostRequest, postBoardID string) (models.Post, error) {
 	var imageURLs models.JSONB
 	if len(req.ImageURLs) > 0 {
 		imageURLs = make(models.JSONB, len(req.ImageURLs))
@@ -291,8 +297,8 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	var post models.Post
 	var retContentJSON []byte
-	err = h.db.QueryRow(query,
-		req.ThreadID, claims.UserID, req.Content, insertContentJSON, imageURL,
+	err := h.db.QueryRow(query,
+		req.ThreadID, userID, req.Content, insertContentJSON, imageURL,
 		imageURLs, req.Attachments, req.ReplyTo, req.IsPrivate, req.PrivateRecipientID,
 		"localhost:8080",
 	).Scan(
@@ -302,8 +308,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	)
 
 	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
+		return models.Post{}, err
 	}
 	if len(retContentJSON) > 0 {
 		post.ContentJSON = json.RawMessage(retContentJSON)
@@ -314,9 +319,9 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		log.Printf("ERROR: Failed to update thread post count: %v\n", err)
 	}
 
-	h.recomputeStatsFn(h.db, claims.UserID)
+	h.recomputeStatsFn(h.db, userID)
 
-	achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventCommentCreated)
+	achievements.EmitAchievement(h.achEngine, userID, achievements.EventCommentCreated)
 
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
@@ -324,8 +329,8 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	// private_recipient_id. The thread author is not necessarily a participant in
 	// that DM, so no reply notification carrying a content snippet may reach them
 	// (it would leak the DM content via notifications REST + WS).
-	if threadAuthor != "" && threadAuthor != claims.UserID && !req.IsPrivate && h.notif != nil {
-		params := &models.NotificationParams{Actor: claims.Username}
+	if threadAuthor != "" && threadAuthor != userID && !req.IsPrivate && h.notif != nil {
+		params := &models.NotificationParams{Actor: username}
 		shortContent := post.Content
 		if len(shortContent) > 100 {
 			shortContent = shortContent[:100] + "..."
@@ -337,7 +342,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 			Params:          params,
 			RelatedThreadID: &req.ThreadID,
 			RelatedPostID:   &post.ID,
-			ActorID:         &claims.UserID,
+			ActorID:         &userID,
 		})
 	}
 
@@ -370,7 +375,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, models.SuccessResponse(post))
+	return post, nil
 }
 
 // CreateThreadRPC creates a new thread with optional poll.
@@ -388,7 +393,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 // @Router       /rpc/create_thread [post]
 // @Security     BearerAuth
 func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
@@ -455,7 +460,20 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 			return
 		}
 	}
+	thread, createErr := h.insertThreadAndNotify(claims.UserID, &req, boardVisibility)
+	if createErr != nil {
+		httpx.ServerError(c, "create thread", createErr)
+		return
+	}
 
+	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
+}
+
+// insertThreadAndNotify inserts the thread row (with optional poll) inside a
+// transaction and runs the write side effects (profile stats, achievements,
+// cache invalidation and WebSocket fan-out). Extracted from CreateThreadRPC so
+// the handler stays thin and the DB+fan-out work is a separable unit.
+func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThreadRequest, boardVisibility string) (models.Thread, error) {
 	var imageURLs models.JSONB
 	if len(req.ImageURLs) > 0 {
 		imageURLs = make(models.JSONB, len(req.ImageURLs))
@@ -476,8 +494,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	tx, err := h.db.Begin()
 	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
+		return models.Thread{}, err
 	}
 	defer tx.Rollback()
 
@@ -493,7 +510,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, board_id, channel_id, user_id, title, content, content_json, image_url, image_urls,
 		          attachments, post_count, server_domain, created_at, updated_at, is_remote
-	`, req.BoardID, channelID, claims.UserID, req.Title, req.Content, insertContentJSON,
+	`, req.BoardID, channelID, userID, req.Title, req.Content, insertContentJSON,
 		imageURL, imageURLs, req.Attachments, "localhost:8080",
 	).Scan(
 		&thread.ID, &thread.BoardID, &thread.ChannelID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
@@ -501,8 +518,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
 	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
+		return models.Thread{}, err
 	}
 	if len(retContentJSON) > 0 {
 		thread.ContentJSON = json.RawMessage(retContentJSON)
@@ -519,8 +535,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 		optionsJSON, err := json.Marshal(options)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Invalid poll options"))
-			return
+			return models.Thread{}, err
 		}
 
 		_, err = tx.Exec(`
@@ -534,15 +549,14 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	}
 
 	if err := tx.Commit(); err != nil {
-		httpx.ServerError(c, "handler error", err)
-		return
+		return models.Thread{}, err
 	}
 
-	h.recomputeStatsFn(h.db, claims.UserID)
+	h.recomputeStatsFn(h.db, userID)
 
-	achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventEntryCreated)
+	achievements.EmitAchievement(h.achEngine, userID, achievements.EventEntryCreated)
 	if len(req.ImageURLs) > 0 {
-		achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventImageUploaded)
+		achievements.EmitAchievement(h.achEngine, userID, achievements.EventImageUploaded)
 	}
 
 	if h.redis != nil {
@@ -576,7 +590,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
+	return thread, nil
 }
 
 // ─── Achievement RPCs ───────────────────────────────────────────────────────
@@ -597,7 +611,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 	// The acting user is ALWAYS the authenticated caller; _user_id in the body is
 	// client-controlled and must never be trusted for authorization.
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
@@ -704,7 +718,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 // @Router       /rpc/get_board_user_permissions [get]
 // @Security     BearerAuth
 func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return

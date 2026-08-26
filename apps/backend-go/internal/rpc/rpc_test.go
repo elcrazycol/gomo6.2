@@ -1,4 +1,4 @@
-package handlers
+package rpc
 
 import (
 	"database/sql"
@@ -12,6 +12,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/testutil"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,7 +28,7 @@ func TestGetPostLikesCount_Success(t *testing.T) {
 		WithArgs(postID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 
-	c, w := newRPCGETContext(map[string]string{"post_uuid": postID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": postID})
 	h.GetPostLikesCount(c)
 
 	if w.Code != http.StatusOK {
@@ -54,7 +55,7 @@ func TestGetPostLikesCount_MemberSeesPrivateBoard(t *testing.T) {
 		WithArgs(postID, viewer, viewer).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 
-	c, w := newRPCGETContext(map[string]string{"post_uuid": postID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": postID})
 	c.Set("claims", &auth.Claims{UserID: viewer})
 	h.GetPostLikesCount(c)
 
@@ -66,7 +67,7 @@ func TestGetPostLikesCount_MemberSeesPrivateBoard(t *testing.T) {
 func TestGetPostLikesCount_MissingParam(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(nil)
+	c, w := testutil.NewRPCGETContext(nil)
 	h.GetPostLikesCount(c)
 	_ = mock
 
@@ -78,7 +79,7 @@ func TestGetPostLikesCount_MissingParam(t *testing.T) {
 func TestGetPostLikesCount_InvalidUUID(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(map[string]string{"post_uuid": "not-a-uuid"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": "not-a-uuid"})
 	h.GetPostLikesCount(c)
 	_ = mock
 
@@ -95,7 +96,7 @@ func TestGetPostLikesCount_DBError(t *testing.T) {
 		WithArgs(postID).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newRPCGETContext(map[string]string{"post_uuid": postID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": postID})
 	h.GetPostLikesCount(c)
 
 	if w.Code != http.StatusInternalServerError {
@@ -113,7 +114,7 @@ func TestGetThreadLikesCount_Success(t *testing.T) {
 		WithArgs(threadID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 
-	c, w := newRPCGETContext(map[string]string{"thread_uuid": threadID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"thread_uuid": threadID})
 	h.GetThreadLikesCount(c)
 
 	if w.Code != http.StatusOK {
@@ -133,7 +134,7 @@ func TestHasUserLikedPost_True(t *testing.T) {
 		WithArgs(postID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	c, w := newRPCGETContext(map[string]string{"post_uuid": postID, "user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": postID, "user_uuid": userID})
 	h.HasUserLikedPost(c)
 
 	if w.Code != http.StatusOK {
@@ -144,7 +145,7 @@ func TestHasUserLikedPost_True(t *testing.T) {
 func TestHasUserLikedPost_MissingParam(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(map[string]string{"post_uuid": "550e8400-e29b-41d4-a716-446655440000"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": "550e8400-e29b-41d4-a716-446655440000"})
 	h.HasUserLikedPost(c)
 	_ = mock
 
@@ -165,7 +166,7 @@ func TestHasUserLikedThread_False(t *testing.T) {
 		WithArgs(threadID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	c, w := newRPCGETContext(map[string]string{"thread_uuid": threadID, "user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"thread_uuid": threadID, "user_uuid": userID})
 	h.HasUserLikedThread(c)
 
 	if w.Code != http.StatusOK {
@@ -183,7 +184,7 @@ func TestGetUserLikesGivenCount_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	h.GetUserLikesGivenCount(c)
 
 	if w.Code != http.StatusOK {
@@ -203,7 +204,7 @@ func TestGetUserLikesReceivedCount_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	h.GetUserLikesReceivedCount(c)
 
 	if w.Code != http.StatusOK {
@@ -214,7 +215,7 @@ func TestGetUserLikesReceivedCount_Success(t *testing.T) {
 func TestGetUserLikesReceivedCount_MissingParam(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(nil)
+	c, w := testutil.NewRPCGETContext(nil)
 	h.GetUserLikesReceivedCount(c)
 	_ = mock
 
@@ -226,7 +227,7 @@ func TestGetUserLikesReceivedCount_MissingParam(t *testing.T) {
 func TestGetUserLikesReceivedCount_InvalidUUID(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": "not-a-uuid"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": "not-a-uuid"})
 	h.GetUserLikesReceivedCount(c)
 	_ = mock
 
@@ -239,7 +240,7 @@ func TestGetUserLikesReceivedCount_EqPrefixUUID(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	// Regression test: eq. prefix (e.g. "eq.550e8400-...") must be rejected as invalid UUID
-	c, w := newRPCGETContext(map[string]string{"user_uuid": "eq.550e8400-e29b-41d4-a716-446655440001"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": "eq.550e8400-e29b-41d4-a716-446655440001"})
 	h.GetUserLikesReceivedCount(c)
 	_ = mock
 
@@ -256,7 +257,7 @@ func TestGetUserLikesReceivedCount_DBError(t *testing.T) {
 		WithArgs(userID).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	h.GetUserLikesReceivedCount(c)
 
 	if w.Code != http.StatusInternalServerError {
@@ -274,7 +275,7 @@ func TestGetUserThreadLikesGivenCount_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	h.GetUserThreadLikesGivenCount(c)
 
 	if w.Code != http.StatusOK {
@@ -293,7 +294,7 @@ func TestGetUserThreadLikesReceivedCount_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	h.GetUserThreadLikesReceivedCount(c)
 
 	if w.Code != http.StatusOK {
@@ -304,7 +305,7 @@ func TestGetUserThreadLikesReceivedCount_Success(t *testing.T) {
 func TestGetUserThreadLikesReceivedCount_MissingParam(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(nil)
+	c, w := testutil.NewRPCGETContext(nil)
 	h.GetUserThreadLikesReceivedCount(c)
 	_ = mock
 
@@ -316,7 +317,7 @@ func TestGetUserThreadLikesReceivedCount_MissingParam(t *testing.T) {
 func TestGetUserThreadLikesReceivedCount_InvalidUUID(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": "not-a-uuid"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": "not-a-uuid"})
 	h.GetUserThreadLikesReceivedCount(c)
 	_ = mock
 
@@ -329,7 +330,7 @@ func TestGetUserThreadLikesReceivedCount_EqPrefixUUID(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	// Regression test: eq. prefix (e.g. "eq.550e8400-...") must be rejected as invalid UUID
-	c, w := newRPCGETContext(map[string]string{"user_uuid": "eq.550e8400-e29b-41d4-a716-446655440001"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": "eq.550e8400-e29b-41d4-a716-446655440001"})
 	h.GetUserThreadLikesReceivedCount(c)
 	_ = mock
 
@@ -346,7 +347,7 @@ func TestGetUserThreadLikesReceivedCount_DBError(t *testing.T) {
 		WithArgs(userID).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	h.GetUserThreadLikesReceivedCount(c)
 
 	if w.Code != http.StatusInternalServerError {
@@ -368,7 +369,7 @@ func TestGetRecentPostLikers_Success(t *testing.T) {
 			AddRow("user1", "u1", nil, nil, false).
 			AddRow("user2", "u2", nil, nil, true))
 
-	c, w := newRPCGETContext(map[string]string{"post_uuid": postID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": postID})
 	h.GetRecentPostLikers(c)
 
 	if w.Code != http.StatusOK {
@@ -379,7 +380,7 @@ func TestGetRecentPostLikers_Success(t *testing.T) {
 func TestGetRecentPostLikers_MissingParam(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(nil)
+	c, w := testutil.NewRPCGETContext(nil)
 	h.GetRecentPostLikers(c)
 	_ = mock
 
@@ -400,7 +401,7 @@ func TestGetRecentThreadLikers_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
 			AddRow("user1", "u1", nil, nil, false))
 
-	c, w := newRPCGETContext(map[string]string{"thread_uuid": threadID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"thread_uuid": threadID})
 	h.GetRecentThreadLikers(c)
 
 	if w.Code != http.StatusOK {
@@ -419,7 +420,7 @@ func TestGetUserPostLikesReceivedTimestamps_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(time.Now()))
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	c.Set("claims", claims)
 	h.GetUserPostLikesReceivedTimestamps(c)
 
@@ -432,7 +433,7 @@ func TestGetUserPostLikesReceivedTimestamps_Unauthenticated(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	h.GetUserPostLikesReceivedTimestamps(c)
 	_ = mock
 
@@ -452,7 +453,7 @@ func TestGetUserThreadLikesReceivedTimestamps_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(time.Now()))
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	c.Set("claims", claims)
 	h.GetUserThreadLikesReceivedTimestamps(c)
 
@@ -472,7 +473,7 @@ func TestGetUserThreadReplyTimestamps_Success(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(time.Now()))
 
-	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"user_uuid": userID})
 	c.Set("claims", claims)
 	h.GetUserThreadReplyTimestamps(c)
 
@@ -501,7 +502,7 @@ func TestToggleWallPostPin_Pin(t *testing.T) {
 		WithArgs(1, postID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	c, w := newRPCGETContext(map[string]string{"_post_id": postID, "_user_id": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"_post_id": postID, "_user_id": userID})
 	// The acting identity comes from claims, NOT the client-controlled _user_id.
 	c.Set("claims", &auth.Claims{UserID: userID})
 	h.ToggleWallPostPin(c)
@@ -525,7 +526,7 @@ func TestToggleWallPostPin_Unpin(t *testing.T) {
 		WithArgs(postID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	c, w := newRPCGETContext(map[string]string{"_post_id": postID, "_user_id": userID})
+	c, w := testutil.NewRPCGETContext(map[string]string{"_post_id": postID, "_user_id": userID})
 	// The acting identity comes from claims, NOT the client-controlled _user_id.
 	c.Set("claims", &auth.Claims{UserID: userID})
 	h.ToggleWallPostPin(c)
@@ -543,7 +544,7 @@ func TestToggleWallPostPin_NotOwner(t *testing.T) {
 		WithArgs(postID).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "is_pinned"}).AddRow("other_user", false))
 
-	c, w := newRPCGETContext(map[string]string{"_post_id": postID, "_user_id": "660e8400-e29b-41d4-a716-446655440001"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"_post_id": postID, "_user_id": "660e8400-e29b-41d4-a716-446655440001"})
 	// The attacker cannot pass the victim's ID: identity is taken from claims.
 	c.Set("claims", &auth.Claims{UserID: "660e8400-e29b-41d4-a716-446655440001"})
 	h.ToggleWallPostPin(c)
@@ -578,7 +579,7 @@ func TestGetAvatarHistory_Success(t *testing.T) {
 			AddRow("a1", "https://example.com/avatar1.jpg", time.Now(), true).
 			AddRow("a2", "https://example.com/avatar2.jpg", time.Now().Add(-24*time.Hour), false))
 
-	c, w := newRPCPostContext(map[string]string{"user_uuid": userID}, nil)
+	c, w := testutil.NewRPCPostContext(map[string]string{"user_uuid": userID}, nil)
 	h.GetAvatarHistory(c)
 
 	if w.Code != http.StatusOK {
@@ -591,7 +592,7 @@ func TestGetAvatarHistory_Success(t *testing.T) {
 func TestDeleteAvatarFromHistory_Unauthenticated(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCPostContext(map[string]string{
+	c, w := testutil.NewRPCPostContext(map[string]string{
 		"avatar_id":          "a1",
 		"requesting_user_id": "u1",
 	}, nil)
@@ -621,7 +622,7 @@ func TestToggleAchievementPin_Pin(t *testing.T) {
 		WithArgs(userID, userID, achievementID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("ua1"))
 
-	c, w := newRPCPostContext(map[string]string{
+	c, w := testutil.NewRPCPostContext(map[string]string{
 		"_user_id":        userID,
 		"_achievement_id": achievementID,
 	}, &auth.Claims{UserID: userID})
@@ -646,7 +647,7 @@ func TestToggleAchievementPin_Unpin(t *testing.T) {
 		WithArgs(userID, achievementID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	c, w := newRPCPostContext(map[string]string{
+	c, w := testutil.NewRPCPostContext(map[string]string{
 		"_user_id":        userID,
 		"_achievement_id": achievementID,
 	}, &auth.Claims{UserID: userID})
@@ -673,7 +674,7 @@ func TestToggleAchievementPin_MaxPinned(t *testing.T) {
 		WithArgs(userID, userID, achievementID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"})) // no rows
 
-	c, w := newRPCPostContext(map[string]string{
+	c, w := testutil.NewRPCPostContext(map[string]string{
 		"_user_id":        userID,
 		"_achievement_id": achievementID,
 	}, &auth.Claims{UserID: userID})
@@ -706,7 +707,7 @@ func TestCreateGomoSub_Success(t *testing.T) {
 		}).AddRow("board-1", "my-test", "My Test", "A test gomosub", true, false,
 			"u1", "public", nil, nil, "[]", nil, nil, now))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
 		"name":        "My Test",
 		"description": "A test gomosub",
@@ -751,7 +752,7 @@ func TestCreateGomoSub_Success(t *testing.T) {
 func TestCreateGomoSub_Unauthenticated(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
 		"name":        "My Test",
 		"description": "A test gomosub",
@@ -779,7 +780,7 @@ func TestCreateGomoSub_MissingFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, w := newRPCPostContext(tt.body, claims)
+			c, w := testutil.NewRPCPostContext(tt.body, claims)
 			h.CreateGomoSub(c)
 			_ = mock
 
@@ -809,7 +810,7 @@ func TestCreateGomoSub_InvalidSlug(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, w := newRPCPostContext(map[string]interface{}{
+			c, w := testutil.NewRPCPostContext(map[string]interface{}{
 				"slug":        tt.slug,
 				"name":        "Name",
 				"description": "Desc",
@@ -832,7 +833,7 @@ func TestCreateGomoSub_ReservedSlug(t *testing.T) {
 
 	for _, slug := range reserved {
 		t.Run(slug, func(t *testing.T) {
-			c, w := newRPCPostContext(map[string]interface{}{
+			c, w := testutil.NewRPCPostContext(map[string]interface{}{
 				"slug":        slug,
 				"name":        "Name",
 				"description": "Desc",
@@ -856,7 +857,7 @@ func TestCreateGomoSub_SlugTaken(t *testing.T) {
 		WithArgs("taken-slug").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("existing-board-id"))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "taken-slug",
 		"name":        "Name",
 		"description": "Desc",
@@ -876,7 +877,7 @@ func TestCreateGomoSub_DBErrorOnSelect(t *testing.T) {
 		WithArgs("my-test").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
 		"name":        "My Test",
 		"description": "A test gomosub",
@@ -901,7 +902,7 @@ func TestCreateGomoSub_DBErrorOnInsert(t *testing.T) {
 			"u1", "public", nil, nil, "[]", sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
 		"name":        "My Test",
 		"description": "A test gomosub",
@@ -928,7 +929,7 @@ func TestCreateGomoSub_DuplicateKeyOnInsert(t *testing.T) {
 			"u1", "public", nil, nil, "[]", nil).
 		WillReturnError(errors.New("duplicate key value violates unique constraint"))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
 		"name":        "My Test",
 		"description": "A test gomosub",
@@ -988,7 +989,7 @@ func TestCreatePostRPC_Success(t *testing.T) {
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": threadID,
 		"content":   "Test post content",
 	}, claims)
@@ -1088,7 +1089,7 @@ func TestCreatePostRPC_InvalidatesBoardCache(t *testing.T) {
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": threadID,
 		"content":   "Test post content",
 	}, claims)
@@ -1109,7 +1110,7 @@ func TestCreatePostRPC_InvalidatesBoardCache(t *testing.T) {
 func TestCreatePostRPC_Unauthenticated(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
 		"content":   "Test",
 	}, nil)
@@ -1125,7 +1126,7 @@ func TestCreatePostRPC_EmptyContent(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
 		"content":   "",
 	}, claims)
@@ -1153,7 +1154,7 @@ func TestCreatePostRPC_WhitespaceOnly(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, w := newRPCPostContext(map[string]interface{}{
+			c, w := testutil.NewRPCPostContext(map[string]interface{}{
 				"thread_id": "550e8400-e29b-41d4-a716-446655440000",
 				"content":   tt.content,
 			}, claims)
@@ -1203,7 +1204,7 @@ func TestCreatePostRPC_AttachmentsOnly(t *testing.T) {
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": threadID,
 		"content":   "",
 		"attachments": []map[string]interface{}{
@@ -1244,7 +1245,7 @@ func TestCreatePostRPC_MissingThreadID(t *testing.T) {
 	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"content": "Test",
 	}, claims)
 	h.CreatePostRPC(c)
@@ -1259,7 +1260,7 @@ func TestCreatePostRPC_InvalidThreadID(t *testing.T) {
 	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": "not-a-uuid",
 		"content":   "Test",
 	}, claims)
@@ -1281,7 +1282,7 @@ func TestCreatePostRPC_ThreadNotFound(t *testing.T) {
 		WithArgs(threadID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": threadID,
 		"content":   "Test",
 	}, claims)
@@ -1308,7 +1309,7 @@ func TestCreatePostRPC_DBErrorOnInsert(t *testing.T) {
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"thread_id": threadID,
 		"content":   "Test",
 	}, claims)
@@ -1358,7 +1359,7 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"board_id": boardID,
 		"title":    "Test Title",
 		"content":  "Test Content",
@@ -1438,7 +1439,7 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"board_id": boardID,
 		"title":    "Poll Thread",
 		"content":  "Poll content",
@@ -1459,7 +1460,7 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 func TestCreateThreadRPC_Unauthenticated(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"board_id": "550e8400-e29b-41d4-a716-446655440000",
 		"title":    "Test",
 		"content":  "Test",
@@ -1492,7 +1493,7 @@ func TestCreateThreadRPC_WhitespaceFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, w := newRPCPostContext(map[string]interface{}{
+			c, w := testutil.NewRPCPostContext(map[string]interface{}{
 				"board_id": boardID,
 				"title":    tt.title,
 				"content":  tt.content,
@@ -1525,7 +1526,7 @@ func TestCreateThreadRPC_MissingFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, w := newRPCPostContext(tt.body, claims)
+			c, w := testutil.NewRPCPostContext(tt.body, claims)
 			h.CreateThreadRPC(c)
 			_ = mock
 
@@ -1540,7 +1541,7 @@ func TestCreateThreadRPC_InvalidBoardID(t *testing.T) {
 	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"board_id": "not-a-uuid",
 		"title":    "Test",
 		"content":  "Test",
@@ -1563,7 +1564,7 @@ func TestCreateThreadRPC_BoardNotFound(t *testing.T) {
 		WithArgs(boardID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"board_id": boardID,
 		"title":    "Test",
 		"content":  "Test",
@@ -1594,7 +1595,7 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 
 	// No COMMIT, no recomputeStats (error before commit)
 
-	c, w := newRPCPostContext(map[string]interface{}{
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"board_id": boardID,
 		"title":    "Test",
 		"content":  "Test",
@@ -1620,7 +1621,7 @@ func TestGetThreadLikesBatch_Success(t *testing.T) {
 		WithArgs(t1, t2).
 		WillReturnRows(sqlmock.NewRows([]string{"thread_id", "count"}).AddRow(t1, 5).AddRow(t2, 2))
 
-	c, w := newRPCGETContext(map[string]string{"thread_ids": t1 + "," + t2})
+	c, w := testutil.NewRPCGETContext(map[string]string{"thread_ids": t1 + "," + t2})
 	h.GetThreadLikesBatch(c)
 
 	if w.Code != http.StatusOK {
@@ -1635,7 +1636,7 @@ func TestGetThreadLikesBatch_Success(t *testing.T) {
 func TestGetThreadLikesBatch_Empty(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(map[string]string{"thread_ids": ""})
+	c, w := testutil.NewRPCGETContext(map[string]string{"thread_ids": ""})
 	h.GetThreadLikesBatch(c)
 	_ = mock
 
@@ -1659,7 +1660,7 @@ func TestGetThreadLikesBatch_WithUser(t *testing.T) {
 		WithArgs(uid, t1, t2).
 		WillReturnRows(sqlmock.NewRows([]string{"thread_id"}).AddRow(t1))
 
-	c, w := newRPCGETContext(map[string]string{
+	c, w := testutil.NewRPCGETContext(map[string]string{
 		"thread_ids": t1 + "," + t2,
 		"user_uuid":  uid,
 	})
@@ -1683,7 +1684,7 @@ func TestGetPostLikesBatch_Success(t *testing.T) {
 		WithArgs(p1, p2).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 5).AddRow(p2, 2))
 
-	c, w := newRPCGETContext(map[string]string{"post_ids": p1 + "," + p2})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_ids": p1 + "," + p2})
 	h.GetPostLikesBatch(c)
 
 	if w.Code != http.StatusOK {
@@ -1711,7 +1712,7 @@ func TestGetPostLikesBatch_Success(t *testing.T) {
 func TestGetPostLikesBatch_Empty(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	c, w := newRPCGETContext(map[string]string{"post_ids": ""})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_ids": ""})
 	h.GetPostLikesBatch(c)
 	_ = mock
 
@@ -1735,7 +1736,7 @@ func TestGetPostLikesBatch_WithUser(t *testing.T) {
 		WithArgs(uid, p1, p2).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id"}).AddRow(p1))
 
-	c, w := newRPCGETContext(map[string]string{
+	c, w := testutil.NewRPCGETContext(map[string]string{
 		"post_ids":  p1 + "," + p2,
 		"user_uuid": uid,
 	})
@@ -1782,7 +1783,7 @@ func TestGetPostLikesBatch_MemberSeesPrivateBoard(t *testing.T) {
 		WithArgs(uid, p1, viewer, viewer).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id"}).AddRow(p1))
 
-	c, w := newRPCGETContext(map[string]string{
+	c, w := testutil.NewRPCGETContext(map[string]string{
 		"post_ids":  p1,
 		"user_uuid": uid,
 	})
@@ -1804,7 +1805,7 @@ func TestGetPostLikesBatch_InvalidUUIDsSkipped(t *testing.T) {
 		WithArgs(p1).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 7))
 
-	c, w := newRPCGETContext(map[string]string{"post_ids": p1 + ",not-a-uuid"})
+	c, w := testutil.NewRPCGETContext(map[string]string{"post_ids": p1 + ",not-a-uuid"})
 	h.GetPostLikesBatch(c)
 
 	if w.Code != http.StatusOK {

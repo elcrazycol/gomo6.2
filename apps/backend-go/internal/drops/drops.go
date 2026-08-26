@@ -1,4 +1,11 @@
-package handlers
+// Package drops implements the drops payment domain: package config,
+// DePay-style callback handling, wallet info, balance and history, manual
+// verification and user-to-user drops transfer. Extracted from the former
+// api/handlers god package as part of the F1 sweep — the domain is
+// self-contained (its own SQL, RSA signature verification and admin checks),
+// so it lives as a leaf package next to messenger/rpc/gifts and is wired into
+// the router from routes.go.
+package drops
 
 import (
 	"bytes"
@@ -11,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -179,25 +187,8 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 	// browser session with user_id bound to the caller. Anonymous unsigned
 	// requests are rejected so nobody can mint pending payment rows for
 	// arbitrary users.
-	sigValid := false
-	if sigHeader != "" && h.publicKey != nil {
-		sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
-		if err != nil {
-			sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
-		}
-		if err != nil {
-			log.Printf("[Drops] Config signature decode failed: %v", err)
-		} else {
-			hash := sha256.Sum256(rawBody)
-			opts := &rsa.PSSOptions{SaltLength: 64, Hash: crypto.SHA256}
-			if err := rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, opts); err != nil {
-				log.Printf("[Drops] Config signature verification FAILED: %v", err)
-			} else {
-				log.Printf("[Drops] Config signature verified OK")
-				sigValid = true
-			}
-		}
-	} else if h.publicKey == nil {
+	sigValid := h.verifyDropsSignature(sigHeader, rawBody)
+	if h.publicKey == nil {
 		log.Printf("[Drops] WARNING: No public key loaded — unsigned config requests will be rejected")
 	}
 
@@ -249,6 +240,59 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 	log.Printf("[Drops] Pending created: id=%s user=%s amount=%d price=%.2f",
 		pendingID, req.UserID, req.DropsAmount, priceUSD)
 
+	config, err := h.buildDropsConfig(priceUSD)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("No payment receivers configured"))
+		return
+	}
+
+	if h.privateKey != nil {
+		configJSON, _ := json.Marshal(config)
+		hash := sha256.Sum256(configJSON)
+		opts := &rsa.PSSOptions{
+			SaltLength: 64,
+			Hash:       crypto.SHA256,
+		}
+		sig, err := rsa.SignPSS(rand.Reader, h.privateKey, crypto.SHA256, hash[:], opts)
+		if err == nil {
+			sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+			c.Header("x-signature", sigB64)
+		}
+	}
+
+	c.JSON(http.StatusOK, config)
+}
+
+// verifyDropsSignature verifies the base64 x-signature header over rawBody
+// with the loaded DePay public key. Returns false when the key is missing or
+// any step fails; callers decide whether a false result is fatal (callback
+// fail-closed) or falls back to session auth (config).
+func (h *DropsHandler) verifyDropsSignature(sigHeader string, rawBody []byte) bool {
+	if sigHeader == "" || h.publicKey == nil {
+		return false
+	}
+	sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
+	if err != nil {
+		sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
+	}
+	if err != nil {
+		log.Printf("[Drops] Signature decode failed: %v", err)
+		return false
+	}
+	hash := sha256.Sum256(rawBody)
+	opts := &rsa.PSSOptions{SaltLength: 64, Hash: crypto.SHA256}
+	if err := rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, opts); err != nil {
+		log.Printf("[Drops] Signature verification FAILED: %v", err)
+		return false
+	}
+	log.Printf("[Drops] Signature verified OK")
+	return true
+}
+
+// buildDropsConfig assembles the DePay widget config from the receiver env
+// vars, failing when no receiver chain is configured. Extracted from
+// DropsConfig so the handler stays thin.
+func (h *DropsHandler) buildDropsConfig(priceUSD float64) (gin.H, error) {
 	type chainConfig struct {
 		envKey     string
 		blockchain string
@@ -276,33 +320,16 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 	}
 
 	if len(accept) == 0 {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("No payment receivers configured"))
-		return
+		return nil, errors.New("no payment receivers configured")
 	}
 
-	config := gin.H{
+	return gin.H{
 		"amount": gin.H{
 			"currency": "USD",
 			"fix":      priceUSD,
 		},
 		"accept": accept,
-	}
-
-	if h.privateKey != nil {
-		configJSON, _ := json.Marshal(config)
-		hash := sha256.Sum256(configJSON)
-		opts := &rsa.PSSOptions{
-			SaltLength: 64,
-			Hash:       crypto.SHA256,
-		}
-		sig, err := rsa.SignPSS(rand.Reader, h.privateKey, crypto.SHA256, hash[:], opts)
-		if err == nil {
-			sigB64 := base64.RawURLEncoding.EncodeToString(sig)
-			c.Header("x-signature", sigB64)
-		}
-	}
-
-	c.JSON(http.StatusOK, config)
+	}, nil
 }
 
 // DePayCallbackRequest — payload from DePay callback
@@ -354,23 +381,10 @@ func (h *DropsHandler) DropsCallback(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Missing signature"))
 		return
 	}
-	sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
-	if err != nil {
-		sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
-	}
-	if err != nil {
-		log.Printf("[Drops] Callback signature decode failed: %v", err)
+	if !h.verifyDropsSignature(sigHeader, rawBody) {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
 		return
 	}
-	hash := sha256.Sum256(rawBody)
-	opts := &rsa.PSSOptions{SaltLength: 64, Hash: crypto.SHA256}
-	if err := rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, opts); err != nil {
-		log.Printf("[Drops] Callback signature verification FAILED: %v", err)
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
-		return
-	}
-	log.Printf("[Drops] Callback signature verified OK")
 
 	var req DePayCallbackRequest
 	if err := json.Unmarshal(rawBody, &req); err != nil {
@@ -414,39 +428,66 @@ func (h *DropsHandler) DropsCallback(c *gin.Context) {
 		return
 	}
 
+	_, err = h.creditDrops(dropsAmount, payload.UserID, req.Blockchain, req.Transaction)
+	if err != nil {
+		var cf *callbackFailure
+		if errors.As(err, &cf) {
+			c.JSON(cf.status, models.ErrorResponse(cf.msg))
+		} else {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to credit drops"))
+		}
+		return
+	}
+
+	log.Printf("[Drops] Drops credited: user=%s amount=%d tx=%s blockchain=%s", payload.UserID, dropsAmount, req.Transaction, req.Blockchain)
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// callbackFailure carries the HTTP-facing error class produced inside the
+// credit transaction so the handler can map it onto a status while keeping
+// the original per-step messages.
+type callbackFailure struct {
+	status int
+	msg    string
+}
+
+func (e *callbackFailure) Error() string { return e.msg }
+
+// creditDrops applies a verified payment callback inside a transaction:
+// credits the user's drops, records the purchase ledger entry and marks the
+// pending row credited. Returns the resulting balance. Extracted from
+// DropsCallback so the handler stays thin and the transactional core is a
+// separable unit.
+func (h *DropsHandler) creditDrops(amount int, userID, blockchain, txHash string) (int, error) {
 	tx, err := h.db.Begin()
 	if err != nil {
 		log.Printf("[Drops] Callback: begin tx failed: %v", err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Transaction error"))
-		return
+		return 0, &callbackFailure{http.StatusInternalServerError, "Transaction error"}
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec("UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2", dropsAmount, payload.UserID)
+	_, err = tx.Exec("UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2", amount, userID)
 	if err != nil {
-		log.Printf("[Drops] Callback: credit drops failed user=%s err=%v", payload.UserID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to credit drops"))
-		return
+		log.Printf("[Drops] Callback: credit drops failed user=%s err=%v", userID, err)
+		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to credit drops"}
 	}
 
 	var balanceAfter int
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", payload.UserID).Scan(&balanceAfter)
+	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&balanceAfter)
 	if err != nil {
-		log.Printf("[Drops] Callback: get balance failed user=%s err=%v", payload.UserID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get balance"))
-		return
+		log.Printf("[Drops] Callback: get balance failed user=%s err=%v", userID, err)
+		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to get balance"}
 	}
 
 	_, err = tx.Exec(`
 		INSERT INTO drops_transactions (user_id, type, amount, balance_after, description, blockchain, tx_hash)
 		VALUES ($1, 'purchase', $2, $3, $4, $5, $6)
-	`, payload.UserID, dropsAmount, balanceAfter,
-		fmt.Sprintf("Purchased %d drops", dropsAmount),
-		req.Blockchain, req.Transaction)
+	`, userID, amount, balanceAfter,
+		fmt.Sprintf("Purchased %d drops", amount),
+		blockchain, txHash)
 	if err != nil {
-		log.Printf("[Drops] Callback: record tx failed user=%s err=%v", payload.UserID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record transaction"))
-		return
+		log.Printf("[Drops] Callback: record tx failed user=%s err=%v", userID, err)
+		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to record transaction"}
 	}
 
 	_, _ = tx.Exec(`
@@ -454,16 +495,14 @@ func (h *DropsHandler) DropsCallback(c *gin.Context) {
 		SET status = 'credited', credited_at = NOW(), blockchain = $1, tx_hash = $2
 		WHERE user_id = $3 AND drops_amount = $4 AND status = 'initiated'
 		  AND created_at > NOW() - INTERVAL '1 hour'
-	`, req.Blockchain, req.Transaction, payload.UserID, dropsAmount)
+	`, blockchain, txHash, userID, amount)
 
 	if err := tx.Commit(); err != nil {
-		log.Printf("[Drops] Callback: COMMIT FAILED user=%s err=%v", payload.UserID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to commit"))
-		return
+		log.Printf("[Drops] Callback: COMMIT FAILED user=%s err=%v", userID, err)
+		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to commit"}
 	}
 
-	log.Printf("[Drops] Drops credited: user=%s amount=%d tx=%s blockchain=%s", payload.UserID, dropsAmount, req.Transaction, req.Blockchain)
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	return balanceAfter, nil
 }
 
 // GetDropsHistory — GET /api/v1/drops/history (protected)
@@ -740,7 +779,11 @@ func (h *DropsHandler) TransferDrops(c *gin.Context) {
 		return
 	}
 
-	// Start transaction
+	description := ""
+	if req.Description != nil {
+		description = *req.Description
+	}
+
 	tx, err := h.db.Begin()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Transaction error"))
@@ -748,80 +791,13 @@ func (h *DropsHandler) TransferDrops(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// Deterministic lock ordering: smaller ID first → no deadlock
-	minID, maxID := senderID, recipientID
-	if minID > maxID {
-		minID, maxID = recipientID, senderID
-	}
-
-	// Lock both rows in deterministic order
-	var minDrops, maxDrops int
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", minID).Scan(&minDrops)
+	senderTxID, senderBalance, err := h.transferInTx(tx, senderID, recipientID, req.Amount, description)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to lock rows"))
-		return
-	}
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", maxID).Scan(&maxDrops)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to lock rows"))
-		return
-	}
-
-	// Map drops to sender
-	var senderDrops int
-	if minID == senderID {
-		senderDrops = minDrops
-	} else {
-		senderDrops = maxDrops
-	}
-
-	// Check balance
-	if senderDrops < req.Amount {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient drops"))
-		return
-	}
-
-	// Atomic balance updates
-	_, err = tx.Exec("UPDATE users SET drops = drops - $1 WHERE id = $2", req.Amount, senderID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to debit sender"))
-		return
-	}
-	_, err = tx.Exec("UPDATE users SET drops = drops + $1 WHERE id = $2", req.Amount, recipientID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to credit recipient"))
-		return
-	}
-
-	// Read final balances
-	var senderBalance, recipientBalance int
-	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&senderBalance)
-	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", recipientID).Scan(&recipientBalance)
-
-	// Ledger entries
-	description := ""
-	if req.Description != nil {
-		description = *req.Description
-	}
-
-	var senderTxID, recipientTxID string
-	err = tx.QueryRow(`
-		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
-		VALUES ($1, 'transfer_send', $2, $3, $4, 'user', $5)
-		RETURNING id
-	`, senderID, -req.Amount, senderBalance, recipientID, description).Scan(&senderTxID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record sender transaction"))
-		return
-	}
-
-	err = tx.QueryRow(`
-		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
-		VALUES ($1, 'transfer_receive', $2, $3, $4, 'user', $5)
-		RETURNING id
-	`, recipientID, req.Amount, recipientBalance, senderID, description).Scan(&recipientTxID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record recipient transaction"))
+		if errors.Is(err, errInsufficientDrops) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient drops"))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Transfer failed"))
 		return
 	}
 
@@ -838,6 +814,86 @@ func (h *DropsHandler) TransferDrops(c *gin.Context) {
 		Recipient:     recipientUsername,
 		BalanceAfter:  senderBalance,
 	}))
+}
+
+// errInsufficientDrops marks the one client-class failure inside the transfer
+// transaction so TransferDrops can map it onto 400 while every other failure
+// stays a 500.
+var errInsufficientDrops = errors.New("insufficient drops")
+
+// transferInTx performs the atomic transfer on an open transaction: rows are
+// locked in deterministic (ID-sorted) order to avoid deadlocks, the balance
+// is checked, both sides are updated and the ledger entries are recorded.
+// Returns the sender's ledger id and final balance. Extracted from
+// TransferDrops so the handler stays thin and the transactional core is a
+// separable unit.
+func (h *DropsHandler) transferInTx(tx *sql.Tx, senderID, recipientID string, amount int, description string) (senderTxID string, senderBalance int, err error) {
+	// Deterministic lock ordering: smaller ID first → no deadlock
+	minID, maxID := senderID, recipientID
+	if minID > maxID {
+		minID, maxID = recipientID, senderID
+	}
+
+	// Lock both rows in deterministic order
+	var minDrops, maxDrops int
+	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", minID).Scan(&minDrops)
+	if err != nil {
+		return "", 0, err
+	}
+	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", maxID).Scan(&maxDrops)
+	if err != nil {
+		return "", 0, err
+	}
+
+	// Map drops to sender
+	var senderDrops int
+	if minID == senderID {
+		senderDrops = minDrops
+	} else {
+		senderDrops = maxDrops
+	}
+
+	// Check balance
+	if senderDrops < amount {
+		return "", 0, errInsufficientDrops
+	}
+
+	// Atomic balance updates
+	_, err = tx.Exec("UPDATE users SET drops = drops - $1 WHERE id = $2", amount, senderID)
+	if err != nil {
+		return "", 0, err
+	}
+	_, err = tx.Exec("UPDATE users SET drops = drops + $1 WHERE id = $2", amount, recipientID)
+	if err != nil {
+		return "", 0, err
+	}
+
+	// Read final balances
+	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&senderBalance)
+	var recipientBalance int
+	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", recipientID).Scan(&recipientBalance)
+
+	// Ledger entries
+	err = tx.QueryRow(`
+		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
+		VALUES ($1, 'transfer_send', $2, $3, $4, 'user', $5)
+		RETURNING id
+	`, senderID, -amount, senderBalance, recipientID, description).Scan(&senderTxID)
+	if err != nil {
+		return "", 0, err
+	}
+
+	var recipientTxID string
+	err = tx.QueryRow(`
+		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
+		VALUES ($1, 'transfer_receive', $2, $3, $4, 'user', $5)
+		RETURNING id
+	`, recipientID, amount, recipientBalance, senderID, description).Scan(&recipientTxID)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return senderTxID, senderBalance, nil
 }
 
 // SearchUsers — GET /api/v1/drops/users/search?q=... (protected)

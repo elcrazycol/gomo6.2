@@ -1,0 +1,178 @@
+[
+  {
+    "date": "2026-08-26",
+    "mode": "architecture-audit",
+    "score": 88,
+    "findings": {
+      "critical": 0,
+      "warning": 2,
+      "suggestion": 2
+    },
+    "scope": "monorepo (apps/web, apps/docs, apps/dev-dashboard, apps/backend-go, packages/bot-sdk)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 92,
+    "findings": {
+      "critical": 0,
+      "warning": 1,
+      "suggestion": 3
+    },
+    "scope": "branch refactor/backend-universal-leaf-deps vs main (72 files, +2500/-1571)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 98,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 2
+    },
+    "scope": "incremental c7864138..HEAD: notifications.Service refactor + docs (15 files, +308/-111)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 99,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 1
+    },
+    "scope": "incremental f2ff0116..HEAD: CreateParams role-based field names + remove SetPushService (7 files, +69/-79)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "architecture-audit",
+    "score": 73,
+    "findings": {
+      "critical": 1,
+      "warning": 2,
+      "suggestion": 2
+    },
+    "scope": "monorepo (apps/web, apps/docs, apps/dev-dashboard, apps/backend-go, packages/bot-sdk) — main after merge of refactor/backend-universal-leaf-deps (#44)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 97,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 3
+    },
+    "scope": "branch fix/backend-consolidate-wall-privacy: wall-visibility predicate consolidation (8 files, +271/-200)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "architecture-audit",
+    "score": 76,
+    "findings": {
+      "critical": 0,
+      "warning": 4,
+      "suggestion": 4
+    },
+    "scope": "monorepo (apps/web, apps/docs, apps/dev-dashboard, apps/backend-go, packages/bot-sdk), main @5bd104c7"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 99,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 1
+    },
+    "scope": "branch fix/backend-privacy-leftovers vs main (6 files, +338/-329)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 99,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 1
+    },
+    "scope": "branch refactor/backend-crudengine-declarative-registry vs main (4 files, +710/-609)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 100,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 0
+    },
+    "scope": "branch refactor/backend-crudengine-declarative-read vs main (3 files, +55/-19)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 100,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 0
+    },
+    "scope": "branch refactor/backend-handlers-socialpreview vs main (5 files + 2 renames)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 99,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 1
+    },
+    "scope": "branch refactor/backend-handlers-translations vs main (2 commits: fix crypto + extract translations)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "architecture-audit",
+    "score": 67,
+    "findings": {
+      "critical": 0,
+      "warning": 6,
+      "suggestion": 3
+    },
+    "scope": "monorepo (apps/web, apps/docs, apps/dev-dashboard, apps/backend-go, packages/bot-sdk) — main after merge #50 (refactor/backend-handlers-translations), b908e564"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 94,
+    "findings": {
+      "critical": 0,
+      "warning": 1,
+      "suggestion": 1
+    },
+    "scope": "branch refactor/backend-messenger-extraction vs main (25 files, +313/-160, 12 renames)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 100,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 0
+    },
+    "scope": "branch refactor/backend-messenger-extraction vs main — re-review after fix commit 07c68744 (5 files, +104/-174)"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 99,
+    "findings": {
+      "critical": 0,
+      "warning": 0,
+      "suggestion": 1
+    },
+    "scope": "branch refactor/backend-handlers-rpc-gifts-drops vs main — F1 extraction of rpc/gifts/drops clusters + thin-handler splits (23 files, +556/-427, 15 renames)"
+  }
+]

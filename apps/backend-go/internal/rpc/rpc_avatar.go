@@ -1,4 +1,4 @@
-package handlers
+package rpc
 
 import (
 	"database/sql"
@@ -52,7 +52,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 	// list it — otherwise a stranger could harvest every historical avatar URL
 	// (photos) of a private user.
 	viewerID := ""
-	if claims, ok := bearerClaims(c); ok {
+	if claims, ok := httpx.BearerClaims(c); ok {
 		viewerID = claims.UserID
 	}
 	if viewerID != req.UserUUID {
@@ -131,7 +131,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 // @Router       /rpc/delete_avatar_from_history [post]
 // @Security     BearerAuth
 func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
-	claims, ok := bearerClaims(c)
+	claims, ok := httpx.BearerClaims(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return

@@ -40,7 +40,7 @@ func (h *BoardsHandler) SetAuthService(authService *auth.AuthService) {
 }
 
 func (h *BoardsHandler) getUserIDFromRequest(c *gin.Context) string {
-	if claims, ok := bearerClaims(c); ok {
+	if claims, ok := httpx.BearerClaims(c); ok {
 		return claims.UserID
 	}
 	if h.authService == nil {

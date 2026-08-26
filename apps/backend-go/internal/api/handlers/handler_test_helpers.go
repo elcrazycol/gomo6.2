@@ -192,38 +192,7 @@ func setupAuthHandler(t *testing.T) (*AuthHandler, sqlmock.Sqlmock) {
 	return handler, mock
 }
 
-// setupRPCHandler creates an RPCHandler with a mock DB.
-func setupRPCHandler(t *testing.T) (*RPCHandler, sqlmock.Sqlmock) {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to open sqlmock: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Errorf("unfulfilled mock expectations: %v", err)
-		}
-		db.Close()
-	})
-
-	handler := NewRPCHandler(db)
-	return handler, mock
-}
-
 // newGETContextWithClaims creates a gin test context for GET with auth claims.
 func newGETContextWithClaims(urlStr string, queryParams map[string]string, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
 	return testutil.NewGETContextWithClaims(urlStr, queryParams, claims)
-}
-
-// newRPCGETContext creates a gin test context for RPC methods that use c.Query() parameters.
-// RPC handlers are called via POST /rpc/<name> but read from query params.
-func newRPCGETContext(queryParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
-	return testutil.NewRPCGETContext(queryParams)
-}
-
-// newRPCPostContext creates a gin test context for RPC methods that use JSON body.
-func newRPCPostContext(body interface{}, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
-	return testutil.NewRPCPostContext(body, claims)
 }

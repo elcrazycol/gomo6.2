@@ -1,4 +1,4 @@
-package handlers
+package gifts
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/testutil"
 )
 
 const (
@@ -58,7 +59,7 @@ func TestUpgradeGift_InvalidGiftRecordID(t *testing.T) {
 	handler, _ := setupGiftUpgradeHandler(t)
 	claims := &auth.Claims{UserID: giftOwnerID}
 
-	c, w := newPOSTContext("/api/v1/gifts/not-a-uuid/upgrade", nil, claims, map[string]string{"giftRecordID": "not-a-uuid"})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/not-a-uuid/upgrade", nil, claims, map[string]string{"giftRecordID": "not-a-uuid"})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -74,7 +75,7 @@ func TestUpgradeGift_NotFound(t *testing.T) {
 	mock.ExpectQuery("SELECT gc\\.id, gc\\.upgrade_cost, ug\\.is_upgraded\\s*FROM user_gifts ug").
 		WillReturnRows(sqlmock.NewRows([]string{"gift_catalog_id", "upgrade_cost", "is_upgraded"}))
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusNotFound {
@@ -90,7 +91,7 @@ func TestUpgradeGift_OwnershipQueryError(t *testing.T) {
 	mock.ExpectQuery("SELECT gc\\.id, gc\\.upgrade_cost, ug\\.is_upgraded\\s*FROM user_gifts ug").
 		WillReturnError(errors.New("db down"))
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusInternalServerError {
@@ -104,7 +105,7 @@ func TestUpgradeGift_AlreadyUpgraded(t *testing.T) {
 
 	expectGiftOwnership(mock, true, 500)
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -118,7 +119,7 @@ func TestUpgradeGift_NotUpgradable(t *testing.T) {
 
 	expectGiftOwnership(mock, false, 0)
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -134,7 +135,7 @@ func TestUpgradeGift_IncompleteLayers(t *testing.T) {
 	// Only two of the three required layer types configured
 	expectLayers(mock, "gift", "background")
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -152,7 +153,7 @@ func TestUpgradeGift_InsufficientDrops(t *testing.T) {
 	mock.ExpectExec("UPDATE users SET drops = drops - \\$1\\s*WHERE id = \\$2 AND drops >= \\$1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -182,7 +183,7 @@ func TestUpgradeGift_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusOK {
@@ -215,7 +216,7 @@ func TestUpgradeGift_RandomLayerError(t *testing.T) {
 	mock.ExpectQuery("SELECT id, image_url FROM gift_layers\\s*WHERE gift_catalog_id = \\$1 AND layer_type = 'gift'").
 		WillReturnError(errors.New("db down"))
 
-	c, w := newPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
+	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
 	handler.UpgradeGift(c)
 
 	if w.Code != http.StatusInternalServerError {
