@@ -26,6 +26,12 @@ import (
 //     here and implemented in table_hooks.go
 //   - emitAchievementEvents (achievement_emit.go): the per-table
 //     achievement switch — now TableMeta.EmitAchievements (same file)
+//   - the inline per-table branch blocks of handlePost/handlePut/handleDelete
+//     (crud.go): body guards (emoji/gomosub/wall), the upsert statement
+//     switch (upsertInsertQuery), the wall side-effect chains (notifications,
+//     WebSocket, stats, dependent caches) and the wall-comment soft delete —
+//     now TableMeta.PrepareBody / BuildUpsert / AfterWrite / SoftDeleteSQL /
+//     EnrichedResponse (table_write_hooks.go)
 //
 // Adding a table required touching all of them, and a missed one silently
 // broke an endpoint ("GET-only routes made Gin return 404" — the recurring
@@ -129,7 +135,7 @@ type TableMeta struct {
 	HandlerScope string
 
 	// Upsert.
-	Upsert bool // POST uses INSERT ... ON CONFLICT (upsertInsertQuery)
+	Upsert bool // POST uses INSERT ... ON CONFLICT (BuildUpsert builds the statement)
 
 	// Write side effects. Both are run by the generic write paths after the
 	// row is written (POST/upsert/PUT/DELETE), with the written row. Nil
@@ -139,6 +145,17 @@ type TableMeta struct {
 	// references them, so the declaration and the behavior cannot drift.
 	InvalidateCache  TableInvalidator   // nil = generic table invalidation
 	EmitAchievements AchievementEmitter // nil = no achievement events
+
+	// Per-table write behavior, implemented in table_write_hooks.go. The
+	// dispatchers in crud.go are a pure template over these fields — a
+	// table's full write profile (body guards, statement shape, side effects,
+	// delete semantics, response enrichment) is declared here, so adding a
+	// table cannot leave an unregistered branch in the engine.
+	PrepareBody      BodyPreparer      // nil = no pre-write body guards
+	BuildUpsert      UpsertStmtBuilder // nil = plain INSERT (see Upsert flag)
+	AfterWrite       WriteHook         // nil = no per-table side effects
+	SoftDeleteSQL    string            // non-empty = DELETE runs UPDATE <table> SET <this>
+	EnrichedResponse bool              // POST/PUT respond with the enriched wall payload
 }
 
 // TableInvalidator invalidates the Redis caches that embed data of a row
@@ -151,6 +168,30 @@ type TableInvalidator func(h *Engine, c *gin.Context, result map[string]interfac
 // (emissions are async and swallowed); h.achEngine is guaranteed non-nil by
 // the dispatcher.
 type AchievementEmitter func(h *Engine, result map[string]interface{})
+
+// BodyPreparer mutates/validates the parsed JSON body before ownership forcing
+// and the statement build. Carries the per-table K1/H1/L5 guards that cannot
+// be expressed as declarative flags: forcing authored columns (emoji_packs),
+// rejecting client-supplied server-managed fields (gomosub_memberships
+// role_id), stripping columns the write must not move (wall post/comment PUT),
+// and cross-table ownership validations (custom_emojis pack ownership).
+// Returns false to abort the write (the response was already written).
+type BodyPreparer func(h *Engine, c *gin.Context, tableName, method string, data map[string]interface{}) bool
+
+// UpsertStmtBuilder builds the INSERT ... ON CONFLICT statement of an upsert
+// table, or ok=false when the body does not apply (the dispatcher then falls
+// through to a plain INSERT). Implementations used to live in the
+// upsertInsertQuery switch; they are now declared per table so the statement
+// shape of a table lives next to its other registry facts.
+type UpsertStmtBuilder func(data map[string]interface{}) (query string, args []interface{}, ok bool)
+
+// WriteHook runs the per-table side effects of a written row: wall
+// notifications, WebSocket broadcasts, unified profile stats and
+// dependent-cache invalidations the generic invalidation cannot express.
+// Runs on POST/PUT/DELETE with the method and the written row. Like the cache
+// hooks it must be nil-safe: h.redis / h.hub / h.notif may be nil in tests
+// and degraded deployments, and every optional interaction must be skipped.
+type WriteHook func(h *Engine, c *gin.Context, method string, result map[string]interface{})
 
 // fullWrites is the most common write surface: POST/PUT/DELETE with the
 // wildcard variant each.
@@ -196,6 +237,7 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
 		GomosubVisibility: true,
+		PrepareBody:       stripChannelPermissionsBoardID,
 		InvalidateCache:   invalidateChannelPermissionsCache,
 	},
 	{
@@ -221,6 +263,7 @@ var genericTables = []TableMeta{
 		},
 		EmojiVisibility: true,
 		HandlerScope:    "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $%d)",
+		PrepareBody:     prepareCustomEmojisBody,
 		InvalidateCache: invalidateCustomEmojisCache,
 	},
 	{
@@ -235,6 +278,7 @@ var genericTables = []TableMeta{
 		},
 		EmojiVisibility: true,
 		HandlerScope:    "author_id = $%d",
+		PrepareBody:     prepareEmojiPacksBody,
 		InvalidateCache: invalidateEmojiPacksCache,
 	},
 	{
@@ -253,6 +297,7 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		UserScopedRead:    true,
 		GomosubManagement: true,
+		PrepareBody:       prepareGomosubMembershipsBody,
 		InvalidateCache:   invalidateGomosubMembershipsCache,
 		EmitAchievements:  emitGomosubMembershipsAchievements,
 	},
@@ -276,6 +321,7 @@ var genericTables = []TableMeta{
 		PostOwner:        OwnSingle,
 		WriteOwner:       OwnSingle,
 		Upsert:           true,
+		BuildUpsert:      upsertGomosubRulesAcceptance,
 		InvalidateCache:  invalidateGomosubRulesAcceptanceCache,
 		EmitAchievements: emitGomosubRulesAcceptanceAchievements,
 	},
@@ -306,6 +352,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:  true,
 		PostOwner:       OwnSingle,
 		WriteOwner:      OwnSingle,
+		AfterWrite:      afterPrivacySettingsWrite,
 		InvalidateCache: invalidatePrivacySettingsCache,
 	},
 	{
@@ -321,6 +368,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:   true,
 		PostOwner:        OwnSingle,
 		Upsert:           true,
+		BuildUpsert:      upsertProfileCustomization,
 		InvalidateCache:  invalidateProfileCustomizationCache,
 		EmitAchievements: emitProfileCustomizationAchievements,
 	},
@@ -333,6 +381,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:   true,
 		PostOwner:        OwnSingle,
 		WriteOwner:       OwnSingle,
+		AfterWrite:       afterWallCommentLikeWrite,
 		EmitAchievements: emitProfileWallCommentLikesAchievements,
 	},
 	{
@@ -347,11 +396,16 @@ var genericTables = []TableMeta{
 		// nor flag someone else's as deleted through a generic PUT. post_id /
 		// parent_id are writable ONLY at creation (they must survive the POST
 		// body for the wall-privacy gate) and are stripped from PUT in
-		// handlePut, so the comment tree cannot be re-parented retroactively.
+		// prepareWallCommentBody, so the comment tree cannot be re-parented
+		// retroactively.
 		WritableColumns: map[string]bool{"content": true, "content_json": true, "post_id": true, "parent_id": true},
 		// The generic GET handler is overridden by handleProfileWallPostCommentsGet.
 		PostOwner:        OwnSingle,
 		WriteOwner:       OwnSingle,
+		PrepareBody:      prepareWallCommentBody,
+		AfterWrite:       afterWallCommentWrite,
+		SoftDeleteSQL:    `content = NULL, content_json = NULL, user_id = NULL, is_deleted = TRUE, updated_at = NOW()`,
+		EnrichedResponse: true,
 		InvalidateCache:  invalidateProfileWallPostCommentsCache,
 		EmitAchievements: emitProfileWallPostCommentsAchievements,
 	},
@@ -366,6 +420,8 @@ var genericTables = []TableMeta{
 		PostOwner:        OwnSingle,
 		WriteOwner:       OwnSingle,
 		Upsert:           true,
+		BuildUpsert:      upsertProfileWallPostLikes,
+		AfterWrite:       afterWallPostLikeWrite,
 		InvalidateCache:  invalidateProfileWallPostLikesCache,
 		EmitAchievements: emitProfileWallPostLikesAchievements,
 	},
@@ -381,6 +437,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:   true,
 		PostOwner:        OwnWallRepost,
 		WriteOwner:       OwnSingle,
+		AfterWrite:       afterWallRepostWrite,
 		EmitAchievements: emitProfileWallPostRepostsAchievements,
 	},
 	{
@@ -396,6 +453,9 @@ var genericTables = []TableMeta{
 		UserScopedRead:   true,
 		PostOwner:        OwnWallPost,
 		WriteOwner:       OwnWallPost,
+		PrepareBody:      prepareWallPostBody,
+		AfterWrite:       afterWallPostWrite,
+		EnrichedResponse: true,
 		InvalidateCache:  invalidateProfileWallPostsCache,
 		EmitAchievements: emitProfileWallPostsAchievements,
 	},
@@ -417,6 +477,7 @@ var genericTables = []TableMeta{
 		PostOwner:      OwnSingle,
 		WriteOwner:     OwnSingle,
 		Upsert:         true,
+		BuildUpsert:    upsertThreadCustomMessageVisits,
 	},
 	{
 		Name:         "thread_subscriptions",
@@ -453,6 +514,7 @@ var genericTables = []TableMeta{
 		PostOwner:        OwnSingle,
 		WriteOwner:       OwnSingle,
 		Upsert:           true,
+		BuildUpsert:      upsertUserDailyVisits,
 		EmitAchievements: emitUserDailyVisitsAchievements,
 	},
 	{
@@ -496,6 +558,8 @@ var genericTables = []TableMeta{
 		PostOwner:      OwnSingle,
 		WriteOwner:     OwnSingle,
 		Upsert:         true,
+		BuildUpsert:    upsertUserSessionTime,
+		AfterWrite:     afterUserSessionTimeWrite,
 	},
 	{
 		Name:           "user_settings_changes",
@@ -514,6 +578,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:  true,
 		PostOwner:       OwnSingle,
 		Upsert:          true,
+		BuildUpsert:     upsertUserTermsAcceptance,
 		InvalidateCache: invalidateUserTermsAcceptanceCache,
 	},
 }

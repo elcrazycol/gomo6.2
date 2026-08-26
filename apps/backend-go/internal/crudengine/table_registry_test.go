@@ -86,6 +86,18 @@ func TestGenericTables_RegistryConsistency(t *testing.T) {
 		if meta.InvalidateCache != nil && (meta.WriteDenied || len(meta.Writes) == 0) {
 			t.Errorf("table %q: InvalidateCache hook but no generic write routes", meta.Name)
 		}
+		// The prep/after-write hooks and the soft-delete/EnrichedResponse
+		// semantics are consumed by the write dispatchers; declaring them on a
+		// write-denied or route-less table is dead config.
+		if (meta.PrepareBody != nil || meta.AfterWrite != nil || meta.SoftDeleteSQL != "" || meta.EnrichedResponse) && (meta.WriteDenied || len(meta.Writes) == 0) {
+			t.Errorf("table %q: write hooks/semantics declared but no generic write routes", meta.Name)
+		}
+		// The Upsert flag and the BuildUpsert statement must agree: one without
+		// the other silently switches the write path between upsert and plain
+		// INSERT.
+		if meta.Upsert != (meta.BuildUpsert != nil) {
+			t.Errorf("table %q: Upsert=%v but BuildUpsert=%v (must agree)", meta.Name, meta.Upsert, meta.BuildUpsert != nil)
+		}
 		// Achievement hooks fire on the POST (insert + upsert) write path; a
 		// table without a POST route can never trigger them.
 		if meta.EmitAchievements != nil {
