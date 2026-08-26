@@ -185,5 +185,16 @@
       "suggestion": 3
     },
     "scope": "monorepo (apps/web, apps/docs, apps/dev-dashboard, apps/backend-go, packages/bot-sdk) — main after merge of #57 (wall extraction) + #58 (handler splitting), 6b52692c"
+  },
+  {
+    "date": "2026-08-26",
+    "mode": "pr-review",
+    "score": 94,
+    "findings": {
+      "critical": 0,
+      "warning": 1,
+      "suggestion": 1
+    },
+    "scope": "branch refactor/web-profile-splitting vs main — Profile.tsx split into pages/profile (10 files, +2000/-1464)"
   }
 ]
