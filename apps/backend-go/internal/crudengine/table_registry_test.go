@@ -117,6 +117,11 @@ func TestGenericTables_RegistryConsistency(t *testing.T) {
 		if meta.ReadAccess == GuestRead && meta.ReadDenied {
 			t.Errorf("table %q: GuestRead but ReadDenied", meta.Name)
 		}
+		// ReadHandler overrides / SanitizeReadRow post-processes the generic
+		// GET — dead config on a table the read surface never serves.
+		if (meta.ReadHandler != nil || meta.SanitizeReadRow != nil) && (meta.ReadDenied || meta.ReadAccess == NoRead) {
+			t.Errorf("table %q: read hook/sanitizer declared but reads are not served", meta.Name)
+		}
 		// Wildcard-less reads are a deliberate exception (emoji tables and
 		// /<table>/<id> URL forms) — flag nothing, but require ReadAccess.
 		if (meta.ReadAccess != NoRead) != meta.ReadWildcard && meta.ReadAccess == NoRead {

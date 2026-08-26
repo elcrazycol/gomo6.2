@@ -156,6 +156,13 @@ type TableMeta struct {
 	AfterWrite       WriteHook         // nil = no per-table side effects
 	SoftDeleteSQL    string            // non-empty = DELETE runs UPDATE <table> SET <this>
 	EnrichedResponse bool              // POST/PUT respond with the enriched wall payload
+
+	// Per-table read behavior. ReadHandler fully replaces the generic GET
+	// handler (specialized wall/achievement queries); SanitizeReadRow
+	// post-processes each row of a generic GET result (read-time sanitization
+	// of user-supplied data). Nil fields = generic read surface.
+	ReadHandler     ReadOverride // nil = generic GET (query-builder surface)
+	SanitizeReadRow RowSanitizer // nil = no read-time row sanitization
 }
 
 // TableInvalidator invalidates the Redis caches that embed data of a row
@@ -192,6 +199,22 @@ type UpsertStmtBuilder func(data map[string]interface{}) (query string, args []i
 // hooks it must be nil-safe: h.redis / h.hub / h.notif may be nil in tests
 // and degraded deployments, and every optional interaction must be skipped.
 type WriteHook func(h *Engine, c *gin.Context, method string, result map[string]interface{})
+
+// ReadOverride fully replaces the generic GET handler of a table (the wall
+// list queries and the achievements catalog have their own SQL, privacy
+// embedding and pagination that the query-builder surface cannot express).
+// Declared per table so a specialized read is wired in one place — the
+// dispatcher consults the registry instead of a table-name branch list, so
+// adding a table can re-use the mechanism without touching handleGet. The
+// override owns the whole response.
+type ReadOverride func(h *Engine, c *gin.Context)
+
+// RowSanitizer post-processes one row of a generic GET result before the
+// response is written — the read-time counterpart of the write-path
+// sanitizers (defense-in-depth for rows written before server-side
+// sanitization existed). Must never fail the request: it only mutates the
+// row in place.
+type RowSanitizer func(row map[string]interface{})
 
 // fullWrites is the most common write surface: POST/PUT/DELETE with the
 // wildcard variant each.
@@ -365,6 +388,9 @@ var genericTables = []TableMeta{
 		// partial updates and CSS sanitization. PostOwner applies; WriteOwner
 		// intentionally stays OwnNone — there are no PUT/DELETE routes and a
 		// generic scoped PUT must keep behaving exactly as today (unscoped).
+		// Read-time sanitization of rows written before the write-path
+		// sanitizer existed (defense-in-depth, L6).
+		SanitizeReadRow:  sanitizeProfileCustomizationRow,
 		UserScopedRead:   true,
 		PostOwner:        OwnSingle,
 		Upsert:           true,
@@ -399,7 +425,10 @@ var genericTables = []TableMeta{
 		// prepareWallCommentBody, so the comment tree cannot be re-parented
 		// retroactively.
 		WritableColumns: map[string]bool{"content": true, "content_json": true, "post_id": true, "parent_id": true},
-		// The generic GET handler is overridden by handleProfileWallPostCommentsGet.
+		// Reads are served by the specialized wall-comments query
+		// (handleProfileWallPostCommentsGet) — the generic list cannot embed
+		// the comment author, the interaction counts and the privacy gates.
+		ReadHandler:      (*Engine).handleProfileWallPostCommentsGet,
 		PostOwner:        OwnSingle,
 		WriteOwner:       OwnSingle,
 		PrepareBody:      prepareWallCommentBody,
@@ -449,7 +478,10 @@ var genericTables = []TableMeta{
 		// OwnWallPost: the author is always the caller; the wall owner may be
 		// another user, but only when their privacy settings allow it and the
 		// caller may view the wall (enforcePostOwnership / enforceWallTargetPrivacy).
-		// The generic GET handler is overridden by handleProfileWallPostsGet.
+		// Reads are served by the specialized wall-list query
+		// (handleProfileWallPostsGet) — it embeds the author, the interaction
+		// counts and the per-owner privacy gates the generic surface cannot.
+		ReadHandler:      (*Engine).handleProfileWallPostsGet,
 		UserScopedRead:   true,
 		PostOwner:        OwnWallPost,
 		WriteOwner:       OwnWallPost,
@@ -494,8 +526,10 @@ var genericTables = []TableMeta{
 		ReadAccess:   GuestRead,
 		ReadWildcard: true,
 		// Rows are written by the achievement checker only (WriteDenied would
-		// let a client forge unlocks). The generic GET handler is overridden
-		// by handleUserAchievementsGet.
+		// let a client forge unlocks). Reads are served by the dedicated
+		// achievements query (handleUserAchievementsGet) which resolves the
+		// category schema and personal unlock state in one pass.
+		ReadHandler:    (*Engine).handleUserAchievementsGet,
 		WriteDenied:    true,
 		UserScopedRead: true,
 	},
