@@ -80,12 +80,12 @@
 
 /* The pan wrapper moves the photo on screen; the frame inside scales it. The
    crop overlay is a separate screen-fixed layer, so zooming never moves the
-   crop frame. */
+   crop frame. No will-change here: forcing a composited layer around the large
+   canvas makes iOS Safari drop the layer (black photo) on some devices. */
 .pe-frame-pan {
   position: relative;
   display: grid;
   place-items: center;
-  will-change: transform;
 }
 
 .pe-frame {
@@ -93,7 +93,6 @@
   display: grid;
   place-items: center;
   transform-origin: center center;
-  will-change: transform;
 }
 
 .pe-canvas {

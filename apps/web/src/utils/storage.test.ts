@@ -29,6 +29,16 @@ describe("storageUrl", () => {
     expect(storageUrl("bucket", "http://example.com/img.jpg")).toBe("http://example.com/img.jpg");
   });
 
+  it("passes photo-editor data URLs through unchanged", () => {
+    const dataUrl = "data:image/png;base64,AAAABBBB";
+    expect(storageUrl("content", dataUrl)).toBe(dataUrl);
+    expect(storageUrl("wall", dataUrl)).toBe(dataUrl);
+  });
+
+  it("passes blob URLs through unchanged", () => {
+    expect(storageUrl("content", "blob:https://gomo6.wtf/abc-123")).toBe("blob:https://gomo6.wtf/abc-123");
+  });
+
   it("prepends API_BASE_URL for relative storage path", () => {
     const result = storageUrl("bucket", "/storage/v1/object/bucket/key.jpg");
     expect(result).toContain("/storage/v1/object/bucket/key.jpg");

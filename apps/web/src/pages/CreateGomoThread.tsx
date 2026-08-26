@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { uploadAttachments, type AttachmentMeta } from "@/utils/mediaUpload";
+import { uploadAttachments, uploadEditedDataUrl, type AttachmentMeta } from "@/utils/mediaUpload";
 import {
   Loader2,
   Smile,
@@ -570,19 +570,26 @@ const CreateGomoThread = () => {
           items={imageAttachments.map((att) => ({ url: att.url, type: "image", name: att.name || "Фото", mime: "image/*" } as LightboxItem))}
           initialIndex={galleryIndex}
           onClose={() => setShowGallery(false)}
-          onEditImage={(idx, dataUrl) => {
-            setAttachments((prev) => {
-              let imageIdx = -1;
-              return prev.map((att) => {
-                if (att.type === "image") {
-                  imageIdx += 1;
-                  if (imageIdx === idx) {
-                    return { ...att, url: dataUrl };
+          onEditImage={async (idx, dataUrl) => {
+            // The editor closes on the data URL, but the draft must reference
+            // a real content object — upload the edited PNG before storing it.
+            try {
+              const uploaded = await uploadEditedDataUrl(dataUrl, "content");
+              setAttachments((prev) => {
+                let imageIdx = -1;
+                return prev.map((att) => {
+                  if (att.type === "image") {
+                    imageIdx += 1;
+                    if (imageIdx === idx) {
+                      return { ...att, url: uploaded.url, meta: uploaded.meta };
+                    }
                   }
-                }
-                return att;
+                  return att;
+                });
               });
-            });
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Не удалось сохранить отредактированное фото");
+            }
           }}
         />
       )}

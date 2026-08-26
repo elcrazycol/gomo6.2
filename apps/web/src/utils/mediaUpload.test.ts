@@ -301,5 +301,64 @@ describe("uploadAttachments", () => {
   });
 });
 
+describe("uploadEditedDataUrl", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.getSession.mockResolvedValue({
+      data: { session: { user: { id: "user-1" }, access_token: "token-abc" } },
+      error: null,
+    });
+    mockUploadFile.mockResolvedValue({ path: "user-1/edited.png", variants });
+  });
+
+  const dataUrl = "data:image/png;base64,AAAA";
+
+  it("rejects when the user is not logged in", async () => {
+    mockAuth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+
+    await expect(uploadEditedDataUrl(dataUrl, "wall")).rejects.toThrow("Нужно войти для загрузки");
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("uploads the edited PNG to the content bucket and returns its key", async () => {
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({ path: key, variants }));
+
+    const result = await uploadEditedDataUrl(dataUrl, "content");
+
+    expect(result.type).toBe("image");
+    expect(result.mime).toBe("image/png");
+    expect(result.url).toMatch(/^user-1\/\d+_[a-z0-9]+\.png$/);
+    expect(result.meta?.preview_key).toBe(variants.preview_key);
+    expect(result.meta?.pipeline).toBe("image-v2");
+    // The editor output is already optimized: no double preparation, and the
+    // raw data URL body is decoded into the uploaded File.
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      "content",
+      expect.stringMatching(/^user-1\/\d+_[a-z0-9]+\.png$/),
+      expect.objectContaining({ type: "image/png" }),
+      "token-abc",
+      false,
+    );
+  });
+
+  it("resolves private-bucket results through storageUrl", async () => {
+    mockStorageUrl.mockImplementation((_bucket: string, key: string) => `https://cdn.test/${key}`);
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({ path: key, variants }));
+
+    const result = await uploadEditedDataUrl(dataUrl, "wall");
+
+    expect(result.url).toMatch(/^https:\/\/cdn\.test\/user-1\/\d+_[a-z0-9]+\.png$/);
+    expect(result.meta?.preview_key).toMatch(/^https:\/\/cdn\.test\//);
+  });
+
+  it("throws when the server returns no image variants", async () => {
+    mockUploadFile.mockResolvedValue({ path: "user-1/edited.png" });
+
+    await expect(uploadEditedDataUrl(dataUrl, "content")).rejects.toThrow(
+      "Сервер не вернул preview для изображения",
+    );
+  });
+});
+
 // Import after mocks are installed (hoisted) so the module sees them.
-import { uploadAttachments } from "./mediaUpload";
+import { uploadAttachments, uploadEditedDataUrl } from "./mediaUpload";

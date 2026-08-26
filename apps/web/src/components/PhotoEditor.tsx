@@ -4,6 +4,11 @@ import { cn } from "@/lib/utils";
 import "./PhotoEditor.css";
 
 const MAX_IMAGE_DIMENSION = 2560;
+// Mobile GPUs cap source textures well below desktop (usually 4096px): a
+// single drawImage of a larger decoded image paints nothing (black) on
+// Android Chrome/WebView and can exhaust iOS memory. Downscale such sources
+// in halving steps first.
+const SAFE_TEXTURE_DIMENSION = 4096;
 
 const MIN_VIEW_ZOOM = 1;
 const MAX_VIEW_ZOOM = 8;
@@ -41,6 +46,33 @@ type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 type Snapshot = { width: number; height: number; ready: Promise<string> };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+/** Draw `img` into `ctx` at `w×h`, halving the source first when it exceeds
+    SAFE_TEXTURE_DIMENSION so no single drawImage uploads an oversized texture
+    (which renders black on mobile GPUs). */
+function drawImageScaled(ctx: CanvasRenderingContext2D, img: CanvasImageSource, w: number, h: number): void {
+  let source: CanvasImageSource = img;
+  let sw = img instanceof HTMLImageElement ? img.naturalWidth : (img as HTMLCanvasElement).width;
+  let sh = img instanceof HTMLImageElement ? img.naturalHeight : (img as HTMLCanvasElement).height;
+  if (!sw || !sh) {
+    ctx.drawImage(img, 0, 0, w, h);
+    return;
+  }
+  while (sw > SAFE_TEXTURE_DIMENSION || sh > SAFE_TEXTURE_DIMENSION) {
+    const nw = Math.max(1, Math.round(sw / 2));
+    const nh = Math.max(1, Math.round(sh / 2));
+    const step = document.createElement("canvas");
+    step.width = nw;
+    step.height = nh;
+    const stepCtx = step.getContext("2d");
+    if (!stepCtx) break;
+    stepCtx.drawImage(source, 0, 0, nw, nh);
+    source = step;
+    sw = nw;
+    sh = nh;
+  }
+  ctx.drawImage(source, 0, 0, w, h);
+}
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -442,10 +474,12 @@ function useCropWindow({
     ctx.strokeRect(s.x, s.y, s.w, s.h);
 
     // Telegram-style grips: thick short strips along the frame with constant
-    // on-screen size (no canvas-scale factor — the overlay never zooms).
-    const thickness = isTouch ? 5 : 4;
-    const cornerLen = isTouch ? 26 : 22;
-    const midLen = isTouch ? 18 : 14;
+    // on-screen size (no canvas-scale factor — the overlay never zooms). On
+    // touch they are chunkier so the visible target matches the (larger)
+    // hit zones in hitTestHandle.
+    const thickness = isTouch ? 8 : 4;
+    const cornerLen = isTouch ? 34 : 22;
+    const midLen = isTouch ? 26 : 14;
     ctx.fillStyle = "#ffffff";
 
     const corners: { x: number; y: number; hx: 1 | -1; hy: 1 | -1 }[] = [
@@ -540,8 +574,11 @@ function useCropWindow({
 
   const hitTestHandle = (x: number, y: number, box: Box): Handle | null => {
     // Hit zones as rectangles around the Telegram-style grips — generous
-    // enough for touch, in the same screen coordinates as the overlay.
-    const half = (isTouch ? 26 : 18) / 2;
+    // enough for touch (48×48 on touch, 28×28 on desktop), in the same
+    // screen coordinates as the overlay. The zones extend past the photo
+    // edge on purpose: when the crop window touches the photo boundary the
+    // outer half of a grip sits outside the photo and must stay grabbable.
+    const half = isTouch ? 24 : 14;
     const midX = box.x + box.w / 2;
     const midY = box.y + box.h / 2;
     const zones: { id: Handle; cx: number; cy: number }[] = [
@@ -1038,15 +1075,25 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     const iw = canvas.width;
     const ih = canvas.height;
     if (!iw || !ih) return;
-    const scale = Math.min(stage.clientWidth / iw, stage.clientHeight / ih);
+    // Guard against a zero-sized stage at first paint on mobile (keyboard,
+    // open animation): fit would collapse to 1×1 and the photo would read as
+    // a black screen with no error. Use the element rect / viewport as proxy.
+    let sw = stage.clientWidth;
+    let sh = stage.clientHeight;
+    if (!sw || !sh) {
+      const rect = stage.getBoundingClientRect();
+      sw = rect.width || window.innerWidth;
+      sh = rect.height || window.innerHeight;
+    }
+    const scale = Math.min(sw / iw, sh / ih);
     const w = Math.max(1, Math.floor(iw * scale));
     const h = Math.max(1, Math.floor(ih * scale));
     setFit((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
 
     // Size the overlay buffer to the stage in device pixels.
     const dpr = window.devicePixelRatio || 1;
-    const ow = Math.max(1, Math.round(stage.clientWidth * dpr));
-    const oh = Math.max(1, Math.round(stage.clientHeight * dpr));
+    const ow = Math.max(1, Math.round(sw * dpr));
+    const oh = Math.max(1, Math.round(sh * dpr));
     if (overlay.width !== ow || overlay.height !== oh) {
       overlay.width = ow;
       overlay.height = oh;
@@ -1109,7 +1156,17 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
         if (!ctx) return;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(img, 0, 0, width, height);
+        drawImageScaled(ctx, img, width, height);
+
+        // iOS Safari sometimes keeps a freshly drawn canvas black until the
+        // compositor repaints the layer; one self-draw forces that flush.
+        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+          requestAnimationFrame(() => {
+            const c = canvasRef.current;
+            const cctx = c?.getContext("2d");
+            if (c && cctx) cctx.drawImage(c, 0, 0);
+          });
+        }
 
         resetView();
         setAspect(null);
@@ -1250,8 +1307,10 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     }
 
     if (tool === "crop") {
-      const point = getCanvasPoint(e);
-      if (!point?.inside) return;
+      // No photo-rect gate here: the handles sit on the window edges, which
+      // can coincide with the photo boundary, so half of each grip sticks
+      // out of the photo. startCropDrag itself only enables moving the
+      // window when the press lands inside it.
       startCropDrag(screen.x, screen.y);
       return;
     }

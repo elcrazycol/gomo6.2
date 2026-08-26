@@ -9,7 +9,7 @@ import { RichContentRenderer } from "@/components/RichContentRenderer";
 import { PublishButton } from "@/components/PublishButton";
 import { getPublishButtonStyle } from "@/lib/publishButtonStyle";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
-import { uploadAttachments, type AttachmentMeta } from "@/utils/mediaUpload";
+import { uploadAttachments, uploadEditedDataUrl, type AttachmentMeta } from "@/utils/mediaUpload";
 import { storageUrl } from "@/utils/storage";
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
@@ -649,19 +649,26 @@ export const CreateWallPost = ({
           items={imageAttachments.map((att) => ({ url: wallSrc(att.url) || "", type: "image", name: att.name || "Фото", mime: "image/*" } as LightboxItem))}
           initialIndex={galleryIndex}
           onClose={() => setShowGallery(false)}
-          onEditImage={(idx, dataUrl) => {
-            setAttachments((prev) => {
-              let imageIdx = -1;
-              return prev.map((att) => {
-                if (att.type === "image") {
-                  imageIdx += 1;
-                  if (imageIdx === idx) {
-                    return { ...att, url: dataUrl };
+          onEditImage={async (idx, dataUrl) => {
+            // The editor closes on the data URL, but the draft must reference
+            // a real wall object — upload the edited PNG before storing it.
+            try {
+              const uploaded = await uploadEditedDataUrl(dataUrl, "wall");
+              setAttachments((prev) => {
+                let imageIdx = -1;
+                return prev.map((att) => {
+                  if (att.type === "image") {
+                    imageIdx += 1;
+                    if (imageIdx === idx) {
+                      return { ...att, url: uploaded.url, meta: uploaded.meta };
+                    }
                   }
-                }
-                return att;
+                  return att;
+                });
               });
-            });
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Не удалось сохранить отредактированное фото");
+            }
           }}
         />
       )}

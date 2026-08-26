@@ -371,7 +371,8 @@ describe("Lightbox editor", () => {
 
   it("applies the edit and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
-    openEditor(onEditImage);
+    // Готово stays disabled until the photo has loaded, so wait for ready.
+    await openEditorReady(onEditImage);
     fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
@@ -381,7 +382,7 @@ describe("Lightbox editor", () => {
 
   it("resizes the crop box by dragging the south-east handle", async () => {
     const onEditImage = vi.fn();
-    openEditor(onEditImage);
+    await openEditorReady(onEditImage);
     const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     expect(canvas).not.toBeNull();
     stubCanvasPointer(canvas);
@@ -393,9 +394,32 @@ describe("Lightbox editor", () => {
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
   });
 
+  it("grabs a mid-edge handle from outside the photo (letterbox side of the grip)", async () => {
+    const onEditImage = vi.fn();
+    await openEditorReady(onEditImage);
+    const overlay = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
+    stubCanvasPointer(overlay);
+    // The photo is letterboxed inside the stage: its rect ends at x=700,
+    // while the crop window edge (the east grip) is at x=800. A press at
+    // x=810 is on the outer half of the grip — outside the photo — and must
+    // still start a resize.
+    const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement;
+    vi.spyOn(main, "getBoundingClientRect").mockReturnValue({
+      left: 100, top: 100, width: 600, height: 400, right: 700, bottom: 500, x: 100, y: 100, toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.pointerDown(overlay, { clientX: 810, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(overlay, { clientX: 700, clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { clientX: 700, clientY: 300, pointerId: 1 });
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
+    // The east edge moved from 800 to 700; the crop box is now 700×600.
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 700, 600, 0, 0, 700, 600);
+  });
+
   it("draws with the brush tool and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
-    openEditor(onEditImage);
+    await openEditorReady(onEditImage);
     fireEvent.click(document.body.querySelector('[aria-label="Кисть"]')!);
     const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     stubCanvasPointer(canvas);
@@ -541,6 +565,34 @@ describe("Lightbox editor", () => {
     fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
+  });
+
+  it("downscales sources bigger than the mobile texture limit instead of drawing black", async () => {
+    // jsdom's shared default is 800×600; simulate a photo exceeding the 4096
+    // GPU max texture size on mobile (9000×6000). One drawImage of such a
+    // source paints black on Android/iOS.
+    Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => 9000 });
+    Object.defineProperty(HTMLImageElement.prototype, "naturalHeight", { configurable: true, get: () => 6000 });
+
+    const onEditImage = vi.fn();
+    openEditor(onEditImage);
+
+    // The working canvas is capped at MAX_IMAGE_DIMENSION=2560: 2560×1707.
+    await waitFor(() => {
+      const main = document.body.querySelector(".pe-canvas:not(.pe-overlay)") as HTMLCanvasElement | null;
+      expect(main?.width).toBe(2560);
+      expect(main?.height).toBe(1707);
+    });
+
+    // drawImageScaled halves the source twice before the final draw, so every
+    // step stays under the texture cap: 9000×6000 → 4500×3000 → 2250×1500 →
+    // 2560×1707.
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 4500, 3000);
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 2250, 1500);
+    expect(drawImageSpy).toHaveBeenCalledWith(expect.anything(), 0, 0, 2560, 1707);
+
+    fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
+    await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
   });
 
   it("keeps the crop square when a 1:1 aspect preset is applied", async () => {
