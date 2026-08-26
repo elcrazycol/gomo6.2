@@ -330,7 +330,7 @@ func TestCreateNotification_Success(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
 	notif, err := svc.CreateNotification(notifications.CreateParams{
-		UserID:          "u1",
+		RecipientID:     "u1",
 		Type:            "like",
 		Params:          params,
 		RelatedThreadID: strPtr("thread1"),
@@ -364,10 +364,10 @@ func TestCreateNotification_SuccessNoRelated(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
 	notif, err := svc.CreateNotification(notifications.CreateParams{
-		UserID:  "u1",
-		Type:    "reply",
-		Message: "Someone replied",
-		Params:  params,
+		RecipientID: "u1",
+		Type:        "reply",
+		Message:     "Someone replied",
+		Params:      params,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -399,13 +399,13 @@ func TestCreateWallNotification_Success(t *testing.T) {
 	params := &models.NotificationParams{Actor: "actor1"}
 	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
 	notif, err := svc.CreateWallNotification(notifications.CreateParams{
-		UserID:               "u1",
+		RecipientID:          "u1",
 		Type:                 "wall_post_like",
 		Params:               params,
-		RelatedUserID:        strPtr("actor1"),
+		ActorID:              strPtr("actor1"),
 		RelatedWallPostID:    strPtr("wp1"),
 		RelatedWallCommentID: strPtr("wc1"),
-		RelatedWallUserID:    strPtr("wu1"),
+		WallOwnerID:          strPtr("wu1"),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -447,12 +447,12 @@ func TestCreateWallNotification_MergesIntoGroup(t *testing.T) {
 	params := &models.NotificationParams{Actor: "actor1"}
 	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
 	notif, err := svc.CreateWallNotification(notifications.CreateParams{
-		UserID:            "u1",
+		RecipientID:       "u1",
 		Type:              "wall_post_like",
 		Params:            params,
-		RelatedUserID:     strPtr("actor1"),
+		ActorID:           strPtr("actor1"),
 		RelatedWallPostID: strPtr("wp-new"),
-		RelatedWallUserID: strPtr("wu1"),
+		WallOwnerID:       strPtr("wu1"),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -498,10 +498,10 @@ func TestCreateNotification_DBError(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
 	notif, err := svc.CreateNotification(notifications.CreateParams{
-		UserID:  "u1",
-		Type:    "like",
-		Message: "Msg",
-		Params:  params,
+		RecipientID: "u1",
+		Type:        "like",
+		Message:     "Msg",
+		Params:      params,
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -516,9 +516,9 @@ func TestCreateNotification_DBError(t *testing.T) {
 func TestCreateNotification_NilDB(t *testing.T) {
 	svc := notifications.New(nil, nil, nil, nil)
 	notif, err := svc.CreateNotification(notifications.CreateParams{
-		UserID:  "u1",
-		Type:    "like",
-		Message: "Msg",
+		RecipientID: "u1",
+		Type:        "like",
+		Message:     "Msg",
 	})
 	if err == nil {
 		t.Fatal("expected error for nil db, got nil")
@@ -543,9 +543,9 @@ func TestCreateNotification_NilRedisHub(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := notifications.New(handler.db, nil, nil, nil)
 	notif, err := svc.CreateNotification(notifications.CreateParams{
-		UserID: "u1",
-		Type:   "like",
-		Params: params,
+		RecipientID: "u1",
+		Type:        "like",
+		Params:      params,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -565,10 +565,10 @@ func TestCreateNotification_DBErrorPackage(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := notifications.New(handler.db, handler.redis, handler.hub, nil)
 	notif, err := svc.CreateNotification(notifications.CreateParams{
-		UserID:  "u1",
-		Type:    "like",
-		Message: "Msg",
-		Params:  params,
+		RecipientID: "u1",
+		Type:        "like",
+		Message:     "Msg",
+		Params:      params,
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")

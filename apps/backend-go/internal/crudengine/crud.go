@@ -151,14 +151,14 @@ func (h *Engine) createWallNotification(c *gin.Context, recipientID, actorID, no
 	}
 	params := &models.NotificationParams{Actor: actorUsername}
 	if _, err := h.notif.CreateWallNotification(notifications.CreateParams{
-		UserID:               recipientID,
+		RecipientID:          recipientID,
 		Type:                 notifType,
 		Message:              message,
 		Params:               params,
-		RelatedUserID:        &actorID,
+		ActorID:              &actorID,
 		RelatedWallPostID:    wallPostID,
 		RelatedWallCommentID: wallCommentID,
-		RelatedWallUserID:    wallUserID,
+		WallOwnerID:          wallUserID,
 	}); err != nil {
 		fmt.Printf("[WallNotifications] error creating %s notification: %v\n", notifType, err)
 	}

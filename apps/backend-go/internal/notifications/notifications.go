@@ -35,27 +35,19 @@ type Service struct {
 // New builds a Service from its dependencies. pushSvc may be nil.
 func New(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, pushSvc *push.Service) *Service {
 	return &Service{db: db, redis: redisClient, hub: hub, push: pushSvc}
-}
-
-// SetPushService wires (or unwires, with nil) the optional Web Push sender.
-// Called from routes.setupRoutes after the VAPID-backed service is built.
-func (s *Service) SetPushService(p *push.Service) {
-	s.push = p
-}
-
-// CreateParams carries the fields for a new notification. Fill only the
+} // CreateParams carries the fields for a new notification. Fill only the
 // related-* pointers that apply to the notification type; leave the rest nil.
 type CreateParams struct {
-	UserID               string                     // recipient
+	RecipientID          string                     // user who receives the notification
 	Type                 string                     // notification type
 	Message              string                     // optional user-content snippet
 	Params               *models.NotificationParams // structured display data (language-neutral)
 	RelatedThreadID      *string
 	RelatedPostID        *string
-	RelatedUserID        *string // actor (who triggered the event)
+	ActorID              *string // who triggered the event
 	RelatedWallPostID    *string
 	RelatedWallCommentID *string
-	RelatedWallUserID    *string // wall owner
+	WallOwnerID          *string // wall owner (recipient context for wall events)
 }
 
 // notificationPayload is the data sent over WebSocket for a new notification
@@ -85,14 +77,14 @@ type notificationPayload struct {
 // rows except message, which may carry a user-content snippet.
 func (s *Service) CreateNotification(p CreateParams) (*models.Notification, error) {
 	return s.insertNotification(&models.Notification{
-		UserID:          p.UserID,
+		UserID:          p.RecipientID,
 		Type:            p.Type,
 		Title:           "",
 		Message:         p.Message,
 		Params:          MarshalNotificationParams(p.Params),
 		RelatedThreadID: p.RelatedThreadID,
 		RelatedPostID:   p.RelatedPostID,
-		RelatedUserID:   p.RelatedUserID,
+		RelatedUserID:   p.ActorID,
 	})
 }
 
@@ -101,15 +93,15 @@ func (s *Service) CreateNotification(p CreateParams) (*models.Notification, erro
 // with CreateNotification via insertNotification.
 func (s *Service) CreateWallNotification(p CreateParams) (*models.Notification, error) {
 	return s.insertNotification(&models.Notification{
-		UserID:               p.UserID,
+		UserID:               p.RecipientID,
 		Type:                 p.Type,
 		Title:                "",
 		Message:              p.Message,
 		Params:               MarshalNotificationParams(p.Params),
-		RelatedUserID:        p.RelatedUserID,
+		RelatedUserID:        p.ActorID,
 		RelatedWallPostID:    p.RelatedWallPostID,
 		RelatedWallCommentID: p.RelatedWallCommentID,
-		RelatedWallUserID:    p.RelatedWallUserID,
+		RelatedWallUserID:    p.WallOwnerID,
 	})
 }
 

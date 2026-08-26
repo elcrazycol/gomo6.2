@@ -83,18 +83,16 @@ func TestNotificationParamsJSON_Empty(t *testing.T) {
 	}
 }
 
-func TestSetPushService(t *testing.T) {
+func TestNew_WiresPushService(t *testing.T) {
+	// Push is wired via the constructor; nil (VAPID keys missing) disables push.
 	svc := New(nil, nil, nil, nil)
-
-	// Nil-safe wiring — routes calls it even when VAPID keys are missing.
-	svc.SetPushService(nil)
 	if svc.push != nil {
-		t.Fatal("expected push to be nil after SetPushService(nil)")
+		t.Fatal("expected push to be nil when not configured")
 	}
 
-	svc.SetPushService(&push.Service{})
+	svc = New(nil, nil, nil, &push.Service{})
 	if svc.push == nil {
-		t.Fatal("expected push to be set after SetPushService(&push.Service{})")
+		t.Fatal("expected push to be set from the constructor")
 	}
 }
 
@@ -220,7 +218,7 @@ func TestCreateNotification_Success(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := New(db, nil, nil, nil)
 	notif, err := svc.CreateNotification(CreateParams{
-		UserID:          "u1",
+		RecipientID:     "u1",
 		Type:            "like",
 		Params:          params,
 		RelatedThreadID: strPtr("thread1"),
@@ -246,9 +244,9 @@ func TestCreateNotification_Success(t *testing.T) {
 func TestCreateNotification_NilDB(t *testing.T) {
 	svc := New(nil, nil, nil, nil)
 	notif, err := svc.CreateNotification(CreateParams{
-		UserID:  "u1",
-		Type:    "like",
-		Message: "Msg",
+		RecipientID: "u1",
+		Type:        "like",
+		Message:     "Msg",
 	})
 	if err == nil {
 		t.Fatal("expected error for nil db, got nil")
@@ -268,10 +266,10 @@ func TestCreateNotification_DBError(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := New(db, nil, nil, nil)
 	notif, err := svc.CreateNotification(CreateParams{
-		UserID:  "u1",
-		Type:    "like",
-		Message: "Msg",
-		Params:  params,
+		RecipientID: "u1",
+		Type:        "like",
+		Message:     "Msg",
+		Params:      params,
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -303,12 +301,12 @@ func TestCreateWallNotification_MergesIntoGroup(t *testing.T) {
 	params := &models.NotificationParams{Actor: "actor1"}
 	svc := New(db, nil, nil, nil)
 	notif, err := svc.CreateWallNotification(CreateParams{
-		UserID:            "u1",
+		RecipientID:       "u1",
 		Type:              "wall_post_like",
 		Params:            params,
-		RelatedUserID:     strPtr("actor1"),
+		ActorID:           strPtr("actor1"),
 		RelatedWallPostID: strPtr("wp-new"),
-		RelatedWallUserID: strPtr("wu1"),
+		WallOwnerID:       strPtr("wu1"),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -357,12 +355,12 @@ func TestCreateWallNotification_GroupingErrorFallsBackToInsert(t *testing.T) {
 	params := &models.NotificationParams{Actor: "actor1"}
 	svc := New(db, nil, nil, nil)
 	notif, err := svc.CreateWallNotification(CreateParams{
-		UserID:            "u1",
+		RecipientID:       "u1",
 		Type:              "wall_post_like",
 		Params:            params,
-		RelatedUserID:     strPtr("actor1"),
+		ActorID:           strPtr("actor1"),
 		RelatedWallPostID: strPtr("wp1"),
-		RelatedWallUserID: strPtr("wu1"),
+		WallOwnerID:       strPtr("wu1"),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -403,9 +401,9 @@ func TestCreateNotification_InvalidatesCacheAndPublishes(t *testing.T) {
 	params := &models.NotificationParams{Actor: "alice"}
 	svc := New(db, client, hub, nil)
 	notif, err := svc.CreateNotification(CreateParams{
-		UserID: "u1",
-		Type:   "like",
-		Params: params,
+		RecipientID: "u1",
+		Type:        "like",
+		Params:      params,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

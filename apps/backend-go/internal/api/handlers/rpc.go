@@ -331,13 +331,13 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 			shortContent = shortContent[:100] + "..."
 		}
 		_, _ = h.notif.CreateNotification(notifications.CreateParams{
-			UserID:          threadAuthor,
+			RecipientID:     threadAuthor,
 			Type:            "reply",
 			Message:         shortContent,
 			Params:          params,
 			RelatedThreadID: &req.ThreadID,
 			RelatedPostID:   &post.ID,
-			RelatedUserID:   &claims.UserID,
+			ActorID:         &claims.UserID,
 		})
 	}
 

@@ -122,11 +122,11 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	if threadOwner != "" && threadOwner != userClaims.UserID && h.notif != nil {
 		params := &models.NotificationParams{Actor: userClaims.Username}
 		_, _ = h.notif.CreateNotification(notifications.CreateParams{
-			UserID:          threadOwner,
+			RecipientID:     threadOwner,
 			Type:            "like",
 			Params:          params,
 			RelatedThreadID: &threadID,
-			RelatedUserID:   &userClaims.UserID,
+			ActorID:         &userClaims.UserID,
 		})
 	}
 
@@ -276,12 +276,12 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 		params := &models.NotificationParams{Actor: userClaims.Username}
 		// Try to create notification (best-effort)
 		_, _ = h.notif.CreateNotification(notifications.CreateParams{
-			UserID:          postAuthor,
+			RecipientID:     postAuthor,
 			Type:            "like",
 			Params:          params,
 			RelatedThreadID: &threadID,
 			RelatedPostID:   &postID,
-			RelatedUserID:   &userClaims.UserID,
+			ActorID:         &userClaims.UserID,
 		})
 	}
 

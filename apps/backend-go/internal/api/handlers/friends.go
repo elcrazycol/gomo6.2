@@ -753,10 +753,10 @@ func (h *FriendsHandler) createFriendNotification(userID, notifType, actorUserna
 	}
 	params := &models.NotificationParams{Actor: actorUsername}
 	_, err := h.notif.CreateNotification(notifications.CreateParams{
-		UserID:        userID,
-		Type:          notifType,
-		Params:        params,
-		RelatedUserID: relatedUserID,
+		RecipientID: userID,
+		Type:        notifType,
+		Params:      params,
+		ActorID:     relatedUserID,
 	})
 	if err != nil {
 		log.Printf("[Friends] Failed to create notification: %v", err)
