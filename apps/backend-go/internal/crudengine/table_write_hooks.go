@@ -12,7 +12,11 @@ package crudengine
 // stats, dependent caches) and the delete semantics are all declared on the
 // table entry, so adding a table cannot leave a hidden branch in the engine.
 //
-// Hooks must be nil-safe: h.redis / h.hub / h.notif may be nil in tests and
+// The wall-table hooks (afterWallPostWrite, prepareWallPostBody,
+// upsertProfileWallPostLikes, …) are delegated to the wall domain service via
+// wall_bridge.go and are no longer implemented here.
+//
+// Hooks must be nil-safe: h.redis / h.hub / h.achEngine may be nil in tests and
 // in degraded deployments; every optional interaction is guarded.
 
 import (
@@ -24,12 +28,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
-	"github.com/gomo6/backend/internal/textutil"
 )
 
 // ─── PrepareBody hooks ──────────────────────────────────────────────────────
@@ -116,45 +118,12 @@ func stripChannelPermissionsBoardID(h *Engine, c *gin.Context, tableName, method
 	return true
 }
 
-// prepareWallPostBody fixes a wall post's authorship on PUT: the author is
-// always the caller, and the wall owner column must never be moved onto
-// another user's wall through a generic update (that would bypass the POST
-// privacy check allow_wall_posts_from_others).
-func prepareWallPostBody(h *Engine, c *gin.Context, tableName, method string, data map[string]interface{}) bool {
-	if method != "PUT" {
-		return true
-	}
-	userID := httpx.AuthenticatedUserID(c)
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-		return false
-	}
-	data["author_id"] = userID
-	if wall, ok := data["user_id"].(string); ok && wall != "" && wall != userID {
-		delete(data, "user_id")
-	}
-	return true
-}
-
-// prepareWallCommentBody fixes a comment's tree position on PUT: post_id and
-// parent_id are fixed at creation — re-pointing them would bypass the
-// POST-time privacy check (enforceWallTargetPrivacy) and could forge orphan
-// comments on a foreign wall or detach a reply subtree from the visible
-// branch.
-func prepareWallCommentBody(h *Engine, c *gin.Context, tableName, method string, data map[string]interface{}) bool {
-	if method != "PUT" {
-		return true
-	}
-	delete(data, "post_id")
-	delete(data, "parent_id")
-	return true
-}
-
 // ─── Upsert statement builders ──────────────────────────────────────────────
 //
 // Transferred from the upsertInsertQuery switch (crud.go). Each builder owns
 // the ON CONFLICT semantics of its table; ok=false lets the dispatcher fall
-// through to a plain INSERT.
+// through to a plain INSERT. The wall post-likes upsert builder lives in the
+// wall domain service (wall_bridge.go).
 
 // upsertUserDailyVisits is a plain UNIQUE(user_id, visit_date) upsert.
 func upsertUserDailyVisits(data map[string]interface{}) (query string, args []interface{}, ok bool) {
@@ -268,27 +237,13 @@ RETURNING *`
 	return q, []interface{}{uid, bid, acceptedAt}, true
 }
 
-// upsertProfileWallPostLikes inserts a like or turns the re-like into a
-// no-op UPDATE; (xmax = 0) AS inserted tells the caller whether this was a
-// genuinely new like (the only case that notifies the post author).
-func upsertProfileWallPostLikes(data map[string]interface{}) (query string, args []interface{}, ok bool) {
-	pid, hasPID := data["post_id"]
-	uid, hasUID := data["user_id"]
-	if !hasPID || !hasUID {
-		return "", nil, false
-	}
-	q := `INSERT INTO profile_wall_post_likes (post_id, user_id) VALUES ($1, $2)
-ON CONFLICT (post_id, user_id) DO UPDATE SET user_id = EXCLUDED.user_id
-RETURNING *, (xmax = 0) AS inserted`
-	return q, []interface{}{pid, uid}, true
-}
-
 // upsertProfileCustomization is a PARTIAL upsert: only the fields present in
 // the request body are updated. The frontend fires separate .upsert() calls
 // for the background, the theme toggle and the CSS editors — a naive
 // full-row upsert would NULL-out every omitted column on each toggle,
 // silently destroying the profile styling. All user-supplied CSS/background/
-// theme values are sanitized here, before they reach the DB.
+// theme values are sanitized here, before they reach the DB (the sanitizers
+// live in the profiles domain package).
 func upsertProfileCustomization(data map[string]interface{}) (query string, args []interface{}, ok bool) {
 	uid, hasUID := data["user_id"]
 	if !hasUID {
@@ -310,15 +265,15 @@ func upsertProfileCustomization(data map[string]interface{}) (query string, args
 	}
 	if v, ok := data["username_css"]; ok {
 		s, _ := v.(string)
-		add("username_css", sanitizeProfileCSS(s), "")
+		add("username_css", profiles.SanitizeProfileCSS(s), "")
 	}
 	if v, ok := data["profile_badge_text"]; ok {
 		s, _ := v.(string)
-		add("profile_badge_text", sanitizeProfileBadgeText(s), "")
+		add("profile_badge_text", profiles.SanitizeProfileBadgeText(s), "")
 	}
 	if v, ok := data["profile_badge_css"]; ok {
 		s, _ := v.(string)
-		add("profile_badge_css", sanitizeProfileCSS(s), "")
+		add("profile_badge_css", profiles.SanitizeProfileCSS(s), "")
 	}
 	if v, ok := data["background_url"]; ok {
 		s, _ := v.(string)
@@ -364,194 +319,19 @@ func upsertProfileCustomization(data map[string]interface{}) (query string, args
 
 // ─── AfterWrite hooks ───────────────────────────────────────────────────────
 
-// afterWallPostWrite carries every side effect of a wall-post write: the
-// wall-list / feed / cascade cache invalidations the generic invalidation
-// cannot express, the wall_post notification, the WebSocket broadcast and the
-// author's unified profile stats.
-func afterWallPostWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
-	ownerID := crud.WallResultString(result["user_id"])
-	switch method {
-	case "POST":
-		if ownerID != "" && h.redis != nil {
-			cache.InvalidateCacheForProfileWall(h.redis, ownerID)
-			// A new wall post is a candidate for the unified feed.
-			cache.InvalidateCacheForFeed(h.redis)
-		}
-		// Wall notification: someone else posted on this wall.
-		authorID := crud.WallResultString(result["author_id"])
-		if ownerID != "" && authorID != "" && ownerID != authorID {
-			postID := crud.WallResultString(result["id"])
-			msg := textutil.TruncateRunes(crud.WallResultString(result["content"]), 100)
-			h.createWallNotification(c, ownerID, authorID, "wall_post", msg, profiles.UsernameByID(h.db, authorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(ownerID))
-		}
-		if h.hub != nil {
-			h.publishWallPostEvent(c, "new", result)
-		}
-		// Unified profile stats: wall content contributes to the AUTHOR's
-		// counters (a post written on someone else's wall counts for the author).
-		if uid := rowUserID(result["author_id"]); uid != "" {
-			profiles.RecomputeUserProfileStats(h.db, uid)
-		}
-	case "PUT":
-		if ownerID != "" && h.redis != nil {
-			cache.InvalidateCacheForProfileWall(h.redis, ownerID)
-		}
-		if h.hub != nil {
-			h.publishWallPostEvent(c, "update", result)
-		}
-	case "DELETE":
-		if ownerID != "" && h.redis != nil {
-			cache.InvalidateCacheForProfileWall(h.redis, ownerID)
-		}
-		// Cascade: invalidate comments, likes and reposts of the deleted post.
-		if postID := crud.WallResultString(result["id"]); postID != "" && h.redis != nil {
-			cache.InvalidateForTable(h.redis, "profile_wall_post_comments", map[string]string{"post_id": postID})
-			cache.InvalidateForTable(h.redis, "profile_wall_post_likes", map[string]string{"post_id": postID})
-			cache.InvalidateForTable(h.redis, "profile_wall_post_reposts", map[string]string{"post_id": postID})
-		}
-		if h.hub != nil {
-			if err := h.hub.PublishDeleteWallPost(result); err != nil {
-				fmt.Printf("[WebSocket] Error publishing wall post delete event: %v\n", err)
-			} else {
-				fmt.Printf("[WebSocket] Published wall post delete event for post %s\n", result["id"])
-			}
-		}
-		if uid := rowUserID(result["author_id"]); uid != "" {
-			profiles.RecomputeUserProfileStats(h.db, uid)
-		}
-	}
-}
-
-// publishWallPostEvent enriches the written row with author data and
-// broadcasts the new/update event to the wall rooms.
-func (h *Engine) publishWallPostEvent(c *gin.Context, op string, result map[string]interface{}) {
-	var wsPayload map[string]interface{}
-	if idStr := fmt.Sprint(result["id"]); idStr != "" {
-		if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr, httpx.AuthenticatedUserID(c)); enrichErr == nil && enriched != nil {
-			wsPayload = enriched
-		} else {
-			wsPayload = result
-		}
-	} else {
-		wsPayload = result
-	}
-	var err error
-	if op == "new" {
-		err = h.hub.PublishNewWallPost(wsPayload)
-	} else {
-		err = h.hub.PublishUpdateWallPost(wsPayload)
-	}
-	if err != nil {
-		fmt.Printf("[WebSocket] Error publishing wall post %s event: %v\n", op, err)
-	} else {
-		fmt.Printf("[WebSocket] Published wall post %s event for post %s\n", op, result["id"])
-	}
-}
-
-// afterWallCommentWrite carries the comment-write side effects: the post's
-// comments list + wall-list cache invalidation, the comment/reply
-// notifications and the comment author's unified profile stats.
-func afterWallCommentWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
-	postID, _ := result["post_id"].(string)
-	if method == "POST" {
-		if postID != "" && h.redis != nil {
-			commentID, _ := result["id"].(string)
-			cache.InvalidateCacheForWallComment(h.redis, commentID, postID)
-			h.invalidateWallListCache(c, postID)
-		}
-		// Wall notifications: comment → post author; reply → parent comment author.
-		h.notifyWallComment(c, result)
-		if uid := rowUserID(result["user_id"]); uid != "" {
-			profiles.RecomputeUserProfileStats(h.db, uid)
-		}
-		return
-	}
-	// PUT / DELETE: the comments list of the touched post changed.
-	if postID != "" && h.redis != nil {
-		commentID, _ := result["id"].(string)
-		cache.InvalidateCacheForWallComment(h.redis, commentID, postID)
-		h.invalidateWallListCache(c, postID)
-	}
-}
-
-// afterWallRepostWrite invalidates the original post and the reposter's wall
-// list, and notifies the original post's author.
-func afterWallRepostWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
-	switch method {
-	case "POST":
-		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-			cache.InvalidateCacheForWallPost(h.redis, postID)
-			h.invalidateWallListCache(c, postID)
-		}
-		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
-			cache.InvalidateCacheForProfileWall(h.redis, userID)
-		}
-		// Wall notification: the original post's author gets a repost notice.
-		h.notifyWallRepost(c, result)
-	case "DELETE":
-		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-			cache.InvalidateCacheForWallPost(h.redis, postID)
-			h.invalidateWallListCache(c, postID)
-		}
-		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
-			cache.InvalidateCacheForProfileWall(h.redis, userID)
-		}
-	}
-}
-
-// afterWallCommentLikeWrite clears the caches embedding comment like counts
-// and refreshes the unified stats of the comment author and the liker.
-func afterWallCommentLikeWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
-	commentID, ok := result["comment_id"].(string)
-	if !ok {
-		return
-	}
-	if method != "PUT" {
-		h.invalidateCommentLikesCache(c, commentID)
-	}
-	if method == "DELETE" || method == "POST" {
-		h.recomputeStatsForWallCommentLike(c, commentID, rowUserID(result["user_id"]))
-	}
-}
-
-// afterWallPostLikeWrite refreshes the unified stats of the post author and
-// the liker; on a genuinely NEW like (xmax = 0) it also notifies the author.
-// DELETE additionally clears the like-list caches (the registry invalidation
-// hook covers the standalone post page, list patterns and the feed).
-func afterWallPostLikeWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
-	postID, ok := result["post_id"].(string)
-	if !ok {
-		return
-	}
-	likerID := rowUserID(result["user_id"])
-	switch method {
-	case "POST":
-		h.recomputeStatsForWallPostLike(c, postID, likerID)
-		if inserted, _ := result["inserted"].(bool); inserted {
-			h.notifyWallPostLike(c, postID, crud.WallResultString(result["user_id"]))
-		}
-	case "DELETE":
-		if h.redis != nil {
-			cache.InvalidateCacheForWallPost(h.redis, postID)
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
-			cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
-			h.invalidateWallListCache(c, postID)
-		}
-		h.recomputeStatsForWallPostLike(c, postID, likerID)
-	}
-}
-
 // afterUserSessionTimeWrite keeps the unified profile stats in sync when
 // session minutes accumulate via upsert or are corrected via PUT.
 func afterUserSessionTimeWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
-	if uid := rowUserID(result["user_id"]); uid != "" {
+	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
 		profiles.RecomputeUserProfileStats(h.db, uid)
 	}
 }
 
 // afterPrivacySettingsWrite tears down live WebSocket subscriptions when a
 // privacy_settings write restricts previously-public content (see
-// revokeSubscriptionsAfterPrivacyChange).
+// revokeSubscriptionsAfterPrivacyChange — the wall/now-playing room teardown
+// belongs to the generic write surface, which is why it stays here while the
+// wall write domain lives in the wall service).
 func afterPrivacySettingsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
 	h.revokeSubscriptionsAfterPrivacyChange("privacy_settings", result)
 }

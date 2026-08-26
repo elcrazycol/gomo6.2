@@ -12,9 +12,12 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/wall"
 )
 
-// setupEngine creates a Engine with a mock DB (hub=nil, redis=nil).
+// setupEngine creates a Engine with a mock DB (hub=nil, redis=nil) and the
+// wall domain service wired (wall.New(db, nil, nil, nil)), so the registry
+// hooks and the wall-table endpoints keep their full delegation path.
 func setupEngine(t *testing.T) (*Engine, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -31,6 +34,7 @@ func setupEngine(t *testing.T) (*Engine, sqlmock.Sqlmock) {
 	})
 
 	handler := New(db, nil) // hub=nil skips websocket events
+	handler.SetWall(wall.New(db, nil, nil, nil))
 	return handler, mock
 }
 

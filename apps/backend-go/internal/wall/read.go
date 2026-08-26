@@ -1,18 +1,16 @@
-package crudengine
+package wall
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gomo6/backend/internal/httpx"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/privacy"
 )
@@ -48,8 +46,7 @@ const profileWallCommentAuthorJSON = `CASE WHEN c.is_deleted THEN '{}'::json ELS
 
 // wallPostCountsSQL returns the correlated-subquery columns that embed the
 // interaction state of every wall post. The {viewer} placeholder is replaced
-// with the authenticated viewer's parameter reference by
-// profileWallFinishSelectQuery.
+// with the authenticated viewer's parameter reference by runSelectQuery.
 //
 // Embedding counts here removed the biggest request amplifier in the wall UI:
 // the client used to fire 5 requests per post (likes count, comments count,
@@ -71,7 +68,7 @@ const wallCommentCountsSQL = `
 
 // wallPostListBaseQuery — SELECT skeleton shared by the legacy single-query
 // path and the keyset pages. The {viewer} placeholder is substituted by
-// runWallSelectQuery.
+// runSelectQuery.
 const wallPostListBaseQuery = `
 SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
@@ -82,7 +79,7 @@ LEFT JOIN users u ON u.id = p.author_id
 LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 `
 
-// handleProfileWallPostsGet — GET /profile_wall_posts with nested author (users join)
+// HandlePostsGet — GET /profile_wall_posts with nested author (users join)
 // and per-post interaction counts (likes/comments/reposts + viewer state).
 //
 // The plain wall list (a user_id filter, nothing else) is served with keyset
@@ -90,17 +87,17 @@ LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 // later pages = unpinned posts after an opaque (created_at, id) cursor. Every
 // other filter shape (id=eq, is_pinned=eq, or, offset) keeps the legacy
 // single-query path so focused-post, moderation and stats reads are unchanged.
-func (h *Engine) handleProfileWallPostsGet(c *gin.Context) {
-	if wallKeysetEligible(c) {
-		h.handleProfileWallPostsGetKeyset(c)
+func (s *Service) HandlePostsGet(c *gin.Context) {
+	if keysetEligible(c) {
+		s.handlePostsGetKeyset(c)
 		return
 	}
-	h.profileWallFinishSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps")
+	s.finishSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps")
 }
 
-// wallKeysetEligible reports whether a request is the plain wall list: a
+// keysetEligible reports whether a request is the plain wall list: a
 // user_id filter with no id/is_pinned/or/offset overrides.
-func wallKeysetEligible(c *gin.Context) bool {
+func keysetEligible(c *gin.Context) bool {
 	if c.Query("user_id") == "" {
 		return false
 	}
@@ -136,13 +133,13 @@ func parseWallCursor(raw string) (wallCursor, bool) {
 	return wallCursor{createdAt: ct, id: parts[1]}, true
 }
 
-// handleProfileWallPostsGetKeyset serves the paginated wall list:
+// handlePostsGetKeyset serves the paginated wall list:
 //   - no cursor → all pinned posts + the first `limit` unpinned posts;
 //   - cursor     → the next `limit` unpinned posts after the cursor.
 //
 // Each query probes `limit + 1` rows so has_more is exact. The response
 // carries has_more + next_cursor; pinned posts only appear on the first page.
-func (h *Engine) handleProfileWallPostsGetKeyset(c *gin.Context) {
+func (s *Service) handlePostsGetKeyset(c *gin.Context) {
 	limit := 10
 	if l := c.Query("limit"); l != "" {
 		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
@@ -159,7 +156,7 @@ func (h *Engine) handleProfileWallPostsGetKeyset(c *gin.Context) {
 		// First page: every pinned post (bounded — pins are few by design) on
 		// top, then the newest unpinned batch.
 		var err error
-		pinnedRows, err = h.runWallSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps", wallSelectOptions{
+		pinnedRows, err = s.runSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps", selectOptions{
 			extraWhere: "p.is_pinned = true",
 			orderBy:    `"p"."pinned_order" ASC, "p"."created_at" DESC, "p"."id" DESC`,
 			limit:      100,
@@ -169,7 +166,7 @@ func (h *Engine) handleProfileWallPostsGetKeyset(c *gin.Context) {
 			return
 		}
 
-		unpinnedRows, err = h.runWallSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps", wallSelectOptions{
+		unpinnedRows, err = s.runSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps", selectOptions{
 			extraWhere: "p.is_pinned = false",
 			orderBy:    unpinnedOrder,
 			limit:      limit + 1,
@@ -185,7 +182,7 @@ func (h *Engine) handleProfileWallPostsGetKeyset(c *gin.Context) {
 			return
 		}
 		var err error
-		unpinnedRows, err = h.runWallSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps", wallSelectOptions{
+		unpinnedRows, err = s.runSelectQuery(c, wallPostListBaseQuery, "p", 1, "p.user_id", "ps", selectOptions{
 			extraWhere: "p.is_pinned = false",
 			cursor:     &cur,
 			orderBy:    unpinnedOrder,
@@ -212,8 +209,8 @@ func (h *Engine) handleProfileWallPostsGetKeyset(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// handleProfileWallPostCommentsGet — GET comments with author.
-func (h *Engine) handleProfileWallPostCommentsGet(c *gin.Context) {
+// HandlePostCommentsGet — GET comments with author.
+func (s *Service) HandlePostCommentsGet(c *gin.Context) {
 	// L5: the join to the parent post must be INNER, not LEFT. The privacy
 	// predicate below compares wp.user_id (the wall owner) against the viewer;
 	// with a LEFT JOIN a comment whose post has been deleted leaves wp.user_id
@@ -235,11 +232,11 @@ LEFT JOIN users u ON u.id = c.user_id
 INNER JOIN profile_wall_posts wp ON wp.id = c.post_id
 LEFT JOIN privacy_settings ps ON ps.user_id = wp.user_id
 `
-	h.profileWallFinishSelectQuery(c, query, "c", 1, "wp.user_id", "ps")
+	s.finishSelectQuery(c, query, "c", 1, "wp.user_id", "ps")
 }
 
-// wallSelectOptions tweaks runWallSelectQuery for the paginated wall list.
-type wallSelectOptions struct {
+// selectOptions tweaks runSelectQuery for the paginated wall list.
+type selectOptions struct {
 	// extraWhere is AND-ed into the WHERE clause with literal values (no
 	// placeholders) — e.g. "p.is_pinned = true".
 	extraWhere string
@@ -251,12 +248,12 @@ type wallSelectOptions struct {
 	cursor *wallCursor
 }
 
-// runWallSelectQuery builds and runs the wall/comment SELECT — filters, or
+// runSelectQuery builds and runs the wall/comment SELECT — filters, or
 // conditions, the visibility predicate, viewer substitution, order and
 // limit/offset — and returns the decoded rows. The caller decides how to
 // respond (the legacy path wraps it in SuccessResponse, the keyset path adds
 // has_more/next_cursor).
-func (h *Engine) runWallSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int, ownerColumn, privacyAlias string, opts wallSelectOptions) ([]map[string]interface{}, error) {
+func (s *Service) runSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int, ownerColumn, privacyAlias string, opts selectOptions) ([]map[string]interface{}, error) {
 	// Guests are allowed to read walls: they get the same predicate with an
 	// empty viewer ID, which matches no ownership/friendship rows and therefore
 	// only exposes walls of public profiles that have not hidden their wall
@@ -380,7 +377,7 @@ func (h *Engine) runWallSelectQuery(c *gin.Context, baseQuery, tableAlias string
 		}
 	}
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +398,11 @@ func (h *Engine) runWallSelectQuery(c *gin.Context, baseQuery, tableAlias string
 		for i, col := range columns {
 			val := values[i]
 			if col == "author" {
-				row[col] = decodeJSONColumn(val)
+				row[col] = crud.DecodeJSONBMap(val)
 				continue
 			}
 			if col == "content_json" || col == "attachments" {
-				row[col] = decodeMaybeJSONB(val)
+				row[col] = crud.DecodeJSONB(val)
 				continue
 			}
 			if b, ok := val.([]byte); ok {
@@ -419,10 +416,10 @@ func (h *Engine) runWallSelectQuery(c *gin.Context, baseQuery, tableAlias string
 	return results, nil
 }
 
-// profileWallFinishSelectQuery builds and runs the query, then responds. Used
+// finishSelectQuery builds and runs the query, then responds. Used
 // by the comments handler and the legacy single-query wall path.
-func (h *Engine) profileWallFinishSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int, ownerColumn, privacyAlias string) {
-	results, err := h.runWallSelectQuery(c, baseQuery, tableAlias, argIndex, ownerColumn, privacyAlias, wallSelectOptions{})
+func (s *Service) finishSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int, ownerColumn, privacyAlias string) {
+	results, err := s.runSelectQuery(c, baseQuery, tableAlias, argIndex, ownerColumn, privacyAlias, selectOptions{})
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		return
@@ -430,29 +427,7 @@ func (h *Engine) profileWallFinishSelectQuery(c *gin.Context, baseQuery, tableAl
 	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
 
-func decodeMaybeJSONB(val interface{}) interface{} {
-	if val == nil {
-		return nil
-	}
-	switch v := val.(type) {
-	case []byte:
-		var out interface{}
-		if json.Unmarshal(v, &out) == nil {
-			return out
-		}
-		return string(v)
-	case string:
-		var out interface{}
-		if json.Unmarshal([]byte(v), &out) == nil {
-			return out
-		}
-		return v
-	default:
-		return val
-	}
-}
-
-func (h *Engine) fetchProfileWallPostWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
+func (s *Service) fetchPostWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
 	q := `
 SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
@@ -461,14 +436,14 @@ SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image
 FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
 WHERE p.id = $1`
-	query := strings.ReplaceAll(q, "{viewer}", wallViewerArg(viewerID, 2))
+	query := strings.ReplaceAll(q, "{viewer}", viewerArg(viewerID, 2))
 	if viewerID == "" {
-		return h.fetchOneProfileWallRow(query, id)
+		return s.fetchOneRow(query, id)
 	}
-	return h.fetchOneProfileWallRow(query, id, viewerID)
+	return s.fetchOneRow(query, id, viewerID)
 }
 
-func (h *Engine) fetchProfileWallCommentWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
+func (s *Service) fetchCommentWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
 	q := `
 SELECT c.id, c.post_id,
        CASE WHEN c.is_deleted THEN NULL ELSE c.user_id END AS user_id,
@@ -479,15 +454,15 @@ SELECT c.id, c.post_id,
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
 WHERE c.id = $1`
-	query := strings.ReplaceAll(q, "{viewer}", wallViewerArg(viewerID, 2))
+	query := strings.ReplaceAll(q, "{viewer}", viewerArg(viewerID, 2))
 	if viewerID == "" {
-		return h.fetchOneProfileWallRow(query, id)
+		return s.fetchOneRow(query, id)
 	}
-	return h.fetchOneProfileWallRow(query, id, viewerID)
+	return s.fetchOneRow(query, id, viewerID)
 }
 
-func (h *Engine) fetchOneProfileWallRow(q string, args ...interface{}) (map[string]interface{}, error) {
-	rows, err := h.db.Query(q, args...)
+func (s *Service) fetchOneRow(q string, args ...interface{}) (map[string]interface{}, error) {
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -508,11 +483,11 @@ func (h *Engine) fetchOneProfileWallRow(q string, args ...interface{}) (map[stri
 	for i, col := range columns {
 		val := values[i]
 		if col == "author" {
-			row[col] = decodeJSONColumn(val)
+			row[col] = crud.DecodeJSONBMap(val)
 			continue
 		}
 		if col == "content_json" || col == "attachments" {
-			row[col] = decodeMaybeJSONB(val)
+			row[col] = crud.DecodeJSONB(val)
 			continue
 		}
 		if b, ok := val.([]byte); ok {
@@ -524,20 +499,20 @@ func (h *Engine) fetchOneProfileWallRow(q string, args ...interface{}) (map[stri
 	return row, nil
 }
 
-// wallViewerArg returns the SQL expression referencing the viewer parameter for
+// viewerArg returns the SQL expression referencing the viewer parameter for
 // the {viewer} placeholder in the count subqueries. Guests (empty viewerID) get
 // SQL NULL — an empty string would fail the uuid cast in the subqueries (500),
 // while NULL correctly means "no viewer" (liked_by_viewer false, my_repost
 // NULL).
-func wallViewerArg(viewerID string, argIndex int) string {
+func viewerArg(viewerID string, argIndex int) string {
 	if viewerID == "" {
 		return "NULL"
 	}
 	return "$" + strconv.Itoa(argIndex)
 }
 
-// tryRespondProfileWallEnriched replaces POST/PUT response with author embed when applicable.
-func (h *Engine) tryRespondProfileWallEnriched(c *gin.Context, tableName string, result map[string]interface{}) bool {
+// TryRespondEnriched replaces POST/PUT response with author embed when applicable.
+func (s *Service) TryRespondEnriched(c *gin.Context, tableName string, result map[string]interface{}) bool {
 	if tableName != "profile_wall_posts" && tableName != "profile_wall_post_comments" {
 		return false
 	}
@@ -550,9 +525,9 @@ func (h *Engine) tryRespondProfileWallEnriched(c *gin.Context, tableName string,
 	var row map[string]interface{}
 	var err error
 	if tableName == "profile_wall_posts" {
-		row, err = h.fetchProfileWallPostWithAuthor(idStr, viewerID)
+		row, err = s.fetchPostWithAuthor(idStr, viewerID)
 	} else {
-		row, err = h.fetchProfileWallCommentWithAuthor(idStr, viewerID)
+		row, err = s.fetchCommentWithAuthor(idStr, viewerID)
 	}
 	if err != nil || row == nil {
 		c.JSON(http.StatusOK, models.SuccessResponse(result))

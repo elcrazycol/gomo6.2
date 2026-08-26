@@ -7,6 +7,7 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/gomo6/backend/internal/profiles"
 )
 
 // ─── Table Write Hooks ──────────────────────────────────────────────────────
@@ -23,6 +24,11 @@ import (
 // Hooks live in this file so the registry stays declarative while the logic
 // is only reachable through a registry entry. Hooks must be safe to call with
 // nil h.redis / nil h.achEngine: the dispatchers guard those before invoking.
+//
+// The profile-wall hooks (invalidation, achievement events, AfterWrite,
+// PrepareBody, the wall read overrides) are no longer implemented here — they
+// forward to the injected wall domain service via the delegation bridge
+// (wall_bridge.go).
 
 // ─── Cache invalidation hooks ───────────────────────────────────────────────
 
@@ -53,49 +59,27 @@ func invalidateCustomEmojisCache(h *Engine, _ *gin.Context, result map[string]in
 	invalidateMyEmojiLists(h)
 }
 
-// invalidateProfileWallPostsCache clears the standalone wall-post page.
-func invalidateProfileWallPostsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
-	id := crud.WallResultString(result["id"])
-	userID := crud.WallResultString(result["user_id"])
-	fmt.Printf("[CacheInvalidator] Invalidating wall post cache: id=%s, user_id=%s\n", id, userID)
-	cache.InvalidateCacheForWallPostOfUser(h.redis, id, userID)
-}
-
-// invalidateProfileWallPostCommentsCache clears the post's comments list.
-func invalidateProfileWallPostCommentsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
-	id := crud.WallResultString(result["id"])
-	postID := crud.WallResultString(result["post_id"])
-	fmt.Printf("[CacheInvalidator] Invalidating wall comment cache: id=%s, post_id=%s\n", id, postID)
-	cache.InvalidateCacheForWallComment(h.redis, id, postID)
-}
-
 // invalidateChannelsCache clears the board's channels list.
 func invalidateChannelsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
-	id := crud.WallResultString(result["id"])
 	boardID := crud.WallResultString(result["board_id"])
-	fmt.Printf("[CacheInvalidator] Invalidating channels cache: id=%s, board_id=%s\n", id, boardID)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channels*board_id=eq.%s*", boardID))
 }
 
 // invalidateGomosubRolesCache clears the board's roles list.
 func invalidateGomosubRolesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
-	id := crud.WallResultString(result["id"])
 	boardID := crud.WallResultString(result["board_id"])
-	fmt.Printf("[CacheInvalidator] Invalidating gomosub_roles cache: id=%s, board_id=%s\n", id, boardID)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_roles*board_id=eq.%s*", boardID))
 }
 
 // invalidateChannelPermissionsCache clears the channel's permission list.
 func invalidateChannelPermissionsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	channelID := crud.WallResultString(result["channel_id"])
-	fmt.Printf("[CacheInvalidator] Invalidating channel_permissions cache: channel_id=%s\n", channelID)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_permissions*channel_id=eq.%s*", channelID))
 }
 
 // invalidateGomosubMembershipsCache clears the board's memberships list.
 func invalidateGomosubMembershipsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	boardID := crud.WallResultString(result["board_id"])
-	fmt.Printf("[CacheInvalidator] Invalidating gomosub_memberships cache: board_id=%s\n", boardID)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", boardID))
 }
 
@@ -106,7 +90,6 @@ func invalidateProfileCustomizationCache(h *Engine, _ *gin.Context, result map[s
 	if userID == "" {
 		return
 	}
-	fmt.Printf("[CacheInvalidator] Invalidating profile_customization cache: user_id=%s\n", userID)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=eq.%s*", userID))
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=%s*", userID))
 	// Also invalidate profile hover card cache (contains customization)
@@ -121,7 +104,6 @@ func invalidatePrivacySettingsCache(h *Engine, _ *gin.Context, result map[string
 	if userID == "" {
 		return
 	}
-	fmt.Printf("[CacheInvalidator] Invalidating privacy_settings + profile cache: user_id=%s\n", userID)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/privacy_settings*user_id=eq.%s*", userID))
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
@@ -138,25 +120,10 @@ func invalidatePrivacySettingsCache(h *Engine, _ *gin.Context, result map[string
 func invalidateUserEmojiSubscriptionsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	userID := crud.WallResultString(result["user_id"])
 	if userID != "" {
-		fmt.Printf("[CacheInvalidator] Invalidating user_emoji_subscriptions cache: user_id=%s\n", userID)
 		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_emoji_subscriptions*user_id=eq.%s*", userID))
 	}
 	cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
 	invalidateMyEmojiLists(h)
-}
-
-// invalidateProfileWallPostLikesCache clears the liked post's standalone page,
-// the like list and the unified feed (likes affect feed popularity scores).
-// Lives on the upsert path: profile_wall_post_likes writes are all upserts.
-func invalidateProfileWallPostLikesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
-	postID := crud.WallResultString(result["post_id"])
-	if postID == "" {
-		return
-	}
-	cache.InvalidateCacheForWallPost(h.redis, postID)
-	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
-	cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
-	cache.InvalidateCacheForFeed(h.redis)
 }
 
 // invalidateGomosubRulesAcceptanceCache clears the rules-acceptance keys so a
@@ -185,79 +152,32 @@ func invalidateUserTermsAcceptanceCache(h *Engine, _ *gin.Context, result map[st
 // posts + wall comments, likes = all four like tables. Threads/posts/boards
 // are NOT reachable through the generic CRUD surface (they have dedicated
 // handlers that emit through their RPC paths), so they carry no hooks here.
-
-func emitProfileWallPostsAchievements(h *Engine, result map[string]interface{}) {
-	e := h.achEngine
-	if uid := rowUserID(result["author_id"]); uid != "" {
-		achievements.EmitAchievement(e, uid, achievements.EventEntryCreated)
-		if wallPostHasImage(result) {
-			achievements.EmitAchievement(e, uid, achievements.EventImageUploaded)
-		}
-	}
-}
-
-func emitProfileWallPostCommentsAchievements(h *Engine, result map[string]interface{}) {
-	e := h.achEngine
-	if uid := rowUserID(result["user_id"]); uid != "" {
-		achievements.EmitAchievement(e, uid, achievements.EventCommentCreated)
-	}
-}
-
-func emitProfileWallPostLikesAchievements(h *Engine, result map[string]interface{}) {
-	e := h.achEngine
-	if liker := rowUserID(result["user_id"]); liker != "" {
-		achievements.EmitAchievement(e, liker, achievements.EventLikeGiven)
-	}
-	if postID := crud.WallResultString(result["post_id"]); postID != "" {
-		var authorID string
-		_ = h.db.QueryRow("SELECT author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&authorID)
-		achievements.EmitAchievement(e, authorID, achievements.EventLikeReceived)
-	}
-}
-
-func emitProfileWallCommentLikesAchievements(h *Engine, result map[string]interface{}) {
-	e := h.achEngine
-	if liker := rowUserID(result["user_id"]); liker != "" {
-		achievements.EmitAchievement(e, liker, achievements.EventLikeGiven)
-	}
-	if commentID := crud.WallResultString(result["comment_id"]); commentID != "" {
-		var authorID string
-		_ = h.db.QueryRow("SELECT user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&authorID)
-		achievements.EmitAchievement(e, authorID, achievements.EventLikeReceived)
-	}
-}
-
-func emitProfileWallPostRepostsAchievements(h *Engine, result map[string]interface{}) {
-	e := h.achEngine
-	if uid := rowUserID(result["user_id"]); uid != "" {
-		achievements.EmitAchievement(e, uid, achievements.EventRepostCreated)
-	}
-}
+// The wall-table emitters live in the wall domain service (wall_bridge.go).
 
 func emitUserDailyVisitsAchievements(h *Engine, result map[string]interface{}) {
 	e := h.achEngine
-	if uid := rowUserID(result["user_id"]); uid != "" {
+	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
 		achievements.EmitAchievement(e, uid, achievements.EventDailyVisit)
 	}
 }
 
 func emitGomosubMembershipsAchievements(h *Engine, result map[string]interface{}) {
 	e := h.achEngine
-	if uid := rowUserID(result["user_id"]); uid != "" {
+	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
 		achievements.EmitAchievement(e, uid, achievements.EventSubJoined)
 	}
 }
 
 func emitGomosubRulesAcceptanceAchievements(h *Engine, result map[string]interface{}) {
 	e := h.achEngine
-	if uid := rowUserID(result["user_id"]); uid != "" {
+	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
 		achievements.EmitAchievement(e, uid, achievements.EventSubRulesAccepted)
 	}
 }
 
 func emitProfileCustomizationAchievements(h *Engine, result map[string]interface{}) {
 	e := h.achEngine
-	if uid := rowUserID(result["user_id"]); uid != "" {
+	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
 		achievements.EmitAchievement(e, uid, achievements.EventProfileStyled)
 	}
 }

@@ -12,25 +12,28 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/wall"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
-	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-// Engine handles generic CRUD operations for any table
+// Engine handles generic CRUD operations for any table. It is pure table
+// plumbing: the registry (table_registry.go) declares every per-table fact,
+// and domain behavior that does not belong in the generic layer (the
+// profile-wall subsystem) lives in injected domain services — see wall.
 type Engine struct {
 	db        *sql.DB
 	hub       *websocket.Hub
 	redis     *redis.Client
 	achEngine *achievements.Engine
-	notif     *notifications.Service
+	wall      *wall.Service
 
 	// achievementRecomputeAt debounces per-user achievement reconciliation
 	// (M-02/M-03): reconciling on EVERY page open would run 20+ source-count
@@ -59,10 +62,13 @@ func (h *Engine) SetAchievementEngine(e *achievements.Engine) {
 	h.achEngine = e
 }
 
-// SetNotifier wires the notification service for wall notifications. Nil-safe:
-// without it, wall writes skip notification delivery entirely.
-func (h *Engine) SetNotifier(n *notifications.Service) {
-	h.notif = n
+// SetWall wires the profile-wall domain service. Every wall-facing registry
+// hook (reads, write side effects, cache invalidation, achievement events,
+// privacy gates) delegates to it. Nil-safe: a nil wall service disables the
+// wall-specific paths (degraded deployments/tests), but the generic CRUD
+// surface keeps working.
+func (h *Engine) SetWall(s *wall.Service) {
+	h.wall = s
 }
 
 // ─── Main Router ────────────────────────────────────────────────────────────
