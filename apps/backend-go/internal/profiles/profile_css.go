@@ -1,11 +1,9 @@
-package crudengine
+package profiles
 
 import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/gomo6/backend/internal/profiles"
 )
 
 // L6: username_css / profile_badge_css are user-controlled CSS that is rendered
@@ -86,9 +84,9 @@ var allowedProfileCSSProps = map[string]bool{
 
 var cssCommentRE = regexp.MustCompile(`(?s)/\*.*?\*/`)
 
-// sanitizeProfileCSS filters user-supplied CSS down to the allow-list.
+// SanitizeProfileCSS filters user-supplied CSS down to the allow-list.
 // The result is idempotent: sanitizing already-clean CSS returns it unchanged.
-func sanitizeProfileCSS(css string) string {
+func SanitizeProfileCSS(css string) string {
 	if css == "" {
 		return ""
 	}
@@ -216,11 +214,11 @@ func isCSSHexDigit(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
-// sanitizeProfileBadgeText caps the badge text and strips control characters.
+// SanitizeProfileBadgeText caps the badge text and strips control characters.
 // The text is always rendered through React's text escaping, so this is
 // defense-in-depth; the cap keeps the badge small no matter what a client
 // sends.
-func sanitizeProfileBadgeText(s string) string {
+func SanitizeProfileBadgeText(s string) string {
 	runes := []rune(s)
 	if len(runes) > maxProfileBadgeTextLen {
 		runes = runes[:maxProfileBadgeTextLen]
@@ -252,26 +250,26 @@ func isBidiControlRune(r rune) bool {
 	return false
 }
 
-// sanitizeProfileCustomizationRow sanitizes the user-supplied fields of a
+// SanitizeProfileCustomizationRow sanitizes the user-supplied fields of a
 // profile_customization row in place. Applied on the read path so rows that
 // predate server-side sanitization are neutralized for every viewer.
-func sanitizeProfileCustomizationRow(row map[string]interface{}) {
+func SanitizeProfileCustomizationRow(row map[string]interface{}) {
 	if s, ok := row["username_css"].(string); ok {
-		row["username_css"] = sanitizeProfileCSS(s)
+		row["username_css"] = SanitizeProfileCSS(s)
 	}
 	if s, ok := row["profile_badge_css"].(string); ok {
-		row["profile_badge_css"] = sanitizeProfileCSS(s)
+		row["profile_badge_css"] = SanitizeProfileCSS(s)
 	}
 	if s, ok := row["profile_badge_text"].(string); ok {
-		row["profile_badge_text"] = sanitizeProfileBadgeText(s)
+		row["profile_badge_text"] = SanitizeProfileBadgeText(s)
 	}
 	if s, ok := row["background_url"].(string); ok {
-		row["background_url"] = profiles.SanitizeProfileBackgroundURL(s)
+		row["background_url"] = SanitizeProfileBackgroundURL(s)
 	}
 	if s, ok := row["background_variant"].(string); ok {
-		row["background_variant"] = profiles.SanitizeProfileBackgroundVariant(s)
+		row["background_variant"] = SanitizeProfileBackgroundVariant(s)
 	}
 	if v, ok := row["theme_tokens"]; ok {
-		row["theme_tokens"] = profiles.SanitizeProfileThemeTokens(v)
+		row["theme_tokens"] = SanitizeProfileThemeTokens(v)
 	}
 }

@@ -2,6 +2,7 @@ package crudengine
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/profiles"
 )
 
 // ─── Table Registry ─────────────────────────────────────────────────────────
@@ -196,7 +197,7 @@ type UpsertStmtBuilder func(data map[string]interface{}) (query string, args []i
 // notifications, WebSocket broadcasts, unified profile stats and
 // dependent-cache invalidations the generic invalidation cannot express.
 // Runs on POST/PUT/DELETE with the method and the written row. Like the cache
-// hooks it must be nil-safe: h.redis / h.hub / h.notif may be nil in tests
+// hooks it must be nil-safe: h.redis / h.hub / h.achEngine may be nil in tests
 // and degraded deployments, and every optional interaction must be skipped.
 type WriteHook func(h *Engine, c *gin.Context, method string, result map[string]interface{})
 
@@ -389,8 +390,9 @@ var genericTables = []TableMeta{
 		// intentionally stays OwnNone — there are no PUT/DELETE routes and a
 		// generic scoped PUT must keep behaving exactly as today (unscoped).
 		// Read-time sanitization of rows written before the write-path
-		// sanitizer existed (defense-in-depth, L6).
-		SanitizeReadRow:  sanitizeProfileCustomizationRow,
+		// sanitizer existed (defense-in-depth, L6). The sanitizers live in the
+		// profiles domain package.
+		SanitizeReadRow:  profiles.SanitizeProfileCustomizationRow,
 		UserScopedRead:   true,
 		PostOwner:        OwnSingle,
 		Upsert:           true,

@@ -2,7 +2,6 @@ package crudengine
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -176,7 +175,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 		for i, col := range columns {
 			val := values[i]
 			if col == "achievements" {
-				row[col] = decodeJSONColumn(val)
+				row[col] = crud.DecodeJSONBMap(val)
 				continue
 			}
 			if b, ok := val.([]byte); ok {
@@ -188,26 +187,6 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 		results = append(results, row)
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(results))
-}
-
-func decodeJSONColumn(val interface{}) map[string]interface{} {
-	var raw []byte
-	switch v := val.(type) {
-	case []byte:
-		raw = v
-	case string:
-		raw = []byte(v)
-	default:
-		return map[string]interface{}{}
-	}
-	if len(raw) == 0 {
-		return map[string]interface{}{}
-	}
-	var m map[string]interface{}
-	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
-		return map[string]interface{}{}
-	}
-	return m
 }
 
 // achievementRecomputeWindow is the minimum gap between two full recomputes of

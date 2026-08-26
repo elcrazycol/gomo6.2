@@ -19,7 +19,9 @@ import (
 // DecodeColumnValue converts a database column value to a JSON-safe
 // representation. JSONB columns come as []byte from the driver — they are
 // parsed into proper JSON objects/arrays. Other []byte values (UUIDs, text)
-// are returned as strings.
+// are returned as strings. Contract note: this keeps the object/array-only,
+// []byte-only contract used by the generic row scan; the wall read path uses
+// DecodeJSONB, which additionally accepts string cells and scalar JSON.
 func DecodeColumnValue(val interface{}) interface{} {
 	b, ok := val.([]byte)
 	if !ok {

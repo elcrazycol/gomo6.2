@@ -1,4 +1,4 @@
-package crudengine
+package profiles
 
 import "testing"
 
@@ -16,9 +16,9 @@ func TestRowUserID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := rowUserID(tt.input)
+			got := RowUserID(tt.input)
 			if got != tt.want {
-				t.Errorf("rowUserID(%v) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("RowUserID(%v) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

@@ -9,33 +9,24 @@ import (
 	"strings"
 
 	"github.com/gomo6/backend/internal/httpx"
-	"github.com/gomo6/backend/internal/notifications"
-	"github.com/gomo6/backend/internal/textutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
-	"github.com/gomo6/backend/internal/privacy"
-	"github.com/gomo6/backend/internal/profiles"
 )
 
 // ─── Cache Invalidation ─────────────────────────────────────────────────────
 
 // invalidateCacheForTableResult invalidates cache based on table and result
 // data. Which tables need custom invalidation is declared in the table
-// registry (TableMeta.InvalidateCache, implemented in table_hooks.go) — tables
-// without a hook fall back to the generic table invalidation keyed by the row
-// id, so a new table can never silently skip invalidation entirely.
+// registry (TableMeta.InvalidateCache, implemented in table_hooks.go /
+// wall_bridge.go) — tables without a hook fall back to the generic table
+// invalidation keyed by the row id, so a new table can never silently skip
+// invalidation entirely.
 func (h *Engine) invalidateCacheForTableResult(c *gin.Context, tableName string, result map[string]interface{}) {
 	if h.redis == nil {
-		fmt.Printf("[CacheInvalidator] Redis is nil, skipping invalidation for %s\n", tableName)
 		return
-	}
-
-	fmt.Printf("[CacheInvalidator] Invalidating cache for table %s\n", tableName)
-	for k, v := range result {
-		fmt.Printf("[CacheInvalidator]   result[%s] = %v (type: %T)\n", k, v, v)
 	}
 
 	if meta := GenericTableByName(tableName); meta != nil && meta.InvalidateCache != nil {
@@ -48,175 +39,7 @@ func (h *Engine) invalidateCacheForTableResult(c *gin.Context, tableName string,
 	if id, ok := result["id"].(string); ok && id != "" {
 		values["id"] = id
 	}
-	fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
 	cache.InvalidateForTable(h.redis, tableName, values)
-}
-
-// invalidateWallListCache clears the owner's wall-list cache entry after an
-// interaction write. The wall GET now embeds per-post interaction counts
-// (likes/comments/reposts + viewer state), so a like/comment/repost must
-// invalidate the owner's list key (user_id=eq.<owner>) — the post-scoped
-// patterns alone only match the standalone post page.
-func (h *Engine) invalidateWallListCache(c *gin.Context, postID string) {
-	if h.redis == nil || postID == "" {
-		return
-	}
-	var ownerID string
-	if err := h.db.QueryRowContext(c.Request.Context(),
-		"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&ownerID); err != nil || ownerID == "" {
-		return
-	}
-	cache.InvalidateCacheForProfileWall(h.redis, ownerID)
-}
-
-// invalidateCommentLikesCache invalidates every cache whose response embeds
-// comment like counts: the post's comments list and the owner's wall list.
-func (h *Engine) invalidateCommentLikesCache(c *gin.Context, commentID string) {
-	if h.redis == nil || commentID == "" {
-		return
-	}
-	var postID string
-	if err := h.db.QueryRowContext(c.Request.Context(),
-		"SELECT post_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&postID); err != nil || postID == "" {
-		return
-	}
-	cache.InvalidateCacheForWallComment(h.redis, commentID, postID)
-	h.invalidateWallListCache(c, postID)
-}
-
-// recomputeStatsForWallPostLike refreshes the unified stats of everyone whose
-// counters a wall-post like changes: the post's author (likes_received) and
-// the liker (likes_given). The author is resolved from the DB because the
-// generic CRUD result only carries the like's foreign key.
-func (h *Engine) recomputeStatsForWallPostLike(c *gin.Context, postID, likerID string) {
-	if postID != "" {
-		var authorID string
-		if err := h.db.QueryRowContext(c.Request.Context(),
-			"SELECT author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&authorID); err == nil && authorID != "" {
-			profiles.RecomputeUserProfileStats(h.db, authorID)
-		}
-	}
-	if likerID != "" {
-		profiles.RecomputeUserProfileStats(h.db, likerID)
-	}
-}
-
-// recomputeStatsForWallCommentLike — same as recomputeStatsForWallPostLike but
-// for likes on wall comments: the comment's author (likes_received) and the
-// liker (likes_given).
-func (h *Engine) recomputeStatsForWallCommentLike(c *gin.Context, commentID, likerID string) {
-	if commentID != "" {
-		var authorID string
-		if err := h.db.QueryRowContext(c.Request.Context(),
-			"SELECT user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&authorID); err == nil && authorID != "" {
-			profiles.RecomputeUserProfileStats(h.db, authorID)
-		}
-	}
-	if likerID != "" {
-		profiles.RecomputeUserProfileStats(h.db, likerID)
-	}
-}
-
-// wallPostOwnerAuthor resolves the wall owner and author of a wall post.
-func (h *Engine) wallPostOwnerAuthor(c *gin.Context, postID string) (ownerID, authorID string) {
-	if postID == "" {
-		return "", ""
-	}
-	_ = h.db.QueryRowContext(c.Request.Context(),
-		"SELECT user_id, author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&ownerID, &authorID)
-	return ownerID, authorID
-}
-
-// wallCommentPostAndAuthor resolves a wall comment's post_id and author.
-func (h *Engine) wallCommentPostAndAuthor(c *gin.Context, commentID string) (postID, authorID string) {
-	if commentID == "" {
-		return "", ""
-	}
-	_ = h.db.QueryRowContext(c.Request.Context(),
-		"SELECT post_id, user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&postID, &authorID)
-	return postID, authorID
-}
-
-// createWallNotification creates a wall notification for recipientID, skipping
-// self-notifications. Best-effort — a failed notification must never fail the
-// underlying wall write.
-func (h *Engine) createWallNotification(c *gin.Context, recipientID, actorID, notifType, message, actorUsername string, wallPostID, wallCommentID, wallUserID *string) {
-	if h.notif == nil {
-		return
-	}
-	if recipientID == "" || actorID == "" || recipientID == actorID {
-		return
-	}
-	params := &models.NotificationParams{Actor: actorUsername}
-	if _, err := h.notif.CreateWallNotification(notifications.CreateParams{
-		RecipientID:          recipientID,
-		Type:                 notifType,
-		Message:              message,
-		Params:               params,
-		ActorID:              &actorID,
-		RelatedWallPostID:    wallPostID,
-		RelatedWallCommentID: wallCommentID,
-		WallOwnerID:          wallUserID,
-	}); err != nil {
-		fmt.Printf("[WallNotifications] error creating %s notification: %v\n", notifType, err)
-	}
-}
-
-// notifyWallPostLike creates the "wall_post_like" notification for the wall
-// post author.
-func (h *Engine) notifyWallPostLike(c *gin.Context, postID, actorID string) {
-	if postID == "" || actorID == "" {
-		return
-	}
-	ownerID, authorID := h.wallPostOwnerAuthor(c, postID)
-	if authorID == "" || authorID == actorID {
-		return
-	}
-	h.createWallNotification(c, authorID, actorID, "wall_post_like", "", profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(postID), nil, crud.WallIDPtr(ownerID))
-}
-
-// notifyWallComment creates the wall comment / reply notifications for a newly
-// inserted wall comment.
-func (h *Engine) notifyWallComment(c *gin.Context, result map[string]interface{}) {
-	commentID := crud.WallResultString(result["id"])
-	postID := crud.WallResultString(result["post_id"])
-	actorID := crud.WallResultString(result["user_id"])
-	parentID := crud.WallResultString(result["parent_id"])
-	if postID == "" || actorID == "" {
-		return
-	}
-
-	snippet := textutil.TruncateRunes(crud.WallResultString(result["content"]), 100)
-	ownerID, postAuthorID := h.wallPostOwnerAuthor(c, postID)
-
-	// Reply to another comment → notify the parent comment's author.
-	if parentID != "" {
-		_, parentAuthorID := h.wallCommentPostAndAuthor(c, parentID)
-		if parentAuthorID != "" && parentAuthorID != actorID {
-			h.createWallNotification(c, parentAuthorID, actorID, "wall_comment_reply", snippet, profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
-		}
-		return
-	}
-
-	// Top-level comment → notify the post author.
-	if postAuthorID != "" && postAuthorID != actorID {
-		h.createWallNotification(c, postAuthorID, actorID, "wall_comment", snippet, profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(postID), crud.WallIDPtr(commentID), crud.WallIDPtr(ownerID))
-	}
-}
-
-// notifyWallRepost creates the "wall_repost" notification for the author of the
-// original wall post.
-func (h *Engine) notifyWallRepost(c *gin.Context, result map[string]interface{}) {
-	originalPostID := crud.WallResultString(result["post_id"])
-	actorID := crud.WallResultString(result["user_id"])
-	if originalPostID == "" || actorID == "" {
-		return
-	}
-	ownerID, originalAuthorID := h.wallPostOwnerAuthor(c, originalPostID)
-	if originalAuthorID == "" || originalAuthorID == actorID {
-		return
-	}
-	h.createWallNotification(c, originalAuthorID, actorID, "wall_repost", "", profiles.UsernameByID(h.db, actorID), crud.WallIDPtr(originalPostID), nil, crud.WallIDPtr(ownerID))
 }
 
 // ─── GET ────────────────────────────────────────────────────────────────────
@@ -400,114 +223,19 @@ func upsertInsertQuery(tableName string, data map[string]interface{}) (query str
 	return meta.BuildUpsert(data)
 }
 
-// wallOwnerVisibleToViewer reports whether viewerID may interact with the wall
-// of ownerID. This mirrors the REST read predicate (profileWallFinishSelectQuery)
-// so the write path enforces the exact same privacy rule; the rule itself lives
-// in the privacy package (privacy.CanViewWall) as the single source of truth.
-func (h *Engine) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
-	return privacy.CanViewWall(h.db, viewerID, ownerID)
-}
-
 // enforceWallTargetPrivacy rejects interactions with walls that the caller may
-// not view: posting on a private wall, commenting on/liking a post of a private
-// wall, or reposting a private wall post onto the caller's own wall.
-// It writes the HTTP response and returns false when the request is rejected.
+// not view (private/hidden walls) on the write path. The whole gate, including
+// the L5 fail-closed lookups, lives in the wall domain service
+// (wall.Service.EnforceTargetPrivacy) — this forwarder keeps the registry
+// dispatch in one place.
 func (h *Engine) enforceWallTargetPrivacy(c *gin.Context, tableName string, data map[string]interface{}, userID string) bool {
-	// Resolve the wall owner this interaction targets.
-	var wallOwner string
-	switch tableName {
-	case "profile_wall_posts":
-		wallOwner, _ = data["user_id"].(string)
-	case "profile_wall_post_comments", "profile_wall_post_likes":
-		// L5: the target post must exist. A nonexistent post would leave
-		// wallOwner empty and let the `wallOwner == ""` guard below pass,
-		// creating an orphan comment/like whose post is gone — and such orphans
-		// were readable by everyone (the LEFT JOIN read path had no wall owner
-		// to compare against). Fail closed: missing post → 404.
-		postID, _ := data["post_id"].(string)
-		if postID == "" {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("post_id is required"))
-			return false
-		}
-		err := h.db.QueryRowContext(c.Request.Context(),
-			"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
-			} else {
-				httpx.ServerError(c, "lookup wall post", err)
-			}
-			return false
-		}
-	case "profile_wall_comment_likes":
-		// L5: same fail-closed rule — the commented post must exist. The JOIN
-		// also rejects likes on orphan comments whose post is already gone.
-		commentID, _ := data["comment_id"].(string)
-		if commentID == "" {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("comment_id is required"))
-			return false
-		}
-		err := h.db.QueryRowContext(c.Request.Context(), `
-			SELECT wp.user_id
-			FROM profile_wall_post_comments c
-			JOIN profile_wall_posts wp ON wp.id = c.post_id
-			WHERE c.id = $1`, commentID).Scan(&wallOwner)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall comment not found"))
-			} else {
-				httpx.ServerError(c, "lookup wall comment", err)
-			}
-			return false
-		}
-	case "profile_wall_post_reposts":
-		// post_id references the ORIGINAL post being reposted — it must exist
-		// and its wall owner must be visible to the caller, otherwise private
-		// content could be mirrored onto a public wall (and a dangling repost
-		// would be readable by everyone, exactly like an orphan comment).
-		postID, _ := data["post_id"].(string)
-		if postID == "" {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("post_id is required"))
-			return false
-		}
-		err := h.db.QueryRowContext(c.Request.Context(),
-			"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
-			} else {
-				httpx.ServerError(c, "lookup wall post", err)
-			}
-			return false
-		}
-		// reposted_wall_post_id is the copy placed on the caller's own wall — it
-		// must belong to the caller, otherwise cross-links to other users' posts
-		// could be forged on the repost record.
-		if copyID, ok := data["reposted_wall_post_id"].(string); ok && copyID != "" {
-			var copyOwner string
-			err := h.db.QueryRowContext(c.Request.Context(),
-				"SELECT user_id FROM profile_wall_posts WHERE id = $1", copyID).Scan(&copyOwner)
-			if err == nil && copyOwner != "" && copyOwner != userID {
-				c.JSON(http.StatusForbidden, models.ErrorResponse("Invalid repost target"))
-				return false
-			}
-		}
-	default:
-		return true
-	}
-	if wallOwner == "" || wallOwner == userID {
-		return true
-	}
-	visible, err := h.wallOwnerVisibleToViewer(userID, wallOwner)
-	if err != nil {
-		httpx.ServerError(c, "check wall privacy", err)
+	// Fail closed: without the wall service there is no way to check the
+	// interaction target, so reject wall writes rather than risk an orphan.
+	if h.wall == nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("wall service not configured"))
 		return false
 	}
-	if !visible {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("This wall is private"))
-		return false
-	}
-	return true
+	return h.wall.EnforceTargetPrivacy(c, tableName, data, userID)
 }
 
 // enforcePostOwnership forces ownership columns of user-owned tables to the
@@ -654,7 +382,7 @@ func (h *Engine) afterWrite(c *gin.Context, tableName, method string, result map
 	// returned for wall tables); always invalidating first is strictly safer —
 	// an enrichment fetch failure can no longer skip the cache clear.
 	if meta != nil && meta.EnrichedResponse && (method == "POST" || method == "PUT") {
-		if h.tryRespondProfileWallEnriched(c, tableName, result) {
+		if h.wall != nil && h.wall.TryRespondEnriched(c, tableName, result) {
 			return
 		}
 	}

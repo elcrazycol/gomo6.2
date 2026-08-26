@@ -30,6 +30,7 @@ import (
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
 	"github.com/gomo6/backend/internal/translations"
+	"github.com/gomo6/backend/internal/wall"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -149,10 +150,18 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	rpcHandler.SetWebSocketHub(wsHub)
 	rpcHandler.SetAchievementEngine(achEngine)
 	rpcHandler.SetNotifier(notifService)
+
+	// Profile-wall domain service: owns the wall read queries, write side
+	// effects, cache invalidation, achievement events and interaction privacy
+	// gate. One instance, injected into the generic CRUD engine so the
+	// engine's registry hooks can delegate (crudengine.SetWall).
+	wallService := wall.New(db, redis, wsHub, notifService)
+	wallService.SetAchievementEngine(achEngine)
+
 	engine := crudengine.New(db, wsHub)
 	engine.SetRedis(redis)
 	engine.SetAchievementEngine(achEngine)
-	engine.SetNotifier(notifService)
+	engine.SetWall(wallService)
 	searchHandler := handlers.NewSearchHandler(db)
 	feedHandler := handlers.NewFeedHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
