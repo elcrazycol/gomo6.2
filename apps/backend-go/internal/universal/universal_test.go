@@ -1,4 +1,4 @@
-package handlers
+package universal
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -304,32 +305,32 @@ func TestUniversalGet_UserAchievements(t *testing.T) {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func TestUniversal_ParseOrCondition(t *testing.T) {
-	col, op, val, ok := parseOrCondition("user_id.eq.123")
+	col, op, val, ok := crud.ParseOrCondition("user_id.eq.123")
 	if !ok || col != "user_id" || op != "eq" || val != "123" {
 		t.Fatalf("unexpected result: %s, %s, %s, %v", col, op, val, ok)
 	}
 }
 
 func TestUniversal_SplitCSV(t *testing.T) {
-	result := splitCSV("a,b,c")
+	result := crud.SplitCSV("a,b,c")
 	if len(result) != 3 || result[0] != "a" || result[1] != "b" || result[2] != "c" {
 		t.Fatalf("unexpected: %v", result)
 	}
 }
 
 func TestUniversal_SplitCSV_Empty(t *testing.T) {
-	result := splitCSV("")
+	result := crud.SplitCSV("")
 	if result != nil {
 		t.Fatalf("expected nil, got %v", result)
 	}
 }
 
 func TestUniversal_JoinStrings(t *testing.T) {
-	result := joinStrings([]string{"a", "b", "c"}, ", ")
+	result := crud.JoinStrings([]string{"a", "b", "c"}, ", ")
 	if result != "a, b, c" {
 		t.Fatalf("unexpected: %s", result)
 	}
-	result2 := joinStrings(nil, ",")
+	result2 := crud.JoinStrings(nil, ",")
 	if result2 != "" {
 		t.Fatalf("unexpected: %s", result2)
 	}
@@ -483,42 +484,42 @@ func TestUniversalPut_DBError(t *testing.T) {
 }
 
 func TestUniversalGet_BuildFilterClause_PlainValue(t *testing.T) {
-	clause, args, next := buildFilterClause("user_id", "u1", 1)
+	clause, args, next := crud.BuildFilterClause("user_id", "u1", 1)
 	if clause != "user_id = $1" || len(args) != 1 || args[0] != "u1" || next != 2 {
 		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
 	}
 }
 
 func TestUniversalGet_BuildFilterClause_NotOp(t *testing.T) {
-	clause, args, next := buildFilterClause("user_id", "not.eq.u1", 1)
+	clause, args, next := crud.BuildFilterClause("user_id", "not.eq.u1", 1)
 	if clause != "NOT (user_id = $1)" || len(args) != 1 || next != 2 {
 		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
 	}
 }
 
 func TestUniversalGet_BuildFilterClause_GtOp(t *testing.T) {
-	clause, args, next := buildFilterClause("sent_at", "gt.2025-01-01T00:00:00Z", 1)
+	clause, args, next := crud.BuildFilterClause("sent_at", "gt.2025-01-01T00:00:00Z", 1)
 	if clause != "sent_at > $1" || len(args) != 1 || args[0] != "2025-01-01T00:00:00Z" || next != 2 {
 		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
 	}
 }
 
 func TestUniversalGet_BuildFilterClause_LtOp(t *testing.T) {
-	clause, args, next := buildFilterClause("sent_at", "lt.2025-06-01T00:00:00Z", 1)
+	clause, args, next := crud.BuildFilterClause("sent_at", "lt.2025-06-01T00:00:00Z", 1)
 	if clause != "sent_at < $1" || len(args) != 1 || args[0] != "2025-06-01T00:00:00Z" || next != 2 {
 		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
 	}
 }
 
 func TestUniversalGet_BuildFilterClause_GteOp(t *testing.T) {
-	clause, args, next := buildFilterClause("sent_at", "gte.2025-01-01T00:00:00Z", 1)
+	clause, args, next := crud.BuildFilterClause("sent_at", "gte.2025-01-01T00:00:00Z", 1)
 	if clause != "sent_at >= $1" || len(args) != 1 || args[0] != "2025-01-01T00:00:00Z" || next != 2 {
 		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
 	}
 }
 
 func TestUniversalGet_BuildFilterClause_LteOp(t *testing.T) {
-	clause, args, next := buildFilterClause("sent_at", "lte.2025-06-01T00:00:00Z", 1)
+	clause, args, next := crud.BuildFilterClause("sent_at", "lte.2025-06-01T00:00:00Z", 1)
 	if clause != "sent_at <= $1" || len(args) != 1 || args[0] != "2025-06-01T00:00:00Z" || next != 2 {
 		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
 	}
@@ -1058,7 +1059,7 @@ func TestValidateBodyColumnNames(t *testing.T) {
 		{"has_custom_message": false},
 	}
 	for _, data := range valid {
-		if err := validateBodyColumnNames(data); err != nil {
+		if err := crud.ValidateBodyColumnNames(data); err != nil {
 			t.Errorf("valid payload %v rejected: %v", data, err)
 		}
 	}
@@ -1079,7 +1080,7 @@ func TestValidateBodyColumnNames(t *testing.T) {
 		strings.Repeat("a", 64),
 	}
 	for _, key := range invalid {
-		if err := validateBodyColumnNames(map[string]interface{}{key: "x"}); err == nil {
+		if err := crud.ValidateBodyColumnNames(map[string]interface{}{key: "x"}); err == nil {
 			t.Errorf("malicious key %q was accepted", key)
 		}
 	}

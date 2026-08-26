@@ -14,11 +14,14 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/backup"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/oauth"
+	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
+	"github.com/gomo6/backend/internal/universal"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -108,7 +111,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		log.Fatalf("achievements: invalid catalog: %v", err)
 	}
 	achEngine := achievements.New(db, achCatalog)
-	achEngine.RecomputeStats = func(userID string) { handlers.RecomputeUserProfileStats(db, userID) }
+	achEngine.RecomputeStats = func(userID string) { profiles.RecomputeUserProfileStats(db, userID) }
 
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
@@ -130,7 +133,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)
 	rpcHandler.SetAchievementEngine(achEngine)
-	universalHandler := handlers.NewUniversalHandler(db, wsHub)
+	universalHandler := universal.NewUniversalHandler(db, wsHub)
 	universalHandler.SetRedis(redis)
 	universalHandler.SetAchievementEngine(achEngine)
 	searchHandler := handlers.NewSearchHandler(db)
@@ -159,7 +162,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	}
 	messengerHandler.SetStorage(storageClient)
 
-	backupHandler := handlers.NewBackupHandler(db)
+	backupHandler := backup.NewBackupHandler(db)
 	backupHandler.SetStorage(storageClient)
 
 	// Client-side error reporting handler
@@ -355,7 +358,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Additional tables (frontend compatibility)
 		//
 		// Universal CRUD routes are generated from the declarative table
-		// registry (handlers.GenericTables) by registerGenericTableRoutes
+		// registry (universal.GenericTables) by registerGenericTableRoutes
 		// below — each table declares its read group (guest/authenticated),
 		// write methods and middleware group in ONE place. Previously every
 		// table needed ~8 manual registrations across three groups and a
@@ -1053,7 +1056,7 @@ func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
 // ─── Universal CRUD route generation ────────────────────────────────────────
 
 // registerGenericTableRoutes generates every generic CRUD route from the
-// declarative table registry (handlers.GenericTables). The registry is the
+// declarative table registry (universal.GenericTables). The registry is the
 // single source of truth for which tables exist and how they are routed — the
 // handler allow-list (UniversalHandler.HandleTableRequest), the read/write
 // deny lists and the ownership/visibility scopes all read the same entries, so
@@ -1067,17 +1070,17 @@ func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
 //   - rls:       the authenticated group with the RLS middleware chain (the
 //     no-op RLSSetConfigMiddleware) — used by the emoji tables.
 func registerGenericTableRoutes(guest, protected, rls *gin.RouterGroup, handler func(*gin.Context)) {
-	for _, meta := range handlers.GenericTables() {
+	for _, meta := range universal.GenericTables() {
 		base := "/" + meta.Name
 
 		// Reads (GET + optional wildcard) on the group the table declares.
 		switch meta.ReadAccess {
-		case handlers.GuestRead:
+		case universal.GuestRead:
 			guest.GET(base, handler)
 			if meta.ReadWildcard {
 				guest.GET(base+"/*path", handler)
 			}
-		case handlers.ProtectedRead:
+		case universal.ProtectedRead:
 			protected.GET(base, handler)
 			if meta.ReadWildcard {
 				protected.GET(base+"/*path", handler)
@@ -1088,7 +1091,7 @@ func registerGenericTableRoutes(guest, protected, rls *gin.RouterGroup, handler 
 		// generic group; emoji tables go through the RLS group).
 		for _, route := range meta.Writes {
 			target := protected
-			if meta.WriteGroup == handlers.RLSWrite {
+			if meta.WriteGroup == universal.RLSWrite {
 				target = rls
 			}
 			target.Handle(route.Method, base, handler)

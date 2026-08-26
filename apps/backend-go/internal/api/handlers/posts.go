@@ -10,8 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -197,7 +199,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 					}
 				}
 			}
-			if s, ok := parseOrderClause(joined, "p"); ok {
+			if s, ok := crud.ParseOrderClause(joined, "p"); ok {
 				orderClause = " ORDER BY " + s
 			}
 		} else {
@@ -261,7 +263,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 				}
 				joined += o
 			}
-			if s, ok := parseOrderClause(joined, "sub"); ok {
+			if s, ok := crud.ParseOrderClause(joined, "sub"); ok {
 				query += " ORDER BY " + s
 			}
 		} else {
@@ -542,11 +544,11 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		UPDATE threads SET post_count = GREATEST(0, post_count - 1), updated_at = NOW() WHERE id = $1
 	`, threadID)
 	if authorID.Valid {
-		RecomputeUserProfileStats(h.db, authorID.String)
+		profiles.RecomputeUserProfileStats(h.db, authorID.String)
 	}
 	for _, aid := range replyAuthors {
 		if aid != authorID.String {
-			RecomputeUserProfileStats(h.db, aid)
+			profiles.RecomputeUserProfileStats(h.db, aid)
 		}
 	}
 

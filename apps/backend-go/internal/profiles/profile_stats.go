@@ -1,23 +1,13 @@
-package handlers
+// Package profiles holds the profile-domain helpers shared between the
+// api/handlers god package and the universal CRUD subsystem: the unified
+// profile stats recomputation and the profile-customization sanitizers.
+// Extracted during F1 so the universal subsystem can leave the handlers
+// package without dragging the whole profile domain with it.
+package profiles
 
 import (
 	"database/sql"
-	"fmt"
 )
-
-func rowUserID(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	switch t := v.(type) {
-	case string:
-		return t
-	case []byte:
-		return string(t)
-	default:
-		return fmt.Sprint(t)
-	}
-}
 
 // RecomputeUserProfileStats sets users.post_count, thread_count and the unified
 // wall-aware counters (wall_post_count, comment_count, likes_received_count,

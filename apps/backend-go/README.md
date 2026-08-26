@@ -13,19 +13,152 @@
 
 ```
 apps/backend-go/
-├── cmd/server/main.go          # Точка входа
+├── cmd/server/main.go
 ├── internal/
 │   ├── api/
-│   │   ├── handlers/           # HTTP обработчики
-│   │   └── routes/             # Роуты
-│   ├── auth/                   # JWT аутентификация
-│   ├── database/               # Подключение к БД
-│   ├── middleware/             # Middleware
-│   ├── models/                 # Модели данных
-│   └── websocket/              # Realtime
-├── migrations/                 # SQL миграции
-├── docker-compose.yml          # Docker конфигурация
-└── Dockerfile                  # Docker образ
+│   │   ├── handlers/           # HTTP хендлеры (dedicated: posts, threads, boards, …)
+│   │   └── routes/             # Роуты, wiring
+│   ├── universal/              # Generic CRUD + wall + registry (ex-god-pakage)
+│   ├── crud/                   # Stateless SQL helpers (filters, ordering, emoji)
+│   ├── profiles/               # Profile stats + CSS sanitizers
+│   ├── backup/                 # Database backup handler
+│   ├── auth/                   # JWT / WebAuthn / 2FA
+│   ├── middleware/             # Rate limit, auth, CORS, …
+│   ├── cache/                  # Redis cache layer
+│   ├── models/                 # Shared data models
+│   ├── websocket/              # Realtime hub
+│   ├── storage/                # S3 storage + storage/handlers
+│   ├── oauth/                  # OAuth2 flows
+│   ├── achievements/           # Achievement definitions
+│   ├── push/                   # Web Push (VAPID)
+│   ├── geo/                    # Geocoding
+│   ├── media/                  # Image processing / thumbhash
+│   ├── crypto/                 # HMAC signing
+│   ├── integrations/           # External service adapters
+│   ├── config/                 # App configuration
+│   ├── metrics/                # Prometheus metrics
+│   └── database/               # PostgreSQL + Redis connections
+├── migrations/
+├── docker-compose.yml
+└── Dockerfile
+```
+
+### Диаграмма зависимостей (internal packages)
+
+```mermaid
+graph TD
+    subgraph Entry
+        routes["api/routes"]
+    end
+
+    subgraph Application
+        handlers["api/handlers\n48 files — dedicated CRUD + auth + messenger"]
+        universal["universal\n12 files — generic CRUD, wall, registry, achievements"]
+    end
+
+    subgraph Domain
+        profiles["profiles\n2 files — stats recomputation, CSS sanitizers"]
+        backup["backup\n1 file — database backup"]
+    end
+
+    subgraph Shared helpers
+        crud["crud\n3 files — SQL filters, ordering, emoji validation"]
+        achievements["achievements\n5 files — event definitions"]
+    end
+
+    subgraph Infrastructure
+        auth["auth\n1 file — JWT / WebAuthn"]
+        middleware["middleware\n20 files — rate limit, auth, CORS"]
+        cache["cache\n2 files — Redis"]
+        storage["storage\n4 files — S3"]
+        storageh["storage/handlers"]
+        websocket["websocket\n5 files — hub"]
+        oauth["oauth\n5 files"]
+        push["push\n1 file"]
+        models["models\n2 files"]
+        geo["geo"]
+        media["media"]
+        crypto["crypto"]
+        integrations["integrations"]
+        config["config"]
+        metrics["metrics"]
+    end
+
+    %% routes wires everything
+    routes --> handlers
+    routes --> universal
+    routes --> backup
+    routes --> profiles
+    routes --> middleware
+    routes --> auth
+    routes --> oauth
+    routes --> storage
+    routes --> storageh
+    routes --> websocket
+    routes --> achievements
+    routes --> push
+
+    %% handlers → domain + shared + infra
+    handlers --> auth
+    handlers --> cache
+    handlers --> crud
+    handlers --> crypto
+    handlers --> geo
+    handlers --> integrations
+    handlers --> middleware
+    handlers --> models
+    handlers --> oauth
+    handlers --> profiles
+    handlers --> push
+    handlers --> storage
+    handlers --> storageh
+    handlers --> websocket
+    handlers --> achievements
+
+    %% universal → handlers (3 exports: CreateWallNotification, EmitAchievement, CanViewUserAchievements)
+    universal --> handlers
+    universal --> achievements
+    universal --> auth
+    universal --> cache
+    universal --> crud
+    universal --> middleware
+    universal --> models
+    universal --> profiles
+    universal --> websocket
+
+    profiles --> auth
+    profiles --> models
+
+    backup --> auth
+    backup --> models
+    backup --> storage
+
+    storage --> auth
+    storage --> crypto
+    storage --> media
+    storage --> models
+
+    storageh --> auth
+    storageh --> media
+    storageh --> models
+    storageh --> storage
+
+    middleware --> auth
+    middleware --> cache
+    middleware --> metrics
+
+    websocket --> auth
+    websocket --> crypto
+    websocket --> integrations
+    websocket --> metrics
+
+    oauth --> auth
+
+    style handlers fill:#f9f,stroke:#333,stroke-width:2px
+    style universal fill:#bbf,stroke:#333,stroke-width:2px
+    style crud fill:#bfb,stroke:#333
+    style profiles fill:#bfb,stroke:#333
+    style backup fill:#bfb,stroke:#333
 ```
 
 ## Быстрый старт

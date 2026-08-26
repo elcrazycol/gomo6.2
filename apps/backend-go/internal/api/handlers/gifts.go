@@ -170,8 +170,8 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 	}
 
 	// Achievements: the sender sent a gift; the recipient received one.
-	emitAchievement(h.achEngine, senderID, achievements.EventGiftSent)
-	emitAchievement(h.achEngine, recipientID.String(), achievements.EventGiftReceived)
+	EmitAchievement(h.achEngine, senderID, achievements.EventGiftSent)
+	EmitAchievement(h.achEngine, recipientID.String(), achievements.EventGiftReceived)
 
 	// Send notification to recipient
 	go h.sendGiftNotification(recipientID.String(), senderID, giftID.String(), giftRecordID, req.IsAnonymous)

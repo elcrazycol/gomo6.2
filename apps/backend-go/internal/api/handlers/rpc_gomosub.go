@@ -159,7 +159,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	`, board.ID, claims.UserID)
 
 	// Achievements: created a gomosub.
-	emitAchievement(h.achEngine, claims.UserID, achievements.EventSubCreated)
+	EmitAchievement(h.achEngine, claims.UserID, achievements.EventSubCreated)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }

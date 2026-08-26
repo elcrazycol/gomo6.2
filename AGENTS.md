@@ -200,7 +200,36 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 
 ## Backend structure
 
-`apps/backend-go/internal/`: `api/handlers`, `api/routes`, `auth`, `bots`, `cache`, `config`, `database`, `middleware`, `models`, `oauth`, `storage`, `websocket`. Migrations in `migrations/` (44+ files, auto-applied via docker-entrypoint-initdb.d).
+`apps/backend-go/internal/`:
+
+| Package | Files | Role |
+|---------|-------|------|
+| `api/handlers` | 48 src | Dedicated HTTP handlers (posts, threads, boards, messenger, auth, …) |
+| `api/routes` | 1 | Route registration + wiring |
+| `universal` | 12 | Generic CRUD engine, table registry, wall, achievement dispatch (ex-god-pakage) |
+| `crud` | 3 | Stateless SQL helpers: filters, ordering, emoji validation |
+| `profiles` | 2 | Profile stats recomputation, CSS/background sanitizers |
+| `backup` | 1 | Database backup handler |
+| `auth` | 1 | JWT, WebAuthn, 2FA |
+| `middleware` | 20 | Rate limiting, auth, CORS, uploads |
+| `cache` | 2 | Redis cache layer |
+| `storage` | 4 | S3 storage + `storage/handlers` sub-pkg |
+| `websocket` | 5 | Realtime hub |
+| `models` | 2 | Shared data models |
+| `achievements` | 5 | Achievement event definitions |
+| `oauth` | 5 | OAuth2 flows |
+| `integrations` | 3 | External service adapters |
+| `media` | 3 | Image processing / thumbhash |
+| `push` | 1 | Web Push (VAPID) |
+| `crypto` | 1 | HMAC signing |
+| `geo` | 1 | Geocoding |
+| `config` | 1 | App configuration |
+| `metrics` | 1 | Prometheus metrics |
+| `database` | 2 | PostgreSQL + Redis connections |
+
+Dependency direction: `routes → {handlers, universal, backup, profiles, …}`, `handlers → {auth, cache, crud, …}`, `universal → handlers` (3 exports only: `CreateWallNotification`, `EmitAchievement`, `CanViewUserAchievements`). `crud`, `profiles`, `backup` are leaf-ish packages with minimal inbound deps.
+
+Migrations in `migrations/` (44+ files, auto-applied via docker-entrypoint-initdb.d).
 
 ## Frontend conventions
 

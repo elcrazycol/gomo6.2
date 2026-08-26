@@ -1,4 +1,8 @@
-package handlers
+// Package backup implements board backup/export and import for the boards
+// feature. Extracted from the api/handlers god package (F1): the handler is
+// fully self-contained apart from the tiny serverError responder defined
+// below, so it lives in its own package and is wired in routes.go.
+package backup
 
 import (
 	"archive/tar"
@@ -19,6 +23,14 @@ import (
 	stor "github.com/gomo6/backend/internal/storage"
 	"github.com/google/uuid"
 )
+
+// serverError aborts the request with a 500 and a stable error body. Local
+// copy of the handlers-package helper (same behavior, [Backup] log prefix).
+func serverError(c *gin.Context, context string, err error) {
+	log.Printf("[Backup] %s: %v", context, err)
+	_ = c.Error(err)
+	c.AbortWithStatusJSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+}
 
 type BackupHandler struct {
 	db      *sql.DB

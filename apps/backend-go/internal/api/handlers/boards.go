@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/redis/go-redis/v9"
 )
@@ -154,7 +155,7 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 			}
 			joined += o
 		}
-		if s, ok := parseOrderClause(joined, ""); ok {
+		if s, ok := crud.ParseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	} else {

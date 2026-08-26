@@ -10,6 +10,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -107,7 +108,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 
 	var threadOwner string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
-	RecomputeUserProfileStats(h.db, threadOwner)
+	profiles.RecomputeUserProfileStats(h.db, threadOwner)
 
 	// Create notification for thread author (if not self-like)
 	if threadOwner != "" && threadOwner != userClaims.UserID {
@@ -116,9 +117,9 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	}
 
 	// Achievements: the liker gave a like; the thread author received one.
-	emitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
 	if threadOwner != "" && threadOwner != userClaims.UserID {
-		emitAchievement(h.achEngine, threadOwner, achievements.EventLikeReceived)
+		EmitAchievement(h.achEngine, threadOwner, achievements.EventLikeReceived)
 	}
 
 	// Invalidate cache for thread and its posts
@@ -174,7 +175,7 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 
 	var threadOwner string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
-	RecomputeUserProfileStats(h.db, threadOwner)
+	profiles.RecomputeUserProfileStats(h.db, threadOwner)
 
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
@@ -254,7 +255,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 
 	var postAuthor, threadID string
 	_ = h.db.QueryRow("SELECT user_id, thread_id FROM posts WHERE id = $1", postID).Scan(&postAuthor, &threadID)
-	RecomputeUserProfileStats(h.db, postAuthor)
+	profiles.RecomputeUserProfileStats(h.db, postAuthor)
 
 	// Create notification for post author (if not self-like)
 	if postAuthor != "" && postAuthor != userClaims.UserID {
@@ -264,9 +265,9 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	}
 
 	// Achievements: the liker gave a like; the post author received one.
-	emitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
 	if postAuthor != "" && postAuthor != userClaims.UserID {
-		emitAchievement(h.achEngine, postAuthor, achievements.EventLikeReceived)
+		EmitAchievement(h.achEngine, postAuthor, achievements.EventLikeReceived)
 	}
 
 	// Invalidate cache for post and its thread
@@ -322,7 +323,7 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 
 	var postAuthor, threadID string
 	_ = h.db.QueryRow("SELECT user_id, thread_id FROM posts WHERE id = $1", postID).Scan(&postAuthor, &threadID)
-	RecomputeUserProfileStats(h.db, postAuthor)
+	profiles.RecomputeUserProfileStats(h.db, postAuthor)
 
 	// Invalidate cache for post and its thread
 	if h.redis != nil {

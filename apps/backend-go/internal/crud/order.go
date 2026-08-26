@@ -1,13 +1,13 @@
-package handlers
+package crud
 
 import (
 	"strings"
 	"unicode"
 )
 
-// parseOrderClause turns PostgREST-style "col.asc,col2.desc" into safe SQL ORDER BY fragments.
+// ParseOrderClause turns PostgREST-style "col.asc,col2.desc" into safe SQL ORDER BY fragments.
 // Raw "unlocked_at.desc" is invalid in PostgreSQL (parsed as schema.table).
-func parseOrderClause(orderExpr string, tableAlias string) (string, bool) {
+func ParseOrderClause(orderExpr string, tableAlias string) (string, bool) {
 	orderExpr = strings.TrimSpace(orderExpr)
 	if orderExpr == "" {
 		return "", false
@@ -19,8 +19,8 @@ func parseOrderClause(orderExpr string, tableAlias string) (string, bool) {
 		if segment == "" {
 			continue
 		}
-		col, dir, ok := parseSingleOrderSegment(segment)
-		if !ok || !isSafeSQLIdentifier(col) {
+		col, dir, ok := ParseSingleOrderSegment(segment)
+		if !ok || !IsSafeSQLIdentifier(col) {
 			continue
 		}
 		if !first {
@@ -28,10 +28,10 @@ func parseOrderClause(orderExpr string, tableAlias string) (string, bool) {
 		}
 		first = false
 		if tableAlias != "" {
-			b.WriteString(quoteSQLIdent(tableAlias))
+			b.WriteString(QuoteSQLIdent(tableAlias))
 			b.WriteString(".")
 		}
-		b.WriteString(quoteSQLIdent(col))
+		b.WriteString(QuoteSQLIdent(col))
 		b.WriteString(" ")
 		b.WriteString(dir)
 	}
@@ -41,7 +41,7 @@ func parseOrderClause(orderExpr string, tableAlias string) (string, bool) {
 	return b.String(), true
 }
 
-func parseSingleOrderSegment(segment string) (col string, dir string, ok bool) {
+func ParseSingleOrderSegment(segment string) (col string, dir string, ok bool) {
 	lastDot := strings.LastIndex(segment, ".")
 	if lastDot <= 0 || lastDot >= len(segment)-1 {
 		return "", "", false
@@ -58,7 +58,7 @@ func parseSingleOrderSegment(segment string) (col string, dir string, ok bool) {
 	}
 }
 
-func isSafeSQLIdentifier(s string) bool {
+func IsSafeSQLIdentifier(s string) bool {
 	if len(s) == 0 || len(s) > 63 {
 		return false
 	}
@@ -76,6 +76,6 @@ func isSafeSQLIdentifier(s string) bool {
 	return true
 }
 
-func quoteSQLIdent(s string) string {
+func QuoteSQLIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
