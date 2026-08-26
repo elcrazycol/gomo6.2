@@ -127,7 +127,11 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 				  AND m.is_deleted = false
 				  AND m.sent_at > (SELECT sent_at FROM chat_messages WHERE id = $2)
 			),
-			last_read_message_id = $2
+			last_read_message_id = $2,
+			-- The peer's read line (chat_members.last_read_at, surfaced as
+			-- other_last_read_at in the conversation list) only moves forward,
+			-- guarded by the same marker condition as last_read_message_id.
+			last_read_at = (SELECT sent_at FROM chat_messages WHERE id = $2)
 		WHERE cm.conversation_id = $1 AND cm.user_id = $3
 		  AND (
 			cm.last_read_message_id IS NULL
