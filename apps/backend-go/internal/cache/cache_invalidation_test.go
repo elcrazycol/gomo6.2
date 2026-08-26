@@ -292,7 +292,5 @@ func TestCanonicalInvalidators_NoPanicNilRedis(t *testing.T) {
 	InvalidateCacheForPostLike(nil, "post-1", "thread-1")
 	InvalidateCacheForThreadLike(nil, "thread-1")
 	InvalidateCacheForNotification(nil, "user-1")
-	InvalidateCacheForChatMessage(nil, "msg-1", "conv-1")
-	InvalidateCacheForChatConversation(nil, "conv-1", "user-1")
 	InvalidateCacheForWallComment(nil, "comment-1", "post-1")
 }

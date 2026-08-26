@@ -217,29 +217,6 @@ func InvalidateCacheForNotification(redis *redis.Client, userID string) {
 	invalidatePatterns(redis, patterns)
 }
 
-// InvalidateCacheForChatMessage invalidates chat message cache.
-func InvalidateCacheForChatMessage(redis *redis.Client, messageID string, conversationID string) {
-	// Use wildcard to invalidate ALL chat message queries
-	patterns := []string{
-		fmt.Sprintf("data:/api/v1/chat_messages*conversation_id=eq.%s*", conversationID),
-		"data:/api/v1/chat_messages*",
-		"data:/api/v1/chat_conversations*",
-		"data:/api/v1/chat_receipts*",
-	}
-	invalidatePatterns(redis, patterns)
-}
-
-// InvalidateCacheForChatConversation invalidates chat conversation cache.
-func InvalidateCacheForChatConversation(redis *redis.Client, conversationID string, userID string) {
-	// Use wildcard to invalidate ALL chat conversation queries
-	patterns := []string{
-		fmt.Sprintf("data:/api/v1/chat_conversations*%s*", conversationID),
-		"data:/api/v1/chat_conversation_members*",
-		"data:/api/v1/chat_messages*",
-	}
-	invalidatePatterns(redis, patterns)
-}
-
 // InvalidateCacheForWallComment invalidates wall comment cache.
 func InvalidateCacheForWallComment(redis *redis.Client, commentID string, postID string) {
 	// Use wildcard to invalidate ALL wall comment queries for this post
