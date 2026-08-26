@@ -223,16 +223,12 @@ func (h *Engine) notifyWallRepost(c *gin.Context, result map[string]interface{})
 // ─── GET ────────────────────────────────────────────────────────────────────
 
 func (h *Engine) handleGet(c *gin.Context, tableName string) {
-	if tableName == "user_achievements" {
-		h.handleUserAchievementsGet(c)
-		return
-	}
-	if tableName == "profile_wall_posts" {
-		h.handleProfileWallPostsGet(c)
-		return
-	}
-	if tableName == "profile_wall_post_comments" {
-		h.handleProfileWallPostCommentsGet(c)
+	// Specialized GET queries (wall lists, the achievements catalog) are
+	// registry-declared ReadHandler overrides — the generic surface has no
+	// table-name branches left, so a new specialized read is wired in the
+	// registry next to its table instead of extending this dispatcher.
+	if meta := GenericTableByName(tableName); meta != nil && meta.ReadHandler != nil {
+		meta.ReadHandler(h, c)
 		return
 	}
 
@@ -376,12 +372,13 @@ func (h *Engine) handleGet(c *gin.Context, tableName string) {
 		results = append(results, row)
 	}
 
-	// L6: sanitize user-supplied customization CSS on read as well, so rows
-	// written before server-side sanitization existed are neutralized for
-	// every viewer (defense-in-depth alongside the write-path sanitizer).
-	if tableName == "profile_customization" {
+	// L6: read-time row sanitization (registry SanitizeReadRow) neutralizes
+	// user-supplied customization CSS written before server-side sanitization
+	// existed, for every viewer — defense-in-depth alongside the write-path
+	// sanitizer. Registry-declared so the read surface stays declarative.
+	if meta := GenericTableByName(tableName); meta != nil && meta.SanitizeReadRow != nil {
 		for _, row := range results {
-			sanitizeProfileCustomizationRow(row)
+			meta.SanitizeReadRow(row)
 		}
 	}
 
