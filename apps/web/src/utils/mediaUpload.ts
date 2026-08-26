@@ -326,3 +326,55 @@ export const uploadAttachments = async (
 
   return results;
 };
+
+const dataUrlToBlob = (dataUrl: string): Blob => {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/^data:([^;]+)/)?.[1] || "application/octet-stream";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+};
+
+/**
+ * Upload a finished photo-editor result (a plain data URL) through the same
+ * storage pipeline as a picked file. Draft attachments must reference a real
+ * stored object: a raw data URL would be sent to the backend and resolved by
+ * storageUrl into a bogus object key (403 on every render).
+ */
+export const uploadEditedDataUrl = async (dataUrl: string, bucket: string): Promise<AttachmentMeta> => {
+  const { data: { session } } = await api.auth.getSession();
+  if (!session?.user) throw new Error("Нужно войти для загрузки");
+
+  const blob = dataUrlToBlob(dataUrl);
+  const file = new File([blob], `edited_${Date.now()}.png`, { type: "image/png" });
+  const key = `${session.user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.png`;
+
+  const uploaded = await uploadFile(bucket, key, file, session.access_token, false);
+  if (!uploaded.variants) throw new Error("Сервер не вернул preview для изображения");
+
+  // Same storage semantics as uploadAttachments: the bare key for the public
+  // content bucket, the full authorized path for private buckets (e.g. wall).
+  const storedUrl = bucket === "content" ? uploaded.path : storageUrl(bucket, uploaded.path) || uploaded.path;
+  const storedPreview =
+    bucket === "content"
+      ? uploaded.variants.preview_key
+      : storageUrl(bucket, uploaded.variants.preview_key) || undefined;
+
+  return {
+    url: storedUrl,
+    type: "image",
+    mime: "image/png",
+    name: file.name,
+    size: file.size,
+    meta: {
+      preview_key: storedPreview,
+      lqip: uploaded.variants.lqip,
+      width: uploaded.variants.width,
+      height: uploaded.variants.height,
+      pipeline: "image-v2",
+      source_size: blob.size,
+      stored_size: blob.size,
+    },
+  };
+};

@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FileAudio2, FileText, FileVideo2, Image as ImageIcon, Loader2, Scissors, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import type { AttachmentMeta } from "@/types/forum";
-import { uploadAttachments } from "@/utils/mediaUpload";
+import { uploadAttachments, uploadEditedDataUrl } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
 import { storageUrl } from "@/utils/storage";
 import { AudioAttachment } from "@/components/AudioAttachment";
@@ -205,16 +205,23 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
       setEditImageIndex(inImageList);
     };
     const handleApplyImageEdit = useCallback(
-      (imageIndex: number, dataUrl: string) => {
+      async (imageIndex: number, dataUrl: string) => {
         const images = value.filter((att) => att.type === "image");
         const target = images[imageIndex];
         if (!target) return;
-        // Match by url: parents (e.g. CreateWallPost) may swap object identity.
-        // Draft upload keys are unique, so the url identifies the photo.
-        onChange(value.map((att) => (att.url === target.url ? { ...att, url: dataUrl } : att)));
-        setEditImageIndex(null);
+        try {
+          // The edited photo must be uploaded like any picked file — draft
+          // urls are storage keys, and a raw data URL would break rendering
+          // and the final save.
+          const uploaded = await uploadEditedDataUrl(dataUrl, bucket);
+          onChange(value.map((att) => (att.url === target.url ? { ...att, url: uploaded.url, meta: uploaded.meta } : att)));
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Не удалось сохранить отредактированное фото");
+        } finally {
+          setEditImageIndex(null);
+        }
       },
-      [value, onChange]
+      [value, onChange, bucket]
     );
 
     const lightboxItems = useMemo<LightboxItem[]>(

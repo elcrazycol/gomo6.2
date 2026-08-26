@@ -371,7 +371,8 @@ describe("Lightbox editor", () => {
 
   it("applies the edit and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
-    openEditor(onEditImage);
+    // Готово stays disabled until the photo has loaded, so wait for ready.
+    await openEditorReady(onEditImage);
     fireEvent.click(document.body.querySelector('[aria-label="Готово"]')!);
     await waitFor(() => expect(onEditImage).toHaveBeenCalledTimes(1));
     expect(onEditImage).toHaveBeenCalledWith(0, "data:image/png;base64,FAKE");
@@ -381,7 +382,7 @@ describe("Lightbox editor", () => {
 
   it("resizes the crop box by dragging the south-east handle", async () => {
     const onEditImage = vi.fn();
-    openEditor(onEditImage);
+    await openEditorReady(onEditImage);
     const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     expect(canvas).not.toBeNull();
     stubCanvasPointer(canvas);
@@ -395,7 +396,7 @@ describe("Lightbox editor", () => {
 
   it("draws with the brush tool and reports the edited data URL", async () => {
     const onEditImage = vi.fn();
-    openEditor(onEditImage);
+    await openEditorReady(onEditImage);
     fireEvent.click(document.body.querySelector('[aria-label="Кисть"]')!);
     const canvas = document.body.querySelector(".pe-overlay") as HTMLCanvasElement;
     stubCanvasPointer(canvas);

@@ -20,6 +20,10 @@ import { prepareMessengerImage } from "@/lib/imageProcessing";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const isHttpUrl = (v: string) => /^https?:\/\//i.test(v);
+// Draft/edited media can be an in-memory data or blob URL (photo editor
+// output before upload). Those are render-only client values, never storage
+// keys — pass them through instead of mangling them into an object path.
+const isInlineUrl = (v: string) => /^(data:|blob:|filesystem:)/i.test(v);
 
 /**
  * A logged-in browser session is signaled by the CSRF cookie the backend sets
@@ -46,6 +50,8 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
   // Messenger uploads must never fall back to an arbitrary third-party URL.
   // Public legacy buckets may still contain absolute URLs during migration.
   if (isHttpUrl(v)) return bucket === "uploads" ? null : v;
+  // Inline client-side URLs are neither absolutes nor keys.
+  if (isInlineUrl(v)) return v;
 
   // Already a relative API path
   if (v.startsWith("/storage/v1/")) {
