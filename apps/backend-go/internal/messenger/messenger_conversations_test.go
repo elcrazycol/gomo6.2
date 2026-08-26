@@ -290,7 +290,7 @@ func TestLeaveConversation_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	// Notes check (regular conversation)
@@ -319,7 +319,7 @@ func TestLeaveConversation_NotMember(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
@@ -339,7 +339,7 @@ func TestLeaveConversation_NotMember(t *testing.T) {
 
 func TestLeaveConversation_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 
 	handler.LeaveConversation(c)
 
@@ -441,7 +441,7 @@ func TestLeaveConversation_NotesRejected(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	// It IS the notes self-chat: leaving must be rejected.

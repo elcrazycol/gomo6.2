@@ -502,7 +502,7 @@ func TestDeleteMessage_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*WHERE id = \$1.*AND sender_user_id = \$2.*AND is_deleted = false.*AND conversation_id = \$3.*AND EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$3 AND user_id = \$2\)`).
@@ -520,7 +520,7 @@ func TestDeleteMessage_NotFound(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", nil, map[string]string{"id": testConv1, "msgId": testMsg999})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", nil, map[string]string{"id": testConv1, "msgId": testMsg999})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*`).
@@ -536,7 +536,7 @@ func TestDeleteMessage_NotFound(t *testing.T) {
 
 func TestDeleteMessage_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := testutil.NewDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 
 	handler.DeleteMessage(c)
 
