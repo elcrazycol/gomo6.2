@@ -151,33 +151,64 @@
   cursor: pointer;
 }
 
-.pe-size-row {
+/* ── Vertical brush-size slider (left of the canvas) ── */
+
+.pe-vsize {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 6;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 0 4px;
+  gap: 8px;
+  height: min(64%, 340px);
 }
 
-.pe-size-icon {
-  color: rgb(255 255 255 / 0.6);
-  flex-shrink: 0;
-}
-
-.pe-slider {
+.pe-vsize-track-wrap {
+  position: relative;
   flex: 1;
+  min-height: 120px;
+  width: 30px;
+  touch-action: none;
+  cursor: pointer;
 }
 
-.pe-slider [role="slider"] {
-  border-color: #2ea6ff;
-  background: #fff;
+.pe-vsize-track {
+  position: absolute;
+  inset: 0;
+  /* Widens towards the top: big is up. */
+  clip-path: polygon(0 0, 100% 0, 72% 100%, 28% 100%);
+  background: rgb(255 255 255 / 0.16);
+  overflow: hidden;
 }
 
-.pe-size-value {
+.pe-vsize-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #2ea6ff;
+}
+
+.pe-vsize-thumb {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #2ea6ff;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+
+.pe-vsize-value {
   color: rgb(255 255 255 / 0.85);
-  font-size: 12px;
-  min-width: 40px;
-  text-align: right;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .pe-crop-row {

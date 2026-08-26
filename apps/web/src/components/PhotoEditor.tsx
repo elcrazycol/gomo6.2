@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Crop, Droplets, Paintbrush, Ratio, Redo2, Undo2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Slider } from "@/components/ui/slider";
 import "./PhotoEditor.css";
 
 const MAX_IMAGE_DIMENSION = 2560;
@@ -68,6 +67,77 @@ interface PhotoEditorProps {
   src: string;
   onApply: (dataUrl: string) => void;
   onCancel: () => void;
+}
+
+/** Vertical brush-size slider: dragging up increases the size, down decreases
+    it. The track widens towards the top and the thumb grows with the value, so
+    bigger is visually "up". Bounded height keeps it neat on any screen. */
+function VerticalBrushSize({
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+  const pct = clamp(((value - min) / (max - min)) * 100, 0, 100);
+  const thumbSize = 12 + pct * 0.22;
+
+  const updateFromClientY = (clientY: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const ratio = clamp(1 - (clientY - rect.top) / rect.height, 0, 1);
+    onChange(Math.round(min + ratio * (max - min)));
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    draggingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    updateFromClientY(e.clientY);
+  };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (draggingRef.current) updateFromClientY(e.clientY);
+  };
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    draggingRef.current = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // already released
+    }
+  };
+
+  return (
+    <div className="pe-vsize">
+      <div
+        className="pe-vsize-track-wrap"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <div className="pe-vsize-track">
+          <div className="pe-vsize-fill" style={{ height: `${pct}%` }} />
+        </div>
+        <div
+          className="pe-vsize-thumb"
+          style={{
+            width: thumbSize,
+            height: thumbSize,
+            bottom: `calc(${pct}% - ${thumbSize / 2}px)`,
+          }}
+        />
+      </div>
+      <span className="pe-vsize-value">{value}px</span>
+    </div>
+  );
 }
 
 export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
@@ -595,6 +665,9 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     setCropBox({ x, y, w, h });
   };
 
+  const brushMin = tool === "blur" ? 6 : 2;
+  const brushMax = tool === "blur" ? 96 : 48;
+
   const currentAspectLabel = ASPECTS.find((a) => a.id === aspect)?.label ?? "Свободно";
 
   // Close the aspect menu on outside click / Escape.
@@ -667,6 +740,14 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       </div>
 
       <div ref={stageRef} className="pe-stage">
+        {(tool === "brush" || tool === "blur") && ready && (
+          <VerticalBrushSize
+            value={brushSize}
+            min={brushMin}
+            max={brushMax}
+            onChange={setBrushSize}
+          />
+        )}
         <div
           className="pe-frame"
           style={{ width: fit.w || undefined, height: fit.h || undefined }}
@@ -686,40 +767,25 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
       {/* Tool-specific settings */}
       <div className="pe-settings">
         {tool === "brush" && (
-          <>
-            <div className="pe-colors">
-              {BRUSH_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className={cn("pe-swatch", color === c && "is-active")}
-                  style={{ background: c }}
-                  onClick={() => setColor(c)}
-                  aria-label={`Цвет ${c}`}
-                />
-              ))}
-              <span className="pe-swatch pe-custom" style={{ background: color }}>
-                <input
-                  type="color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  aria-label="Свой цвет"
-                />
-              </span>
-            </div>
-            <div className="pe-size-row">
-              <Paintbrush size={16} className="pe-size-icon" />
-              <Slider value={[brushSize]} min={2} max={48} step={1} onValueChange={(v) => setBrushSize(v[0] ?? 12)} className="pe-slider" />
-              <span className="pe-size-value">{brushSize}px</span>
-            </div>
-          </>
-        )}
-
-        {tool === "blur" && (
-          <div className="pe-size-row">
-            <Droplets size={16} className="pe-size-icon" />
-            <Slider value={[brushSize]} min={6} max={96} step={2} onValueChange={(v) => setBrushSize(v[0] ?? 12)} className="pe-slider" />
-            <span className="pe-size-value">{brushSize}px</span>
+          <div className="pe-colors">
+            {BRUSH_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={cn("pe-swatch", color === c && "is-active")}
+                style={{ background: c }}
+                onClick={() => setColor(c)}
+                aria-label={`Цвет ${c}`}
+              />
+            ))}
+            <span className="pe-swatch pe-custom" style={{ background: color }}>
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                aria-label="Свой цвет"
+              />
+            </span>
           </div>
         )}
 
