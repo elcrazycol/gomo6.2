@@ -35,7 +35,9 @@ type Service struct {
 // New builds a Service from its dependencies. pushSvc may be nil.
 func New(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, pushSvc *push.Service) *Service {
 	return &Service{db: db, redis: redisClient, hub: hub, push: pushSvc}
-} // CreateParams carries the fields for a new notification. Fill only the
+}
+
+// CreateParams carries the fields for a new notification. Fill only the
 // related-* pointers that apply to the notification type; leave the rest nil.
 type CreateParams struct {
 	RecipientID          string                     // user who receives the notification
