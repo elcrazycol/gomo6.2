@@ -480,7 +480,7 @@ func afterWallRepostWrite(h *Engine, c *gin.Context, method string, result map[s
 	switch method {
 	case "POST":
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-			cache.InvalidateCacheForWallPost(h.redis, postID, "")
+			cache.InvalidateCacheForWallPost(h.redis, postID)
 			h.invalidateWallListCache(c, postID)
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
@@ -490,7 +490,7 @@ func afterWallRepostWrite(h *Engine, c *gin.Context, method string, result map[s
 		h.notifyWallRepost(c, result)
 	case "DELETE":
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-			cache.InvalidateCacheForWallPost(h.redis, postID, "")
+			cache.InvalidateCacheForWallPost(h.redis, postID)
 			h.invalidateWallListCache(c, postID)
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
@@ -532,7 +532,7 @@ func afterWallPostLikeWrite(h *Engine, c *gin.Context, method string, result map
 		}
 	case "DELETE":
 		if h.redis != nil {
-			cache.InvalidateCacheForWallPost(h.redis, postID, "")
+			cache.InvalidateCacheForWallPost(h.redis, postID)
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
 			cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
 			h.invalidateWallListCache(c, postID)

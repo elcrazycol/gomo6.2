@@ -347,13 +347,13 @@ func (h *RPCHandler) insertPostAndNotify(userID, username string, req *models.Cr
 	}
 
 	if h.redis != nil {
-		cache.InvalidateCacheForThread(h.redis, req.ThreadID, "")
+		cache.InvalidateCacheForThread(h.redis, req.ThreadID)
 		// The board's thread list (threads?board_id=eq.X) is cached under the
 		// board_id and embeds post_count. InvalidateForThread only clears the
 		// standalone thread page, so without this the board list would show a
 		// stale post_count for up to the data-cache TTL.
 		if postBoardID != "" {
-			cache.InvalidateCacheForBoard(h.redis, postBoardID, "")
+			cache.InvalidateCacheForBoard(h.redis, postBoardID)
 		}
 		// New replies bump the thread in the unified feed (updated_at changes).
 		cache.InvalidateCacheForFeed(h.redis)
@@ -560,7 +560,7 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 	}
 
 	if h.redis != nil {
-		cache.InvalidateCacheForBoard(h.redis, req.BoardID, "")
+		cache.InvalidateCacheForBoard(h.redis, req.BoardID)
 		// A brand-new thread is a candidate for the unified feed.
 		cache.InvalidateCacheForFeed(h.redis)
 	}

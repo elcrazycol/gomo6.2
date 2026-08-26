@@ -556,11 +556,11 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 
 	// Invalidate cache for this thread's posts
 	if h.redis != nil {
-		cache.InvalidateCacheForThread(h.redis, threadID, "")
+		cache.InvalidateCacheForThread(h.redis, threadID)
 		// The board's thread list embeds per-thread post_count — refresh it.
 		var boardID string
 		if err := h.db.QueryRow(`SELECT board_id FROM threads WHERE id = $1`, threadID).Scan(&boardID); err == nil && boardID != "" {
-			cache.InvalidateCacheForBoard(h.redis, boardID, "")
+			cache.InvalidateCacheForBoard(h.redis, boardID)
 		}
 		// Posts bump threads in the unified feed — deletion does the opposite.
 		cache.InvalidateCacheForFeed(h.redis)

@@ -138,7 +138,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
-		cache.InvalidateCacheForThreadLike(h.redis, threadID, "")
+		cache.InvalidateCacheForThreadLike(h.redis, threadID)
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(like))
@@ -193,7 +193,7 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
-		cache.InvalidateCacheForThreadLike(h.redis, threadID, "")
+		cache.InvalidateCacheForThreadLike(h.redis, threadID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))

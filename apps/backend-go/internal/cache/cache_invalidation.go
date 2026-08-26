@@ -77,22 +77,26 @@ func invalidatePatterns(redis *redis.Client, patterns []string) {
 }
 
 // InvalidateCacheForThread invalidates all cache entries related to a thread.
-// boardID is optional: when provided, the board's thread-list caches are also
-// cleared (covers board_id=eq.<boardID> and board_id=in.(...) feeds).
 //
 // Deliberately scoped: post-list keys are matched via thread_id=eq.<threadID>,
 // never a global data:/api/v1/posts* flush, so unrelated threads' caches survive.
-func InvalidateCacheForThread(redis *redis.Client, threadID string, boardID string) {
+func InvalidateCacheForThread(redis *redis.Client, threadID string) {
 	// Use wildcard patterns to invalidate ALL queries for this thread
 	patterns := []string{
 		fmt.Sprintf("data:/api/v1/posts*thread_id=eq.%s*", threadID),
 		fmt.Sprintf("data:/api/v1/threads*%s*", threadID),
 	}
-	if boardID != "" {
-		patterns = append(patterns,
-			fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID),
-			fmt.Sprintf("data:/api/v1/boards*id=eq.%s*", boardID),
-		)
+	invalidatePatterns(redis, patterns)
+}
+
+// InvalidateCacheForThreadInBoard invalidates the thread and the board it
+// belongs to: the board's thread-list caches (board_id=eq.<boardID> feeds)
+// and the board detail itself.
+func InvalidateCacheForThreadInBoard(redis *redis.Client, threadID string, boardID string) {
+	InvalidateCacheForThread(redis, threadID)
+	patterns := []string{
+		fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID),
+		fmt.Sprintf("data:/api/v1/boards*id=eq.%s*", boardID),
 	}
 	invalidatePatterns(redis, patterns)
 }
@@ -106,19 +110,22 @@ func InvalidateCacheForProfile(redis *redis.Client, userID string) {
 }
 
 // InvalidateCacheForBoard invalidates all cache entries related to a board.
-// slug is optional: when provided, slug-keyed board caches (path and
-// slug=eq.query) are cleared as well.
-func InvalidateCacheForBoard(redis *redis.Client, boardID string, slug string) {
+func InvalidateCacheForBoard(redis *redis.Client, boardID string) {
 	// Use wildcard patterns scoped to this specific board
 	patterns := []string{
 		fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID),
 		fmt.Sprintf("data:/api/v1/boards*id=eq.%s*", boardID),
 	}
-	if slug != "" {
-		patterns = append(patterns,
-			fmt.Sprintf("data:/api/v1/boards*slug=eq.%s*", slug),
-			fmt.Sprintf("data:/api/v1/boards/%s?*", slug),
-		)
+	invalidatePatterns(redis, patterns)
+}
+
+// InvalidateCacheForBoardWithSlug invalidates the board and its slug-keyed
+// caches (path /api/v1/boards/<slug> and slug=eq.<slug> queries).
+func InvalidateCacheForBoardWithSlug(redis *redis.Client, boardID string, slug string) {
+	InvalidateCacheForBoard(redis, boardID)
+	patterns := []string{
+		fmt.Sprintf("data:/api/v1/boards*slug=eq.%s*", slug),
+		fmt.Sprintf("data:/api/v1/boards/%s?*", slug),
 	}
 	invalidatePatterns(redis, patterns)
 }
@@ -134,15 +141,21 @@ func InvalidateCacheForProfileWall(redis *redis.Client, userID string) {
 }
 
 // InvalidateCacheForWallPost invalidates cache for a specific wall post and its comments.
-// userID is optional: when provided, the owner's wall-list caches are also cleared.
-func InvalidateCacheForWallPost(redis *redis.Client, postID string, userID string) {
+func InvalidateCacheForWallPost(redis *redis.Client, postID string) {
 	patterns := []string{
 		fmt.Sprintf("data:/api/v1/profile_wall_posts*id=eq.%s*", postID),
 		fmt.Sprintf("data:/api/v1/profile_wall_posts/%s?*", postID),
 		fmt.Sprintf("data:/api/v1/profile_wall_posts*post_id=eq.%s*", postID),
 	}
-	if userID != "" {
-		patterns = append(patterns, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
+	invalidatePatterns(redis, patterns)
+}
+
+// InvalidateCacheForWallPostOfUser invalidates the wall post and the wall
+// owner's wall-list caches (the wall list embeds post counts per post).
+func InvalidateCacheForWallPostOfUser(redis *redis.Client, postID string, userID string) {
+	InvalidateCacheForWallPost(redis, postID)
+	patterns := []string{
+		fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID),
 	}
 	invalidatePatterns(redis, patterns)
 }
@@ -190,9 +203,9 @@ func InvalidateCacheForPostLike(redis *redis.Client, postID string, threadID str
 }
 
 // InvalidateCacheForThreadLike invalidates cache when a thread is liked/unliked.
-func InvalidateCacheForThreadLike(redis *redis.Client, threadID string, boardID string) {
+func InvalidateCacheForThreadLike(redis *redis.Client, threadID string) {
 	// Invalidate the thread itself (likes affect thread data)
-	InvalidateCacheForThread(redis, threadID, boardID)
+	InvalidateCacheForThread(redis, threadID)
 }
 
 // InvalidateCacheForNotification invalidates notification cache for a user.

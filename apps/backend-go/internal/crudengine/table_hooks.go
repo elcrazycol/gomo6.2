@@ -58,7 +58,7 @@ func invalidateProfileWallPostsCache(h *Engine, _ *gin.Context, result map[strin
 	id := crud.WallResultString(result["id"])
 	userID := crud.WallResultString(result["user_id"])
 	fmt.Printf("[CacheInvalidator] Invalidating wall post cache: id=%s, user_id=%s\n", id, userID)
-	cache.InvalidateCacheForWallPost(h.redis, id, userID)
+	cache.InvalidateCacheForWallPostOfUser(h.redis, id, userID)
 }
 
 // invalidateProfileWallPostCommentsCache clears the post's comments list.
@@ -153,7 +153,7 @@ func invalidateProfileWallPostLikesCache(h *Engine, _ *gin.Context, result map[s
 	if postID == "" {
 		return
 	}
-	cache.InvalidateCacheForWallPost(h.redis, postID, "")
+	cache.InvalidateCacheForWallPost(h.redis, postID)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
 	cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
 	cache.InvalidateCacheForFeed(h.redis)

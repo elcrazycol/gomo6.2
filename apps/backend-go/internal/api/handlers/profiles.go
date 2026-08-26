@@ -64,7 +64,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 			if rows.Scan(&threadID, &boardID) != nil {
 				continue
 			}
-			cache.InvalidateCacheForThread(h.redis, threadID, boardID)
+			cache.InvalidateCacheForThreadInBoard(h.redis, threadID, boardID)
 			if boardID != "" {
 				// Cover board_id=in.(...) aggregate feeds (main page), not just
 				// board_id=eq.<boardID> — the raw board id substring matches

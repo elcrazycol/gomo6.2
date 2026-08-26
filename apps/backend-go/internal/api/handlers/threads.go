@@ -628,11 +628,11 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	}
 
 	if h.redis != nil {
-		cache.InvalidateCacheForThread(h.redis, id, "")
+		cache.InvalidateCacheForThread(h.redis, id)
 		// The board's thread list embeds per-thread post_count and the unified
 		// feed contains the thread — both would keep serving the deleted row
 		// until the data-cache TTL expires.
-		cache.InvalidateCacheForBoard(h.redis, boardID, "")
+		cache.InvalidateCacheForBoard(h.redis, boardID)
 		cache.InvalidateCacheForFeed(h.redis)
 	}
 
@@ -721,7 +721,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 	}
 
 	if h.redis != nil {
-		cache.InvalidateCacheForThread(h.redis, thread.ID, "")
+		cache.InvalidateCacheForThread(h.redis, thread.ID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(thread))

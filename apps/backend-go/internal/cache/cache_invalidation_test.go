@@ -139,7 +139,7 @@ func TestInvalidateCacheForThread(t *testing.T) {
 	mr.Set("data:/api/v1/posts?thread_id=eq.thread-1&select=id|viewer=anon", "v3")
 	mr.Set("data:/api/v1/boards?id=eq.board-1", "keep-me")
 
-	InvalidateCacheForThread(client, "thread-1", "")
+	InvalidateCacheForThread(client, "thread-1")
 
 	if mr.Exists("data:/api/v1/threads?id=eq.thread-1&select=id,title|viewer=anon") {
 		t.Error("thread detail key should be deleted")
@@ -161,7 +161,7 @@ func TestInvalidateCacheForThread_WithBoardID(t *testing.T) {
 	mr.Set("data:/api/v1/threads?board_id=eq.board-1&select=id|viewer=anon", "v1")
 	mr.Set("data:/api/v1/boards?id=eq.board-1", "v2")
 
-	InvalidateCacheForThread(client, "thread-1", "board-1")
+	InvalidateCacheForThreadInBoard(client, "thread-1", "board-1")
 
 	if mr.Exists("data:/api/v1/threads?board_id=eq.board-1&select=id|viewer=anon") {
 		t.Error("board thread-list key should be deleted when boardID given")
@@ -179,7 +179,7 @@ func TestInvalidateCacheForBoard_WithSlug(t *testing.T) {
 	mr.Set("data:/api/v1/boards/shroom?select=id|viewer=anon", "v3")
 	mr.Set("data:/api/v1/boards?slug=eq.shroom&select=id|viewer=anon", "v4")
 
-	InvalidateCacheForBoard(client, "board-1", "shroom")
+	InvalidateCacheForBoardWithSlug(client, "board-1", "shroom")
 
 	for _, k := range []string{
 		"data:/api/v1/threads?board_id=eq.board-1|viewer=anon",
@@ -200,7 +200,7 @@ func TestInvalidateCacheForWallPost_WithUser(t *testing.T) {
 	mr.Set("data:/api/v1/profile_wall_posts/post-1?select=id|viewer=anon", "v2")
 	mr.Set("data:/api/v1/profile_wall_posts?user_id=eq.owner-1&select=id|viewer=viewer-1", "v3")
 
-	InvalidateCacheForWallPost(client, "post-1", "owner-1")
+	InvalidateCacheForWallPostOfUser(client, "post-1", "owner-1")
 
 	if mr.Exists("data:/api/v1/profile_wall_posts?id=eq.post-1|viewer=anon") {
 		t.Error("wall post detail key should be deleted")
@@ -278,16 +278,19 @@ func TestInvalidateCacheForFeed(t *testing.T) {
 // =============================================================================
 
 func TestCanonicalInvalidators_NoPanicNilRedis(t *testing.T) {
-	InvalidateCacheForThread(nil, "thread-1", "board-1")
+	InvalidateCacheForThread(nil, "thread-1")
+	InvalidateCacheForThreadInBoard(nil, "thread-1", "board-1")
 	InvalidateCacheForProfile(nil, "user-1")
-	InvalidateCacheForBoard(nil, "board-1", "slug-1")
+	InvalidateCacheForBoard(nil, "board-1")
+	InvalidateCacheForBoardWithSlug(nil, "board-1", "slug-1")
 	InvalidateCacheForProfileWall(nil, "user-1")
-	InvalidateCacheForWallPost(nil, "post-1", "user-1")
+	InvalidateCacheForWallPost(nil, "post-1")
+	InvalidateCacheForWallPostOfUser(nil, "post-1", "user-1")
 	InvalidateCacheForFeed(nil)
 	InvalidateCacheForWallPostPin(nil, "post-1", "user-1")
 	InvalidateCacheForPost(nil, "post-1", "thread-1")
 	InvalidateCacheForPostLike(nil, "post-1", "thread-1")
-	InvalidateCacheForThreadLike(nil, "thread-1", "board-1")
+	InvalidateCacheForThreadLike(nil, "thread-1")
 	InvalidateCacheForNotification(nil, "user-1")
 	InvalidateCacheForChatMessage(nil, "msg-1", "conv-1")
 	InvalidateCacheForChatConversation(nil, "conv-1", "user-1")
