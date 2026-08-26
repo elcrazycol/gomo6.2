@@ -1,10 +1,10 @@
-package universal
+package crudengine
 
 import "testing"
 
 // TestGenericTables_RegistryConsistency guards the invariants the generic CRUD
 // surface relies on. The registry (table_registry.go) is the single source of
-// truth for the universal routes, the handler allow-list and the
+// truth for the generic CRUD routes, the handler allow-list and the
 // permissions/scopes — a broken entry here silently changes routing or
 // security posture, so the shape of the data itself is locked in.
 func TestGenericTables_RegistryConsistency(t *testing.T) {

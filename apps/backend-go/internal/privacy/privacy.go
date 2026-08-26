@@ -1,7 +1,7 @@
 // Package privacy holds the profile-visibility rules shared between the
-// api/handlers god package and the universal CRUD subsystem: privacy settings
+// api/handlers god package and the crudengine subsystem: privacy settings
 // loading, mutual friendship checks and per-content-type visibility gates.
-// Extracted so the universal subsystem can leave the handlers package without
+// Extracted so the crudengine subsystem can leave the handlers package without
 // dragging the whole privacy domain with it.
 package privacy
 

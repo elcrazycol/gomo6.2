@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"bytes"
@@ -14,8 +14,8 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 )
 
-// setupUniversalHandler creates a UniversalHandler with a mock DB (hub=nil, redis=nil).
-func setupUniversalHandler(t *testing.T) (*UniversalHandler, sqlmock.Sqlmock) {
+// setupEngine creates a Engine with a mock DB (hub=nil, redis=nil).
+func setupEngine(t *testing.T) (*Engine, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -30,12 +30,12 @@ func setupUniversalHandler(t *testing.T) (*UniversalHandler, sqlmock.Sqlmock) {
 		db.Close()
 	})
 
-	handler := NewUniversalHandler(db, nil) // hub=nil skips websocket events
+	handler := New(db, nil) // hub=nil skips websocket events
 	return handler, mock
 }
 
-// newUniversalRequestContext creates a gin context for UniversalHandler with specified method, path, body, and claims.
-func newUniversalRequestContext(method, path string, body interface{}, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
+// newRequestContext creates a gin context for Engine with specified method, path, body, and claims.
+func newRequestContext(method, path string, body interface{}, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 
 	var bodyReader io.Reader

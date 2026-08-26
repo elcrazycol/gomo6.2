@@ -1,8 +1,8 @@
 // Package notifications holds the notification-insertion subsystem shared
-// between the api/handlers god package and the universal CRUD subsystem:
+// between the api/handlers god package and the crudengine subsystem:
 // CreateNotification/CreateWallNotification plus the single INSERT + cache
 // invalidation + WebSocket broadcast path they both funnel through. Extracted
-// so the universal subsystem can leave the handlers package without dragging
+// so the crudengine subsystem can leave the handlers package without dragging
 // the whole notification domain with it.
 package notifications
 

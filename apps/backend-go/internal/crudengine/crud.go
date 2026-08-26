@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"database/sql"
@@ -29,7 +29,7 @@ import (
 // registry (TableMeta.InvalidateCache, implemented in table_hooks.go) — tables
 // without a hook fall back to the generic table invalidation keyed by the row
 // id, so a new table can never silently skip invalidation entirely.
-func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableName string, result map[string]interface{}) {
+func (h *Engine) invalidateCacheForTableResult(c *gin.Context, tableName string, result map[string]interface{}) {
 	if h.redis == nil {
 		fmt.Printf("[CacheInvalidator] Redis is nil, skipping invalidation for %s\n", tableName)
 		return
@@ -59,7 +59,7 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 // (likes/comments/reposts + viewer state), so a like/comment/repost must
 // invalidate the owner's list key (user_id=eq.<owner>) — the post-scoped
 // patterns alone only match the standalone post page.
-func (h *UniversalHandler) invalidateWallListCache(c *gin.Context, postID string) {
+func (h *Engine) invalidateWallListCache(c *gin.Context, postID string) {
 	if h.redis == nil || postID == "" {
 		return
 	}
@@ -73,7 +73,7 @@ func (h *UniversalHandler) invalidateWallListCache(c *gin.Context, postID string
 
 // invalidateCommentLikesCache invalidates every cache whose response embeds
 // comment like counts: the post's comments list and the owner's wall list.
-func (h *UniversalHandler) invalidateCommentLikesCache(c *gin.Context, commentID string) {
+func (h *Engine) invalidateCommentLikesCache(c *gin.Context, commentID string) {
 	if h.redis == nil || commentID == "" {
 		return
 	}
@@ -90,7 +90,7 @@ func (h *UniversalHandler) invalidateCommentLikesCache(c *gin.Context, commentID
 // counters a wall-post like changes: the post's author (likes_received) and
 // the liker (likes_given). The author is resolved from the DB because the
 // generic CRUD result only carries the like's foreign key.
-func (h *UniversalHandler) recomputeStatsForWallPostLike(c *gin.Context, postID, likerID string) {
+func (h *Engine) recomputeStatsForWallPostLike(c *gin.Context, postID, likerID string) {
 	if postID != "" {
 		var authorID string
 		if err := h.db.QueryRowContext(c.Request.Context(),
@@ -106,7 +106,7 @@ func (h *UniversalHandler) recomputeStatsForWallPostLike(c *gin.Context, postID,
 // recomputeStatsForWallCommentLike — same as recomputeStatsForWallPostLike but
 // for likes on wall comments: the comment's author (likes_received) and the
 // liker (likes_given).
-func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, commentID, likerID string) {
+func (h *Engine) recomputeStatsForWallCommentLike(c *gin.Context, commentID, likerID string) {
 	if commentID != "" {
 		var authorID string
 		if err := h.db.QueryRowContext(c.Request.Context(),
@@ -120,7 +120,7 @@ func (h *UniversalHandler) recomputeStatsForWallCommentLike(c *gin.Context, comm
 }
 
 // wallPostOwnerAuthor resolves the wall owner and author of a wall post.
-func (h *UniversalHandler) wallPostOwnerAuthor(c *gin.Context, postID string) (ownerID, authorID string) {
+func (h *Engine) wallPostOwnerAuthor(c *gin.Context, postID string) (ownerID, authorID string) {
 	if postID == "" {
 		return "", ""
 	}
@@ -130,7 +130,7 @@ func (h *UniversalHandler) wallPostOwnerAuthor(c *gin.Context, postID string) (o
 }
 
 // wallCommentPostAndAuthor resolves a wall comment's post_id and author.
-func (h *UniversalHandler) wallCommentPostAndAuthor(c *gin.Context, commentID string) (postID, authorID string) {
+func (h *Engine) wallCommentPostAndAuthor(c *gin.Context, commentID string) (postID, authorID string) {
 	if commentID == "" {
 		return "", ""
 	}
@@ -142,7 +142,7 @@ func (h *UniversalHandler) wallCommentPostAndAuthor(c *gin.Context, commentID st
 // createWallNotification creates a wall notification for recipientID, skipping
 // self-notifications. Best-effort — a failed notification must never fail the
 // underlying wall write.
-func (h *UniversalHandler) createWallNotification(c *gin.Context, recipientID, actorID, notifType, message, actorUsername string, wallPostID, wallCommentID, wallUserID *string) {
+func (h *Engine) createWallNotification(c *gin.Context, recipientID, actorID, notifType, message, actorUsername string, wallPostID, wallCommentID, wallUserID *string) {
 	if recipientID == "" || actorID == "" || recipientID == actorID {
 		return
 	}
@@ -154,7 +154,7 @@ func (h *UniversalHandler) createWallNotification(c *gin.Context, recipientID, a
 
 // notifyWallPostLike creates the "wall_post_like" notification for the wall
 // post author.
-func (h *UniversalHandler) notifyWallPostLike(c *gin.Context, postID, actorID string) {
+func (h *Engine) notifyWallPostLike(c *gin.Context, postID, actorID string) {
 	if postID == "" || actorID == "" {
 		return
 	}
@@ -167,7 +167,7 @@ func (h *UniversalHandler) notifyWallPostLike(c *gin.Context, postID, actorID st
 
 // notifyWallComment creates the wall comment / reply notifications for a newly
 // inserted wall comment.
-func (h *UniversalHandler) notifyWallComment(c *gin.Context, result map[string]interface{}) {
+func (h *Engine) notifyWallComment(c *gin.Context, result map[string]interface{}) {
 	commentID := crud.WallResultString(result["id"])
 	postID := crud.WallResultString(result["post_id"])
 	actorID := crud.WallResultString(result["user_id"])
@@ -196,7 +196,7 @@ func (h *UniversalHandler) notifyWallComment(c *gin.Context, result map[string]i
 
 // notifyWallRepost creates the "wall_repost" notification for the author of the
 // original wall post.
-func (h *UniversalHandler) notifyWallRepost(c *gin.Context, result map[string]interface{}) {
+func (h *Engine) notifyWallRepost(c *gin.Context, result map[string]interface{}) {
 	originalPostID := crud.WallResultString(result["post_id"])
 	actorID := crud.WallResultString(result["user_id"])
 	if originalPostID == "" || actorID == "" {
@@ -211,7 +211,7 @@ func (h *UniversalHandler) notifyWallRepost(c *gin.Context, result map[string]in
 
 // ─── GET ────────────────────────────────────────────────────────────────────
 
-func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
+func (h *Engine) handleGet(c *gin.Context, tableName string) {
 	if tableName == "user_achievements" {
 		h.handleUserAchievementsGet(c)
 		return
@@ -601,7 +601,7 @@ RETURNING *, (xmax = 0) AS inserted`
 // hidden their wall (private_hide_wall), or mutual friends. This mirrors the
 // REST read predicate (profileWallFinishSelectQuery) so the write path enforces
 // the exact same privacy rule.
-func (h *UniversalHandler) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
+func (h *Engine) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
 	if viewerID == ownerID {
 		return true, nil
 	}
@@ -635,7 +635,7 @@ func (h *UniversalHandler) wallOwnerVisibleToViewer(viewerID, ownerID string) (b
 // not view: posting on a private wall, commenting on/liking a post of a private
 // wall, or reposting a private wall post onto the caller's own wall.
 // It writes the HTTP response and returns false when the request is rejected.
-func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName string, data map[string]interface{}, userID string) bool {
+func (h *Engine) enforceWallTargetPrivacy(c *gin.Context, tableName string, data map[string]interface{}, userID string) bool {
 	// Resolve the wall owner this interaction targets.
 	var wallOwner string
 	switch tableName {
@@ -739,7 +739,7 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 // OwnSingle forces user_id, OwnWallPost forces author_id (with the wall owner
 // allowed when privacy permits), OwnWallRepost forces user_id AND wall_user_id.
 // It writes the HTTP response and returns false when the request is rejected.
-func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string, data map[string]interface{}) bool {
+func (h *Engine) enforcePostOwnership(c *gin.Context, tableName string, data map[string]interface{}) bool {
 	meta := GenericTableByName(tableName)
 	if meta == nil {
 		return true
@@ -843,7 +843,7 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 	return clauses, args, argIndex, true
 }
 
-func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
+func (h *Engine) handlePost(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -967,7 +967,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 		// Achievements: fires for writes that map to events (daily visit,
 		// wall likes, rules acceptance, profile customization, …).
-		h.emitUniversalAchievementEvents(tableName, result)
+		h.emitAchievementEvents(tableName, result)
 
 		c.JSON(http.StatusOK, models.SuccessResponse(result))
 		return
@@ -1110,7 +1110,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	// Achievements: fires for wall posts/comments/reposts/likes, sub joins,
 	// rules acceptance, customization — before the enriched early-return below.
-	h.emitUniversalAchievementEvents(tableName, result)
+	h.emitAchievementEvents(tableName, result)
 
 	if h.tryRespondProfileWallEnriched(c, tableName, result) {
 		return
@@ -1139,7 +1139,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 // content. private_profile → both the wall and the now-playing room become
 // friends-only; private_hide_wall alone → only the wall room becomes
 // friends-only. Calls on other tables or without a hub are no-ops.
-func (h *UniversalHandler) revokeSubscriptionsAfterPrivacyChange(tableName string, result map[string]interface{}) {
+func (h *Engine) revokeSubscriptionsAfterPrivacyChange(tableName string, result map[string]interface{}) {
 	if tableName != "privacy_settings" || h.hub == nil {
 		return
 	}
@@ -1158,7 +1158,7 @@ func (h *UniversalHandler) revokeSubscriptionsAfterPrivacyChange(tableName strin
 
 // ─── PUT ────────────────────────────────────────────────────────────────────
 
-func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
+func (h *Engine) handlePut(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -1426,7 +1426,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 // ─── DELETE ─────────────────────────────────────────────────────────────────
 
-func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
+func (h *Engine) handleDelete(c *gin.Context, tableName string) {
 	// Wall comments are soft-deleted: the row must survive so the replies
 	// underneath it (parent_id has ON DELETE CASCADE — a hard delete used to
 	// wipe the whole subtree) and the thread structure stay intact. The content

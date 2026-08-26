@@ -18,7 +18,7 @@ apps/backend-go/
 │   ├── api/
 │   │   ├── handlers/           # HTTP хендлеры (dedicated: posts, threads, boards, …)
 │   │   └── routes/             # Роуты, wiring
-│   ├── universal/              # Generic CRUD + wall + registry (ex-god-pakage)
+│   ├── crudengine/             # Generic CRUD engine + wall + registry (ex-god-pakage)
 │   ├── crud/                   # Stateless SQL helpers (filters, ordering, emoji)
 │   ├── profiles/               # Profile stats + CSS sanitizers
 │   ├── backup/                 # Database backup handler
@@ -53,7 +53,7 @@ graph TD
 
     subgraph Application
         handlers["api/handlers\n45 files — dedicated CRUD + auth + messenger"]
-        universal["universal\n10 files — generic CRUD, wall, registry, achievements"]
+        crudengine["crudengine\n10 files — generic CRUD, wall, registry, achievements"]
     end
 
     subgraph Domain
@@ -90,7 +90,7 @@ graph TD
 
     %% routes wires everything
     routes --> handlers
-    routes --> universal
+    routes --> crudengine
     routes --> backup
     routes --> profiles
     routes --> middleware
@@ -123,18 +123,18 @@ graph TD
     handlers --> httpx
     handlers --> textutil
 
-    universal --> achievements
-    universal --> notifications
-    universal --> privacy
-    universal --> httpx
-    universal --> textutil
-    universal --> auth
-    universal --> cache
-    universal --> crud
-    universal --> middleware
-    universal --> models
-    universal --> profiles
-    universal --> websocket
+    crudengine --> achievements
+    crudengine --> notifications
+    crudengine --> privacy
+    crudengine --> httpx
+    crudengine --> textutil
+    crudengine --> auth
+    crudengine --> cache
+    crudengine --> crud
+    crudengine --> middleware
+    crudengine --> models
+    crudengine --> profiles
+    crudengine --> websocket
 
     profiles --> auth
     profiles --> models
@@ -165,7 +165,7 @@ graph TD
     oauth --> auth
 
     style handlers fill:#f9f,stroke:#333,stroke-width:2px
-    style universal fill:#bbf,stroke:#333,stroke-width:2px
+    style crudengine fill:#bbf,stroke:#333,stroke-width:2px
     style crud fill:#bfb,stroke:#333
     style profiles fill:#bfb,stroke:#333
     style backup fill:#bfb,stroke:#333

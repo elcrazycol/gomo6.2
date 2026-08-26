@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 
 // handleUserAchievementsGet returns rows shaped like PostgREST embeds: nested "achievements" object
 // with multi-level support (levels JSONB, current_level, max_level).
-func (h *UniversalHandler) handleUserAchievementsGet(c *gin.Context) {
+func (h *Engine) handleUserAchievementsGet(c *gin.Context) {
 	// Whenever a user opens their own achievements page, reconcile every group
 	// from live data (debounced, in the background — see
 	// scheduleAchievementRecompute). Counter groups self-heal in the engine,
@@ -220,7 +220,7 @@ const achievementRecomputeWindow = 60 * time.Second
 // engine's own event increments already keep counters fresh; this is only a
 // drift-healing safety net for rows that predate an emit or a missed event, so
 // a short debounce is plenty.
-func (h *UniversalHandler) scheduleAchievementRecompute(userID string) {
+func (h *Engine) scheduleAchievementRecompute(userID string) {
 	if userID == "" || h.achEngine == nil {
 		return
 	}

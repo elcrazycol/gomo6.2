@@ -1,11 +1,11 @@
-package universal
+package crudengine
 
 import (
 	"github.com/gomo6/backend/internal/crud"
 )
 
-// emitUniversalAchievementEvents fires the achievement events implied by a
-// universal-CRUD write. It runs on both the upsert and the INSERT write paths.
+// emitAchievementEvents fires the achievement events implied by a
+// generic CRUD write. It runs on both the upsert and the INSERT write paths.
 // Which tables emit events is declared in the table registry
 // (TableMeta.EmitAchievements, implemented in table_hooks.go); tables without
 // a hook emit nothing.
@@ -16,7 +16,7 @@ import (
 // are NOT reachable through the generic CRUD surface (they have dedicated
 // handlers that emit through their RPC paths — CreateThreadRPC /
 // CreatePostRPC / CreateGomoSub), so they carry no hooks.
-func (h *UniversalHandler) emitUniversalAchievementEvents(tableName string, result map[string]interface{}) {
+func (h *Engine) emitAchievementEvents(tableName string, result map[string]interface{}) {
 	e := h.achEngine
 	if e == nil {
 		return

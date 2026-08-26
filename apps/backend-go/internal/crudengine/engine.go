@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"bytes"
@@ -23,8 +23,8 @@ import (
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-// UniversalHandler handles generic CRUD operations for any table
-type UniversalHandler struct {
+// Engine handles generic CRUD operations for any table
+type Engine struct {
 	db        *sql.DB
 	hub       *websocket.Hub
 	redis     *redis.Client
@@ -39,8 +39,8 @@ type UniversalHandler struct {
 	achievementRecomputeAt map[string]time.Time
 }
 
-func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
-	return &UniversalHandler{
+func New(db *sql.DB, hub *websocket.Hub) *Engine {
+	return &Engine{
 		db:                     db,
 		hub:                    hub,
 		achievementRecomputeAt: make(map[string]time.Time),
@@ -48,19 +48,19 @@ func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
 }
 
 // SetRedis sets the Redis client for cache invalidation
-func (h *UniversalHandler) SetRedis(redis *redis.Client) {
+func (h *Engine) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
 // SetAchievementEngine wires the achievements engine for auto-unlock events.
-func (h *UniversalHandler) SetAchievementEngine(e *achievements.Engine) {
+func (h *Engine) SetAchievementEngine(e *achievements.Engine) {
 	h.achEngine = e
 }
 
 // ─── Main Router ────────────────────────────────────────────────────────────
 
 // HandleTableRequest handles requests to any table
-func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
+func (h *Engine) HandleTableRequest(c *gin.Context) {
 	// Extract table name from URL path
 	path := c.Request.URL.Path
 	tableName := strings.TrimPrefix(path, "/api/v1/")
@@ -299,7 +299,7 @@ func isGomosubManagementTable(table string) bool {
 }
 
 // isSelfJoin checks if a POST to gomosub_memberships is a user joining a board themselves.
-func (h *UniversalHandler) isSelfJoin(c *gin.Context) bool {
+func (h *Engine) isSelfJoin(c *gin.Context) bool {
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
 		return false
@@ -324,7 +324,7 @@ func (h *UniversalHandler) isSelfJoin(c *gin.Context) bool {
 }
 
 // isSelfLeave checks if a DELETE on gomosub_memberships targets the user's own membership.
-func (h *UniversalHandler) isSelfLeave(c *gin.Context) bool {
+func (h *Engine) isSelfLeave(c *gin.Context) bool {
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
 		return false
@@ -338,7 +338,7 @@ func (h *UniversalHandler) isSelfLeave(c *gin.Context) bool {
 // checkGomosubWritePermission verifies the user has management permissions for the
 // gomosub board. It extracts board_id from the request body or query params.
 // Returns true if allowed, false if denied (response already sent).
-func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName string) bool {
+func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) bool {
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))

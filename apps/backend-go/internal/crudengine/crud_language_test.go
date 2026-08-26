@@ -1,4 +1,4 @@
-package universal
+package crudengine
 
 import (
 	"strings"

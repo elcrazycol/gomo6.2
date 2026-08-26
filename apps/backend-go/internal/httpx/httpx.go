@@ -10,7 +10,7 @@ import (
 )
 
 // ServerError logs the real error and returns a generic 500 to the client.
-// NEVER leaks raw error messages to the client. Shared by handlers, universal
+// NEVER leaks raw error messages to the client. Shared by handlers, crudengine
 // and backup so the "generic 500" contract lives in exactly one place.
 func ServerError(c *gin.Context, context string, err error) {
 	log.Printf("[HTTP] %s: %v", context, err)
