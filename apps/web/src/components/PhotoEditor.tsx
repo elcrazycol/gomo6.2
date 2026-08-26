@@ -111,6 +111,24 @@ function encodeSnapshotAsync(canvas: HTMLCanvasElement): Promise<string> {
   return fallback();
 }
 
+/** Render the region covered by a crop box into a new canvas at the box size.
+    Shared by "Применить кадр" (which bakes the crop into the working canvas)
+    and "Готово" (which exports the pending crop), so the two export paths can
+    never drift apart. */
+function cropCanvas(source: HTMLCanvasElement, box: Box): HTMLCanvasElement | null {
+  const w = Math.max(1, Math.round(box.w));
+  const h = Math.max(1, Math.round(box.h));
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const octx = out.getContext("2d");
+  if (!octx) return null;
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = "high";
+  octx.drawImage(source, box.x, box.y, w, h, 0, 0, w, h);
+  return out;
+}
+
 interface PhotoEditorProps {
   src: string;
   onApply: (dataUrl: string) => void;
@@ -1003,25 +1021,19 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const box = cropBoxRef.current;
-    const w = Math.max(1, Math.round(box.w));
-    const h = Math.max(1, Math.round(box.h));
-    if (w >= canvas.width && h >= canvas.height) return;
+    if (Math.round(box.w) >= canvas.width && Math.round(box.h) >= canvas.height) return;
 
     pushUndo();
-    const out = document.createElement("canvas");
-    out.width = w;
-    out.height = h;
-    const octx = out.getContext("2d");
-    if (!octx) return;
-    octx.drawImage(canvas, box.x, box.y, w, h, 0, 0, w, h);
+    const out = cropCanvas(canvas, box);
+    if (!out) return;
 
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = out.width;
+    canvas.height = out.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(out, 0, 0, w, h);
+    ctx.drawImage(out, 0, 0, out.width, out.height);
 
     setView(IDENTITY_VIEW);
     syncStage();
@@ -1032,15 +1044,9 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const box = cropBoxRef.current;
-    const w = Math.round(box.w);
-    const h = Math.round(box.h);
-    if (w < canvas.width || h < canvas.height) {
-      const out = document.createElement("canvas");
-      out.width = Math.max(1, w);
-      out.height = Math.max(1, h);
-      const octx = out.getContext("2d");
-      if (!octx) return;
-      octx.drawImage(canvas, box.x, box.y, out.width, out.height, 0, 0, out.width, out.height);
+    if (Math.round(box.w) < canvas.width || Math.round(box.h) < canvas.height) {
+      const out = cropCanvas(canvas, box);
+      if (!out) return;
       onApply(out.toDataURL("image/png"));
     } else {
       onApply(canvas.toDataURL("image/png"));
