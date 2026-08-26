@@ -1,4 +1,11 @@
-package handlers
+// Package translations manages the community translation proposals and
+// votes (translation_values + translation_votes): submit, vote, list and
+// delete proposals for the frontend's translatable keys. Extracted from the
+// former api/handlers god package as part of the R5 sweep — the domain is
+// self-contained (its own SQL, validation regexes and moderator check), so
+// it lives as a leaf package next to socialpreview/notifications/privacy
+// and is wired into the router from routes.go.
+package translations
 
 import (
 	"database/sql"
@@ -19,18 +26,19 @@ import (
 // ─── Community translations ─────────────────────────────────────────────────
 //
 // The canonical list of translatable keys (and their Russian source text) lives
-// in the frontend bundle; this handler manages the user-submitted proposals
+// in the frontend bundle; this package manages the user-submitted proposals
 // stored in translation_values + translation_votes. Proposals are ranked by
 // net votes and the top-voted one becomes the effective translation served to
 // clients for a locale.
 
-// TranslationsHandler manages community translation proposals and votes.
-type TranslationsHandler struct {
+// Service manages community translation proposals and votes.
+type Service struct {
 	db *sql.DB
 }
 
-func NewTranslationsHandler(db *sql.DB) *TranslationsHandler {
-	return &TranslationsHandler{db: db}
+// New builds the translations service.
+func New(db *sql.DB) *Service {
+	return &Service{db: db}
 }
 
 var (
@@ -54,7 +62,7 @@ type translationValue struct {
 
 // ListTranslations returns every proposal for a locale, ranked by net votes.
 // Anonymous callers get my_vote=0. Query params: locale (required), key.
-func (h *TranslationsHandler) ListTranslations(c *gin.Context) {
+func (h *Service) ListTranslations(c *gin.Context) {
 	locale := strings.TrimSpace(c.Query("locale"))
 	if !translationLocaleRE.MatchString(locale) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("locale is required"))
@@ -114,7 +122,7 @@ type submitTranslationRequest struct {
 
 // SubmitTranslation stores a new proposal for (key, locale). Identical
 // proposals by the same author are deduped (returns the existing row).
-func (h *TranslationsHandler) SubmitTranslation(c *gin.Context) {
+func (h *Service) SubmitTranslation(c *gin.Context) {
 	userID := httpx.AuthenticatedUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -184,7 +192,7 @@ type voteTranslationRequest struct {
 // VoteTranslation casts/updates/removes the caller's vote on a proposal.
 // Voting the same direction again toggles the vote off; the opposite direction
 // flips it. The denormalized votes counter is kept consistent atomically.
-func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
+func (h *Service) VoteTranslation(c *gin.Context) {
 	userID := httpx.AuthenticatedUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -274,7 +282,7 @@ func (h *TranslationsHandler) VoteTranslation(c *gin.Context) {
 
 // DeleteTranslation removes the caller's own proposal (admins/moderators may
 // remove any proposal).
-func (h *TranslationsHandler) DeleteTranslation(c *gin.Context) {
+func (h *Service) DeleteTranslation(c *gin.Context) {
 	userID := httpx.AuthenticatedUserID(c)
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
