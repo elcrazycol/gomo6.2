@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Crop, Droplets, Paintbrush, Redo2, Undo2, X } from "lucide-react";
+import { Check, ChevronDown, Crop, Droplets, Paintbrush, Ratio, Redo2, Undo2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Slider } from "@/components/ui/slider";
 import "./PhotoEditor.css";
@@ -79,6 +79,7 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
   const [color, setColor] = useState("#e53935");
   const [brushSize, setBrushSize] = useState(12);
   const [aspect, setAspect] = useState<string | null>(null);
+  const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const [cropBox, setCropBox] = useState<Box>({ x: 0, y: 0, w: 1, h: 1 });
   const [fit, setFit] = useState({ w: 0, h: 0 });
   const [ready, setReady] = useState(false);
@@ -594,6 +595,26 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
     setCropBox({ x, y, w, h });
   };
 
+  const currentAspectLabel = ASPECTS.find((a) => a.id === aspect)?.label ?? "Свободно";
+
+  // Close the aspect menu on outside click / Escape.
+  useEffect(() => {
+    if (!aspectMenuOpen) return;
+    const onDocMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest(".pe-aspect-trigger-wrap")) setAspectMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAspectMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [aspectMenuOpen]);
+
   const applyCrop = useCallback(() => {
     const canvas = canvasRef.current;
     const overlay = overlayRef.current;
@@ -704,27 +725,49 @@ export const PhotoEditor = ({ src, onApply, onCancel }: PhotoEditorProps) => {
 
         {tool === "crop" && (
           <>
-            <div className="pe-aspects">
-              {ASPECTS.map((a) => (
+            <div className="pe-crop-row">
+              <div className="pe-aspect-trigger-wrap">
                 <button
-                  key={a.id}
                   type="button"
-                  className={cn("pe-aspect", aspect === a.id && "is-active")}
-                  onClick={() => applyAspect(a.id)}
+                  className={cn("pe-aspect-trigger", aspectMenuOpen && "is-open")}
+                  onClick={() => setAspectMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={aspectMenuOpen}
                 >
-                  {a.label}
+                  <Ratio size={16} />
+                  <span className="pe-aspect-trigger-label">{currentAspectLabel}</span>
+                  <ChevronDown size={14} className={cn("pe-aspect-chevron", aspectMenuOpen && "is-open")} />
                 </button>
-              ))}
+                {aspectMenuOpen && (
+                  <div className="pe-aspect-menu" role="menu">
+                    {ASPECTS.map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        role="menuitem"
+                        className={cn("pe-aspect-option", aspect === a.id && "is-active")}
+                        onClick={() => {
+                          applyAspect(a.id);
+                          setAspectMenuOpen(false);
+                        }}
+                      >
+                        <span>{a.label}</span>
+                        {aspect === a.id && <Check size={14} />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="pe-apply-crop"
+                onClick={applyCrop}
+                disabled={!ready}
+              >
+                <Crop size={16} />
+                Применить кадр
+              </button>
             </div>
-            <button
-              type="button"
-              className="pe-apply-crop"
-              onClick={applyCrop}
-              disabled={!ready}
-            >
-              <Crop size={16} />
-              Применить кадр
-            </button>
           </>
         )}
       </div>

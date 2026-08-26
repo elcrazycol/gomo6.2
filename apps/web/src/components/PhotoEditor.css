@@ -180,54 +180,124 @@
   font-variant-numeric: tabular-nums;
 }
 
-.pe-aspects {
+.pe-crop-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 12px;
+  padding: 2px 4px;
 }
 
-.pe-aspect {
-  padding: 6px 12px;
+.pe-aspect-trigger-wrap {
+  position: relative;
+}
+
+.pe-aspect-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
   border: 1px solid rgb(255 255 255 / 0.25);
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.06);
-  color: rgb(255 255 255 / 0.85);
-  font-size: 12px;
+  background: rgb(255 255 255 / 0.08);
+  color: rgb(255 255 255 / 0.9);
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.pe-aspect:hover {
-  background: rgb(255 255 255 / 0.14);
+.pe-aspect-trigger:hover,
+.pe-aspect-trigger.is-open {
+  background: rgb(255 255 255 / 0.16);
+  border-color: rgb(255 255 255 / 0.4);
 }
 
-.pe-aspect.is-active {
-  background: #2ea6ff;
-  border-color: #2ea6ff;
+.pe-aspect-trigger-label {
+  min-width: 58px;
+  text-align: left;
+}
+
+.pe-aspect-chevron {
+  color: rgb(255 255 255 / 0.6);
+  transition: transform 0.15s ease;
+}
+
+.pe-aspect-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.pe-aspect-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 170px;
+  padding: 5px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 14px;
+  background: rgb(20 26 38 / 0.97);
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(14px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pe-aspect-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgb(255 255 255 / 0.9);
+  font-size: 13px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.pe-aspect-option:hover {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.pe-aspect-option.is-active {
   color: #fff;
+  background: rgb(46 166 255 / 0.22);
+}
+
+.pe-aspect-option.is-active svg {
+  color: #2ea6ff;
 }
 
 .pe-apply-crop {
-  align-self: center;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 18px;
+  height: 34px;
+  padding: 0 18px;
   border: 0;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.12);
+  background: #2ea6ff;
   color: #fff;
   font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .pe-apply-crop:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.2);
+  background: #55b7ff;
 }
 
 .pe-apply-crop:disabled {
