@@ -18,7 +18,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, MessageSquare, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -28,6 +28,7 @@ import { renderTags } from "@/components/ThreadCard";
 import { LikeButton } from "@/components/LikeButton";
 import { GomoThreadCard } from "@/components/GomoThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
+import { ChannelChat } from "@/components/ChannelChat";
 import { wsService } from "@/services/websocket";
 
 // Mobile channel sheet grab zone: bottom-left corner of the screen.
@@ -60,6 +61,7 @@ interface Channel {
   category: string | null;
   sort_order: number;
   is_private: boolean;
+  kind?: "forum" | "text";
 }
 
 interface Thread {
@@ -660,6 +662,12 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.name || null;
   }, [activeChannelId, channels]);
 
+  // Text channels render a Discord-style chat instead of the thread list.
+  const isTextChannel = useMemo(() => {
+    if (!activeChannelId) return false;
+    return channels.find((ch) => ch.id === activeChannelId)?.kind === "text";
+  }, [activeChannelId, channels]);
+
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
   // on document (not <main>) so gestures that start below the content area
   // still count, and only while the sheet is closed.
@@ -800,8 +808,10 @@ const Board = () => {
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }`}
             >
-              {ch.is_private ? (
+              {ch.is_private && ch.kind !== "text" ? (
                 <Lock className="w-4 h-4 shrink-0 text-amber-500" />
+              ) : ch.kind === "text" ? (
+                <MessageSquare className="w-4 h-4 shrink-0 text-sky-400" />
               ) : (
                 <Hash className="w-4 h-4 shrink-0" />
               )}
@@ -1491,7 +1501,7 @@ const Board = () => {
                     )}
                     <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
                   </button>
-                  {canCreateThread && (
+                  {canCreateThread && !isTextChannel && (
                     <Button
                       onClick={() =>
                         navigate(
@@ -1511,7 +1521,17 @@ const Board = () => {
                 </div>
               </div>
 
-              <div className="space-y-2 relative flex-1">
+              <div className={`relative flex-1 ${isTextChannel ? "flex flex-col min-h-0" : "space-y-2"}`}>
+                {/* Text channels replace the thread list with a Discord-style chat */}
+                {isTextChannel && activeChannelId ? (
+                  <ChannelChat
+                    channelId={activeChannelId}
+                    currentUserId={user?.id ?? null}
+                    canPost={Boolean(user?.id && isJoined)}
+                    canDeleteOthers={Boolean(isBoardOwner || boardPermissions.can_delete_threads)}
+                  />
+                ) : (
+                <>
                 {/* Thread content — same as non-gomosub version below */}
                 {pageLoading ? (
                   <>
@@ -1565,15 +1585,17 @@ const Board = () => {
                     ))}
                   </>
                 )}
+                </>
+                )}
               </div>
 
-              {threads.length === 0 && !pageLoading && !threadsLoading && (
+              {!isTextChannel && threads.length === 0 && !pageLoading && !threadsLoading && (
                 <div className="text-center text-muted-foreground p-8">
                   Записей пока нет. Будьте первым!
                 </div>
               )}
 
-              <div ref={threadsSentinelRef} className="py-4">
+              <div ref={threadsSentinelRef} className={isTextChannel ? "hidden" : "py-4"}>
                 {loadingMoreThreads && (
                   <div className="flex justify-center">
                     <PentagramLoader size="md" />
