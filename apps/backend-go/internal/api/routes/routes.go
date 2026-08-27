@@ -18,6 +18,7 @@ import (
 	"github.com/gomo6/backend/internal/crudengine"
 	"github.com/gomo6/backend/internal/drops"
 	"github.com/gomo6/backend/internal/gifts"
+	"github.com/gomo6/backend/internal/gomosubchat"
 	"github.com/gomo6/backend/internal/messenger"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/notifications"
@@ -167,6 +168,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
+	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	giftsHandler := gifts.NewGiftsHandler(db)
@@ -535,6 +537,29 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerWrite.POST("/messenger/groups/:id/members", messengerHandler.AddGroupMembers)
 				messengerWrite.DELETE("/messenger/groups/:id/members/:userId", messengerHandler.RemoveGroupMember)
 				messengerRead.GET("/messenger/groups/:id/members", messengerHandler.GetGroupMembers)
+
+				// -- GomoSub text channels (chat) --
+				// Separate budget namespace: chatty members must not drain the
+				// personal-messenger limit (or vice versa). Env-tunable without a
+				// rebuild:
+				//   CHANNELCHAT_RATE_LIMIT_READ  (default 300) — history loads / min
+				//   CHANNELCHAT_RATE_LIMIT_WRITE (default 120) — send/edit/delete / min
+				chatReadLimiter := middleware.NewMessengerRateLimiterWithPrefix(redis, "gomosubchat_read",
+					ogEnvLimit("CHANNELCHAT_RATE_LIMIT_READ", 300), time.Minute)
+				chatWriteLimiter := middleware.NewMessengerRateLimiterWithPrefix(redis, "gomosubchat_write",
+					ogEnvLimit("CHANNELCHAT_RATE_LIMIT_WRITE", 120), time.Minute)
+				chatRead := protected.Group("")
+				chatRead.Use(middleware.MessengerRateLimitMiddleware(chatReadLimiter))
+				{
+					chatRead.GET("/gomosubchat/channels/:id/messages", channelChatHandler.GetMessages)
+				}
+				chatWrite := protected.Group("")
+				chatWrite.Use(middleware.MessengerRateLimitMiddleware(chatWriteLimiter))
+				{
+					chatWrite.POST("/gomosubchat/channels/:id/messages", channelChatHandler.SendMessage)
+					chatWrite.PUT("/gomosubchat/channels/:id/messages/:msgId", channelChatHandler.EditMessage)
+					chatWrite.DELETE("/gomosubchat/channels/:id/messages/:msgId", channelChatHandler.DeleteMessage)
+				}
 
 				// Friends
 				protected.POST("/friends/request", friendsHandler.SendRequest)
