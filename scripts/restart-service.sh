@@ -10,6 +10,8 @@
 # Env:    REG (default codeberg.org/crazycol)   — container registry to pull
 #         COMPOSE_NAMESPACE (default ghcr.io/elcrazycol) — docker-compose image:
 #              names; the pulled image is retagged to this namespace
+#         TAG (default latest) — registry tag to pull; use TAG=sha-<commit>
+#              to roll back a service to an exact deploy snapshot
 #         CADDY_CHANGED=true (only the web job sets it) → also restart caddy
 #              so a changed Caddyfile is picked up (it is bind-mounted, so
 #              Compose cannot detect the change by itself).
@@ -17,6 +19,7 @@
 set -euo pipefail
 
 SERVICE="${1:?usage: restart-service.sh <service>}"
+TAG="${TAG:-latest}"
 
 # --- concurrency guard -----------------------------------------------------
 # The 4 matrix jobs invoke this script in parallel over SSH, and their images
@@ -57,15 +60,15 @@ echo "[restart-service] synced to $(git rev-parse --short HEAD)"
 REGISTRY="${REG:-codeberg.org/crazycol}"            # Codeberg container registry
 COMPOSE_NAMESPACE="${COMPOSE_NAMESPACE:-ghcr.io/elcrazycol}" # image: names in docker-compose.yml
 
-echo "[restart-service] $SERVICE: pulling $REGISTRY/gomo6-$SERVICE:latest"
+echo "[restart-service] $SERVICE: pulling $REGISTRY/gomo6-$SERVICE:$TAG"
 PULLED=0
 for attempt in 1 2 3; do
-  if docker pull "$REGISTRY/gomo6-$SERVICE:latest"; then PULLED=1; break; fi
+  if docker pull "$REGISTRY/gomo6-$SERVICE:$TAG"; then PULLED=1; break; fi
   echo "[restart-service] pull failed (attempt $attempt/3) — retrying"
   sleep 3
 done
 [ "$PULLED" = 1 ] || { echo "[restart-service] pull failed 3 times — giving up"; exit 1; }
-docker tag "$REGISTRY/gomo6-$SERVICE:latest" "$COMPOSE_NAMESPACE/gomo6-$SERVICE:latest"
+docker tag "$REGISTRY/gomo6-$SERVICE:$TAG" "$COMPOSE_NAMESPACE/gomo6-$SERVICE:latest"
 
 # Recreates ONLY this container (image ID changed → new container). No-ops if
 # the image is unchanged. Concurrent invocations are serialized by Compose's

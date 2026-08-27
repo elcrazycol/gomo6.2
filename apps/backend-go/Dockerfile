@@ -23,6 +23,11 @@ WORKDIR /app
 ARG TARGETOS
 ARG TARGETARCH
 
+# Product version + commit — injected into the binary via -ldflags (read by
+# /health). Defaults to dev values for local `docker compose build`.
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+
 # HTTP mirror (fast apk everywhere) + git for go's vcs stamping.
 RUN sed -i 's/https/http/g' /etc/apk/repositories && \
     apk add --no-cache git ca-certificates
@@ -48,7 +53,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # kept); only dlv/profiling symbol info is dropped.
 ENV CGO_ENABLED=0 GOMEMLIMIT=256MiB
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -ldflags="-s -w" -o main cmd/server/main.go
+    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=$VERSION -X main.commit=$GIT_COMMIT" -o main cmd/server/main.go
 
 # ---- Runtime stage: VPS arch ------------------------------------------------
 FROM --platform=$TARGETPLATFORM alpine:3.23

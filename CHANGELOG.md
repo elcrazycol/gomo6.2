@@ -7,14 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-08-27
+
+Второе поколение gomo6: мессенджер и профили переработаны с нуля, добавлены студия оформления, переводы, достижения, анти-бот защита — и, наконец, честное версионирование.
+
+### Added
+- **Продукт-версионирование (SemVer)** — первый по-настоящему номерной релиз после `v1.0.0`:
+  - `VERSION` файл в корне репо — единый источник версии (зеркалится в root `package.json` и `apps/web`)
+  - Версия показывается в футере сайта рядом с commit hash и отдаётся в `/health` на бэкенде
+  - Docker-образы тегируются `:latest`, `:vX.Y.Z` и `:sha-<commit>` (последний — для откатов), инструкция по релизу — в `CONTRIBUTING.md`
+- **Студия профиля** — всё оформление профиля в одном месте: фоны, авто-тема из фона/аватара, генерация темы по доминантному цвету (5 вариантов палитры)
+- **Мессенджер v2** — полная переделка на уровне Discord/Telegram: шифрование диалогов, real-time редактирование сообщений, Telegram-style UI, пагинация истории, мобильные sheet-взаимодействия
+- **Авторизация**: passkeys (WebAuthn), TOTP 2FA, refresh-токены, блокировка входа, recovery codes
+- **Анти-бот**: mCAPTCHA (Proof-of-Work) + HoneyPot на входе и регистрации
+- **Достижения**: новая система — карточки, автораскрытие, уровни, секретные достижения, SVG-иконки
+- **OpenAPI спецификация** + автогенерация TS-типов — `client.ts` собран на типах из спеки вместо рукописных интерфейсов
+- **Эмодзи**: паки, создание/редактирование через UI, модерация, кастомные бейджи
+- **GomoSubs «g»**: комьюнити-доски с каналами, создание через Go-бэкенд, приглашения по коду, mobile-first sheet UX
+- **Фоторедактор v2**: кадрирование с пресетами, размытие, ретушь, экспорт и загрузка до публикации поста
+- WebSocket real-time синхронизация постов в тредах
+
 ### Changed
-- Deploy moved from GitHub Actions + `docker save | zstd | ssh docker load` streaming to **Codeberg Actions + Codeberg container registry** (`.forgejo/workflows/deploy.yml`):
-  - Change detection via the Codeberg compare API — no-op commits finish in ~1s
-  - Incremental checkout into a persistent runner cache (`$HOME/gomo6-src`) — ~47s → ~2-10s
-  - `docker buildx build --push` with layer dedup — only changed layers travel over the uplink
-  - Per-service restart on the VPS via `scripts/restart-service.sh` (pull → retag → `compose up -d --no-build`; flock-serialized pulls + retries on containerd races)
-  - Full deploy wall time: ~4 min → ~1 min
-- Backend binary stripped (`-ldflags="-s -w"`): 30 MB → 16 MB
+- **Бэкенд**: большой монолитный файл (20k+ строк) разбит на десятки пакетов (`internal/*`); миграционный раннер вместо хардкод-DDL; единый формат ответов `{success, data}`
+- **Страница профиля и стена** переработаны
+- **Интернационализация**: UI переведён с хардкода на i18n (i18next), community-переводы хранятся и отдаются с бэкенда, добавлена страница перевода; «Threads» переименованы в «Записи» по всему интерфейсу
+- **Деплой** переехал с GitHub Actions на **Codeberg Actions + Codeberg container registry**:
+  - Change detection через Codeberg compare API — no-op коммиты завершаются за ~1s
+  - Инкрементальный checkout в персистентный кэш раннера (~47s → ~2-10s)
+  - `docker buildx build --push` с дедупликацией слоёв — по сети едут только изменённые слои
+  - Per-service рестарт на VPS через `scripts/restart-service.sh` (pull → retag → `compose up -d --no-build`; flock-сериализация + ретраи)
+  - Полное время деплоя: ~4 мин → ~1 мин
+- Бэкенд-бинарник сжат (`-ldflags="-s -w"`): 30 MB → 16 MB
+
+### Fixed
+- Ошибки сети в RPC больше не вызывают необработанные promise rejections (единый try/catch)
+- PUT/DELETE `/table/:id` корректно применяет ID из пути как WHERE-фильтр
+- Mobile: композер над клавиатурой, swipe-жесты, iOS-кейсы
+- Кэш-инвалидация при смене каналов и профилей (stale-данные)
+
+### Security
+- RLS на messenger-таблицах + транзакции с `set_config` контекстом
+- Шифрование сообщений (`MESSENGER_ENCRYPTION_KEY`)
+- JWT hardening, refresh-токены, lockout, recovery codes
+- Rate limiting на `/oauth/token` и `/oauth/revoke`; PKCE S256 обязателен
+- mCAPTCHA (PoW) + HoneyPot для защиты от ботов
+
+### Removed
+- Supabase-интеграция окончательно выпилена (прямой Postgres + Garage S3)
+
+---
+
+[2.0.0]: https://codeberg.org/crazycol/gomo6.2/releases/tag/v2.0.0
+[1.0.0]: https://github.com/scramble22/gomo6.2/releases/tag/v1.0.0
 
 ## [1.0.0] — 2026-05-24
 
@@ -51,5 +95,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Supabase integration (replaced by direct Postgres + Garage S3)
 
 ---
-
-[1.0.0]: https://github.com/scramble22/gomo6.2/releases/tag/v1.0.0

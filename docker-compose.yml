@@ -149,6 +149,9 @@ services:
     build:
       context: ./apps/backend-go
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     # Backend is reachable only through Caddy on the Docker network.
     # Do not publish 8080: direct access would bypass proxy routing and
     # perimeter controls around private storage endpoints.
@@ -219,6 +222,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        VITE_APP_VERSION: ${VERSION:-unknown}
         VITE_TURNSTILE_SITEKEY: ${VITE_TURNSTILE_SITEKEY:-}
     restart: unless-stopped
 

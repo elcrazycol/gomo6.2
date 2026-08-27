@@ -224,18 +224,24 @@ jobs:
           # macOS's default bash 3.2 ("unbound variable"). Build args as a
           # plain string instead (values never contain spaces).
           BUILD_ARGS=""
+          # Product version from the root VERSION file — bumped per release
+          # (see CONTRIBUTING.md "Release ritual").
+          APP_VERSION="$(cat "$SRC/VERSION")"
           if [ "${{ matrix.service }}" = "web" ]; then
-            BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }} --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }}"
+            BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_APP_VERSION=$APP_VERSION --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }} --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }}"
+          elif [ "${{ matrix.service }}" = "backend" ]; then
+            BUILD_ARGS="--build-arg VERSION=$APP_VERSION --build-arg GIT_COMMIT=${{ github.sha }}"
           fi
-          # --push + layer dedup: only layers the registry does not have yet
-          # travel over the uplink (docker push checks each blob). The heavy
-          # compiler stages run NATIVE on arm64 — QEMU never touches them.
-          # --provenance=false: plain OCI manifests, no attestation layers.
+          # Tag the image three ways: :latest (what compose uses), :v<version>
+          # (current release) and :sha-<commit> (exact deploy snapshot, used
+          # for rollbacks: restart-service.sh with TAG=sha-<commit>).
           docker buildx build \
             --platform linux/amd64 \
             --push \
             --provenance=false \
             -t "$IMAGE" \
+            -t "$REG/gomo6-${{ matrix.service }}:v$APP_VERSION" \
+            -t "$REG/gomo6-${{ matrix.service }}:sha-${{ github.sha }}" \
             --cache-from "type=local,src=$HOME/buildx-cache/${{ matrix.service }}" \
             --cache-to "type=local,dest=$HOME/buildx-cache/${{ matrix.service }},mode=max" \
             $BUILD_ARGS \

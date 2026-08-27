@@ -10,6 +10,10 @@ export const Footer = () => {
   const commitHash = import.meta.env.VITE_GIT_COMMIT;
   const shortHash = commitHash && commitHash !== 'unknown' ? commitHash.slice(0, 7) : null;
 
+  // Product version injected at build time via VITE_APP_VERSION (root VERSION file)
+  const appVersion = import.meta.env.VITE_APP_VERSION;
+  const versionLabel = appVersion && appVersion !== 'unknown' ? `v${appVersion}` : null;
+
   return (
     <footer className="bg-card border-t border-border">
       <div className="max-w-5xl mx-auto px-4 py-3">
@@ -17,6 +21,7 @@ export const Footer = () => {
           <p className="text-xs sm:text-sm text-muted-foreground">
             © 2026 gomo6
           </p>
+          {versionLabel && <span className="text-xs text-muted-foreground/70 font-medium">{versionLabel}</span>}
           <a
             href={`//dev.${rootDomain}`}
             target="_blank"

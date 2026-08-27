@@ -1,24 +1,30 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { Footer } from "./Footer";
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("Footer", () => {
-  it("renders copyright", () => {
+  it("shows product version and short commit hash when injected", () => {
+    vi.stubEnv("VITE_APP_VERSION", "2.0.0");
+    vi.stubEnv("VITE_GIT_COMMIT", "deadbeefcafe1234");
+
     render(<Footer />);
-    expect(screen.getByText(/© 2026 gomo6/)).toBeInTheDocument();
+
+    expect(screen.getByText("v2.0.0")).toBeInTheDocument();
+    expect(screen.getByTitle("Deployed commit: deadbeefcafe1234")).toBeInTheDocument();
+    expect(screen.getByText("deadbee")).toBeInTheDocument();
   });
 
-  it("renders Dev link", () => {
-    render(<Footer />);
-    const devLink = screen.getByRole("link", { name: "Dev" });
-    expect(devLink).toBeInTheDocument();
-    expect(devLink).toHaveAttribute("target", "_blank");
-  });
+  it("hides version and hash when build env is unset", () => {
+    vi.stubEnv("VITE_APP_VERSION", "unknown");
+    vi.stubEnv("VITE_GIT_COMMIT", "unknown");
 
-  it("renders Docs link", () => {
     render(<Footer />);
-    const docsLink = screen.getByRole("link", { name: "Docs" });
-    expect(docsLink).toBeInTheDocument();
-    expect(docsLink).toHaveAttribute("target", "_blank");
+
+    expect(screen.queryByText(/v\d/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Deployed commit/)).not.toBeInTheDocument();
   });
 });

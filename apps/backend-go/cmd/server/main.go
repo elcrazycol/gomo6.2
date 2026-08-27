@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +17,20 @@ import (
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/joho/godotenv"
 )
+
+// Version and commit are injected at build time via
+// -ldflags "-X main.version=... -X main.commit=..." (see apps/backend-go/Dockerfile).
+// They default to dev values for local `go run` / `go build`.
+var (
+	version = "dev"
+	commit  = "unknown"
+)
+
+// healthResponse returns the JSON body served on /health (available before
+// the database is up — used by Docker healthchecks and deploy verification).
+func healthResponse() string {
+	return fmt.Sprintf(`{"status":"ok","version":%q,"commit":%q}`, version, commit)
+}
 
 // primaryHandler is swapped atomically: nil → Gin after init completes.
 // Until swapped, only /health returns 200; all other paths return 404.
@@ -58,7 +73,7 @@ func main() {
 		// /health is always available, even before Gin is ready
 		if r.URL.Path == "/health" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status":"ok"}`))
+			w.Write([]byte(healthResponse()))
 			return
 		}
 
