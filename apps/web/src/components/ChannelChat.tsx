@@ -1,16 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { apiClient } from "@/integrations/api/client";
 import { wsService } from "@/services/websocket";
 import { Button } from "@/components/ui/button";
-import { Loader2, Pencil, SendHorizontal, Trash2, X } from "lucide-react";
+import { ChevronDown, Loader2, Pencil, SendHorizontal, Trash2, X } from "lucide-react";
 import { safeDate } from "@/utils/safeDate";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 
-// Discord-style text channel: a single live message stream inside one GomoSub
-// channel. Deliberately minimal v1: history + send + realtime + edit/delete.
-// Typing indicators, replies, attachments and unread counters are future work.
+// Discord-style text channel: a virtualized message stream. The virtualizer
+// renders only the visible rows (like the messenger's MessageList), history is
+// fetched in pages on scroll-to-top, and the view stays pinned to the bottom
+// while the user is there. Deliberately leaner than the messenger: no read
+// receipts, no scroll-restore across sessions, no keyboard lift.
 
 export interface ChannelMessage {
   id: number;
@@ -25,6 +35,15 @@ export interface ChannelMessage {
 }
 
 const MAX_CONTENT_LENGTH = 4000;
+
+// ── Virtual list geometry (kept in sync with the row markup below) ─────────
+const HISTORY_HEADER_HEIGHT = 28; // "Начало канала" / "Загружаем историю…" strip
+const BOTTOM_GAP_HEIGHT = 12;     // breathing room under the last message
+const AT_BOTTOM_SLACK = 12;       // px from the bottom still treated as "at bottom"
+const TOP_LOAD_ZONE = 300;        // px from the top that arms the history loader
+const OVERSCAN = 10;              // rows rendered beyond the viewport
+const GROUP_WINDOW_MS = 5 * 60 * 1000; // same-author messages within this are compact
+const LOAD_THROTTLE_MS = 500;     // min gap between history page loads
 
 interface ChannelChatProps {
   channelId: string;
@@ -45,48 +64,183 @@ function authHeaders(json = false): Record<string, string> {
   return headers;
 }
 
+const HISTORY_URL = (channelId: string) =>
+  `/api/v1/gomosubchat/channels/${channelId}/messages`;
+
+/** Rough pre-measurement height — the virtualizer corrects it with the real
+ *  measured row once it scrolls into view (measureElement). */
+function estimateRowHeight(m: ChannelMessage | undefined, prev: ChannelMessage | null): number {
+  if (!m) return 44;
+  const grouped =
+    !!prev &&
+    prev.user_id === m.user_id &&
+    safeDate(m.created_at).getTime() - safeDate(prev.created_at).getTime() < GROUP_WINDOW_MS;
+  const base = grouped ? 26 : 48; // avatar/name header only on ungrouped rows
+  if (m.deleted_at) return base;
+  const lines = Math.max(1, Math.ceil(m.content.length / 48));
+  return base + (lines - 1) * 20;
+}
+
+function isGroupedWith(prev: ChannelMessage | null, m: ChannelMessage): boolean {
+  return (
+    !!prev &&
+    prev.user_id === m.user_id &&
+    safeDate(m.created_at).getTime() - safeDate(prev.created_at).getTime() < GROUP_WINDOW_MS
+  );
+}
+
 export function ChannelChat({ channelId, currentUserId, canPost = true, canDeleteOthers = false }: ChannelChatProps) {
   const dateLocale = useDateLocale();
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  // True while pinned to the bottom: appends clamp to the real bottom, and the
+  // "N new" pill counts messages only while the user is scrolled up.
   const stickToBottomRef = useRef(true);
+  const messagesRef = useRef<ChannelMessage[]>([]);
+  messagesRef.current = messages;
+  const hasMoreRef = useRef(false);
+  hasMoreRef.current = hasMore;
+  const loadingMoreRef = useRef(false);
+  const lastLoadAtRef = useRef(0);
+  const prevLastIdRef = useRef<number | null>(null);
+  const userDraggingRef = useRef(false);
+  // The message at the top of the viewport when a history page was requested;
+  // the layout effect below re-freezes it after the prepend so the view does
+  // not jump.
+  const pendingAnchorRef = useRef<{ id: number; offset: number } | null>(null);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
-    requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      // jsdom and some browsers without smooth-scroll support have no scrollTo.
-      if (el && typeof el.scrollTo === "function") {
-        try {
-          el.scrollTo({ top: el.scrollHeight, behavior });
-        } catch {
-          el.scrollTop = el.scrollHeight;
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollerRef.current,
+    estimateSize: (index) => estimateRowHeight(messages[index], messages[index - 1] ?? null),
+    overscan: OVERSCAN,
+    getItemKey: (index) => messages[index].id,
+  });
+
+  const timeLabel = useMemo(
+    () => (iso: string) => formatDistanceToNow(safeDate(iso), { locale: dateLocale, addSuffix: true }),
+    [dateLocale]
+  );
+
+  // ── History page (scroll-to-top) ─────────────────────────────────────────
+  const loadOlder = useCallback(async () => {
+    if (loadingMoreRef.current) return;
+    const list = messagesRef.current;
+    if (list.length === 0) return;
+    const oldest = list[0];
+
+    // Freeze the top-most visible message before the prepend.
+    let anchor = { id: oldest.id, offset: 0 };
+    const el = scrollerRef.current;
+    if (el) {
+      for (const item of virtualizer.getVirtualItems()) {
+        const m = list[item.index];
+        if (m && item.end > el.scrollTop) {
+          anchor = { id: m.id, offset: Math.max(0, el.scrollTop - item.start) };
+          break;
         }
-      } else if (el) {
-        el.scrollTop = el.scrollHeight;
       }
-    });
-  }, []);
+    }
 
-  // History load + realtime room subscription. Both are scoped to channelId:
-  // switching channels tears down the old room before opening the next one,
-  // so events of the previous channel never leak into the new timeline.
+    loadingMoreRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const r = await fetch(
+        `${HISTORY_URL(channelId)}?before=${oldest.id}&limit=50`,
+        { credentials: "include" }
+      );
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d?.success) return;
+      const older = d.data as ChannelMessage[];
+      if (older.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      const existing = new Set(list.map((m) => m.id));
+      const fresh = older.filter((m) => !existing.has(m.id));
+      if (fresh.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      pendingAnchorRef.current = anchor;
+      setMessages((prev) => [...fresh, ...prev]);
+      if (older.length < 50) setHasMore(false);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [channelId, virtualizer]);
+
+  // ── Mount: history + room subscription + realtime handlers ──────────────
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setDenied(false);
     setMessages([]);
     setEditingId(null);
+    setHasMore(false);
     stickToBottomRef.current = true;
+    setIsAtBottom(true);
+    setNewMessageCount(0);
 
     const room = `channel_${channelId}`;
     wsService.subscribe(room);
+
+    const loadFirstPage = async () => {
+      try {
+        const r = await fetch(`${HISTORY_URL(channelId)}?limit=50`, { credentials: "include" });
+        const d = await r.json().catch(() => null);
+        if (cancelled) return;
+        if (r.status === 403) {
+          setDenied(true);
+          return;
+        }
+        if (!r.ok || !d?.success) throw new Error(d?.error || "Не удалось загрузить историю");
+        const page = d.data as ChannelMessage[];
+        setMessages(page);
+        setHasMore(page.length === 50);
+      } catch {
+        if (!cancelled) setDenied(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void loadFirstPage();
+
+    // Reconnect: the socket re-subscribes rooms on its own; refetch the tail
+    // so messages that arrived during the drop are not silently missing.
+    const refetchTail = async () => {
+      const list = messagesRef.current;
+      if (list.length === 0) return; // initial connect — loadFirstPage owns that
+      try {
+        const r = await fetch(`${HISTORY_URL(channelId)}?limit=50`, { credentials: "include" });
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d?.success) return;
+        const latest = d.data as ChannelMessage[];
+        setMessages((prev) => {
+          const lastId = prev.length > 0 ? prev[prev.length - 1].id : 0;
+          const existing = new Set(prev.map((m) => m.id));
+          const fresh = latest.filter((m) => !existing.has(m.id) && m.id > lastId);
+          return fresh.length > 0 ? [...prev, ...fresh] : prev;
+        });
+      } catch {
+        // Non-fatal: the next page load or reload heals the list.
+      }
+    };
+    const offConnected = wsService.on("connected", () => {
+      void refetchTail();
+    });
 
     const offNew = wsService.on("new_channel_message", (m) => {
       const data = m.data as Partial<ChannelMessage> & { id?: number };
@@ -97,7 +251,6 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
         if (prev.some((x) => x.id === data.id)) return prev;
         return [...prev, { ...data } as ChannelMessage];
       });
-      scrollToBottom("smooth");
     });
 
     const offEdited = wsService.on("channel_message_edited", (m) => {
@@ -120,43 +273,108 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
       );
     });
 
-    (async () => {
-      try {
-        const r = await fetch(
-          `/api/v1/gomosubchat/channels/${channelId}/messages?limit=50`,
-          { credentials: "include" }
-        );
-        const d = await r.json().catch(() => null);
-        if (cancelled) return;
-        if (r.status === 403) {
-          setDenied(true);
-          return;
-        }
-        if (!r.ok || !d?.success) throw new Error(d?.error || "Не удалось загрузить историю");
-        setMessages(d.data as ChannelMessage[]);
-        scrollToBottom();
-      } catch {
-        if (!cancelled) setDenied(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
     return () => {
       cancelled = true;
+      offConnected();
       offNew();
       offEdited();
       offDeleted();
       wsService.unsubscribe(room);
     };
-  }, [channelId, scrollToBottom]);
+  }, [channelId]);
+
+  // ── Scroll: at-bottom tracking + history loader ─────────────────────────
+  const handleScroll = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
+    if (atBottom !== stickToBottomRef.current) {
+      stickToBottomRef.current = atBottom;
+      setIsAtBottom(atBottom);
+      if (atBottom) setNewMessageCount(0);
+    }
+
+    const now = Date.now();
+    if (
+      el.scrollTop <= TOP_LOAD_ZONE &&
+      hasMoreRef.current &&
+      !loadingMoreRef.current &&
+      !userDraggingRef.current &&
+      now - lastLoadAtRef.current > LOAD_THROTTLE_MS
+    ) {
+      lastLoadAtRef.current = now;
+      void loadOlder();
+    }
+  }, [loadOlder]);
+
+  // ── Position stabilization: bottom pin / prepend anchor ─────────────────
+  const totalSize = virtualizer.getTotalSize();
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || virtualizer.isScrolling) return;
+
+    const pending = pendingAnchorRef.current;
+    if (pending) {
+      const idx = messages.findIndex((m) => m.id === pending.id);
+      if (idx >= 0) {
+        const res = virtualizer.getOffsetForIndex(idx);
+        if (res) {
+          const target = res[0] - pending.offset;
+          if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+        }
+      }
+      pendingAnchorRef.current = null;
+      return;
+    }
+
+    if (stickToBottomRef.current) {
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (Math.abs(el.scrollTop - maxScrollTop) > 1) el.scrollTop = maxScrollTop;
+    }
+  }, [totalSize, messages, virtualizer, virtualizer.isScrolling]);
+
+  // ── "N new messages" counter while scrolled up ──────────────────────────
+  useEffect(() => {
+    if (messages.length === 0) {
+      prevLastIdRef.current = null;
+      return;
+    }
+    const lastId = messages[messages.length - 1].id;
+    const prevLast = prevLastIdRef.current;
+    if (prevLast !== null && lastId !== prevLast) {
+      const idx = messages.findIndex((m) => m.id === prevLast);
+      if (idx >= 0 && !stickToBottomRef.current) {
+        const appended = messages.slice(idx + 1);
+        const incoming = appended.filter((m) => m.user_id !== currentUserId).length;
+        if (incoming > 0) setNewMessageCount((c) => c + incoming);
+      }
+    }
+    prevLastIdRef.current = lastId;
+  }, [messages, currentUserId]);
+
+  const scrollToBottom = useCallback(() => {
+    stickToBottomRef.current = true;
+    setIsAtBottom(true);
+    setNewMessageCount(0);
+    const el = scrollerRef.current;
+    if (!el) return;
+    if (typeof el.scrollTo === "function") {
+      try {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    el.scrollTop = el.scrollHeight;
+  }, []);
 
   const handleSend = async () => {
     const content = draft.trim();
     if (!content || sending) return;
     setSending(true);
     try {
-      const r = await fetch(`/api/v1/gomosubchat/channels/${channelId}/messages`, {
+      const r = await fetch(HISTORY_URL(channelId), {
         method: "POST",
         credentials: "include",
         headers: authHeaders(true),
@@ -169,8 +387,7 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
       // let the dedup in the event handler swallow the duplicate.
       setMessages((prev) => (prev.some((x) => x.id === msg.id) ? prev : [...prev, msg]));
       setDraft("");
-      stickToBottomRef.current = true;
-      scrollToBottom("smooth");
+      scrollToBottom();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Ошибка отправки");
     } finally {
@@ -183,15 +400,12 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
     const content = editDraft.trim();
     if (!content) return;
     try {
-      const r = await fetch(
-        `/api/v1/gomosubchat/channels/${channelId}/messages/${editingId}`,
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: authHeaders(true),
-          body: JSON.stringify({ content }),
-        }
-      );
+      const r = await fetch(`${HISTORY_URL(channelId)}/${editingId}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: authHeaders(true),
+        body: JSON.stringify({ content }),
+      });
       const d = await r.json().catch(() => null);
       if (!r.ok || !d?.success) throw new Error(d?.error || "Не удалось изменить сообщение");
       const msg = d.data as ChannelMessage;
@@ -207,182 +421,213 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
 
   const handleDelete = async (msg: ChannelMessage) => {
     try {
-      const r = await fetch(
-        `/api/v1/gomosubchat/channels/${channelId}/messages/${msg.id}`,
-        { method: "DELETE", credentials: "include", headers: authHeaders() }
-      );
+      const r = await fetch(`${HISTORY_URL(channelId)}/${msg.id}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: authHeaders(),
+      });
       const d = await r.json().catch(() => null);
       if (!r.ok || !d?.success) throw new Error(d?.error || "Не удалось удалить сообщение");
-      setMessages((prev) => prev.map((x) => (x.id === msg.id ? { ...x, content: "", deleted_at: new Date().toISOString() } : x)));
+      setMessages((prev) =>
+        prev.map((x) => (x.id === msg.id ? { ...x, content: "", deleted_at: new Date().toISOString() } : x))
+      );
     } catch (e) {
       toast(e instanceof Error ? e.message : "Ошибка удаления");
     }
   };
 
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-  };
+  const canEdit = (m: ChannelMessage) => Boolean(currentUserId) && m.user_id === currentUserId && !m.deleted_at;
+  const canDelete = (m: ChannelMessage) =>
+    !m.deleted_at && ((Boolean(currentUserId) && m.user_id === currentUserId) || canDeleteOthers);
 
-  const canEdit = useCallback(
-    (m: ChannelMessage) => Boolean(currentUserId) && m.user_id === currentUserId && !m.deleted_at,
-    [currentUserId]
-  );
-  const canDelete = useCallback(
-    (m: ChannelMessage) => !m.deleted_at && ((Boolean(currentUserId) && m.user_id === currentUserId) || canDeleteOthers),
-    [currentUserId, canDeleteOthers]
-  );
-
-  const timeLabel = useMemo(
-    () => (iso: string) => formatDistanceToNow(safeDate(iso), { locale: dateLocale, addSuffix: true }),
-    [dateLocale]
-  );
-
-  if (loading) {
-    return (
-      <div className="flex-1 min-h-0 flex items-center justify-center">
-        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (denied) {
-    return (
-      <div className="flex-1 min-h-0 flex items-center justify-center p-8">
-        <div className="text-center text-muted-foreground text-sm">
-          Нет доступа к этому каналу.
-        </div>
-      </div>
-    );
-  }
+  const virtualItems = virtualizer.getVirtualItems();
+  const contentHeight = HISTORY_HEADER_HEIGHT + totalSize + BOTTOM_GAP_HEIGHT;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-border/60 bg-card overflow-hidden">
+    <div className="relative flex-1 min-h-0 flex flex-col rounded-lg border border-border/60 bg-card overflow-hidden">
       {/* Message stream */}
       <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-1"
+        ref={scrollerRef}
+        onScroll={handleScroll}
+        onPointerDown={() => {
+          userDraggingRef.current = true;
+        }}
+        onPointerUp={() => {
+          userDraggingRef.current = false;
+        }}
+        onPointerCancel={() => {
+          userDraggingRef.current = false;
+        }}
         data-testid="channel-chat-messages"
+        className="flex-1 min-h-0 overflow-y-auto"
+        role="log"
+        aria-label="Сообщения канала"
+        aria-live="polite"
       >
-        {messages.length === 0 && (
-          <div className="text-center text-muted-foreground text-sm py-10">
-            Пока тишина. Напишите первым!
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
           </div>
-        )}
-        {messages.map((m, i) => {
-          const prev = i > 0 ? messages[i - 1] : null;
-          const grouped =
-            !!prev &&
-            prev.user_id === m.user_id &&
-            safeDate(m.created_at).getTime() - safeDate(prev.created_at).getTime() < 5 * 60 * 1000;
-          return (
+        ) : denied ? (
+          <div className="flex items-center justify-center p-8">
+            <div className="text-center text-muted-foreground text-sm">Нет доступа к этому каналу.</div>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="text-center text-muted-foreground text-sm py-10">Пока тишина. Напишите первым!</div>
+        ) : (
+          <div style={{ height: contentHeight, position: "relative" }}>
             <div
-              key={m.id}
-              className={`group relative flex gap-2 ${grouped ? "py-0.5" : "pt-2 pb-0.5"} hover:bg-muted/30 rounded-md px-2`}
+              className="flex items-center justify-center text-[11px] text-muted-foreground"
+              style={{ position: "absolute", top: 0, left: 0, right: 0, height: HISTORY_HEADER_HEIGHT }}
             >
-              <div className="shrink-0 w-8">
-                {!grouped &&
-                  (m.avatar_url ? (
-                    <img
-                      src={m.avatar_url || undefined}
-                      alt=""
-                      className="w-8 h-8 rounded-full object-cover border border-border"
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-xs font-semibold text-muted-foreground">
-                      {(m.username || "?").slice(0, 1).toUpperCase()}
-                    </div>
-                  ))}
-              </div>
-              <div className="min-w-0 flex-1">
-                {!grouped && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-semibold truncate">{m.username}</span>
-                    <span className="text-[11px] text-muted-foreground">{timeLabel(m.created_at)}</span>
-                  </div>
-                )}
-                {m.deleted_at ? (
-                  <div className="text-sm italic text-muted-foreground">Сообщение удалено</div>
-                ) : editingId === m.id ? (
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <input
-                      value={editDraft}
-                      maxLength={MAX_CONTENT_LENGTH}
-                      data-autofocus="true"
-                      onChange={(e) => setEditDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleEditSave();
-                        if (e.key === "Escape") {
-                          setEditingId(null);
-                          setEditDraft("");
-                        }
-                      }}
-                      className="flex-1 h-7 bg-background border border-border rounded-md px-2 text-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    />
-                    <button
-                      onClick={handleEditSave}
-                      className="p-1 text-muted-foreground hover:text-primary"
-                      title="Сохранить"
-                    >
-                      <SendHorizontal className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingId(null);
-                        setEditDraft("");
-                      }}
-                      className="p-1 text-muted-foreground hover:text-destructive"
-                      title="Отмена"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-sm whitespace-pre-wrap break-words">
-                    {m.content}
-                    {m.edited_at && <span className="ml-1 text-[10px] text-muted-foreground">(изменено)</span>}
-                  </div>
-                )}
-              </div>
-              {!m.deleted_at && editingId !== m.id && (
-                <div className="absolute right-2 top-0 hidden group-hover:flex items-center gap-0.5 bg-card/90 border border-border rounded-md shadow-sm">
-                  {canEdit(m) && (
-                    <button
-                      onClick={() => {
-                        setEditingId(m.id);
-                        setEditDraft(m.content);
-                        // Focus the editor on the next frame — eslint a11y rule
-                        // forbids the autoFocus prop.
-                        requestAnimationFrame(() => {
-                          const el = scrollRef.current?.querySelector('[data-autofocus="true"]') as HTMLInputElement | null;
-                          el?.focus();
-                        });
-                      }}
-                      className="p-1.5 text-muted-foreground hover:text-primary"
-                      title="Изменить"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  {canDelete(m) && (
-                    <button
-                      onClick={() => handleDelete(m)}
-                      className="p-1.5 text-muted-foreground hover:text-destructive"
-                      title="Удалить"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
+              {loadingOlder ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Загружаем историю…
+                </span>
+              ) : hasMore ? null : (
+                <span>Начало канала</span>
               )}
             </div>
-          );
-        })}
+
+            {virtualItems.map((row) => {
+              const m = messages[row.index];
+              if (!m) return null;
+              const prev = row.index > 0 ? messages[row.index - 1] : null;
+              const grouped = isGroupedWith(prev, m);
+              return (
+                <div
+                  key={row.key}
+                  data-index={row.index}
+                  data-message-id={m.id}
+                  ref={virtualizer.measureElement}
+                  style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + row.start, left: 0, right: 0 }}
+                >
+                  <div
+                    className={`group relative flex gap-2 px-2 rounded-md hover:bg-muted/30 ${
+                      grouped ? "py-0.5" : "pt-2 pb-0.5"
+                    }`}
+                  >
+                    <div className="shrink-0 w-8">
+                      {!grouped &&
+                        (m.avatar_url ? (
+                          <img
+                            src={m.avatar_url}
+                            alt=""
+                            className="w-8 h-8 rounded-full object-cover border border-border"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                            {(m.username || "?").slice(0, 1).toUpperCase()}
+                          </div>
+                        ))}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {!grouped && (
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-semibold truncate">{m.username}</span>
+                          <span className="text-[11px] text-muted-foreground">{timeLabel(m.created_at)}</span>
+                        </div>
+                      )}
+                      {m.deleted_at ? (
+                        <div className="text-sm italic text-muted-foreground">Сообщение удалено</div>
+                      ) : editingId === m.id ? (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <input
+                            value={editDraft}
+                            maxLength={MAX_CONTENT_LENGTH}
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleEditSave();
+                              if (e.key === "Escape") {
+                                setEditingId(null);
+                                setEditDraft("");
+                              }
+                            }}
+                            className="flex-1 h-7 bg-background border border-border rounded-md px-2 text-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          />
+                          <button onClick={handleEditSave} className="p-1 text-muted-foreground hover:text-primary" title="Сохранить">
+                            <SendHorizontal className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditDraft("");
+                            }}
+                            className="p-1 text-muted-foreground hover:text-destructive"
+                            title="Отмена"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-sm whitespace-pre-wrap break-words">
+                          {m.content}
+                          {m.edited_at && <span className="ml-1 text-[10px] text-muted-foreground">(изменено)</span>}
+                        </div>
+                      )}
+                    </div>
+                    {!m.deleted_at && editingId !== m.id && (
+                      <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-0.5 bg-card/90 border border-border rounded-md shadow-sm">
+                        {canEdit(m) && (
+                          <button
+                            onClick={() => {
+                              setEditingId(m.id);
+                              setEditDraft(m.content);
+                              requestAnimationFrame(() => {
+                                const el = scrollerRef.current?.querySelector('[data-autofocus="true"]') as HTMLInputElement | null;
+                                el?.focus();
+                              });
+                            }}
+                            className="p-1.5 text-muted-foreground hover:text-primary"
+                            title="Изменить"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDelete(m) && (
+                          <button
+                            onClick={() => handleDelete(m)}
+                            className="p-1.5 text-muted-foreground hover:text-destructive"
+                            title="Удалить"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div aria-hidden="true" style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + totalSize, left: 0, right: 0, height: BOTTOM_GAP_HEIGHT }} />
+          </div>
+        )}
       </div>
 
-      {/* Composer */}
+      {/* Jump to the newest while scrolled up */}
+      {!isAtBottom && messages.length > 0 && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          className="absolute right-3 bottom-14 h-8 w-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+          aria-label={
+            newMessageCount > 0
+              ? `Вниз (${newMessageCount} ${newMessageCount === 1 ? "новое" : "новых"} сообщени${newMessageCount === 1 ? "е" : "й"})`
+              : "Вниз"
+          }
+        >
+          <ChevronDown className="w-4 h-4" />
+          {newMessageCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center">
+              {newMessageCount > 99 ? "99+" : newMessageCount}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Composer — hidden entirely when the channel is inaccessible */}
+      {!denied && (
       <div className="border-t border-border/60 p-2 shrink-0">
         {currentUserId ? (
           canPost ? (
@@ -405,14 +650,13 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
               </Button>
             </form>
           ) : (
-            <div className="text-center text-xs text-muted-foreground py-1.5">
-              Вступите в гомосаб, чтобы писать в канал
-            </div>
+            <div className="text-center text-xs text-muted-foreground py-1.5">Вступите в гомосаб, чтобы писать в канал</div>
           )
         ) : (
           <div className="text-center text-xs text-muted-foreground py-1.5">Войдите, чтобы писать в канал</div>
         )}
       </div>
+      )}
     </div>
   );
 }

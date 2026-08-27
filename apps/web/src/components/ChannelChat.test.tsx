@@ -50,6 +50,33 @@ vi.mock("@/i18n/dateLocale", () => ({
   useDateLocale: () => undefined,
 }));
 
+// jsdom has no layout: a real useVirtualizer sees clientHeight 0 and renders
+// nothing. The messenger tests use the same minimal stand-in.
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: (index: number) => number }) => {
+    const count = opts.count;
+    const sizes = Array.from({ length: count }, (_, i) => opts.estimateSize(i));
+    const offsets = sizes.map((s, i) => sizes.slice(0, i).reduce((a, b) => a + b, 0));
+    return {
+      getVirtualItems: () =>
+        Array.from({ length: count }, (_, i) => ({
+          index: i,
+          key: i,
+          start: offsets[i],
+          size: sizes[i],
+          end: offsets[i] + sizes[i],
+        })),
+      getTotalSize: () => sizes.reduce((a, b) => a + b, 0),
+      getOffsetForIndex: (i: number) => [offsets[i] ?? 0, "start"] as const,
+      measureElement: () => undefined,
+      scrollToIndex: () => {},
+      get isScrolling() {
+        return false;
+      },
+    };
+  },
+}));
+
 const CH = "10000000-0000-0000-0000-000000000001";
 const ME = "20000000-0000-0000-0000-000000000002";
 
@@ -168,6 +195,39 @@ it("renders a read-only notice without access instead of the composer", async ()
 
   await waitFor(() => expect(screen.getByText(/Нет доступа/i)).toBeInTheDocument());
   expect(screen.queryByPlaceholderText(/Написать/i)).not.toBeInTheDocument();
+});
+
+it("loads an older history page on scroll-to-top", async () => {
+  const mk = (id: number, content: string) => ({
+    id,
+    channel_id: CH,
+    user_id: "u9",
+    username: "bob",
+    avatar_url: null,
+    content,
+    created_at: "2026-08-20T10:00:00Z",
+  });
+  const firstPage = Array.from({ length: 50 }, (_, i) => mk(i + 1, `msg-${i + 1}`));
+  const olderPage = Array.from({ length: 50 }, (_, i) => mk(i - 49, `old-${i - 49}`));
+
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(jsonResponse(firstPage)) // 50 → hasMore=true
+    .mockResolvedValueOnce(jsonResponse(olderPage));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChannelChat channelId={CH} currentUserId={ME} />);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+  fireEvent.scroll(screen.getByTestId("channel-chat-messages"), { target: { scrollTop: 0 } });
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    `/api/v1/gomosubchat/channels/${CH}/messages?before=1&limit=50`,
+    { credentials: "include" }
+  );
+  // The prepended page lands at the top of the virtual list.
+  await waitFor(() => expect(screen.getByText("old--49")).toBeInTheDocument());
 });
 
 it("marks deleted messages with a placeholder and blanks the text", async () => {
