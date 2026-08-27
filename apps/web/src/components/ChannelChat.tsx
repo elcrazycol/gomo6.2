@@ -319,7 +319,6 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
                           setEditDraft("");
                         }
                       }}
-                      autoFocus
                       className="flex-1 h-7 bg-background border border-border rounded-md px-2 text-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                     <button
