@@ -212,6 +212,8 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 | `backup` | 1 | Database backup handler |
 | `notifications` | 1 | Notification Service: `notifications.New(db, redis, hub, push)` + `CreateParams`-based `CreateNotification`/`CreateWallNotification` (insert + cache invalidation + WS + push). No package globals — routes builds one instance and injects it into handlers/crudengine via `SetNotifier` |
 | `privacy` | 1 | Profile-visibility rules (private profile, mutual friends, per-content gates) |
+| `channelaccess` | 1 | Shared read/write/moderate predicates for gomosub text channels — used by both the REST handlers and the WS hub room gate |
+| `gomosubchat` | 2 | GomoSub text channels (Discord-style chat): keyset-paginated history, send/edit/delete REST (`/api/v1/gomosubchat/channels/:id/messages`) with own rate-limit namespace, realtime fan-out via `realtime:channel_chat` |
 | `httpx` | 1 | Shared HTTP helpers: `ServerError`, `AuthenticatedUserID` |
 | `textutil` | 1 | Shared string helpers: `TruncateRunes` |
 | `auth` | 1 | JWT, WebAuthn, 2FA |
