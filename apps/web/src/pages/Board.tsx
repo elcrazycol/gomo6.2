@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
@@ -35,19 +35,6 @@ import { wsService } from "@/services/websocket";
 // Used both for the swipe-up-to-open and swipe-down-to-close.
 const EDGE_ZONE_HEIGHT = 100;
 const EDGE_ZONE_WIDTH = 0.3;
-
-// Full-bleed chat surface (text channels): a fixed overlay pinned under the
-// chrome — a Discord-style app shell. The document behind has no tall content,
-// so the page itself never scrolls: the message list is the only scroll
-// surface, the channel bar stays on top and the composer stays at the bottom.
-// The top edge follows --app-chrome-top (0 while the chat requests chrome-less
-// mode), and the height uses --app-vh, which follows the visual viewport
-// (lib/mobileKeyboard.ts) so the composer rides the keyboard instead of
-// teleporting; --app-nowplaying-height leaves room for the audio bar.
-const CHAT_SURFACE_STYLE: CSSProperties = {
-  top: "calc(var(--app-chrome-top, var(--app-header-height, 60px)) + var(--app-nowplaying-height, 0px))",
-  height: "calc(var(--app-vh, 100dvh) - var(--app-chrome-top, var(--app-header-height, 60px)) - var(--app-nowplaying-height, 0px))",
-};
 
 interface Board {
   id: string;
@@ -1035,8 +1022,12 @@ const Board = () => {
 
   return (
     <>
-    {/* Text channels go Discord-style: full-bleed chat, no board header card */}
-    <main className={`${isTextChannel ? "max-w-none" : hasChannels ? "max-w-6xl" : "max-w-5xl"} ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"} mx-auto flex-1 relative flex flex-col`}>
+    {/* Text channels go Discord-style: full-bleed chat, no board header card.
+        The chat lives INSIDE main (AppLayout sizes it to --app-vh via
+        is-app-surface) as an in-flow block — the messenger approach: the
+        document shrinks with the visual viewport, so iOS has nothing to pan
+        and the keyboard glides the composer without any fight. */}
+    <main className={`${isTextChannel ? "max-w-none h-full" : hasChannels ? "max-w-6xl" : "max-w-5xl"} ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"} mx-auto flex-1 relative flex flex-col`}>
         {/* Board header — always full width (dropped for text channels: the
             Discord-style channel bar above the chat carries name + actions) */}
         {!isTextChannel && (<div className="mb-3 sm:mb-4 space-y-3">
@@ -1451,8 +1442,7 @@ const Board = () => {
         {hasChannels ? (
           <>
           <div
-            className={`flex gap-0 ${isTextChannel ? "fixed inset-x-0 z-30 overflow-hidden" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
-            style={isTextChannel ? CHAT_SURFACE_STYLE : undefined}
+            className={`flex gap-0 ${isTextChannel ? "h-full min-h-0 overflow-hidden" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
             data-kb-app={isTextChannel || undefined}
             data-kb-keep={isTextChannel || undefined}
           >

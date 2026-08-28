@@ -1026,3 +1026,17 @@ html.kb-open body {
 .wall-comments-pad {
   padding-bottom: calc(var(--kb-inset, 0px) + 16rem);
 }
+
+/* ── Full-bleed app surfaces (text-channel chat) ──────────────────────────
+   A page running chrome-less (body.app-surface-active) renders its app
+   surface directly inside <main>. Like the messenger page, the surface must
+   be an in-flow block sized to the VISUAL viewport (--app-vh, written by
+   lib/mobileKeyboard.ts): when the soft keyboard opens, the document shrinks
+   with it, so Safari has nothing to pan and the composer rides the keyboard
+   in one continuous motion instead of fighting the fixed-element pan. */
+main.is-app-surface {
+  flex: 0 0 auto;
+  height: var(--app-vh, 100dvh);
+  max-height: var(--app-vh, 100dvh);
+  overflow: hidden;
+}

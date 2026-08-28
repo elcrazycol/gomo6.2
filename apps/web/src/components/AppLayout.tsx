@@ -1028,22 +1028,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     document.documentElement.style.setProperty('--app-header-height', `${headerHeight}px`);
   }, [headerHeight]);
 
-  // Same for the now-playing bar pad — full-bleed app surfaces (the
-  // text-channel chat) must leave room for it without layout state.
-  useEffect(() => {
-    document.documentElement.style.setProperty('--app-nowplaying-height', `${nowPlayingPadPx}px`);
-  }, [nowPlayingPadPx]);
-
-  // Effective top offset of app content below the chrome: the header height
-  // while the header is rendered, 0 in chrome-less modes (messenger mobile
-  // chat, full-bleed text-channel chat), plus the now-playing pad. Full-bleed
-  // surfaces pin their top edge to this var instead of duplicating layout
-  // state, so they track header hide/show without extra plumbing.
-  const chromeTopPx = hideChrome ? 0 : headerHeight;
-  useEffect(() => {
-    document.documentElement.style.setProperty('--app-chrome-top', `${chromeTopPx + nowPlayingPadPx}px`);
-  }, [chromeTopPx, nowPlayingPadPx]);
-
   if (isSpecialPage) {
     return <>{children}</>;
   }
@@ -1455,7 +1439,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <motion.main
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}`}
+        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}${hideMessengerChrome && !isMessengerPage ? " is-app-surface" : ""}`}
         style={{ paddingTop: hideChrome ? 0 : contentPad }}
       >
         {children}
