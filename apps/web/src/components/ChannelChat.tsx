@@ -645,13 +645,24 @@ export function ChannelChat({
             <div aria-hidden="true" style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + totalSize, left: 0, right: 0, height: BOTTOM_GAP_HEIGHT }} />
           </div>
         )}
+
+        {/* Keyboard spacer — the shell is static, so while the soft keyboard
+            is open this spacer (live per-frame via --kb-inset from
+            lib/mobileKeyboard.ts) keeps the pinned-to-bottom messages above
+            the lifted composer. The VisualViewport pattern: the layout never
+            resizes, only the composer translates. */}
+        {!loading && !denied && messages.length > 0 && (
+          <div aria-hidden="true" style={{ height: "var(--kb-inset, 0px)" }} />
+        )}
       </div>
 
-      {/* Jump to the newest while scrolled up */}
+      {/* Jump to the newest while scrolled up. Lifted together with the
+          composer by the keyboard inset (see the composer note below). */}
       {!isAtBottom && messages.length > 0 && (
         <button
           type="button"
           onClick={scrollToBottom}
+          style={{ transform: "translateY(calc(var(--kb-inset, 0px) * -1))" }}
           className="absolute right-4 bottom-[76px] h-8 w-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
           aria-label={
             newMessageCount > 0
@@ -668,10 +679,17 @@ export function ChannelChat({
         </button>
       )}
 
-      {/* Composer — Discord-style pill, full width of the chat area. Hidden
-          entirely when the channel is inaccessible. */}
+      {/* Composer — Discord-style pill, full width of the chat area. The
+          shell never resizes when the keyboard opens; instead the composer
+          (and the jump button above) translate up by the live keyboard inset
+          — the same VisualViewport pattern big web chats use. glides because
+          mobileKeyboard.ts writes --kb-inset per-frame while the keyboard
+          animates. Hidden entirely when the channel is inaccessible. */}
       {!denied && (
-      <div className="shrink-0 px-4 sm:px-5 pb-3 pt-1">
+      <div
+        className="shrink-0 px-4 sm:px-5 pb-3 pt-1"
+        style={{ transform: "translateY(calc(var(--kb-inset, 0px) * -1))" }}
+      >
         {currentUserId ? (
           canPost ? (
             <form
