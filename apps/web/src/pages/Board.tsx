@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
@@ -35,6 +35,18 @@ import { wsService } from "@/services/websocket";
 // Used both for the swipe-up-to-open and swipe-down-to-close.
 const EDGE_ZONE_HEIGHT = 100;
 const EDGE_ZONE_WIDTH = 0.3;
+
+// Full-bleed chat surface (text channels): a fixed overlay pinned under the
+// fixed app header — a Discord-style app shell. The document behind has no
+// tall content, so the page itself never scrolls: the message list is the
+// only scroll surface, the channel bar stays on top and the composer stays
+// at the bottom. --app-vh follows the visual viewport (lib/mobileKeyboard.ts)
+// so the composer rises above the mobile keyboard; --app-nowplaying-height
+// leaves room for the audio bar while it is showing.
+const CHAT_SURFACE_STYLE: CSSProperties = {
+  top: "calc(var(--app-header-height, 60px) + var(--app-nowplaying-height, 0px))",
+  height: "calc(var(--app-vh, 100dvh) - var(--app-header-height, 60px) - var(--app-nowplaying-height, 0px))",
+};
 
 interface Board {
   id: string;
@@ -1424,10 +1436,14 @@ const Board = () => {
         {/* Content area — with sidebar for gomosub, plain otherwise */}
         {hasChannels ? (
           <>
-          <div className={`flex gap-0 flex-1 min-h-0 ${isTextChannel ? "" : "-mx-2 sm:-mx-4 md:-mx-5"}`}>
-            {/* Collapsible channel sidebar — floating card, sticky to viewport */}
-            <aside className={`hidden md:block shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
-              <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${sidebarCollapsed ? 'hidden' : ''}`}>
+          <div
+            className={`flex gap-0 ${isTextChannel ? "fixed inset-x-0 z-30 overflow-hidden" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
+            style={isTextChannel ? CHAT_SURFACE_STYLE : undefined}
+          >
+            {/* Collapsible channel sidebar — full-height column inside the chat
+                surface, floating sticky card on forum pages */}
+            <aside className={`hidden md:block shrink-0 transition-all duration-300 z-20 ${isTextChannel ? "h-full min-h-0" : "overflow-visible sticky top-4 self-start"} ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
+              <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${isTextChannel ? "h-full flex flex-col overflow-hidden" : ""} ${sidebarCollapsed ? 'hidden' : ''}`}>
                 {/* Sidebar header with collapse button */}
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
                   <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest select-none">{t("board.channels")}</h3>
@@ -1439,8 +1455,8 @@ const Board = () => {
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                {/* Channel list — scrollable */}
-                <div className="max-h-[calc(100vh-9rem)] overflow-y-auto px-3 pb-3">
+                {/* Channel list — scrollable (fills the card inside the chat surface) */}
+                <div className={`overflow-y-auto px-3 pb-3 ${isTextChannel ? "flex-1 min-h-0" : "max-h-[calc(100vh-9rem)]"}`}>
                 
                 {renderChannelList(() => {})}
                 

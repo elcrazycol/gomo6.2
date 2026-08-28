@@ -1022,6 +1022,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     document.documentElement.style.setProperty('--app-header-height', `${headerHeight}px`);
   }, [headerHeight]);
 
+  // Same for the now-playing bar pad — full-bleed app surfaces (the
+  // text-channel chat) must leave room for it without layout state.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--app-nowplaying-height', `${nowPlayingPadPx}px`);
+  }, [nowPlayingPadPx]);
+
   if (isSpecialPage) {
     return <>{children}</>;
   }
