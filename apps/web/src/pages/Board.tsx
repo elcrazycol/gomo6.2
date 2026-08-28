@@ -37,15 +37,16 @@ const EDGE_ZONE_HEIGHT = 100;
 const EDGE_ZONE_WIDTH = 0.3;
 
 // Full-bleed chat surface (text channels): a fixed overlay pinned under the
-// fixed app header — a Discord-style app shell. The document behind has no
-// tall content, so the page itself never scrolls: the message list is the
-// only scroll surface, the channel bar stays on top and the composer stays
-// at the bottom. --app-vh follows the visual viewport (lib/mobileKeyboard.ts)
-// so the composer rises above the mobile keyboard; --app-nowplaying-height
-// leaves room for the audio bar while it is showing.
+// chrome — a Discord-style app shell. The document behind has no tall content,
+// so the page itself never scrolls: the message list is the only scroll
+// surface, the channel bar stays on top and the composer stays at the bottom.
+// The top edge follows --app-chrome-top (0 while the chat requests chrome-less
+// mode), and the height uses --app-vh, which follows the visual viewport
+// (lib/mobileKeyboard.ts) so the composer rides the keyboard instead of
+// teleporting; --app-nowplaying-height leaves room for the audio bar.
 const CHAT_SURFACE_STYLE: CSSProperties = {
-  top: "calc(var(--app-header-height, 60px) + var(--app-nowplaying-height, 0px))",
-  height: "calc(var(--app-vh, 100dvh) - var(--app-header-height, 60px) - var(--app-nowplaying-height, 0px))",
+  top: "calc(var(--app-chrome-top, var(--app-header-height, 60px)) + var(--app-nowplaying-height, 0px))",
+  height: "calc(var(--app-vh, 100dvh) - var(--app-chrome-top, var(--app-header-height, 60px)) - var(--app-nowplaying-height, 0px))",
 };
 
 interface Board {
@@ -684,6 +685,19 @@ const Board = () => {
     if (!activeChannelId) return false;
     return Boolean(channels.find((ch) => ch.id === activeChannelId)?.is_private);
   }, [activeChannelId, channels]);
+
+  // While a text channel is open, request chrome-less full-bleed mode from
+  // AppLayout (the site header is dropped — Discord-style) via the same
+  // body-class + event contract the messenger mobile chat uses.
+  useEffect(() => {
+    if (!isTextChannel) return;
+    document.body.classList.add("app-surface-active");
+    window.dispatchEvent(new Event("gomo6:app-surface"));
+    return () => {
+      document.body.classList.remove("app-surface-active");
+      window.dispatchEvent(new Event("gomo6:app-surface"));
+    };
+  }, [isTextChannel]);
 
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
   // on document (not <main>) so gestures that start below the content area
@@ -1439,6 +1453,8 @@ const Board = () => {
           <div
             className={`flex gap-0 ${isTextChannel ? "fixed inset-x-0 z-30 overflow-hidden" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
             style={isTextChannel ? CHAT_SURFACE_STYLE : undefined}
+            data-kb-app={isTextChannel || undefined}
+            data-kb-keep={isTextChannel || undefined}
           >
             {/* Collapsible channel sidebar — full-height column inside the chat
                 surface, floating sticky card on forum pages */}
@@ -1533,7 +1549,9 @@ const Board = () => {
                     <h1 className="text-[15px] font-bold truncate">{activeChannelName || activeChannelSlug}</h1>
                     {activeChannelPrivate && <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
                     <div className="w-px h-5 bg-border/70 mx-1" />
-                    <span className="text-sm text-muted-foreground truncate">g/{board.slug}</span>
+                    <Link to={`/g/${board.slug}`} className="text-sm text-muted-foreground hover:text-foreground truncate">
+                      g/{board.slug}
+                    </Link>
                   </div>
                   {/* Compact actions: share + join */}
                   <div className="flex items-center gap-1.5 shrink-0">

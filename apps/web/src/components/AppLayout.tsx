@@ -972,17 +972,23 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   });
 
   useEffect(() => {
-    const syncMessengerChrome = () => {
+    const syncChrome = () => {
       if (typeof document === "undefined") return;
-      setHideMessengerChrome(document.body.classList.contains("messenger-mobile-chat-active"));
+      // Pages can request chrome-less mode via a body class + event: the
+      // messenger mobile chat and the full-bleed text-channel chat do.
+      setHideMessengerChrome(
+        document.body.classList.contains("messenger-mobile-chat-active") ||
+        document.body.classList.contains("app-surface-active")
+      );
     };
 
-    const onMessengerChromeChange = () => syncMessengerChrome();
-    syncMessengerChrome();
-    window.addEventListener("gomo6:messenger-mobile-chat", onMessengerChromeChange as EventListener);
+    syncChrome();
+    window.addEventListener("gomo6:messenger-mobile-chat", syncChrome as EventListener);
+    window.addEventListener("gomo6:app-surface", syncChrome as EventListener);
 
     return () => {
-      window.removeEventListener("gomo6:messenger-mobile-chat", onMessengerChromeChange as EventListener);
+      window.removeEventListener("gomo6:messenger-mobile-chat", syncChrome as EventListener);
+      window.removeEventListener("gomo6:app-surface", syncChrome as EventListener);
     };
   }, []);
 
@@ -1027,6 +1033,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     document.documentElement.style.setProperty('--app-nowplaying-height', `${nowPlayingPadPx}px`);
   }, [nowPlayingPadPx]);
+
+  // Effective top offset of app content below the chrome: the header height
+  // while the header is rendered, 0 in chrome-less modes (messenger mobile
+  // chat, full-bleed text-channel chat), plus the now-playing pad. Full-bleed
+  // surfaces pin their top edge to this var instead of duplicating layout
+  // state, so they track header hide/show without extra plumbing.
+  const chromeTopPx = hideChrome ? 0 : headerHeight;
+  useEffect(() => {
+    document.documentElement.style.setProperty('--app-chrome-top', `${chromeTopPx + nowPlayingPadPx}px`);
+  }, [chromeTopPx, nowPlayingPadPx]);
 
   if (isSpecialPage) {
     return <>{children}</>;
