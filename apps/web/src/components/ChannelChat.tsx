@@ -10,17 +10,18 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { apiClient } from "@/integrations/api/client";
 import { wsService } from "@/services/websocket";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, Loader2, Pencil, SendHorizontal, Trash2, X } from "lucide-react";
+import { ChevronDown, Hash, Loader2, Pencil, SendHorizontal, Trash2, X } from "lucide-react";
 import { safeDate } from "@/utils/safeDate";
 import { useDateLocale } from "@/i18n/dateLocale";
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 
-// Discord-style text channel: a virtualized message stream. The virtualizer
-// renders only the visible rows (like the messenger's MessageList), history is
-// fetched in pages on scroll-to-top, and the view stays pinned to the bottom
-// while the user is there. Deliberately leaner than the messenger: no read
-// receipts, no scroll-restore across sessions, no keyboard lift.
+// Discord-style text channel: a full-bleed virtualized message stream under a
+// channel header rendered by Board. The virtualizer renders only the visible
+// rows (like the messenger's MessageList), history is fetched in pages on
+// scroll-to-top, and the view stays pinned to the bottom while the user is
+// there. Deliberately leaner than the messenger: no read receipts, no
+// scroll-restore across sessions, no keyboard lift.
 
 export interface ChannelMessage {
   id: number;
@@ -38,7 +39,7 @@ const MAX_CONTENT_LENGTH = 4000;
 
 // ── Virtual list geometry (kept in sync with the row markup below) ─────────
 const HISTORY_HEADER_HEIGHT = 28; // "Начало канала" / "Загружаем историю…" strip
-const BOTTOM_GAP_HEIGHT = 12;     // breathing room under the last message
+const BOTTOM_GAP_HEIGHT = 16;     // breathing room under the last message
 const AT_BOTTOM_SLACK = 12;       // px from the bottom still treated as "at bottom"
 const TOP_LOAD_ZONE = 300;        // px from the top that arms the history loader
 const OVERSCAN = 10;              // rows rendered beyond the viewport
@@ -47,6 +48,8 @@ const LOAD_THROTTLE_MS = 500;     // min gap between history page loads
 
 interface ChannelChatProps {
   channelId: string;
+  /** Used for the Discord-style "Написать в #name" composer placeholder and welcome block */
+  channelName?: string;
   currentUserId?: string | null;
   /** false renders a join-first notice instead of the composer */
   canPost?: boolean;
@@ -68,17 +71,17 @@ const HISTORY_URL = (channelId: string) =>
   `/api/v1/gomosubchat/channels/${channelId}/messages`;
 
 /** Rough pre-measurement height — the virtualizer corrects it with the real
- *  measured row once it scrolls into view (measureElement). */
+ *  measured row once it scrolls into view. Full-width rows fit ~70 chars. */
 function estimateRowHeight(m: ChannelMessage | undefined, prev: ChannelMessage | null): number {
-  if (!m) return 44;
+  if (!m) return 58;
   const grouped =
     !!prev &&
     prev.user_id === m.user_id &&
     safeDate(m.created_at).getTime() - safeDate(prev.created_at).getTime() < GROUP_WINDOW_MS;
-  const base = grouped ? 26 : 48; // avatar/name header only on ungrouped rows
+  const base = grouped ? 30 : 58; // avatar/name header only on ungrouped rows
   if (m.deleted_at) return base;
-  const lines = Math.max(1, Math.ceil(m.content.length / 48));
-  return base + (lines - 1) * 20;
+  const lines = Math.max(1, Math.ceil(m.content.length / 70));
+  return base + (lines - 1) * 26;
 }
 
 function isGroupedWith(prev: ChannelMessage | null, m: ChannelMessage): boolean {
@@ -89,7 +92,13 @@ function isGroupedWith(prev: ChannelMessage | null, m: ChannelMessage): boolean 
   );
 }
 
-export function ChannelChat({ channelId, currentUserId, canPost = true, canDeleteOthers = false }: ChannelChatProps) {
+export function ChannelChat({
+  channelId,
+  channelName,
+  currentUserId,
+  canPost = true,
+  canDeleteOthers = false,
+}: ChannelChatProps) {
   const dateLocale = useDateLocale();
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,6 +139,11 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
 
   const timeLabel = useMemo(
     () => (iso: string) => formatDistanceToNow(safeDate(iso), { locale: dateLocale, addSuffix: true }),
+    [dateLocale]
+  );
+  // Discord shows HH:MM in the left gutter when hovering a grouped row.
+  const clockTime = useMemo(
+    () => (iso: string) => format(safeDate(iso), "HH:mm", { locale: dateLocale }),
     [dateLocale]
   );
 
@@ -442,9 +456,10 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
 
   const virtualItems = virtualizer.getVirtualItems();
   const contentHeight = HISTORY_HEADER_HEIGHT + totalSize + BOTTOM_GAP_HEIGHT;
+  const displayName = channelName || "канал";
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col rounded-lg border border-border/60 bg-card overflow-hidden">
+    <div className="relative flex-1 min-h-0 flex flex-col bg-background">
       {/* Message stream */}
       <div
         ref={scrollerRef}
@@ -459,7 +474,7 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
           userDraggingRef.current = false;
         }}
         data-testid="channel-chat-messages"
-        className="flex-1 min-h-0 overflow-y-auto"
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
         role="log"
         aria-label="Сообщения канала"
         aria-live="polite"
@@ -469,24 +484,39 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
             <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
           </div>
         ) : denied ? (
-          <div className="flex items-center justify-center p-8">
+          <div className="flex flex-col items-center justify-center gap-3 p-10 pt-24">
+            <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
+              <Hash className="w-7 h-7 text-muted-foreground" />
+            </div>
             <div className="text-center text-muted-foreground text-sm">Нет доступа к этому каналу.</div>
           </div>
         ) : messages.length === 0 ? (
-          <div className="text-center text-muted-foreground text-sm py-10">Пока тишина. Напишите первым!</div>
+          <div className="px-4 sm:px-5 pt-14 pb-6 max-w-2xl">
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Hash className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h2 className="text-xl font-bold">Добро пожаловать в #{displayName}!</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Это начало канала. Здесь пока тихо — напишите первым.
+            </p>
+          </div>
         ) : (
           <div style={{ height: contentHeight, position: "relative" }}>
             <div
-              className="flex items-center justify-center text-[11px] text-muted-foreground"
+              className="flex items-center justify-center gap-3 text-[11px] text-muted-foreground/70"
               style={{ position: "absolute", top: 0, left: 0, right: 0, height: HISTORY_HEADER_HEIGHT }}
             >
+              <span className="h-px flex-1 max-w-24 bg-border/60" />
               {loadingOlder ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Loader2 className="w-3 h-3 animate-spin" /> Загружаем историю…
                 </span>
-              ) : hasMore ? null : (
+              ) : hasMore ? (
+                <span>Скрольте вверх, чтобы загрузить ещё</span>
+              ) : (
                 <span>Начало канала</span>
               )}
+              <span className="h-px flex-1 max-w-24 bg-border/60" />
             </div>
 
             {virtualItems.map((row) => {
@@ -503,33 +533,45 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
                   style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + row.start, left: 0, right: 0 }}
                 >
                   <div
-                    className={`group relative flex gap-2 px-2 rounded-md hover:bg-muted/30 ${
-                      grouped ? "py-0.5" : "pt-2 pb-0.5"
+                    className={`group relative flex gap-3 px-4 sm:px-5 hover:bg-muted/40 transition-colors ${
+                      grouped ? "py-0.5" : "pt-2.5 pb-0.5"
                     }`}
                   >
-                    <div className="shrink-0 w-8">
-                      {!grouped &&
-                        (m.avatar_url ? (
+                    <div className="shrink-0 w-10 flex justify-center">
+                      {!grouped ? (
+                        m.avatar_url ? (
                           <img
                             src={m.avatar_url}
                             alt=""
-                            className="w-8 h-8 rounded-full object-cover border border-border"
+                            className="w-10 h-10 rounded-full object-cover"
                           />
                         ) : (
-                          <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-sm font-semibold text-muted-foreground">
                             {(m.username || "?").slice(0, 1).toUpperCase()}
                           </div>
-                        ))}
+                        )
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="hidden group-hover:block pt-1.5 text-[10px] leading-none text-muted-foreground/50"
+                        >
+                          {clockTime(m.created_at)}
+                        </span>
+                      )}
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 pb-0.5">
                       {!grouped && (
                         <div className="flex items-baseline gap-2">
-                          <span className="text-sm font-semibold truncate">{m.username}</span>
-                          <span className="text-[11px] text-muted-foreground">{timeLabel(m.created_at)}</span>
+                          <span className="text-[15px] font-medium leading-tight hover:underline cursor-pointer">
+                            {m.username}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground/60">
+                            {timeLabel(m.created_at)}
+                          </span>
                         </div>
                       )}
                       {m.deleted_at ? (
-                        <div className="text-sm italic text-muted-foreground">Сообщение удалено</div>
+                        <div className="text-[15px] italic text-muted-foreground/70">Сообщение удалено</div>
                       ) : editingId === m.id ? (
                         <div className="flex items-center gap-1 mt-0.5">
                           <input
@@ -560,14 +602,14 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
                           </button>
                         </div>
                       ) : (
-                        <div className="text-sm whitespace-pre-wrap break-words">
+                        <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">
                           {m.content}
-                          {m.edited_at && <span className="ml-1 text-[10px] text-muted-foreground">(изменено)</span>}
+                          {m.edited_at && <span className="ml-1 text-[10px] text-muted-foreground/50">(изменено)</span>}
                         </div>
                       )}
                     </div>
                     {!m.deleted_at && editingId !== m.id && (
-                      <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-0.5 bg-card/90 border border-border rounded-md shadow-sm">
+                      <div className="absolute -top-3 right-4 hidden group-hover:flex items-center rounded-lg border border-border/60 bg-card shadow-md">
                         {canEdit(m) && (
                           <button
                             onClick={() => {
@@ -578,7 +620,7 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
                                 el?.focus();
                               });
                             }}
-                            className="p-1.5 text-muted-foreground hover:text-primary"
+                            className="p-1.5 text-muted-foreground hover:text-foreground"
                             title="Изменить"
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -610,7 +652,7 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute right-3 bottom-14 h-8 w-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+          className="absolute right-4 bottom-[76px] h-8 w-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
           aria-label={
             newMessageCount > 0
               ? `Вниз (${newMessageCount} ${newMessageCount === 1 ? "новое" : "новых"} сообщени${newMessageCount === 1 ? "е" : "й"})`
@@ -626,13 +668,14 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
         </button>
       )}
 
-      {/* Composer — hidden entirely when the channel is inaccessible */}
+      {/* Composer — Discord-style pill, full width of the chat area. Hidden
+          entirely when the channel is inaccessible. */}
       {!denied && (
-      <div className="border-t border-border/60 p-2 shrink-0">
+      <div className="shrink-0 px-4 sm:px-5 pb-3 pt-1">
         {currentUserId ? (
           canPost ? (
             <form
-              className="flex items-center gap-2"
+              className="flex items-center gap-1 rounded-2xl border border-border/40 bg-muted/50 focus-within:border-ring/50 transition-colors px-2 h-11"
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSend();
@@ -642,18 +685,28 @@ export function ChannelChat({ channelId, currentUserId, canPost = true, canDelet
                 value={draft}
                 maxLength={MAX_CONTENT_LENGTH}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Написать сообщение…"
-                className="flex-1 h-9 bg-background border border-border rounded-lg px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                placeholder={`Написать в #${displayName}…`}
+                className="flex-1 h-full min-w-0 bg-transparent px-2 text-[15px] placeholder:text-muted-foreground/60 focus:outline-none"
               />
-              <Button type="submit" size="icon" className="h-9 w-9" disabled={sending || !draft.trim()}>
+              <Button
+                type="submit"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary hover:bg-primary/10 disabled:opacity-40"
+                disabled={sending || !draft.trim()}
+              >
                 {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizontal className="w-4 h-4" />}
               </Button>
             </form>
           ) : (
-            <div className="text-center text-xs text-muted-foreground py-1.5">Вступите в гомосаб, чтобы писать в канал</div>
+            <div className="rounded-2xl border border-border/40 bg-muted/40 text-center text-xs text-muted-foreground py-2.5">
+              Вступите в гомосаб, чтобы писать в канал
+            </div>
           )
         ) : (
-          <div className="text-center text-xs text-muted-foreground py-1.5">Войдите, чтобы писать в канал</div>
+          <div className="rounded-2xl border border-border/40 bg-muted/40 text-center text-xs text-muted-foreground py-2.5">
+            Войдите, чтобы писать в канал
+          </div>
         )}
       </div>
       )}

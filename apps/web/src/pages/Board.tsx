@@ -668,6 +668,11 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.kind === "text";
   }, [activeChannelId, channels]);
 
+  const activeChannelPrivate = useMemo(() => {
+    if (!activeChannelId) return false;
+    return Boolean(channels.find((ch) => ch.id === activeChannelId)?.is_private);
+  }, [activeChannelId, channels]);
+
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
   // on document (not <main>) so gestures that start below the content area
   // still count, and only while the sheet is closed.
@@ -1004,9 +1009,11 @@ const Board = () => {
 
   return (
     <>
-    <main className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
-        {/* Board header — always full width */}
-        <div className="mb-3 sm:mb-4 space-y-3">
+    {/* Text channels go Discord-style: full-bleed chat, no board header card */}
+    <main className={`${isTextChannel ? "max-w-none" : hasChannels ? "max-w-6xl" : "max-w-5xl"} ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"} mx-auto flex-1 relative flex flex-col`}>
+        {/* Board header — always full width (dropped for text channels: the
+            Discord-style channel bar above the chat carries name + actions) */}
+        {!isTextChannel && (<div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
             <Card className="overflow-hidden border-primary/20 bg-card">
               <div className="relative">
@@ -1412,12 +1419,12 @@ const Board = () => {
           )}
           </>
           )}
-        </div>
+        </div>) }
 
         {/* Content area — with sidebar for gomosub, plain otherwise */}
         {hasChannels ? (
           <>
-          <div className="flex gap-0 flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5">
+          <div className={`flex gap-0 flex-1 min-h-0 ${isTextChannel ? "" : "-mx-2 sm:-mx-4 md:-mx-5"}`}>
             {/* Collapsible channel sidebar — floating card, sticky to viewport */}
             <aside className={`hidden md:block shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
               <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${sidebarCollapsed ? 'hidden' : ''}`}>
@@ -1474,8 +1481,83 @@ const Board = () => {
               </button>
             )}
             
-            {/* Content area — scrolls independently */}
-            <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-4 md:p-5">
+            {/* Content area — scrolls independently (no padding for text
+                channels: the chat fills the whole area, Discord-style) */}
+            <div className={`flex-1 min-w-0 flex flex-col ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"}`}>
+              {/* Discord-style channel bar — replaces the board header card
+                  for text channels: name, lock, board link and compact join */}
+              {isTextChannel ? (
+              <div className="shrink-0 flex items-center gap-2 h-12 px-3 sm:px-4 border-b border-border/60 bg-background/80 backdrop-blur-sm">
+                  {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
+                  <button
+                    onClick={() => setMobileChannelsOpen(true)}
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    title={t("board.channels")}
+                  >
+                    {activeChannelId ? (
+                      <>
+                        {activeChannelPrivate ? (
+                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                        ) : (
+                          <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate">{activeChannelName || activeChannelSlug}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{t("board.general")}</span>
+                      </>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
+                  </button>
+                  {/* Desktop: Discord-style channel name */}
+                  <div className="hidden md:flex items-center gap-2 min-w-0 flex-1">
+                    <Hash className="w-5 h-5 shrink-0 text-muted-foreground/70" />
+                    <h1 className="text-[15px] font-bold truncate">{activeChannelName || activeChannelSlug}</h1>
+                    {activeChannelPrivate && <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
+                    <div className="w-px h-5 bg-border/70 mx-1" />
+                    <span className="text-sm text-muted-foreground truncate">g/{board.slug}</span>
+                  </div>
+                  {/* Compact actions: share + join */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="hidden sm:inline-flex h-8 w-8 text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        const url = `${window.location.origin}/g/${board.slug}`;
+                        navigator.clipboard.writeText(url).then(() => {
+                          toast.success(t("board.linkCopied"));
+                        }).catch(() => {
+                          toast.error(t("board.linkCopyError"));
+                        });
+                      }}
+                      title={t("board.share")}
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant={isJoined ? "secondary" : "default"}
+                      onClick={handleToggleJoin}
+                      className={`h-8 px-3 text-xs ${isJoined ? "bg-primary/12 text-primary hover:bg-primary/20 border border-primary/35" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}
+                      disabled={membershipLoading || checkingRules}
+                    >
+                      {isJoined ? (
+                        <>
+                          <UserCheck className="w-3.5 h-3.5 sm:mr-1.5" />
+                          <span className="hidden sm:inline">{t("board.member")}</span>
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="w-3.5 h-3.5 sm:mr-1.5" />
+                          <span className="hidden sm:inline">{t("board.join")}</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+              </div>
+              ) : (
               <div className="mb-3 sm:mb-4">
                 <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
@@ -1520,12 +1602,14 @@ const Board = () => {
                   )}
                 </div>
               </div>
+              )}
 
               <div className={`relative flex-1 ${isTextChannel ? "flex flex-col min-h-0" : "space-y-2"}`}>
                 {/* Text channels replace the thread list with a Discord-style chat */}
                 {isTextChannel && activeChannelId ? (
                   <ChannelChat
                     channelId={activeChannelId}
+                    channelName={activeChannelName || activeChannelSlug || undefined}
                     currentUserId={user?.id ?? null}
                     canPost={Boolean(user?.id && isJoined)}
                     canDeleteOthers={Boolean(isBoardOwner || boardPermissions.can_delete_threads)}
