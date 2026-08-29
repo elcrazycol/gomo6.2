@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/channelaccess"
 	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/privacy"
@@ -48,6 +49,14 @@ const (
 	MessageTypeReadReceipt    = "read_receipt"
 	MessageTypeChatTyping     = "chat_typing"
 	MessageTypeSessionRevoked = "session_revoked"
+
+	// GomoSub text-channel (chat) events — separate from the E2E messenger
+	// pipeline: this content is plaintext and moderatable by design.
+	RedisChannelChannelChat = "realtime:channel_chat"
+
+	MessageTypeNewChannelMessage     = "new_channel_message"
+	MessageTypeChannelMessageEdited  = "channel_message_edited"
+	MessageTypeChannelMessageDeleted = "channel_message_deleted"
 
 	// Redis channels
 	RedisChannelPosts         = "realtime:posts"
@@ -315,7 +324,7 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify, RedisChannelUserRevoke)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify, RedisChannelUserRevoke)
 	defer pubsub.Close()
 
 	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
@@ -476,6 +485,11 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 
 	case MessageTypeNewWallPost, MessageTypeUpdateWallPost, MessageTypeDeleteWallPost:
 		h.broadcastWallPostEvent(payload, messageBytes)
+
+	case MessageTypeNewChannelMessage, MessageTypeChannelMessageEdited, MessageTypeChannelMessageDeleted:
+		if channelID := extractRoomID(payload, "channel_id"); channelID != "" {
+			h.BroadcastToRoom(fmt.Sprintf("channel_%s", channelID), messageBytes)
+		}
 
 	case MessageTypeNewChatMessage:
 		messageBytes = decryptChatMessage(payload, message, messageBytes, eventType)
@@ -699,6 +713,9 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 	case strings.HasPrefix(room, "chat_"):
 		conversationID := strings.TrimPrefix(room, "chat_")
 		return conversationID != "" && h.isMemberOfConversation(userID, conversationID)
+	case strings.HasPrefix(room, "channel_"):
+		channelID := strings.TrimPrefix(room, "channel_")
+		return channelID != "" && h.canAccessChannelRoom(userID, channelID)
 	case room == "feed":
 		return true
 	case strings.HasPrefix(room, "profile_wall_"):
@@ -715,6 +732,21 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 		// names must not become an implicit broadcast subscription primitive.
 		return isPublicRoom(room)
 	}
+}
+
+// canAccessChannelRoom reports whether userID may receive realtime events of
+// a gomosub text channel: the same read predicate as the REST history path, so
+// a private channel's chat stream is never leaked via websocket subscriptions.
+func (h *Hub) canAccessChannelRoom(userID, channelID string) bool {
+	if h.db == nil {
+		return false
+	}
+	ok, err := channelaccess.CanReadChannel(h.db, userID, channelID)
+	if err != nil {
+		log.Printf("[WebSocket] channel room access check error: %v", err)
+		return false
+	}
+	return ok
 }
 
 // canViewWallRoom reports whether userID may receive realtime events for a

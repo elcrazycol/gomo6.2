@@ -972,17 +972,23 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   });
 
   useEffect(() => {
-    const syncMessengerChrome = () => {
+    const syncChrome = () => {
       if (typeof document === "undefined") return;
-      setHideMessengerChrome(document.body.classList.contains("messenger-mobile-chat-active"));
+      // Pages can request chrome-less mode via a body class + event: the
+      // messenger mobile chat and the full-bleed text-channel chat do.
+      setHideMessengerChrome(
+        document.body.classList.contains("messenger-mobile-chat-active") ||
+        document.body.classList.contains("app-surface-active")
+      );
     };
 
-    const onMessengerChromeChange = () => syncMessengerChrome();
-    syncMessengerChrome();
-    window.addEventListener("gomo6:messenger-mobile-chat", onMessengerChromeChange as EventListener);
+    syncChrome();
+    window.addEventListener("gomo6:messenger-mobile-chat", syncChrome as EventListener);
+    window.addEventListener("gomo6:app-surface", syncChrome as EventListener);
 
     return () => {
-      window.removeEventListener("gomo6:messenger-mobile-chat", onMessengerChromeChange as EventListener);
+      window.removeEventListener("gomo6:messenger-mobile-chat", syncChrome as EventListener);
+      window.removeEventListener("gomo6:app-surface", syncChrome as EventListener);
     };
   }, []);
 
@@ -1433,7 +1439,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <motion.main
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}`}
+        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}${hideMessengerChrome && !isMessengerPage ? " is-app-surface" : ""}`}
         style={{ paddingTop: hideChrome ? 0 : contentPad }}
       >
         {children}

@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 // testDummyHandler returns a simple JSON response.
@@ -18,6 +20,46 @@ func testDummyHandler(c *gin.Context) {
 // testEmptyHandler returns an empty array (should not be cached).
 func testEmptyHandler(c *gin.Context) {
 	c.JSON(200, []interface{}{})
+}
+
+// TestDataCache_SkipGomoSubChat verifies that gomosub text-channel history GETs
+// bypass the response cache entirely — a regression for the stale/empty history
+// bug: chat writes have no generic CRUD invalidator, so a cached page would
+// serve pre-message snapshots for the whole TTL after a reload.
+func TestDataCache_SkipGomoSubChat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	for _, path := range []string{
+		"/api/v1/gomosubchat/channels/10000000-0000-0000-0000-000000000001/messages",
+		"/api/v1/gomosubchat/channels/10000000-0000-0000-0000-000000000001/messages?before=42&limit=10",
+	} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("GET", path, nil)
+
+			middleware := DataCacheMiddleware(rdb, DefaultDataCacheTTL)
+			middleware(c)
+			testDummyHandler(c)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
+			}
+			// Bypass returns before the X-Cache branch: neither HIT nor MISS
+			// may be present, proving the response never entered the cache.
+			if xc := w.Header().Get("X-Cache"); xc != "" {
+				t.Errorf("gomosubchat must bypass data cache, got X-Cache=%q", xc)
+			}
+		})
+	}
+
+	// And nothing may have been written to Redis by those requests.
+	if keys := mr.Keys(); len(keys) != 0 {
+		t.Errorf("no cache keys may exist for bypassed endpoints, got %v", keys)
+	}
 }
 
 // TestDataCache_SkipNonGET verifies that POST/PUT/DELETE requests pass through without caching.

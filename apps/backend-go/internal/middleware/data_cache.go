@@ -85,6 +85,16 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Skip caching for gomosub text-channel chat — same realtime contract as
+		// the messenger. History GETs must reflect every freshly sent message, and
+		// writes have no generic CRUD invalidator (channel_messages is not in the
+		// registry), so a cached page would serve stale/empty snapshots for the
+		// whole TTL — exactly what a reload after sending messages would hit.
+		if strings.Contains(c.Request.URL.Path, "gomosubchat") {
+			c.Next()
+			return
+		}
+
 		// Skip caching for drops endpoints — must reflect immediate balance changes and be per-user
 		path := c.Request.URL.Path
 		if strings.HasPrefix(path, "/api/v1/drops/wallet") ||

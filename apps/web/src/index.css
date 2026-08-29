@@ -1026,3 +1026,18 @@ html.kb-open body {
 .wall-comments-pad {
   padding-bottom: calc(var(--kb-inset, 0px) + 16rem);
 }
+
+/* ── Full-bleed app surfaces (text-channel chat) ──────────────────────────
+   A page running chrome-less (body.app-surface-active) renders its app
+   surface inside <main>. The surface is a NORMAL in-flow block — NO fixed
+   positioning, NO --app-vh sizing, NO translate lift. The whole chat
+   (message list + composer) lives in document flow and scrolls with the
+   WINDOW (document.scrollingElement, see ChannelChat). That is the one
+   layout iOS can pan natively: when the composer is focused, Safari scrolls
+   a normal-flow page up of its own accord and the bottom message rides up
+   with everything else — no JS, no fighting, no teleport. On Android
+   (interactive-widget=resizes-content) the same is true. */
+main.is-app-surface {
+  display: block;
+  min-height: 100dvh;
+}

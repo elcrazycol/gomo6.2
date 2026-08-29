@@ -19,6 +19,7 @@ type MessengerRateLimiter struct {
 	redis       *redis.Client
 	maxRequests int
 	window      time.Duration
+	prefix      string
 }
 
 // NewMessengerRateLimiter creates a new Redis-backed rate limiter.
@@ -28,6 +29,19 @@ func NewMessengerRateLimiter(redisClient *redis.Client, maxRequests int, window 
 		redis:       redisClient,
 		maxRequests: maxRequests,
 		window:      window,
+		prefix:      "messenger",
+	}
+}
+
+// NewMessengerRateLimiterWithPrefix is the same per-user fixed-window limiter
+// under a different Redis key namespace. Other surfaces (e.g. GomoSub text
+// channels) use it so their budget is independent of personal messaging.
+func NewMessengerRateLimiterWithPrefix(redisClient *redis.Client, prefix string, maxRequests int, window time.Duration) *MessengerRateLimiter {
+	return &MessengerRateLimiter{
+		redis:       redisClient,
+		maxRequests: maxRequests,
+		window:      window,
+		prefix:      prefix,
 	}
 }
 
@@ -45,7 +59,7 @@ func (rl *MessengerRateLimiter) Allow(key string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	redisKey := fmt.Sprintf("ratelimit:messenger:%s", key)
+	redisKey := fmt.Sprintf("ratelimit:%s:%s", rl.prefix, key)
 
 	// INCR + EXPIRE atomically in one Lua script so a lost TTL can never leave
 	// a permanently-stuck counter (see incrWithTTL).

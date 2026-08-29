@@ -18,7 +18,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, MessageSquare, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -28,6 +28,7 @@ import { renderTags } from "@/components/ThreadCard";
 import { LikeButton } from "@/components/LikeButton";
 import { GomoThreadCard } from "@/components/GomoThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
+import { ChannelChat } from "@/components/ChannelChat";
 import { wsService } from "@/services/websocket";
 
 // Mobile channel sheet grab zone: bottom-left corner of the screen.
@@ -60,6 +61,7 @@ interface Channel {
   category: string | null;
   sort_order: number;
   is_private: boolean;
+  kind?: "forum" | "text";
 }
 
 interface Thread {
@@ -660,6 +662,30 @@ const Board = () => {
     return channels.find((ch) => ch.id === activeChannelId)?.name || null;
   }, [activeChannelId, channels]);
 
+  // Text channels render a Discord-style chat instead of the thread list.
+  const isTextChannel = useMemo(() => {
+    if (!activeChannelId) return false;
+    return channels.find((ch) => ch.id === activeChannelId)?.kind === "text";
+  }, [activeChannelId, channels]);
+
+  const activeChannelPrivate = useMemo(() => {
+    if (!activeChannelId) return false;
+    return Boolean(channels.find((ch) => ch.id === activeChannelId)?.is_private);
+  }, [activeChannelId, channels]);
+
+  // While a text channel is open, request chrome-less full-bleed mode from
+  // AppLayout (the site header is dropped — Discord-style) via the same
+  // body-class + event contract the messenger mobile chat uses.
+  useEffect(() => {
+    if (!isTextChannel) return;
+    document.body.classList.add("app-surface-active");
+    window.dispatchEvent(new Event("gomo6:app-surface"));
+    return () => {
+      document.body.classList.remove("app-surface-active");
+      window.dispatchEvent(new Event("gomo6:app-surface"));
+    };
+  }, [isTextChannel]);
+
   // Mobile: swipe up from the bottom edge to open the channel sheet. Listens
   // on document (not <main>) so gestures that start below the content area
   // still count, and only while the sheet is closed.
@@ -800,8 +826,10 @@ const Board = () => {
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }`}
             >
-              {ch.is_private ? (
+              {ch.is_private && ch.kind !== "text" ? (
                 <Lock className="w-4 h-4 shrink-0 text-amber-500" />
+              ) : ch.kind === "text" ? (
+                <MessageSquare className="w-4 h-4 shrink-0 text-sky-400" />
               ) : (
                 <Hash className="w-4 h-4 shrink-0" />
               )}
@@ -994,9 +1022,15 @@ const Board = () => {
 
   return (
     <>
-    <main className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
-        {/* Board header — always full width */}
-        <div className="mb-3 sm:mb-4 space-y-3">
+    {/* Text channels go Discord-style: full-bleed chat, no board header card.
+        The chat lives INSIDE main (AppLayout sizes it to --app-vh via
+        surface in normal document flow — nothing is fixed or resized and the
+        WINDOW scrolls the whole chat, so iOS pans it up natively when the
+        composer is focused (maximally native keyboard, no fight). */}
+    <main className={`${isTextChannel ? "max-w-none" : hasChannels ? "max-w-6xl" : "max-w-5xl"} ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"} mx-auto flex-1 relative flex flex-col`}>
+        {/* Board header — always full width (dropped for text channels: the
+            Discord-style channel bar above the chat carries name + actions) */}
+        {!isTextChannel && (<div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
             <Card className="overflow-hidden border-primary/20 bg-card">
               <div className="relative">
@@ -1402,15 +1436,16 @@ const Board = () => {
           )}
           </>
           )}
-        </div>
+        </div>) }
 
         {/* Content area — with sidebar for gomosub, plain otherwise */}
         {hasChannels ? (
           <>
-          <div className="flex gap-0 flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5">
-            {/* Collapsible channel sidebar — floating card, sticky to viewport */}
-            <aside className={`hidden md:block shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
-              <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${sidebarCollapsed ? 'hidden' : ''}`}>
+          <div
+            className={`flex gap-0 ${isTextChannel ? "w-full" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
+          >
+            <aside className={`hidden md:block shrink-0 transition-all duration-300 z-20 sticky top-2 self-start ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
+              <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl flex flex-col max-h-[calc(100dvh-1.5rem)] overflow-hidden ${sidebarCollapsed ? 'hidden' : ''}`}>
                 {/* Sidebar header with collapse button */}
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
                   <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest select-none">{t("board.channels")}</h3>
@@ -1422,8 +1457,8 @@ const Board = () => {
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                {/* Channel list — scrollable */}
-                <div className="max-h-[calc(100vh-9rem)] overflow-y-auto px-3 pb-3">
+                {/* Channel list — scrollable (fills the card inside the chat surface) */}
+                <div className="overflow-y-auto px-3 pb-3 flex-1 min-h-0">
                 
                 {renderChannelList(() => {})}
                 
@@ -1464,8 +1499,86 @@ const Board = () => {
               </button>
             )}
             
-            {/* Content area — scrolls independently */}
-            <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-4 md:p-5">
+            {/* Content area — scrolls independently (no padding for text
+                channels: the chat fills the whole area, Discord-style) */}
+            <div className={`min-w-0 flex flex-col flex-1 ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"}`}>
+              {/* Discord-style channel bar — replaces the board header card
+                  for text channels: name, lock, board link and compact join.
+                  sticky so it stays pinned while the page (window) scrolls */}
+              {isTextChannel ? (
+              <div className="sticky top-0 z-20 flex items-center gap-2 h-12 px-3 sm:px-4 border-b border-border/60 bg-background/80 backdrop-blur-sm">
+                  {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
+                  <button
+                    onClick={() => setMobileChannelsOpen(true)}
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    title={t("board.channels")}
+                  >
+                    {activeChannelId ? (
+                      <>
+                        {activeChannelPrivate ? (
+                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                        ) : (
+                          <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate">{activeChannelName || activeChannelSlug}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{t("board.general")}</span>
+                      </>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
+                  </button>
+                  {/* Desktop: Discord-style channel name */}
+                  <div className="hidden md:flex items-center gap-2 min-w-0 flex-1">
+                    <Hash className="w-5 h-5 shrink-0 text-muted-foreground/70" />
+                    <h1 className="text-[15px] font-bold truncate">{activeChannelName || activeChannelSlug}</h1>
+                    {activeChannelPrivate && <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
+                    <div className="w-px h-5 bg-border/70 mx-1" />
+                    <Link to={`/g/${board.slug}`} className="text-sm text-muted-foreground hover:text-foreground truncate">
+                      g/{board.slug}
+                    </Link>
+                  </div>
+                  {/* Compact actions: share + join */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="hidden sm:inline-flex h-8 w-8 text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        const url = `${window.location.origin}/g/${board.slug}`;
+                        navigator.clipboard.writeText(url).then(() => {
+                          toast.success(t("board.linkCopied"));
+                        }).catch(() => {
+                          toast.error(t("board.linkCopyError"));
+                        });
+                      }}
+                      title={t("board.share")}
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant={isJoined ? "secondary" : "default"}
+                      onClick={handleToggleJoin}
+                      className={`h-8 px-3 text-xs ${isJoined ? "bg-primary/12 text-primary hover:bg-primary/20 border border-primary/35" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}
+                      disabled={membershipLoading || checkingRules}
+                    >
+                      {isJoined ? (
+                        <>
+                          <UserCheck className="w-3.5 h-3.5 sm:mr-1.5" />
+                          <span className="hidden sm:inline">{t("board.member")}</span>
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="w-3.5 h-3.5 sm:mr-1.5" />
+                          <span className="hidden sm:inline">{t("board.join")}</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+              </div>
+              ) : (
               <div className="mb-3 sm:mb-4">
                 <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
@@ -1491,7 +1604,7 @@ const Board = () => {
                     )}
                     <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
                   </button>
-                  {canCreateThread && (
+                  {canCreateThread && !isTextChannel && (
                     <Button
                       onClick={() =>
                         navigate(
@@ -1510,8 +1623,20 @@ const Board = () => {
                   )}
                 </div>
               </div>
+              )}
 
-              <div className="space-y-2 relative flex-1">
+              <div className={`relative flex-1 ${isTextChannel ? "flex flex-col min-h-0" : "space-y-2"}`}>
+                {/* Text channels replace the thread list with a Discord-style chat */}
+                {isTextChannel && activeChannelId ? (
+                  <ChannelChat
+                    channelId={activeChannelId}
+                    channelName={activeChannelName || activeChannelSlug || undefined}
+                    currentUserId={user?.id ?? null}
+                    canPost={Boolean(user?.id && isJoined)}
+                    canDeleteOthers={Boolean(isBoardOwner || boardPermissions.can_delete_threads)}
+                  />
+                ) : (
+                <>
                 {/* Thread content — same as non-gomosub version below */}
                 {pageLoading ? (
                   <>
@@ -1565,15 +1690,17 @@ const Board = () => {
                     ))}
                   </>
                 )}
+                </>
+                )}
               </div>
 
-              {threads.length === 0 && !pageLoading && !threadsLoading && (
+              {!isTextChannel && threads.length === 0 && !pageLoading && !threadsLoading && (
                 <div className="text-center text-muted-foreground p-8">
                   Записей пока нет. Будьте первым!
                 </div>
               )}
 
-              <div ref={threadsSentinelRef} className="py-4">
+              <div ref={threadsSentinelRef} className={isTextChannel ? "hidden" : "py-4"}>
                 {loadingMoreThreads && (
                   <div className="flex justify-center">
                     <PentagramLoader size="md" />

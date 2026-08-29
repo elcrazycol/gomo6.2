@@ -326,6 +326,13 @@ var expectedRoutes = []string{
 	"POST /api/v1/messenger/groups/:id/members",
 	"DELETE /api/v1/messenger/groups/:id/members/:userId",
 	"GET /api/v1/messenger/groups/:id/members",
+
+	// GomoSub text channels (chat)
+	"GET /api/v1/gomosubchat/channels/:id/messages",
+	"POST /api/v1/gomosubchat/channels/:id/messages",
+	"PUT /api/v1/gomosubchat/channels/:id/messages/:msgId",
+	"DELETE /api/v1/gomosubchat/channels/:id/messages/:msgId",
+
 	"POST /api/v1/friends/request",
 	"PUT /api/v1/friends/request/:id/accept",
 	"PUT /api/v1/friends/request/:id/reject",
