@@ -555,6 +555,7 @@ const ru: LocaleResources = {
     write: "Написать",
     posts: "Записи",
     comments: "Комментарии",
+    postsComments: "Записей/комментариев",
     likes: "Лайков",
     views: "Просмотры",
     karma: "Гарма",

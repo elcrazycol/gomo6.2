@@ -530,6 +530,7 @@ const en: LocaleResources = {
     write: "Write",
     posts: "Posts",
     comments: "Comments",
+    postsComments: "Posts/Comments",
     likes: "Likes",
     views: "Views",
     karma: "Karma",
