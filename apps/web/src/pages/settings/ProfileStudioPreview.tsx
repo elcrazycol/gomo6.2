@@ -4,6 +4,7 @@ import { storageUrl } from "@/utils/storage";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { EmojiPicker } from "@/components/EmojiPicker";
+import { ActiEye } from "@/components/ActiEye";
 
 export interface StudioStats {
   posts: number;
@@ -180,12 +181,14 @@ export function ProfileStudioPreview({
 
       {/* ── Stats row (same as the real profile) ───────────────────────── */}
       {!compact && (
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
-          <Stat label="Записи" value={stats.posts} />
-          <Stat label="Комментарии" value={stats.comments} />
-          <Stat label="Лайков" value={stats.likes} />
-          <Stat label="Просмотры" value={stats.views} />
-          <Stat label="Гарма" value={stats.garma} />
+        <div className="flex items-center justify-between gap-2">
+          <div className="grid grid-cols-4 gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-post-header border border-border">
+            <Stat label="Записей/комментариев" value={`${stats.posts}/${stats.comments}`} />
+            <Stat label="Лайков" value={stats.likes} />
+            <Stat label="Просмотры" value={stats.views} />
+            <Stat label="Гарма" value={stats.garma} />
+          </div>
+          <ActiEye className="mr-1" />
         </div>
       )}
 
@@ -219,11 +222,11 @@ export function ProfileStudioPreview({
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="text-left">
-      <p className="text-xs sm:text-sm text-muted-foreground">{label}</p>
-      <p className="text-xl sm:text-2xl font-bold">{value}</p>
+    <div className="flex flex-col items-center justify-center size-16 sm:size-24 rounded-md bg-background/50 px-1 text-center">
+      <p className="text-[10px] sm:text-xs leading-tight text-muted-foreground">{label}</p>
+      <p className="text-sm sm:text-xl font-bold leading-tight">{value}</p>
     </div>
   );
 }
