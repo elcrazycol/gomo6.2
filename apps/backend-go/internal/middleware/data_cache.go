@@ -85,6 +85,14 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// ActiEye is personal, real-time data (the gradient shifts with every
+		// action the owner takes) and the response is already viewer-bound —
+		// caching it would serve a stale eye for the whole TTL.
+		if strings.Contains(c.Request.URL.Path, "actieye") {
+			c.Next()
+			return
+		}
+
 		// Skip caching for gomosub text-channel chat — same realtime contract as
 		// the messenger. History GETs must reflect every freshly sent message, and
 		// writes have no generic CRUD invalidator (channel_messages is not in the

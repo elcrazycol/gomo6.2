@@ -171,6 +171,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
+	actieyeHandler := handlers.NewActiEyeHandler(db)
 	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
@@ -348,6 +349,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/users/online", userStatusHandler.GetOnlineUsers)
 		rest.GET("/users/:id/status", userStatusHandler.GetUserStatus)
 		rest.POST("/users/status/bulk", userStatusHandler.GetBulkUserStatus)
+
+		// ActiEye — personal activity summary (gradient counters + visit streak).
+		rest.GET("/actieye", actieyeHandler.GetSummary)
 
 		// Profile visibility flags (public — the profile page needs to know whether
 		// a foreign profile is private and which sections are hidden to render the
