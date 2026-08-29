@@ -112,7 +112,13 @@ export function ChannelChat({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  // The chat lives in NORMAL document flow and scrolls with the WINDOW
+  // (document.scrollingElement) — not an inner overflow container. This is
+  // the only layout iOS can pan natively: focus the composer (the last flow
+  // element) and Safari scrolls the whole page up of its own accord, so the
+  // bottom message rides up with everything else. No fixed shell, no
+  // translate lift, no --app-vh resizing — nothing to teleport.
+  const scrollerRef = useRef<HTMLElement | null>(null);
   // True while pinned to the bottom: appends clamp to the real bottom, and the
   // "N new" pill counts messages only while the user is scrolled up.
   const stickToBottomRef = useRef(true);
@@ -128,6 +134,11 @@ export function ChannelChat({
   // the layout effect below re-freezes it after the prepend so the view does
   // not jump.
   const pendingAnchorRef = useRef<{ id: number; offset: number } | null>(null);
+
+  // Bind the virtualizer to the window scroll (document.scrollingElement).
+  useLayoutEffect(() => {
+    scrollerRef.current = (document.scrollingElement || document.documentElement) as HTMLElement | null;
+  }, []);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -321,6 +332,20 @@ export function ChannelChat({
     }
   }, [loadOlder]);
 
+  // The scroller is the window: listen for window and resize events (the
+  // layout owns the page, so a mobile keyboard that changes the visible area
+  // fires resize, not scroll). React's onScroll on a div would never fire for
+  // window scroll.
+  useEffect(() => {
+    const onWinScroll = () => handleScroll();
+    window.addEventListener("scroll", onWinScroll, { passive: true });
+    window.addEventListener("resize", onWinScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onWinScroll);
+      window.removeEventListener("resize", onWinScroll);
+    };
+  }, [handleScroll]);
+
   // ── Position stabilization: bottom pin / prepend anchor ─────────────────
   const totalSize = virtualizer.getTotalSize();
   useLayoutEffect(() => {
@@ -463,11 +488,16 @@ export function ChannelChat({
   const displayName = channelName || "канал";
 
   return (
-    <div className="channel-chat-lift relative flex-1 min-h-0 flex flex-col bg-background">
-      {/* Message stream */}
+    // Normal document flow: the page scrolls (window), so Safari pans the
+    // whole chat up natively when the composer is focused. Nothing here is
+    // fixed, resized by --app-vh, or lifted with a translate — the most
+    // native possible mobile keyboard behavior. min-h + mt-auto pins the
+    // composer to the bottom of the first screen even when the channel is
+    // short, plus stays in flow when it grows past one screen.
+    <div className="relative bg-background min-h-[100dvh] flex flex-col">
+      {/* Message stream — contributes height to the document; the window
+          scrolls this page, not an inner overflow container. */}
       <div
-        ref={scrollerRef}
-        onScroll={handleScroll}
         onPointerDown={() => {
           userDraggingRef.current = true;
         }}
@@ -478,7 +508,6 @@ export function ChannelChat({
           userDraggingRef.current = false;
         }}
         data-testid="channel-chat-messages"
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
         role="log"
         aria-label="Сообщения канала"
         aria-live="polite"
@@ -651,12 +680,13 @@ export function ChannelChat({
         )}
       </div>
 
-      {/* Jump to the newest while scrolled up */}
+      {/* Jump to the newest while scrolled up. Fixed to the viewport (the
+          page scrolls, so absolute would scroll away with the content). */}
       {!isAtBottom && messages.length > 0 && (
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute right-4 bottom-[76px] h-8 w-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+          className="fixed right-4 bottom-[max(5.5rem,env(safe-area-inset-bottom,0px)+4.5rem)] h-8 w-8 rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-primary transition-colors z-20"
           aria-label={
             newMessageCount > 0
               ? `Вниз (${newMessageCount} ${newMessageCount === 1 ? "новое" : "новых"} сообщени${newMessageCount === 1 ? "е" : "й"})`
@@ -672,14 +702,13 @@ export function ChannelChat({
         </button>
       )}
 
-      {/* Composer — Discord-style pill, full width of the chat area. The
-          keyboard is lifted the messenger way (messenger.css ≤980px): the
-          fixed shell never resizes and .channel-chat-lift translates this
-          column (messages + composer) above the keyboard via a compositor-
-          only transform bound to --kb-inset — no relayout, nothing to
-          teleport, the topbar stays pinned. Hidden when inaccessible. */}
+      {/* Composer — Discord-style pill, the PAGE's last flow element. Focusing
+          it lets Safari scroll the whole page up natively; the bottom message
+          rides up with everything else, nothing is lifted or resized.
+          mt-auto hangs it on the bottom of the min-height (short channels).
+          Hidden when inaccessible. */}
       {!denied && (
-      <div className="shrink-0 px-4 sm:px-5 pt-1 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
+      <div className="mt-auto px-4 sm:px-5 pt-1 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
         {currentUserId ? (
           canPost ? (
             <form

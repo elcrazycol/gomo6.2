@@ -219,7 +219,12 @@ it("loads an older history page on scroll-to-top", async () => {
   render(<ChannelChat channelId={CH} currentUserId={ME} />);
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-  fireEvent.scroll(screen.getByTestId("channel-chat-messages"), { target: { scrollTop: 0 } });
+  // The chat scrolls with the window (document.scrollingElement) — the
+  // native-layout scroll. Simulate a user scroll-to-top via a window event.
+  act(() => {
+    document.documentElement.scrollTop = 0;
+    window.dispatchEvent(new Event("scroll"));
+  });
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   expect(fetchMock).toHaveBeenLastCalledWith(

@@ -1029,31 +1029,15 @@ html.kb-open body {
 
 /* ── Full-bleed app surfaces (text-channel chat) ──────────────────────────
    A page running chrome-less (body.app-surface-active) renders its app
-   surface directly inside <main>. The surface is a FIXED inset:0 shell that
-   NEVER resizes: the layout is static, so there is nothing to re-layout and
-   the topbar (rendered by Board as the first child of the surface) is pinned
-   for the whole keyboard open/close cycle. The keyboard is handled exactly
-   like the messenger's mobile chat-panel (messenger.css ≤980px): only the
-   chat column (messages + composer) is lifted above the keyboard with a
-   compositor-only `translate: 0 calc(-1 * var(--kb-inset))` (see
-   .channel-chat-lift below). GPU-only transform → 60–120fps, no relayout of
-   the virtual message list, no overshoot teleport.
-
-   On iOS the layout viewport never changes, so --kb-inset is the real
-   keyboard height and only the chat column moves; on Android
-   (interactive-widget=resizes-content) the fixed shell rises natively,
-   --kb-inset is ~0 and the virtualizer re-pins to the new bottom via
-   scrollRect.height. Both platforms share the same code path. */
+   surface inside <main>. The surface is a NORMAL in-flow block — NO fixed
+   positioning, NO --app-vh sizing, NO translate lift. The whole chat
+   (message list + composer) lives in document flow and scrolls with the
+   WINDOW (document.scrollingElement, see ChannelChat). That is the one
+   layout iOS can pan natively: when the composer is focused, Safari scrolls
+   a normal-flow page up of its own accord and the bottom message rides up
+   with everything else — no JS, no fighting, no teleport. On Android
+   (interactive-widget=resizes-content) the same is true. */
 main.is-app-surface {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-}
-
-/* Keyboard lift for the chat column (messages + composer), the messenger
-   .chat-messages-area/.composer translate. The shell never resizes, so the
-   header/sidebar stay pinned and this transform rides the soft keyboard. */
-.channel-chat-lift {
-  translate: 0 calc(-1 * var(--kb-inset, 0px));
-  will-change: translate;
+  display: block;
+  min-height: 100dvh;
 }

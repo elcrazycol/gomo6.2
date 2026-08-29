@@ -1024,10 +1024,10 @@ const Board = () => {
     <>
     {/* Text channels go Discord-style: full-bleed chat, no board header card.
         The chat lives INSIDE main (AppLayout sizes it to --app-vh via
-        is-app-surface) as an in-flow block — the messenger approach: the
-        document shrinks with the visual viewport, so iOS has nothing to pan
-        and the keyboard glides the composer without any fight. */}
-    <main className={`${isTextChannel ? "max-w-none h-full" : hasChannels ? "max-w-6xl" : "max-w-5xl"} ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"} mx-auto flex-1 relative flex flex-col`}>
+        surface in normal document flow — nothing is fixed or resized and the
+        WINDOW scrolls the whole chat, so iOS pans it up natively when the
+        composer is focused (maximally native keyboard, no fight). */}
+    <main className={`${isTextChannel ? "max-w-none" : hasChannels ? "max-w-6xl" : "max-w-5xl"} ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"} mx-auto flex-1 relative flex flex-col`}>
         {/* Board header — always full width (dropped for text channels: the
             Discord-style channel bar above the chat carries name + actions) */}
         {!isTextChannel && (<div className="mb-3 sm:mb-4 space-y-3">
@@ -1442,14 +1442,10 @@ const Board = () => {
         {hasChannels ? (
           <>
           <div
-            className={`flex gap-0 ${isTextChannel ? "h-full min-h-0 overflow-hidden" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
-            data-kb-app={isTextChannel || undefined}
-            data-kb-keep={isTextChannel || undefined}
+            className={`flex gap-0 ${isTextChannel ? "w-full" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
           >
-            {/* Collapsible channel sidebar — full-height column inside the chat
-                surface, floating sticky card on forum pages */}
-            <aside className={`hidden md:block shrink-0 transition-all duration-300 z-20 ${isTextChannel ? "h-full min-h-0" : "overflow-visible sticky top-4 self-start"} ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
-              <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${isTextChannel ? "h-full flex flex-col overflow-hidden" : ""} ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <aside className={`hidden md:block shrink-0 transition-all duration-300 z-20 sticky top-2 self-start ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
+              <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl flex flex-col max-h-[calc(100dvh-1.5rem)] overflow-hidden ${sidebarCollapsed ? 'hidden' : ''}`}>
                 {/* Sidebar header with collapse button */}
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
                   <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest select-none">{t("board.channels")}</h3>
@@ -1462,7 +1458,7 @@ const Board = () => {
                   </button>
                 </div>
                 {/* Channel list — scrollable (fills the card inside the chat surface) */}
-                <div className={`overflow-y-auto px-3 pb-3 ${isTextChannel ? "flex-1 min-h-0" : "max-h-[calc(100vh-9rem)]"}`}>
+                <div className="overflow-y-auto px-3 pb-3 flex-1 min-h-0">
                 
                 {renderChannelList(() => {})}
                 
@@ -1505,11 +1501,12 @@ const Board = () => {
             
             {/* Content area — scrolls independently (no padding for text
                 channels: the chat fills the whole area, Discord-style) */}
-            <div className={`flex-1 min-w-0 flex flex-col ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"}`}>
+            <div className={`min-w-0 flex flex-col flex-1 ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"}`}>
               {/* Discord-style channel bar — replaces the board header card
-                  for text channels: name, lock, board link and compact join */}
+                  for text channels: name, lock, board link and compact join.
+                  sticky so it stays pinned while the page (window) scrolls */}
               {isTextChannel ? (
-              <div className="shrink-0 flex items-center gap-2 h-12 px-3 sm:px-4 border-b border-border/60 bg-background/80 backdrop-blur-sm">
+              <div className="sticky top-0 z-20 flex items-center gap-2 h-12 px-3 sm:px-4 border-b border-border/60 bg-background/80 backdrop-blur-sm">
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
