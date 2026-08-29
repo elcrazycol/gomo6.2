@@ -1041,3 +1041,15 @@ main.is-app-surface {
   display: block;
   min-height: 100dvh;
 }
+
+/* ── ActiEye ────────────────────────────────────────────────────────────────
+   No movement at all — the gradient is static. The only animation is the
+   hue drift: the whole palette slowly cycles its hues (переливание цветами). */
+@keyframes actieye-hue {
+  from {
+    filter: hue-rotate(0deg);
+  }
+  to {
+    filter: hue-rotate(55deg);
+  }
+}

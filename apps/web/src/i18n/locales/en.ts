@@ -484,6 +484,15 @@ const en: LocaleResources = {
     loginToReply: "Log in to reply",
     justNow: "just now",
   },
+  actieye: {
+    activity: "Activity",
+    daysStreak: "days in a row",
+    bestStreak: "Best streak",
+    today: "today",
+    streakRoad: "Visit streak",
+    noStreakYet: "No visit streak yet — drop by every day!",
+    placeholder: "Something interesting is coming here…",
+  },
   profile: {
     threadsLoadError: "Failed to load posts",
     saveError: "Failed to save profile",

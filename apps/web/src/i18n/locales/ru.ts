@@ -509,6 +509,15 @@ const ru: LocaleResources = {
     loginToReply: "Войдите, чтобы ответить",
     justNow: "только что",
   },
+  actieye: {
+    activity: "Активность",
+    daysStreak: "дней подряд",
+    bestStreak: "Лучшая серия",
+    today: "сегодня",
+    streakRoad: "Серия заходов",
+    noStreakYet: "Пока нет серии заходов — заглядывай каждый день!",
+    placeholder: "Здесь появится что-то интересное…",
+  },
   profile: {
     threadsLoadError: "Ошибка загрузки записей",
     saveError: "Ошибка сохранения профиля",
