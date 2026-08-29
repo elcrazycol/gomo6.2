@@ -29,7 +29,7 @@ function Stat({
       type="button"
       onClick={onClick}
       title={title}
-      className="inline-flex items-baseline gap-1 whitespace-nowrap rounded px-1 py-0.5 transition-[text-shadow] duration-150 hover:[text-shadow:0_1px_2px_rgb(0_0_0_/_0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex items-baseline gap-1 whitespace-nowrap rounded px-1 py-0.5 transition-[text-shadow] duration-150 hover:[text-shadow:0_2px_3px_rgb(0_0_0_/_0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="text-sm sm:text-base font-semibold leading-none">{value}</span>
       <span className="text-[11px] sm:text-xs text-muted-foreground leading-none">{label}</span>
