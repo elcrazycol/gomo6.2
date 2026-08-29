@@ -345,7 +345,11 @@ export function ChannelChat({
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
       if (Math.abs(el.scrollTop - maxScrollTop) > 1) el.scrollTop = maxScrollTop;
     }
-  }, [totalSize, messages, virtualizer, virtualizer.isScrolling]);
+    // scrollRect.height changes when an interactive-widget keyboard resizes the
+    // shell (Chrome/Firefox Android) and is the honest "the layout changed"
+    // signal — re-pin to the new bottom. On iOS the layout never changes so it
+    // never fires (the translate lift owns the position there).
+  }, [totalSize, messages, virtualizer, virtualizer.isScrolling, virtualizer.scrollRect?.height]);
 
   // ── "N new messages" counter while scrolled up ──────────────────────────
   useEffect(() => {
@@ -459,7 +463,7 @@ export function ChannelChat({
   const displayName = channelName || "канал";
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col bg-background">
+    <div className="channel-chat-lift relative flex-1 min-h-0 flex flex-col bg-background">
       {/* Message stream */}
       <div
         ref={scrollerRef}
@@ -669,13 +673,13 @@ export function ChannelChat({
       )}
 
       {/* Composer — Discord-style pill, full width of the chat area. The
-          keyboard is handled entirely by the shell resize (--app-vh on
-          main.is-app-surface, the messenger mechanism): the scroller's
-          clientHeight shrinks with it and the browser auto-clamps the pinned
-          scroll position, so the composer rides the keyboard without any
-          lifts of its own. Hidden entirely when the channel is inaccessible. */}
+          keyboard is lifted the messenger way (messenger.css ≤980px): the
+          fixed shell never resizes and .channel-chat-lift translates this
+          column (messages + composer) above the keyboard via a compositor-
+          only transform bound to --kb-inset — no relayout, nothing to
+          teleport, the topbar stays pinned. Hidden when inaccessible. */}
       {!denied && (
-      <div className="shrink-0 px-4 sm:px-5 pb-3 pt-1">
+      <div className="shrink-0 px-4 sm:px-5 pt-1 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
         {currentUserId ? (
           canPost ? (
             <form

@@ -1029,19 +1029,31 @@ html.kb-open body {
 
 /* ── Full-bleed app surfaces (text-channel chat) ──────────────────────────
    A page running chrome-less (body.app-surface-active) renders its app
-   surface directly inside <main>. The surface is an in-flow block sized to
-   the VISUAL viewport (--app-vh, written per-frame by lib/mobileKeyboard.ts)
-   — the exact mechanism the messenger page ships with (main.is-messenger-page,
-   messenger.css). The shell resize is self-correcting: when the keyboard
-   opens, the message scroller's clientHeight shrinks and the browser
-   auto-clamps scrollTop, so the pinned-to-bottom messages ride the keyboard
-   with no spacers and no transforms — nothing can teleport. (Do NOT switch
-   this to a static height + --kb-inset lifts: event-driven inset writes
-   overshoot the real keyboard position on iOS, and any content that reacts
-   to them teleports and then crawls back.) */
+   surface directly inside <main>. The surface is a FIXED inset:0 shell that
+   NEVER resizes: the layout is static, so there is nothing to re-layout and
+   the topbar (rendered by Board as the first child of the surface) is pinned
+   for the whole keyboard open/close cycle. The keyboard is handled exactly
+   like the messenger's mobile chat-panel (messenger.css ≤980px): only the
+   chat column (messages + composer) is lifted above the keyboard with a
+   compositor-only `translate: 0 calc(-1 * var(--kb-inset))` (see
+   .channel-chat-lift below). GPU-only transform → 60–120fps, no relayout of
+   the virtual message list, no overshoot teleport.
+
+   On iOS the layout viewport never changes, so --kb-inset is the real
+   keyboard height and only the chat column moves; on Android
+   (interactive-widget=resizes-content) the fixed shell rises natively,
+   --kb-inset is ~0 and the virtualizer re-pins to the new bottom via
+   scrollRect.height. Both platforms share the same code path. */
 main.is-app-surface {
-  flex: 0 0 auto;
-  height: var(--app-vh, 100dvh);
-  max-height: var(--app-vh, 100dvh);
+  position: fixed;
+  inset: 0;
   overflow: hidden;
+}
+
+/* Keyboard lift for the chat column (messages + composer), the messenger
+   .chat-messages-area/.composer translate. The shell never resizes, so the
+   header/sidebar stay pinned and this transform rides the soft keyboard. */
+.channel-chat-lift {
+  translate: 0 calc(-1 * var(--kb-inset, 0px));
+  will-change: translate;
 }
