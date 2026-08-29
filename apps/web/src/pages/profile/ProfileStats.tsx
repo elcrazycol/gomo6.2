@@ -12,10 +12,35 @@ export interface ProfileStatsProps {
   onOpenWall: () => void;
 }
 
+/** One clickable stat of the inline row — number + label, X-style. */
+function Stat({
+  value,
+  label,
+  onClick,
+  title,
+}: {
+  value: string;
+  label: string;
+  onClick?: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="inline-flex items-baseline gap-1 whitespace-nowrap rounded px-1 py-0.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span className="text-sm sm:text-base font-semibold leading-none">{value}</span>
+      <span className="text-[11px] sm:text-xs text-muted-foreground leading-none">{label}</span>
+    </button>
+  );
+}
+
 /**
  * Stats summary — rendered inside the "card" background variant or standalone.
- * Row: four compact square cells (Записи/Комментарии, Лайков, Просмотры, Гарма)
- * plus ActiEye — a separate circular widget on the right (~1/5 of the row).
+ * A single X-style inline row (posts/comments, likes, views, garma) with
+ * ActiEye pinned to the right edge of the same row.
  */
 export function ProfileStats({ profile, show, onOpenWall }: ProfileStatsProps) {
   const { t } = useTranslation();
@@ -23,49 +48,41 @@ export function ProfileStats({ profile, show, onOpenWall }: ProfileStatsProps) {
 
   if (!show) return null;
 
+  const posts = (profile.thread_count ?? 0) + (profile.wall_post_count ?? 0);
+
   return (
     <div className="flex items-center justify-between gap-2">
-      <div className="grid grid-cols-4 gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-post-header border border-border">
-        {/* Записи (сабы + стена) / Комментарии — одна клетка */}
-        <button
-          type="button"
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {/* Записи (сабы + стена) / Комментарии — объединённый счётчик */}
+        <Stat
+          value={`${posts}/${profile.comment_count ?? 0}`}
+          label={t("profile.postsComments")}
+          title={t("profile.posts")}
           onClick={() => navigate(`/stats?metric=posts&user=${profile.id}`)}
-          className="flex flex-col items-center justify-center size-16 sm:size-24 rounded-md bg-background/50 hover:bg-background/80 transition-colors px-1 text-center"
-        >
-          <p className="text-[10px] sm:text-xs leading-tight text-muted-foreground">{t("profile.postsComments")}</p>
-          <p className="text-sm sm:text-xl font-bold leading-tight">
-            {(profile.thread_count ?? 0) + (profile.wall_post_count ?? 0)}/{profile.comment_count ?? 0}
-          </p>
-        </button>
-        <button
-          type="button"
+        />
+        <span className="text-muted-foreground/50 select-none">·</span>
+        <Stat
+          value={formatCompactNumber(profile.likes_received_count ?? 0)}
+          label={t("profile.likes")}
           onClick={() => navigate(`/stats?metric=likes&user=${profile.id}`)}
-          className="flex flex-col items-center justify-center size-16 sm:size-24 rounded-md bg-background/50 hover:bg-background/80 transition-colors px-1 text-center"
-        >
-          <p className="text-[10px] sm:text-xs leading-tight text-muted-foreground">{t("profile.likes")}</p>
-          <p className="text-sm sm:text-xl font-bold leading-tight">{profile.likes_received_count ?? 0}</p>
-        </button>
+        />
+        <span className="text-muted-foreground/50 select-none">·</span>
         {/* Total unique views across the author's wall posts —
             clicks open the wall, where each post shows its own
             counter. */}
-        <button
-          type="button"
+        <Stat
+          value={formatCompactNumber(profile.views_received_count ?? 0)}
+          label={t("profile.views")}
           onClick={onOpenWall}
-          className="flex flex-col items-center justify-center size-16 sm:size-24 rounded-md bg-background/50 hover:bg-background/80 transition-colors px-1 text-center"
-        >
-          <p className="text-[10px] sm:text-xs leading-tight text-muted-foreground">{t("profile.views")}</p>
-          <p className="text-sm sm:text-xl font-bold leading-tight">{formatCompactNumber(profile.views_received_count ?? 0)}</p>
-        </button>
-        <button
-          type="button"
+        />
+        <span className="text-muted-foreground/50 select-none">·</span>
+        <Stat
+          value={formatCompactNumber(profile.garma)}
+          label={t("profile.karma")}
           onClick={() => navigate(`/stats?metric=garma&user=${profile.id}`)}
-          className="flex flex-col items-center justify-center size-16 sm:size-24 rounded-md bg-background/50 hover:bg-background/80 transition-colors px-1 text-center"
-        >
-          <p className="text-[10px] sm:text-xs leading-tight text-muted-foreground">{t("profile.karma")}</p>
-          <p className="text-sm sm:text-xl font-bold leading-tight">{profile.garma}</p>
-        </button>
+        />
       </div>
-      {/* ActiEye — простой оранжевый круг, прижат к правому краю */}
+      {/* ActiEye — круг, прижат к правому краю строки */}
       <ActiEye className="mr-1" />
     </div>
   );

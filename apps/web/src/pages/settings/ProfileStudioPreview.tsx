@@ -182,10 +182,13 @@ export function ProfileStudioPreview({
       {/* ── Stats row (same as the real profile) ───────────────────────── */}
       {!compact && (
         <div className="flex items-center justify-between gap-2">
-          <div className="grid grid-cols-4 gap-1.5 sm:gap-2 p-1.5 sm:p-2 bg-post-header border border-border">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Stat label="Записей/комментариев" value={`${stats.posts}/${stats.comments}`} />
+            <span className="text-muted-foreground/50 select-none">·</span>
             <Stat label="Лайков" value={stats.likes} />
+            <span className="text-muted-foreground/50 select-none">·</span>
             <Stat label="Просмотры" value={stats.views} />
+            <span className="text-muted-foreground/50 select-none">·</span>
             <Stat label="Гарма" value={stats.garma} />
           </div>
           <ActiEye className="mr-1" />
@@ -224,9 +227,9 @@ export function ProfileStudioPreview({
 
 function Stat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="flex flex-col items-center justify-center size-16 sm:size-24 rounded-md bg-background/50 px-1 text-center">
-      <p className="text-[10px] sm:text-xs leading-tight text-muted-foreground">{label}</p>
-      <p className="text-sm sm:text-xl font-bold leading-tight">{value}</p>
-    </div>
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap rounded px-1 py-0.5">
+      <span className="text-sm sm:text-base font-semibold leading-none">{value}</span>
+      <span className="text-[11px] sm:text-xs text-muted-foreground leading-none">{label}</span>
+    </span>
   );
 }
