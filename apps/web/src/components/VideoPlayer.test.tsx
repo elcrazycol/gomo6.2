@@ -15,11 +15,12 @@ const mediaPlayPause = () => {
     this.dispatchEvent(new Event("play"));
     return Promise.resolve();
   });
-  HTMLMediaElement.prototype.pause = vi.fn(function (this: HTMLMediaElement) {
+  const pause = vi.fn(function (this: HTMLMediaElement) {
     this.dataset._paused = "true";
     this.dispatchEvent(new Event("pause"));
   });
-  return HTMLMediaElement.prototype.pause;
+  HTMLMediaElement.prototype.pause = pause;
+  return { play: HTMLMediaElement.prototype.play as ReturnType<typeof vi.fn>, pause };
 };
 
 // jsdom has no matchMedia; emulate (hover: hover)/(hover: none).
@@ -89,7 +90,7 @@ describe("VideoPlayer", () => {
 
   it("does not auto-pause ~200ms after starting via the centre play button", () => {
     vi.useFakeTimers();
-    const pause = mediaPlayPause();
+    const { pause } = mediaPlayPause();
     const { container } = render(<VideoPlayer sources={[{ src: "clip.mp4" }]} />);
     const btns = screen.getAllByRole("button", { name: "Воспроизвести" });
     fireEvent.click(btns[0]);
@@ -177,5 +178,42 @@ describe("VideoPlayer", () => {
     expect(bar.className).not.toContain("opacity-0");
     expect(container.querySelector(".cursor-none")).toBeNull();
     vi.useRealTimers();
+  });
+
+  it("open-mode: clicking the thumb calls onOpen and never plays inline", () => {
+    mediaPlayPause();
+    const onOpen = vi.fn();
+    const { container } = render(
+      <VideoPlayer sources={[{ src: "clip.mp4" }]} onOpen={onOpen} />
+    );
+    const video = container.querySelector("video")!;
+    fireEvent.click(video);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(video.dataset._paused).not.toBe("false"); // never started
+    // Inline play controls are suppressed (faded out) in open mode.
+    const bar = controlsBar(container)!;
+    expect(bar.className).toContain("opacity-0");
+    expect(bar.className).toContain("pointer-events-none");
+  });
+
+  it("open-mode: centre button opens instead of playing", () => {
+    mediaPlayPause();
+    const onOpen = vi.fn();
+    render(<VideoPlayer sources={[{ src: "clip.mp4" }]} onOpen={onOpen} />);
+    const btn = screen.getByRole("button", { name: "Открыть пост" });
+    fireEvent.click(btn);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("autoplay: plays the clip once it can play", () => {
+    const { play } = mediaPlayPause();
+    mockHoverDevice(true);
+    const { container } = render(<VideoPlayer sources={[{ src: "clip.mp4" }]} autoPlay />);
+    const video = container.querySelector("video")!;
+    // readyState < 2 initially → waits for canplay.
+    Object.defineProperty(video, "readyState", { configurable: true, value: 0 });
+    video.dispatchEvent(new Event("canplay"));
+    expect(play).toHaveBeenCalled();
+    expect(video.dataset._paused).toBe("false");
   });
 });

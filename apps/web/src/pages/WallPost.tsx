@@ -13,6 +13,8 @@ const SWIPE_THRESHOLD = 90;
 type WallPostNavigationState = {
   wallPost?: WallPostData;
   backgroundLocation?: { pathname: string };
+  /** Set when opened by tapping a wall video — autoplays the clip on load. */
+  autoplayVideo?: boolean;
 };
 
 const WallPost = () => {
@@ -180,6 +182,7 @@ const WallPost = () => {
           focusedPostId={postId}
           initialPost={initialPost}
           standalone
+          autoplayVideo={navigationState?.autoplayVideo}
         />
       )}
     </div>

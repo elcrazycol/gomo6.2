@@ -93,9 +93,14 @@ interface MediaPlayerProps {
   onReady?: (instance: PlyrInstance) => void;
   onPlay?: (instance: PlyrInstance) => void;
   onPause?: (instance: PlyrInstance) => void;
+  /** For kind="video": open-mode callback (X-style wall thumbs navigate to the
+      post page instead of playing inline). See VideoPlayer.onOpen. */
+  onVideoOpen?: () => void;
+  /** For kind="video": autoplay once ready (post page resumes the clip). */
+  autoPlayVideo?: boolean;
 }
 
-export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause }: MediaPlayerProps) => {
+export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause, onVideoOpen, autoPlayVideo = false }: MediaPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
@@ -276,6 +281,8 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
         sources={sources}
         poster={poster}
         className={`w-full overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm ${className}`}
+        onOpen={onVideoOpen}
+        autoPlay={autoPlayVideo}
       />
     );
   }

@@ -67,6 +67,8 @@ interface ProfileWallProps {
   showWall: boolean;
   focusedPostId?: string | null;
   standalone?: boolean;
+  /** Autoplay the focused post's video (opened via a wall-video tap). */
+  autoplayVideo?: boolean;
   /** Increment to force a refetch (e.g. after the profile owner's nickname emoji changes). */
   refreshKey?: number;
   /**
@@ -98,6 +100,7 @@ export const ProfileWall = ({
   showWall,
   focusedPostId = null,
   standalone = false,
+  autoplayVideo = false,
   refreshKey = 0,
   wallHidden = false,
   privateProfile = false,
@@ -611,6 +614,7 @@ export const ProfileWall = ({
                 forceCommentsOpen={Boolean(focusedPostId)}
                 postHref={focusedPostId ? null : getWallPostPath(post.user_id, post.id)}
                 standalone={standalone}
+                autoplayVideo={autoplayVideo && post.id === focusedPostId}
                 onImageClick={(items, idx) => {
                   setGalleryItems(items);
                   setGalleryIndex(idx);

@@ -54,6 +54,9 @@ interface WallPostCardProps {
   forceCommentsOpen?: boolean;
   postHref?: string | null;
   standalone?: boolean;
+  /** Autostart the attached video once it can play (the post page opened with
+      an autoplay flag from a wall tap). */
+  autoplayVideo?: boolean;
 }
 
 export const WallPostCard = ({
@@ -71,6 +74,7 @@ export const WallPostCard = ({
   forceCommentsOpen = false,
   postHref,
   standalone = false,
+  autoplayVideo = false,
 }: WallPostCardProps) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -298,6 +302,15 @@ export const WallPostCard = ({
     navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
   };
 
+  // X-style: tapping a wall video opens the post page and autoplays the clip
+  // there instead of playing it inline on the wall.
+  const handleVideoOpen = useCallback(() => {
+    if (!postHref || isEditing) return;
+    navigate(postHref, {
+      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true },
+    });
+  }, [postHref, isEditing, navigate, post, location]);
+
   return (
     <>
     <Card
@@ -394,7 +407,13 @@ export const WallPostCard = ({
           )}
 
           {attachments.length > 0 && (
-            <WallAttachments attachments={attachments} galleryKey={post.id} onImageClick={onImageClick} />
+            <WallAttachments
+              attachments={attachments}
+              galleryKey={post.id}
+              onImageClick={onImageClick}
+              onVideoOpen={postHref ? handleVideoOpen : undefined}
+              autoPlayVideo={autoplayVideo}
+            />
           )}
 
           {post.original_post && (

@@ -38,6 +38,16 @@ interface VideoPlayerProps {
   title?: string;
   /** Let full screen actually request the browser's fullscreen surface. */
   canFullscreen?: boolean;
+  /**
+   * Override the tap-to-play behaviour: a single click becomes "open" (e.g.
+   * X-style wall thumbs that navigate to the post page instead of playing
+   * inline). In this mode the inline play controls/fullscreen are suppressed
+   * and every click/canvas interaction calls `onOpen` once.
+   */
+  onOpen?: () => void;
+  /** Start playback automatically once the video can play (used on the post
+      page so the clip resumes from a wall tap). */
+  autoPlay?: boolean;
 }
 
 const iconButtonClass = "flex items-center justify-center rounded-full p-2 text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60";
@@ -134,13 +144,16 @@ function SeekBar({
   );
 }
 
-export const VideoPlayer = ({ sources, poster, className = "", title, canFullscreen = true }: VideoPlayerProps) => {
+export const VideoPlayer = ({ sources, poster, className = "", title, canFullscreen = true, onOpen, autoPlay = false }: VideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hideTimerRef = useRef<number | null>(null);
   // Touch devices have no hover, so auto-hiding controls would leave no way to
   // bring them back mid-playback. On (hover: none) we keep them always visible.
   const hoverDeviceRef = useRef(true);
+  // `onOpen` turns this into an X-style wall thumbnail: no inline playback,
+  // no controls — just a poster/surface that opens the post page on tap.
+  const openMode = Boolean(onOpen);
 
   const [playing, setPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -155,6 +168,7 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
   const [error, setError] = useState(false);
 
   const togglePlay = useCallback(async () => {
+    if (openMode) return;
     const el = videoRef.current;
     if (!el) return;
     try {
@@ -163,7 +177,7 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     } catch {
       setBuffering(false);
     }
-  }, []);
+  }, [openMode]);
 
   const toggleMute = useCallback(() => {
     const el = videoRef.current;
@@ -213,6 +227,7 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
   }, [playing, isFullscreen, armHideTimer]);
 
   const toggleFullscreen = useCallback(async () => {
+    if (openMode) return;
     const el = containerRef.current;
     if (!el || !canFullscreen) return;
     if (document.fullscreenElement === el) {
@@ -220,35 +235,62 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     } else {
       await el.requestFullscreen?.().catch(() => {});
     }
-  }, [canFullscreen]);
+  }, [canFullscreen, openMode]);
+
+  // On the post page, auto-start the clip once it can play (wall tap passed an
+  // autoplay flag through navigation state).
+  useEffect(() => {
+    if (!autoPlay || openMode) return;
+    const el = videoRef.current;
+    if (!el) return;
+    const tryPlay = () => { el.play().catch(() => {}); };
+    if (el.readyState >= 2) tryPlay();
+    else el.addEventListener("canplay", tryPlay, { once: true });
+    return () => el.removeEventListener("canplay", tryPlay);
+  }, [autoPlay, openMode]);
 
   // Controls fade out while playing (both inline and fullscreen) on hover
   // devices; the cursor follows so the video area reads as a pure canvas. On
   // touch devices they stay visible (see hoverDeviceRef).
-  const controlsHidden = !controlsVisible && playing && hoverDeviceRef.current;
-  const showCenterPlay = !playing && !buffering && !error;
-  const cursorHidden = controlsHidden;
+  const controlsHidden = (openMode || (isFullscreen && !controlsVisible)) || (!isFullscreen && !controlsVisible && playing && hoverDeviceRef.current);
+  const showCenterPlay = openMode || (!playing && !buffering && !error);
+  const cursorHidden = controlsHidden && playing;
 
   const handleContainerKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.defaultPrevented) return;
-    if (e.key === " ") { e.preventDefault(); togglePlay(); }
-    else if (e.key === "ArrowLeft") { e.preventDefault(); seekTo(Math.max(0, current - SEEK_STEP)); }
-    else if (e.key === "ArrowRight") { e.preventDefault(); seekTo(Math.min(duration || current, current + SEEK_STEP)); }
-    else if (e.key.toLowerCase() === "m") { toggleMute(); }
-    else if (e.key.toLowerCase() === "f") { toggleFullscreen(); }
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      if (openMode) onOpen?.(); else togglePlay();
+    }
+    else if (e.key === "ArrowLeft" && !openMode) { e.preventDefault(); seekTo(Math.max(0, current - SEEK_STEP)); }
+    else if (e.key === "ArrowRight" && !openMode) { e.preventDefault(); seekTo(Math.min(duration || current, current + SEEK_STEP)); }
+    else if (e.key.toLowerCase() === "m" && !openMode) { toggleMute(); }
+    else if (e.key.toLowerCase() === "f" && !openMode) { toggleFullscreen(); }
     else if (e.key === "Escape" && isFullscreen) { toggleFullscreen(); }
-  }, [togglePlay, seekTo, current, duration, toggleMute, toggleFullscreen, isFullscreen]);
+  }, [togglePlay, seekTo, current, duration, toggleMute, toggleFullscreen, isFullscreen, openMode, onOpen]);
 
-  // Click toggles play; double-click toggles full screen (X-style).
+  // Click toggles play; double-click toggles full screen (X-style). In open
+  // mode every click (single or double) opens the destination once and stops
+  // propagation so the surrounding card doesn't navigate a second time.
   const clickTimerRef = useRef<number | null>(null);
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (openMode) {
+      e.stopPropagation();
+      onOpen?.();
+      return;
+    }
     if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
     clickTimerRef.current = window.setTimeout(() => { togglePlay(); }, 200);
-  }, [togglePlay]);
-  const handleDoubleClick = useCallback(() => {
+  }, [togglePlay, openMode, onOpen]);
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (openMode) {
+      e.stopPropagation();
+      onOpen?.();
+      return;
+    }
     if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
     toggleFullscreen();
-  }, [toggleFullscreen]);
+  }, [toggleFullscreen, openMode, onOpen]);
   useEffect(() => () => { if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current); }, []);
 
   const setVolumeFromInput = useCallback((v: number) => {
@@ -314,20 +356,19 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
           {sources.map((s, i) => <source key={i} src={s.src} type={s.type} />)}
           Ваш браузер не поддерживает воспроизведение.
         </video>
-      </div>
-
-      {showCenterPlay && (          <button
-            type="button"
-            aria-label="Воспроизвести"
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/45 p-4 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-            // The container also listens to clicks (for click-to-toggle and
-            // double-click fullscreen). Without stopPropagation a centre-button
-            // play would bubble up, schedule the delayed container toggle, and
-            // the video would pause ~200ms after it started playing.
-            onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-          >
-            <Play className="h-8 w-8 fill-current pl-0.5" />
-          </button>
+      </div>      {showCenterPlay && (
+        <button
+          type="button"
+          aria-label={openMode ? "Открыть пост" : "Воспроизвести"}
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/45 p-4 text-white shadow-lg backdrop-blur-sm transition hover:scale-105 hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+          onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); e.stopPropagation(); onOpen?.(); } }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (openMode) onOpen?.(); else togglePlay();
+          }}
+        >
+          <Play className="h-8 w-8 fill-current pl-0.5" />
+        </button>
       )}
 
       {buffering && !error && (
@@ -343,7 +384,7 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
       )}
 
       <div
-        className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pb-2.5 pt-10 transition-opacity duration-300 ${controlsHidden ? "pointer-events-none opacity-0" : "opacity-100"}`}
+        className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pb-2.5 pt-10 transition-opacity duration-300 ${controlsHidden || openMode ? "pointer-events-none opacity-0" : "opacity-100"}`}
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
       >

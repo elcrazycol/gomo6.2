@@ -93,12 +93,19 @@ export const WallAttachments = ({
   attachments,
   onImageClick,
   galleryKey,
+  onVideoOpen,
+  autoPlayVideo = false,
 }: {
   attachments: AttachmentMeta[];
   /** Items carry meta (preview_key/lqip), so the lightbox uses preview
       thumbnails while the slides load the full originals. */
   onImageClick: (items: LightboxItem[], index: number) => void;
   galleryKey: string;
+  /** When provided, videos render as tap-to-open thumbs (X-style) instead of
+      playing inline — forwarded to each video MediaPlayer. */
+  onVideoOpen?: () => void;
+  /** Autoplay videos once ready (used on the focused post page). */
+  autoPlayVideo?: boolean;
 }) => {
   const images = attachments.filter((attachment) => attachment.type === "image");
 
@@ -165,6 +172,8 @@ export const WallAttachments = ({
               poster={resolveUrl(attachment.poster) ?? undefined}
               sources={[{ src: resolveUrl(attachment.url) ?? attachment.url, type: attachment.mime || "video/mp4" }]}
               className="max-w-3xl"
+              onVideoOpen={onVideoOpen}
+              autoPlayVideo={autoPlayVideo}
             />
           );
         }
