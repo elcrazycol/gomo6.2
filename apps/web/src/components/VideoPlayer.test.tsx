@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { VideoPlayer } from "./VideoPlayer";
 
@@ -22,9 +22,28 @@ const mediaPlayPause = () => {
   return HTMLMediaElement.prototype.pause;
 };
 
+// jsdom has no matchMedia; emulate (hover: hover)/(hover: none).
+const mockHoverDevice = (hover: boolean) => {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: query.includes("hover: hover") ? hover : !hover,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+};
+
+/** The bottom gradient controls bar. */
+const controlsBar = (container: HTMLElement) =>
+  document.querySelector<HTMLElement>(".bg-gradient-to-t");
+
 describe("VideoPlayer", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     document.body.innerHTML = "";
   });
 
@@ -102,5 +121,61 @@ describe("VideoPlayer", () => {
     const video = container.querySelector("video");
     fireEvent.error(video!);
     expect(screen.getByText("Не удалось воспроизвести видео")).toBeInTheDocument();
+  });
+
+  it("auto-hides controls while playing then shows them on hover", () => {
+    vi.useFakeTimers();
+    mediaPlayPause();
+    mockHoverDevice(true);
+    const { container } = render(<VideoPlayer sources={[{ src: "clip.mp4" }]} />);
+    const bar = controlsBar(container)!;
+    // Not playing yet: controls are visible.
+    expect(bar.className).not.toContain("opacity-0");
+
+    const btns = screen.getAllByRole("button", { name: "Воспроизвести" });
+    fireEvent.click(btns[0]);
+    // Immediately after play starts, controls remain visible.
+    expect(bar.className).not.toContain("opacity-0");
+
+    // After the idle delay they fade away.
+    act(() => vi.advanceTimersByTime(3000));
+    expect(bar.className).toContain("opacity-0");
+    expect(container.querySelector(".cursor-none")).not.toBeNull();
+
+    // Moving the pointer over the player brings them back and re-arms hide.
+    fireEvent.pointerMove(container.querySelector("video")!);
+    expect(bar.className).not.toContain("opacity-0");
+    expect(container.querySelector(".cursor-none")).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("keeps controls visible while paused", () => {
+    vi.useFakeTimers();
+    mediaPlayPause();
+    // Play then pause: once paused, controls must stay even after idle.
+    mockHoverDevice(true);
+    const { container } = render(<VideoPlayer sources={[{ src: "clip.mp4" }]} />);
+    const bar = controlsBar(container)!;
+    const playBtns = screen.getAllByRole("button", { name: "Воспроизвести" });
+    fireEvent.click(playBtns[0]);
+    // While playing the bottom-bar action becomes a pause button.
+    fireEvent.click(screen.getByRole("button", { name: "Поставить на паузу" }));
+    act(() => vi.advanceTimersByTime(3000));
+    expect(bar.className).not.toContain("opacity-0");
+    vi.useRealTimers();
+  });
+
+  it("does not auto-hide controls on a touch (hover:none) device", () => {
+    vi.useFakeTimers();
+    mediaPlayPause();
+    mockHoverDevice(false);
+    const { container } = render(<VideoPlayer sources={[{ src: "clip.mp4" }]} />);
+    const bar = controlsBar(container)!;
+    const btns = screen.getAllByRole("button", { name: "Воспроизвести" });
+    fireEvent.click(btns[0]);
+    act(() => vi.advanceTimersByTime(3000));
+    expect(bar.className).not.toContain("opacity-0");
+    expect(container.querySelector(".cursor-none")).toBeNull();
+    vi.useRealTimers();
   });
 });

@@ -138,6 +138,9 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hideTimerRef = useRef<number | null>(null);
+  // Touch devices have no hover, so auto-hiding controls would leave no way to
+  // bring them back mid-playback. On (hover: none) we keep them always visible.
+  const hoverDeviceRef = useRef(true);
 
   const [playing, setPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -178,7 +181,7 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
 
   const armHideTimer = useCallback(() => {
     if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
-    if (!playing) return;
+    if (!playing || !hoverDeviceRef.current) return;
     hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), HIDE_DELAY);
   }, [playing]);
 
@@ -189,6 +192,12 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     armHideTimer();
   }, [armHideTimer]);
 
+  // Cache whether this device supports hover so the auto-hide logic reads it
+  // synchronously without a re-render on every pointer event.
+  useEffect(() => {
+    hoverDeviceRef.current = window.matchMedia?.("(hover: hover)").matches ?? true;
+  }, []);
+
   // Track native full screen state via the Fullscreen API.
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement === containerRef.current));
@@ -196,7 +205,8 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
 
-  // Show controls whenever the playback or visibility state changes.
+  // Show controls whenever playback or fullscreen state changes, then arm the
+  // auto-hide timer (if the device can hover).
   useEffect(() => {
     setControlsVisible(true);
     armHideTimer();
@@ -212,8 +222,12 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     }
   }, [canFullscreen]);
 
-  const controlsHidden = isFullscreen ? !controlsVisible : false;
+  // Controls fade out while playing (both inline and fullscreen) on hover
+  // devices; the cursor follows so the video area reads as a pure canvas. On
+  // touch devices they stay visible (see hoverDeviceRef).
+  const controlsHidden = !controlsVisible && playing && hoverDeviceRef.current;
   const showCenterPlay = !playing && !buffering && !error;
+  const cursorHidden = controlsHidden;
 
   const handleContainerKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.defaultPrevented) return;
@@ -255,8 +269,9 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
       onKeyDown={handleContainerKeyDown}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onPointerEnter={revealControls}
       onPointerMove={revealControls}
-      className={`group relative cursor-pointer select-none overflow-hidden rounded-xl bg-black outline-none ${isFullscreen ? "fixed inset-0 z-[1000] h-full max-h-[100vh] w-full max-w-[100vw]" : className}`}
+      className={`group relative select-none overflow-hidden rounded-xl bg-black outline-none ${cursorHidden ? "cursor-none" : "cursor-pointer"} ${isFullscreen ? "fixed inset-0 z-[1000] h-full max-h-[100vh] w-full max-w-[100vw]" : className}`}
     >
       {/* Instagram-style letterboxed backdrop for portrait clips. */}
       {poster && (
