@@ -137,6 +137,12 @@ export const FeedThreadCard = ({
     navigate(threadPath);
   }, [navigate, threadPath]);
 
+  // X-style: tapping a thread video opens the thread page and autoplays the
+  // clip there instead of playing it inline on the feed.
+  const handleVideoOpen = useCallback(() => {
+    navigate(threadPath, { state: { autoplayVideo: true } });
+  }, [navigate, threadPath]);
+
   const handleLikeToggle = async () => {
     if (!currentUserId || isLiking) return;
     setIsLiking(true);
@@ -247,6 +253,7 @@ export const FeedThreadCard = ({
             attachments={attachments}
             galleryKey={`feed-thread-${thread.id}`}
             onImageClick={onImageClick}
+            onVideoOpen={handleVideoOpen}
           />
         )}
 

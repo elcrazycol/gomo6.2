@@ -44,7 +44,13 @@ vi.mock("@/components/GomoRichEditor", () => ({
     />
   ),
 }));
-vi.mock("@/components/WallAttachments", () => ({ WallAttachments: () => null }));
+const mockWallAttachments = vi.fn();
+vi.mock("@/components/WallAttachments", () => ({
+  WallAttachments: (props: any) => {
+    mockWallAttachments(props);
+    return null;
+  },
+}));
 vi.mock("@/components/share/ShareSheet", () => ({ ShareSheet: () => null }));
 vi.mock("@/components/thread/ThreadCommentTree", () => ({
   ThreadCommentTree: ({ currentUserId }: any) => (
@@ -53,13 +59,17 @@ vi.mock("@/components/thread/ThreadCommentTree", () => ({
 }));
 
 const mockNavigate = vi.fn();
+const mockLocation: { pathname: string; state: unknown } = {
+  pathname: "/test-board/thread/thread-1",
+  state: null,
+};
 vi.mock("react-router-dom", async () => {
   const actual = await import("react-router-dom");
   return {
     ...actual,
     useNavigate: () => mockNavigate,
     useParams: () => ({ slug: "test-board", threadId: "thread-1" }),
-    useLocation: () => ({ pathname: "/test-board/thread/thread-1" }),
+    useLocation: () => mockLocation,
   };
 });
 
@@ -101,6 +111,7 @@ describe("Thread", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLocation.state = null;
     const session = { user: { id: "user-1" }, access_token: "token-abc" };
     mockAuth.getSession.mockResolvedValue({ data: { session }, error: null });
     mockAuth.getUser.mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
@@ -124,6 +135,37 @@ describe("Thread", () => {
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /назад/i })).toBeInTheDocument();
+    });
+  });
+
+  it("autoplays the thread video when opened via a feed video tap", async () => {
+    mockLocation.state = { autoplayVideo: true };
+    useThread.mockReturnValue({
+      data: mockThread({ attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 0 }] }),
+      isLoading: false,
+    } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
+
+    renderWithProviders(<ThreadComponent />);
+    await waitFor(() => {
+      expect(mockWallAttachments).toHaveBeenCalledWith(
+        expect.objectContaining({ autoPlayVideo: true }),
+      );
+    });
+  });
+
+  it("renders thread attachments without autoplay when opened normally", async () => {
+    useThread.mockReturnValue({
+      data: mockThread({ attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 0 }] }),
+      isLoading: false,
+    } as any);
+    useThreadSubscription.mockReturnValue({ data: false } as any);
+
+    renderWithProviders(<ThreadComponent />);
+    await waitFor(() => {
+      expect(mockWallAttachments).toHaveBeenCalledWith(
+        expect.objectContaining({ autoPlayVideo: false }),
+      );
     });
   });
 

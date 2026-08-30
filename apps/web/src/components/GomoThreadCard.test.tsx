@@ -52,10 +52,12 @@ vi.mock("@/components/ProcessedContent", () => ({
 }));
 
 vi.mock("@/components/WallAttachments", () => ({
-  WallAttachments: ({ attachments, onImageClick }: any) => (
+  WallAttachments: ({ attachments, onImageClick, onVideoOpen, autoPlayVideo }: any) => (
     <button
       data-testid="wall-attachments"
       data-count={attachments.length}
+      data-on-video-open={onVideoOpen ? "true" : "false"}
+      data-auto-play={autoPlayVideo ? "true" : "false"}
       onClick={() =>
         onImageClick(
           attachments.map((a: any) => ({ url: a.url, type: "image", name: "x" })),
@@ -151,6 +153,15 @@ describe("GomoThreadCard", () => {
       }),
     );
     expect(screen.getByTestId("wall-attachments").dataset.count).toBe("2");
+  });
+
+  it("wires the video-open mechanic for threads with video attachments", () => {
+    renderCard(
+      baseThread({
+        attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
+      }),
+    );
+    expect(screen.getByTestId("wall-attachments").dataset.onVideoOpen).toBe("true");
   });
 
   it("does not render the latest answer preview anymore", () => {

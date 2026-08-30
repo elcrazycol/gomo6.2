@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, beforeAll } from "vitest";
 
@@ -49,11 +49,18 @@ vi.mock("@/components/ThreadCard", async (importOriginal) => {
 });
 
 vi.mock("@/components/WallAttachments", () => ({
-  WallAttachments: ({ attachments }: any) => (
+  WallAttachments: ({ attachments, onVideoOpen }: any) => (
     <div
       data-testid="wall-attachments"
       data-count={attachments.length}
       data-first-url={attachments[0]?.url}
+      data-on-video-open={onVideoOpen ? "true" : "false"}
+      // Mirrors the real VideoPlayer open-mode: a tap opens the destination
+      // and stops propagation so the card's own navigate handler is skipped.
+      onClick={(e: any) => {
+        e.stopPropagation();
+        onVideoOpen?.();
+      }}
     />
   ),
 }));
@@ -202,6 +209,33 @@ describe("FeedThreadCard", () => {
       expect(screen.getByText("Test Thread Title")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("wall-attachments")).not.toBeInTheDocument();
+  });
+
+  // ─── Video open mechanic ──────────────────────────────────────────────────
+
+  it("wires the video-open callback to WallAttachments for threads with video", async () => {
+    renderCard(createMockThread({
+      attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+    });
+  });
+
+  it("tapping a thread video opens the thread page with an autoplay flag", async () => {
+    renderCard(createMockThread({
+      attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+    });
+    fireEvent.click(screen.getByTestId("wall-attachments"));
+
+    expect(mockNavigateFn).toHaveBeenCalledWith("/test-board/thread/thread-1", {
+      state: { autoplayVideo: true },
+    });
   });
 
   // ─── Likes ──────────────────────────────────────────────────────────────────

@@ -66,6 +66,14 @@ export const FeedWallPostCard = ({
     navigate(postPath, { state: { wallPost: post, backgroundLocation: location } });
   }, [navigate, post, postPath, location]);
 
+  // X-style: tapping a wall video opens the post page and autoplays the clip
+  // there instead of playing it inline on the feed.
+  const handleVideoOpen = useCallback(() => {
+    navigate(postPath, {
+      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true },
+    });
+  }, [navigate, post, postPath, location]);
+
   const handleLikeToggle = async () => {
     if (!currentUserId || isLiking) return;
     setIsLiking(true);
@@ -163,6 +171,7 @@ export const FeedWallPostCard = ({
             attachments={attachments}
             galleryKey={`feed-${post.id}`}
             onImageClick={onImageClick}
+            onVideoOpen={handleVideoOpen}
           />
         )}
 

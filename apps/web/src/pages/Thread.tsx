@@ -88,6 +88,8 @@ const Thread = () => {
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
+  // Set when the thread opened by tapping a feed video — autoplays the clip.
+  const autoplayVideo = Boolean((location.state as { autoplayVideo?: boolean } | null)?.autoplayVideo);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -486,6 +488,7 @@ const Thread = () => {
                   setGalleryItems(items);
                   setGalleryIndex(idx);
                 }}
+                autoPlayVideo={autoplayVideo}
               />
             )}
 
