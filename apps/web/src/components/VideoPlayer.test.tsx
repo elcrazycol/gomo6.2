@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { VideoPlayer } from "./VideoPlayer";
 
 // jsdom has no real media playback; stub the play/pause API so handlers fire.
