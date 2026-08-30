@@ -125,3 +125,40 @@ it("falls back to the orange circle when the summary has no activity", async () 
   });
   expect(button.querySelector(".from-orange-400")).not.toBeNull();
 });
+
+/** Average RGB brightness of the first gradient stop — higher = more vivid. */
+function firstStopBrightness(button: HTMLElement): number {
+  const bg = button.querySelector("[style*='radial-gradient']")?.getAttribute("style") ?? "";
+  const m = bg.match(/rgb\((\d+)\s+(\d+)\s+(\d+)\)/);
+  if (!m) throw new Error("no rgb stop in gradient");
+  return (Number(m[1]) + Number(m[2]) + Number(m[3])) / 3;
+}
+
+it("dims the gradient for a low-activity account", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { ...summary, posts: 1, comments: 1, likes: 1, active_days: 1 } }),
+    })
+  );
+  render(<ActiEye />);
+  const button = await screen.findByRole("button", { name: "Активность" });
+  await waitFor(() => expect(firstStopBrightness(button)).toBeLessThan(120));
+});
+
+it("vivids the gradient for a very active account", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: { ...summary, posts: 500, comments: 400, likes: 900, active_days: 200 },
+      }),
+    })
+  );
+  render(<ActiEye />);
+  const button = await screen.findByRole("button", { name: "Активность" });
+  await waitFor(() => expect(firstStopBrightness(button)).toBeGreaterThan(150));
+});
+

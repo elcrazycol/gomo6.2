@@ -21,16 +21,44 @@ export interface ActiEyeSummary {
   seed: number;
 }
 
-/** One color per activity counter (posts, comments, likes, visits). */
-const ACTIVITY_COLORS = [
-  "rgb(167 139 250)", // violet-400 — записи
-  "rgb(56 189 248)", // sky-400 — комментарии
-  "rgb(251 191 36)", // amber-400 — лайки
-  "rgb(52 211 153)", // emerald-400 — заходы
-] as const;
+/** One base color per activity counter (posts, comments, likes, visits).
+ *  Kept as [r,g,b] so the gradient can desaturate/dim them by activity. */
+const ACTIVITY_COLORS: ReadonlyArray<readonly [number, number, number]> = [
+  [167, 139, 250], // violet-400 — записи
+  [56, 189, 248], // sky-400 — комментарии
+  [251, 191, 36], // amber-400 — лайки
+  [52, 211, 153], // emerald-400 — заходы
+];
 
 /** Minimum fraction per active color so no color ever disappears. */
 const MIN_FRAC = 0.12;
+
+/**
+ * Maps an account's total activity to a vividness in [0,1]. Log-scale so a
+ * handful of actions reads as "quiet" while hundreds of actions read as
+ * "alive" without the number inflating forever. 0 = muted, 1 = vivid.
+ */
+function vividness(summary: ActiEyeSummary): number {
+  const n = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
+  const score =
+    Math.log10(1 + n(summary.posts)) +
+    Math.log10(1 + n(summary.comments)) +
+    Math.log10(1 + n(summary.likes)) +
+    Math.log10(1 + n(summary.active_days));
+  // ~1.2 (new account) .. ~10 (very active); clamp into 0..1.6 then fold.
+  return Math.max(0, Math.min(1, (score - 1.2) / 5));
+}
+
+/** Blend a base color toward gray and scale brightness by activity vividness. */
+function tonedColor(c: readonly [number, number, number], v: number): string {
+  const gray = 116; // muted desaturated base
+  const sat = 0.45 + v * 0.55; // 0.45 flat → 1.0 vivid
+  const bright = 0.55 + v * 0.5; // 0.55 dim → 1.05 punchy
+  const mix = (x: number) => gray + (x - gray) * sat;
+  const [r, g, b] = c;
+  const clamp255 = (x: number) => Math.max(0, Math.min(255, Math.round(x)));
+  return `rgb(${clamp255(mix(r) * bright)} ${clamp255(mix(g) * bright)} ${clamp255(mix(b) * bright)})`;
+}
 
 /**
  * Builds a smooth RADIAL gradient (no conic pie-point, no sharp angles):
@@ -45,6 +73,9 @@ function buildGradient(summary: ActiEyeSummary): string {
   const total = weights.reduce((a, b) => a + (Number.isFinite(b) && b > 0 ? b : 0), 0);
   if (total <= 0) return "";
 
+  const v = vividness(summary);
+  const color = (i: number) => tonedColor(ACTIVITY_COLORS[i], v);
+
   const active = weights.filter((w) => w > 0).length;
   const pool = 1 - active * MIN_FRAC;
 
@@ -54,12 +85,12 @@ function buildGradient(summary: ActiEyeSummary): string {
   weights.forEach((w, i) => {
     if (!(w > 0)) return;
     order.push(i);
-    stops.push(`${ACTIVITY_COLORS[i]} ${(frac * 100).toFixed(1)}%`);
+    stops.push(`${color(i)} ${(frac * 100).toFixed(1)}%`);
     frac += MIN_FRAC + (w / total) * pool;
   });
   if (order.length === 0) return "";
   // Close the loop: the rim blends back toward the first color.
-  stops.push(`${ACTIVITY_COLORS[order[0]]} 100%`);
+  stops.push(`${color(order[0])} 100%`);
 
   const seed = (summary.seed ?? 0) % 360;
   const rad = (seed * Math.PI) / 180;
