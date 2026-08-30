@@ -98,11 +98,9 @@ interface MediaPlayerProps {
   onVideoOpen?: () => void;
   /** For kind="video": autoplay once ready (post page resumes the clip). */
   autoPlayVideo?: boolean;
-  /** The autoplay request originated from the user's wall tap. */
-  userActivatedVideo?: boolean;
 }
 
-export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause, onVideoOpen, autoPlayVideo = false, userActivatedVideo = false }: MediaPlayerProps) => {
+export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause, onVideoOpen, autoPlayVideo = false }: MediaPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
@@ -285,7 +283,6 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
         className={`w-full overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm ${className}`}
         onOpen={onVideoOpen}
         autoPlay={autoPlayVideo}
-        userActivated={userActivatedVideo}
       />
     );
   }

@@ -15,7 +15,6 @@ type WallPostNavigationState = {
   backgroundLocation?: { pathname: string };
   /** Set when opened by tapping a wall video — autoplays the clip on load. */
   autoplayVideo?: boolean;
-  userActivatedVideo?: boolean;
 };
 
 const WallPost = () => {
@@ -184,7 +183,6 @@ const WallPost = () => {
           initialPost={initialPost}
           standalone
           autoplayVideo={navigationState?.autoplayVideo}
-          userActivatedVideo={navigationState?.userActivatedVideo}
         />
       )}
     </div>

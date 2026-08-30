@@ -205,7 +205,7 @@ describe("VideoPlayer", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("autoplay: plays the clip once it can play", () => {
+  it("autoplay: starts the clip muted once it can play", () => {
     const { play } = mediaPlayPause();
     mockHoverDevice(true);
     const { container } = render(<VideoPlayer sources={[{ src: "clip.mp4" }]} autoPlay />);
@@ -214,8 +214,27 @@ describe("VideoPlayer", () => {
     Object.defineProperty(video, "readyState", { configurable: true, value: 0 });
     video.dispatchEvent(new Event("canplay"));
     expect(play).toHaveBeenCalled();
-    expect(video.muted).toBe(false);
-    expect(video.defaultMuted).toBe(false);
+    // Mobile autoplay only works for an element muted from the start.
+    expect(video.muted).toBe(true);
+    expect(video.defaultMuted).toBe(true);
     expect(video.dataset._paused).toBe("false");
+  });
+
+  it("autoplay: swallows a rejected play() without crashing (iOS blocks even muted attempts in edge cases)", async () => {
+    // Even a rejected muted attempt must leave a usable player: controls stay,
+    // the mute state is intact, and the user can start playback by tapping.
+    HTMLMediaElement.prototype.play = vi.fn(function (this: HTMLMediaElement) {
+      this.dataset._paused = "true";
+      return Promise.reject(new Error("NotAllowedError"));
+    });
+    HTMLMediaElement.prototype.pause = vi.fn();
+    const { container } = render(<VideoPlayer sources={[{ src: "clip.mp4" }]} autoPlay />);
+    const video = container.querySelector("video")!;
+    Object.defineProperty(video, "readyState", { configurable: true, value: 0 });
+    video.dispatchEvent(new Event("canplay"));
+    await act(async () => {}); // flush the rejection microtask
+    expect(video.muted).toBe(true);
+    expect(video.dataset._paused).toBe("true"); // still paused, no crash
+    expect(screen.queryByText("Не удалось воспроизвести видео")).not.toBeInTheDocument();
   });
 });

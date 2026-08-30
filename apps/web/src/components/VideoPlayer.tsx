@@ -48,8 +48,6 @@ interface VideoPlayerProps {
   /** Start playback automatically once the video can play (used on the post
       page so the clip resumes from a wall tap). */
   autoPlay?: boolean;
-  /** The navigation came directly from a user gesture on the wall video. */
-  userActivated?: boolean;
 }
 
 const iconButtonClass = "flex items-center justify-center rounded-full p-2 text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60";
@@ -146,7 +144,7 @@ function SeekBar({
   );
 }
 
-export const VideoPlayer = ({ sources, poster, className = "", title, canFullscreen = true, onOpen, autoPlay = false, userActivated = false }: VideoPlayerProps) => {
+export const VideoPlayer = ({ sources, poster, className = "", title, canFullscreen = true, onOpen, autoPlay = false }: VideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hideTimerRef = useRef<number | null>(null);
@@ -162,7 +160,7 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() => autoPlay && !openMode);
   const [volume, setVolume] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -246,19 +244,19 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     const el = videoRef.current;
     if (!el) return;
     const tryPlay = () => {
-      // A wall tap is a real user gesture. Preserve sound for that path instead
-      // of silently starting muted and making the post feel broken on mobile.
-      // If a browser still rejects it, the regular visible Play button remains
-      // available and the user can start playback explicitly.
-      el.muted = false;
-      el.defaultMuted = false;
-      setMuted(false);
+      // iOS Safari/Android Chrome only auto-start muted video — and only when
+      // the element is muted from the start (a rejected unmuted play() is not
+      // reliably retryable on iOS). Begin silent; the in-player mute button
+      // restores sound in one tap.
+      el.muted = true;
+      el.defaultMuted = true;
+      setMuted(true);
       el.play().catch(() => {});
     };
     if (el.readyState >= 2) tryPlay();
     else el.addEventListener("canplay", tryPlay, { once: true });
     return () => el.removeEventListener("canplay", tryPlay);
-  }, [autoPlay, openMode, userActivated]);
+  }, [autoPlay, openMode]);
 
   // Controls fade out while playing (both inline and fullscreen) on hover
   // devices; the cursor follows so the video area reads as a pure canvas. On
@@ -345,7 +343,8 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
           ref={videoRef}
           className={`block bg-black object-contain ${isFullscreen ? "h-full w-full" : "mx-auto h-auto max-h-[70vh] w-auto max-w-full"}`}
           playsInline
-          preload="metadata"
+          muted={autoPlay && !openMode}
+          preload={autoPlay && !openMode ? "auto" : "metadata"}
           poster={poster}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}

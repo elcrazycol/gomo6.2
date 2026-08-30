@@ -69,8 +69,6 @@ interface ProfileWallProps {
   standalone?: boolean;
   /** Autoplay the focused post's video (opened via a wall-video tap). */
   autoplayVideo?: boolean;
-  /** Preserve sound for an autoplay request initiated by a user tap. */
-  userActivatedVideo?: boolean;
   /** Increment to force a refetch (e.g. after the profile owner's nickname emoji changes). */
   refreshKey?: number;
   /**
@@ -103,7 +101,6 @@ export const ProfileWall = ({
   focusedPostId = null,
   standalone = false,
   autoplayVideo = false,
-  userActivatedVideo = false,
   refreshKey = 0,
   wallHidden = false,
   privateProfile = false,
@@ -617,8 +614,7 @@ export const ProfileWall = ({
                 forceCommentsOpen={Boolean(focusedPostId)}
                 postHref={focusedPostId ? null : getWallPostPath(post.user_id, post.id)}
                 standalone={standalone}
-                autoplayVideo={autoplayVideo && post.id === focusedPostId}
-                userActivatedVideo={userActivatedVideo && post.id === focusedPostId}
+                autoplayVideo={autoplayVideo && String(post.id) === String(focusedPostId)}
                 onImageClick={(items, idx) => {
                   setGalleryItems(items);
                   setGalleryIndex(idx);

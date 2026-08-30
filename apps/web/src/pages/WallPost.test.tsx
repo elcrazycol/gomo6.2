@@ -133,6 +133,30 @@ describe("WallPost page", () => {
     });
   });
 
+  it("passes the autoplay flag to ProfileWall when opened via a wall-video tap", async () => {
+    const wallPost = {
+      id: "post-1",
+      user_id: "wall-owner",
+      author_id: "author-1",
+      content: "Already rendered",
+      title: "Already rendered",
+      content_json: null,
+      image_url: null,
+      attachments: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      author: { username: "author", is_anonymous: false, avatar_url: null },
+    };
+
+    renderPage({ wallPost, backgroundLocation: { pathname: "/profile/wall-owner" }, autoplayVideo: true });
+
+    await waitFor(() => {
+      expect(mockProfileWall).toHaveBeenCalledWith(
+        expect.objectContaining({ autoplayVideo: true }),
+      );
+    });
+  });
+
   it("passes null currentUserId for anonymous visitors", async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockLoadProfile.mockResolvedValue({ username: "owner", color: "", isAdmin: false, customization: null });

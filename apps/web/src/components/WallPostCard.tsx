@@ -57,8 +57,6 @@ interface WallPostCardProps {
   /** Autostart the attached video once it can play (the post page opened with
       an autoplay flag from a wall tap). */
   autoplayVideo?: boolean;
-  /** Preserve sound when autoplay was initiated by a direct user tap. */
-  userActivatedVideo?: boolean;
 }
 
 export const WallPostCard = ({
@@ -77,7 +75,6 @@ export const WallPostCard = ({
   postHref,
   standalone = false,
   autoplayVideo = false,
-  userActivatedVideo = false,
 }: WallPostCardProps) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -310,7 +307,7 @@ export const WallPostCard = ({
   const handleVideoOpen = useCallback(() => {
     if (!postHref || isEditing) return;
     navigate(postHref, {
-      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true, userActivatedVideo: true },
+      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true },
     });
   }, [postHref, isEditing, navigate, post, location]);
 
@@ -416,7 +413,6 @@ export const WallPostCard = ({
               onImageClick={onImageClick}
               onVideoOpen={postHref ? handleVideoOpen : undefined}
               autoPlayVideo={autoplayVideo}
-              userActivatedVideo={userActivatedVideo}
             />
           )}
 

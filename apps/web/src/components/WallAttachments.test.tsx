@@ -7,8 +7,14 @@ vi.mock("@/utils/storage", () => ({
 }));
 
 vi.mock("@/components/MediaPlayer", () => ({
-  MediaPlayer: ({ kind, sources }: any) => (
-    <div data-testid={`media-${kind}`}>{sources?.[0]?.src}</div>
+  MediaPlayer: ({ kind, sources, onVideoOpen, autoPlayVideo }: any) => (
+    <div
+      data-testid={`media-${kind}`}
+      data-open-mode={onVideoOpen ? "true" : "false"}
+      data-auto-play={autoPlayVideo ? "true" : "false"}
+    >
+      {sources?.[0]?.src}
+    </div>
   ),
 }));
 
@@ -113,5 +119,32 @@ describe("WallAttachments", () => {
 
     expect(screen.getByTestId("media-video")).toBeInTheDocument();
     expect(screen.getByTestId("audio-attachment")).toBeInTheDocument();
+  });
+
+  it("autoplays only the FIRST video when autoPlayVideo is set", () => {
+    const attachments: AttachmentMeta[] = [
+      { url: "first.mp4", type: "video", mime: "video/mp4", name: "v1", size: 5000 },
+      { url: "second.mp4", type: "video", mime: "video/mp4", name: "v2", size: 5000 },
+    ];
+    render(
+      <WallAttachments attachments={attachments} galleryKey="wall-1" onImageClick={onImageClick} autoPlayVideo />
+    );
+
+    const players = screen.getAllByTestId("media-video");
+    expect(players).toHaveLength(2);
+    expect(players[0].dataset.autoPlay).toBe("true");
+    expect(players[1].dataset.autoPlay).toBe("false");
+  });
+
+  it("forwards the video-open callback so taps navigate instead of playing inline", () => {
+    const attachments: AttachmentMeta[] = [
+      { url: "first.mp4", type: "video", mime: "video/mp4", name: "v1", size: 5000 },
+    ];
+    const onVideoOpen = vi.fn();
+    render(
+      <WallAttachments attachments={attachments} galleryKey="wall-1" onImageClick={onImageClick} onVideoOpen={onVideoOpen} />
+    );
+
+    expect(screen.getByTestId("media-video").dataset.openMode).toBe("true");
   });
 });

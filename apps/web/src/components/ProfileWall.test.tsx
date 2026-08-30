@@ -111,7 +111,9 @@ vi.mock("@/components/Lightbox", () => ({
 }));
 
 vi.mock("@/components/MediaPlayer", () => ({
-  MediaPlayer: ({ kind, sources }: any) => <div data-testid="media-player" data-kind={kind} data-src={sources?.[0]?.src}>Media</div>,
+  MediaPlayer: ({ kind, sources, autoPlayVideo, onVideoOpen }: any) => (
+    <div data-testid="media-player" data-kind={kind} data-src={sources?.[0]?.src} data-auto-play={autoPlayVideo ? "true" : "false"} data-open-mode={onVideoOpen ? "true" : "false"}>Media</div>
+  ),
 }));
 
 vi.mock("@/components/AudioAttachment", () => ({
@@ -880,6 +882,38 @@ describe("ProfileWall", () => {
     });
 
     expect(screen.queryByText("Запись на стене не найдена")).not.toBeInTheDocument();
+  });
+
+  // ─── ProfileWall: autoplay flag propagation ────────────────────────────────
+
+  it("forwards autoplayVideo to the focused post's video player (no open-mode)", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "focused-post",
+        content: "Focused post",
+        attachments: [{ type: "video", url: "clip.mp4", mime: "video/mp4", name: "clip", size: 0 }],
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={false}
+        showWall={true}
+        focusedPostId="focused-post"
+        standalone={true}
+        autoplayVideo={true}
+      />
+    );
+
+    const player = await screen.findByTestId("media-player");
+    // The autoplay flag from the wall tap must reach the video player…
+    expect(player.dataset.autoPlay).toBe("true");
+    // …and the focused post must render the inline player (not an open-mode
+    // thumbnail), or the autoplay effect would be suppressed entirely.
+    expect(player.dataset.openMode).toBe("false");
   });
 
   // ─── ProfileWall: focused post not found ────────────────────────────────────
