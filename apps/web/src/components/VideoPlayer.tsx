@@ -243,7 +243,14 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     if (!autoPlay || openMode) return;
     const el = videoRef.current;
     if (!el) return;
-    const tryPlay = () => { el.play().catch(() => {}); };
+    const tryPlay = () => {
+      // Mobile Safari/Chrome block autoplay with audio. Muted autoplay is
+      // allowed, so start silently and let the user enable sound explicitly.
+      el.muted = true;
+      el.defaultMuted = true;
+      setMuted(true);
+      el.play().catch(() => {});
+    };
     if (el.readyState >= 2) tryPlay();
     else el.addEventListener("canplay", tryPlay, { once: true });
     return () => el.removeEventListener("canplay", tryPlay);
