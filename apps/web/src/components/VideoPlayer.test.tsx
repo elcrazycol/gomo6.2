@@ -214,8 +214,8 @@ describe("VideoPlayer", () => {
     Object.defineProperty(video, "readyState", { configurable: true, value: 0 });
     video.dispatchEvent(new Event("canplay"));
     expect(play).toHaveBeenCalled();
-    expect(video.muted).toBe(true);
-    expect(video.defaultMuted).toBe(true);
+    expect(video.muted).toBe(false);
+    expect(video.defaultMuted).toBe(false);
     expect(video.dataset._paused).toBe("false");
   });
 });

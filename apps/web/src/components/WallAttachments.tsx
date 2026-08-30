@@ -95,6 +95,7 @@ export const WallAttachments = ({
   galleryKey,
   onVideoOpen,
   autoPlayVideo = false,
+  userActivatedVideo = false,
 }: {
   attachments: AttachmentMeta[];
   /** Items carry meta (preview_key/lqip), so the lightbox uses preview
@@ -106,6 +107,8 @@ export const WallAttachments = ({
   onVideoOpen?: () => void;
   /** Autoplay videos once ready (used on the focused post page). */
   autoPlayVideo?: boolean;
+  /** Autoplay originated from the wall user's tap, so preserve sound. */
+  userActivatedVideo?: boolean;
 }) => {
   const images = attachments.filter((attachment) => attachment.type === "image");
 
@@ -174,6 +177,7 @@ export const WallAttachments = ({
               className="max-w-3xl"
               onVideoOpen={onVideoOpen}
               autoPlayVideo={autoPlayVideo}
+              userActivatedVideo={userActivatedVideo}
             />
           );
         }

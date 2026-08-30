@@ -48,6 +48,8 @@ interface VideoPlayerProps {
   /** Start playback automatically once the video can play (used on the post
       page so the clip resumes from a wall tap). */
   autoPlay?: boolean;
+  /** The navigation came directly from a user gesture on the wall video. */
+  userActivated?: boolean;
 }
 
 const iconButtonClass = "flex items-center justify-center rounded-full p-2 text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60";
@@ -144,7 +146,7 @@ function SeekBar({
   );
 }
 
-export const VideoPlayer = ({ sources, poster, className = "", title, canFullscreen = true, onOpen, autoPlay = false }: VideoPlayerProps) => {
+export const VideoPlayer = ({ sources, poster, className = "", title, canFullscreen = true, onOpen, autoPlay = false, userActivated = false }: VideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hideTimerRef = useRef<number | null>(null);
@@ -244,17 +246,19 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
     const el = videoRef.current;
     if (!el) return;
     const tryPlay = () => {
-      // Mobile Safari/Chrome block autoplay with audio. Muted autoplay is
-      // allowed, so start silently and let the user enable sound explicitly.
-      el.muted = true;
-      el.defaultMuted = true;
-      setMuted(true);
+      // A wall tap is a real user gesture. Preserve sound for that path instead
+      // of silently starting muted and making the post feel broken on mobile.
+      // If a browser still rejects it, the regular visible Play button remains
+      // available and the user can start playback explicitly.
+      el.muted = false;
+      el.defaultMuted = false;
+      setMuted(false);
       el.play().catch(() => {});
     };
     if (el.readyState >= 2) tryPlay();
     else el.addEventListener("canplay", tryPlay, { once: true });
     return () => el.removeEventListener("canplay", tryPlay);
-  }, [autoPlay, openMode]);
+  }, [autoPlay, openMode, userActivated]);
 
   // Controls fade out while playing (both inline and fullscreen) on hover
   // devices; the cursor follows so the video area reads as a pure canvas. On
