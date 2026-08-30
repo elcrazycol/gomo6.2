@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { VideoPlayer } from "@/components/VideoPlayer";
 
 const PLYR_SCRIPT = "https://cdn.plyr.io/3.8.4/plyr.polyfilled.js";
 const PLYR_CSS = "https://cdn.plyr.io/3.8.4/plyr.css";
@@ -97,46 +98,11 @@ interface MediaPlayerProps {
 export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause }: MediaPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const [backdropLoaded, setBackdropLoaded] = useState(false);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
   const instanceRef = useRef<PlyrInstance | null>(null);
   const isUnmountingRef = useRef(false);
 
   useEffect(() => {
-    if (kind === "video") {
-      // Video: normal flow
-      const controls = ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
-
-      ensurePlyrAssets()
-        .then((Plyr: unknown) => {
-          if (!Plyr || !mediaRef.current || !mountRef.current) return;
-          const instance = new (Plyr as new (el: HTMLElement, opts: Record<string, unknown>) => PlyrInstance)(mediaRef.current, {
-            ratio: "16:9",
-            controls,
-            autopause: false,
-            autoplay: false,
-            storage: { enabled: false },
-            previewThumbnails: { enabled: false },
-          });
-          instanceRef.current = instance;
-          onReady?.(instance);
-
-          instance.on("play", () => onPlay?.(instance));
-          instance.on("pause", () => {
-            if (!isUnmountingRef.current) {
-              onPause?.(instance);
-            }
-          });
-        })
-        .catch((e) => console.error(e));
-
-      return () => {
-        isUnmountingRef.current = true;
-        instanceRef.current?.destroy?.();
-      };
-    }
-
-    // Audio: use global audio element, local element is MUTED and only for UI
     if (kind === "audio") {
       const globalAudio = ensureGlobalAudio();
       const controls = ["play", "progress", "current-time", "duration", "mute"];
@@ -302,33 +268,23 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
     }
   }, [kind, sources, playerKey, title, playlistId, playlistIndex, onReady, onPlay, onPause]);
 
-  const Element = kind === "video" ? "video" : "audio";
-  // Videos keep their aspect ratio but are capped at the same viewport height
-  // as wall photos (max-h-[70vh]) and centered horizontally, so a vertical
-  // phone clip no longer stretches to a ~1000px-tall column-busting block.
-  // Landscape clips still fill the column width as before.
-  const mediaClassName = kind === "video" ? "mx-auto block h-auto max-h-[70vh] w-auto max-w-full" : "w-full";
+  if (kind === "video") {
+    // Videos use the in-house X/Telegram-style player: custom controls,
+    // blurred poster frame, native-fullscreen overlay. No CDN dependency.
+    return (
+      <VideoPlayer
+        sources={sources}
+        poster={poster}
+        className={`w-full overflow-hidden rounded-xl border border-border bg-card/80 shadow-sm ${className}`}
+      />
+    );
+  }
+
+  const Element = "audio";
+  const mediaClassName = "w-full";
 
   return (
     <div className={`relative w-full rounded-xl border border-border bg-card/80 shadow-sm overflow-hidden ${className}`}>
-      {/* Instagram-style backdrop: the letterboxed sides of portrait videos
-          show a blurred version of the video's own frame instead of a flat
-          background. Landscape clips cover it entirely, so only portrait and
-          square cards change; clips without a poster keep the plain card. */}
-      {kind === "video" && poster && (
-        <>
-          <img
-            src={poster}
-            alt=""
-            aria-hidden="true"
-            className={`absolute inset-0 h-full w-full scale-110 object-cover blur-2xl transition-opacity duration-300 ${backdropLoaded ? "opacity-100" : "opacity-0"}`}
-            onLoad={() => setBackdropLoaded(true)}
-          />
-          {/* Slight dim so the video pops and the backdrop fits both themes. */}
-          <div className="absolute inset-0 bg-black/30" />
-        </>
-      )}
-      {/* relative: paints above the absolutely positioned backdrop. */}
       <div ref={mountRef} className="relative">
         <Element
           ref={mediaRef as unknown as React.LegacyRef<HTMLVideoElement> | undefined}
@@ -337,8 +293,6 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           controls
           preload="metadata"
           crossOrigin="anonymous"
-          poster={kind === "video" ? poster : undefined}
-          data-poster={poster}
         >
           {sources.map((s, i) => (
             <source key={i} src={s.src} type={s.type} />

@@ -114,10 +114,11 @@ describe("MediaPlayer", () => {
       />,
     );
     const video = document.querySelector("video");
-    expect(video?.getAttribute("data-poster")).toBe("poster.jpg");
+    // Custom player render: native `controls` are off, poster is forwarded.
+    expect(video?.getAttribute("poster")).toBe("poster.jpg");
   });
 
-  it("sets controls attribute", () => {
+  it("uses the custom player instead of native controls", () => {
     render(
       <MediaPlayer
         kind="video"
@@ -125,6 +126,7 @@ describe("MediaPlayer", () => {
       />,
     );
     const video = document.querySelector("video");
-    expect(video?.hasAttribute("controls")).toBe(true);
+    expect(video).toBeInTheDocument();
+    expect(video?.hasAttribute("controls")).toBe(false);
   });
 });
