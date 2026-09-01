@@ -7,9 +7,16 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import {
-  Edit3, Heart, Loader2, MessageCircle, Pin, PinOff,
+  Edit3, Heart, Loader2, MessageCircle, MoreVertical, Pin, PinOff,
   Repeat2, Share2, Trash2,
 } from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -146,6 +153,10 @@ export const WallPostCard = ({
   const [repostText, setRepostText] = useState("");
   const [repostJson, setRepostJson] = useState<unknown>(EMPTY_EDITOR_STATE);
   const [repostResetKey, setRepostResetKey] = useState(0);
+  // Delete is guarded by a two-step confirmation: the menu item only opens a
+  // dialog that spells out the consequences, and the destructive action lives
+  // on a separate button in that dialog.
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // Interaction state comes embedded in the wall GET response (likes_count,
   // comments_count, reposts_count, liked_by_viewer, my_repost_record_id,
@@ -358,38 +369,53 @@ export const WallPostCard = ({
           </div>
 
           {canManage && (
-            <div className="flex shrink-0 items-center gap-1">
-              {currentUserId === post.user_id && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onTogglePin(post.id)}
-                  className="h-8 w-8"
-                  title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
-                >
-                  {post.is_pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                </Button>
-              )}
-              {currentUserId === post.author_id && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onStartEditing}
-                  className="h-8 w-8"
-                  title="Редактировать"
-                >
-                  <Edit3 className="h-4 w-4" />
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onDeletePost(post.id)}
-                className="h-8 w-8 text-destructive hover:text-destructive"
-                title="Удалить"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+            <div className="flex shrink-0 items-center">
+              {/* Non-modal: Radix dropdowns are modal by default, which locks
+                  page scroll (overflow:hidden on body) — that kills the sticky
+                  profile tab bar (it unsticks and scrolls away). A plain menu
+                  doesn't need the modal focus trap or scroll lock. */}
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:bg-transparent data-[state=open]:text-foreground"
+                    title="Меню поста"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="bg-popover border-border shadow-lg">
+                  {currentUserId === post.user_id && (
+                    <DropdownMenuItem
+                      onClick={() => onTogglePin(post.id)}
+                      className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                      title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
+                    >
+                      {post.is_pinned ? <PinOff className="h-4 w-4 mr-3" /> : <Pin className="h-4 w-4 mr-3" />}
+                      {post.is_pinned ? "Открепить пост" : "Закрепить пост"}
+                    </DropdownMenuItem>
+                  )}
+                  {currentUserId === post.author_id && (
+                    <DropdownMenuItem
+                      onClick={onStartEditing}
+                      className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                      title="Редактировать"
+                    >
+                      <Edit3 className="h-4 w-4 mr-3" />
+                      Редактировать
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                    title="Удалить"
+                  >
+                    <Trash2 className="h-4 w-4 mr-3" />
+                    Удалить
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
         </div>
@@ -469,6 +495,36 @@ export const WallPostCard = ({
         )}
 
       </CardContent>
+
+      {/* Delete confirmation — the menu item only opens this dialog; the post
+          is removed only by the destructive button here. The wall post is
+          deleted permanently (no soft delete), so the dialog says so plainly. */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Удалить пост?</DialogTitle>
+            <DialogDescription>
+              Пост будет удалён безвозвратно. Восстановить его будет невозможно.
+              Подтвердите, что вы хотите удалить этот пост.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                onDeletePost(post.id);
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={repostComposerOpen} onOpenChange={setRepostComposerOpen}>
         <DialogContent className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] gap-0 border-border/70 bg-background p-0 sm:max-w-2xl">

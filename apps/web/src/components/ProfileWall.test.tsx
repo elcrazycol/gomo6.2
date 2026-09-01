@@ -1,4 +1,4 @@
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { toast } from "sonner";
@@ -1359,8 +1359,12 @@ describe("ProfileWall", () => {
       expect(screen.getByText("To delete")).toBeInTheDocument();
     });
 
-    const deleteButton = screen.getByTitle("Удалить");
-    await userEvent.click(deleteButton);
+    // Deletion is two-step: menu item opens the confirm dialog, the dialog's
+    // destructive button performs the actual delete.
+    await userEvent.click(screen.getByTitle("Меню поста"));
+    await userEvent.click(screen.getByTitle("Удалить"));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByText("Удалить"));
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("Пост удален");
@@ -1878,6 +1882,12 @@ describe("ProfileWall", () => {
     );
 
     await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    // Pin lives inside the post menu (wall owner only).
+    await userEvent.click(screen.getByTitle("Меню поста"));
+    await waitFor(() => {
       expect(screen.getByTitle("Закрепить пост")).toBeInTheDocument();
     });
   });
@@ -1899,6 +1909,12 @@ describe("ProfileWall", () => {
       />
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    // Edit lives inside the post menu (author only).
+    await userEvent.click(screen.getByTitle("Меню поста"));
     await waitFor(() => {
       expect(screen.getByTitle("Редактировать")).toBeInTheDocument();
     });
@@ -1925,11 +1941,8 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    expect(screen.queryByTitle("Редактировать")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Удалить")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Закрепить пост")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Открепить пост")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Закрепить")).not.toBeInTheDocument();
+    // No management menu at all for strangers.
+    expect(screen.queryByTitle("Меню поста")).not.toBeInTheDocument();
   });
 
   // ─── ProfileWall: infinite scroll pagination ────────────────────────────────
