@@ -247,7 +247,11 @@ services:
     image: caddy:2-alpine
     ports:
       - "80:80"
+      # HTTP/3 (QUIC) runs over UDP 443 — without this mapping the browser
+      # falls back to TCP and the h3 config in the Caddyfile is dead weight.
+      # Keep it in sync with the VPS firewall (ufw allow 443/udp).
       - "443:443"
+      - "443:443/udp"
     environment:
       DOMAIN: ${DOMAIN:-localhost}
     volumes:

@@ -16,6 +16,17 @@
 
 {
 	# email admin@example.com  # раскомментируй для получения писем от Let's Encrypt
+
+	# ── HTTP/3 (QUIC) ──────────────────────────────────────────────────────
+	# Caddy 2.6+ enables HTTP/3 by default; this pins it explicitly so it
+	# survives config/version changes. QUIC runs over UDP 443 — the VPS
+	# firewall AND the docker-compose port mapping must expose 443/udp or
+	# clients silently fall back to TCP (HTTP/3 stays on but unused).
+	# HTTP/3 is a big win on lossy/slow mobile networks: one connection,
+	# no head-of-line blocking, faster handshake (0-RTT resumption).
+	servers {
+		protocols h1 h2 h3
+	}
 }
 
 # Storage architecture:
@@ -25,6 +36,15 @@
 # so Garage resolves the correct bucket in virtual-hosted style.
 
 {$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost} {
+	# ── Compression ───────────────────────────────────────────────────────
+	# One compression layer at the edge for the whole site: static SPA files
+	# (proxied from nginx), API JSON (Go backend), docs and dev dashboard.
+	# zstd first (smaller + faster), gzip fallback for older clients. Only
+	# text-like content types are encoded — images/videos pass through
+	# untouched and WebSocket upgrades are never encoded. nginx gzip is
+	# disabled in apps/web/nginx.conf to avoid double compression.
+	encode zstd gzip
+
 	# ── Security headers ──────────────────────────────────────────────────
 	# HSTS is production-only; localhost must remain usable over HTTP.
 	@production not host localhost docs.localhost dev.localhost

@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import { registerRoute, NavigationRoute } from "workbox-routing";
-import { NetworkFirst, CacheFirst } from "workbox-strategies";
+import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
+import { ExpirationPlugin } from "workbox-expiration";
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -43,6 +44,32 @@ registerRoute(
     cacheName: "messenger-conversations",
     networkTimeoutSeconds: 3,
     plugins: [
+      {
+        cacheWillUpdate: async ({ response }) =>
+          response && response.status === 200 ? response : null,
+      },
+    ],
+  })
+);
+
+// Public read-only API: boards, threads, posts, search, invites, translations
+// and emoji data are the same for everyone, so they're safe to serve from
+// cache on a slow connection while the network refreshes them in the
+// background (stale-while-revalidate). Nothing user-specific or
+// privacy-filtered is matched — auth, messenger, notifications, feed, wall,
+// profiles, users, friends, likes and /api/rpc are all excluded. The cache is
+// tiny (100 entries, 10 min) so it can't grow unbounded.
+const PUBLIC_API_GET_PATTERN = /^\/api\/v1\/(boards|threads|posts|search|invites|translations|custom_emojis|emojis|emoji_packs)(\/|\?|$)/;
+
+registerRoute(
+  ({ url, request }) => request.method === "GET" && PUBLIC_API_GET_PATTERN.test(url.pathname),
+  new StaleWhileRevalidate({
+    cacheName: "public-api-v1",
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 100,
+        maxAgeSeconds: 10 * 60,
+      }),
       {
         cacheWillUpdate: async ({ response }) =>
           response && response.status === 200 ? response : null,

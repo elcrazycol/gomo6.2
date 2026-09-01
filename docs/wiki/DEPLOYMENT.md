@@ -404,11 +404,14 @@ WEBAUTHN_RP_NAME=gomo6                    # отображаемое имя
 sudo ufw allow 22/tcp    # SSH
 sudo ufw allow 80/tcp    # HTTP
 sudo ufw allow 443/tcp   # HTTPS
+sudo ufw allow 443/udp   # HTTP/3 (QUIC) — без этого браузеры молча откатываются на TCP
 sudo ufw enable
 
 # Проверить статус
 sudo ufw status verbose
 ```
+
+> 💡 **HTTP/3 (QUIC)** включён в Caddy (см. глобальный блок `servers { protocols h1 h2 h3 }` в Caddyfile) и работает поверх **UDP 443**. Для него нужны две вещи: правило `443/udp` в файрволе (выше) и проброс `443:443/udp` в `docker-compose.yml` (уже добавлен). Если UDP закрыт — ничего не ломается, браузер просто использует обычный TCP (HTTP/2).
 
 > ⚠️ **Никогда не открывайте порты** PostgreSQL (5432), Redis (6379) или Garage (3900) наружу — они доступны только внутри Docker-сети.
 
@@ -648,7 +651,7 @@ gomo6.2/
 - [ ] DNS A-записи созданы для: `@`, `docs`, `dev`
 - [ ] Удалён блок `auto_https off` из `Caddyfile`
 - [ ] Убраны префиксы `http://` из всех директив в `Caddyfile`
-- [ ] Открыты порты 80 и 443 в файрволе
+- [ ] Открыты порты 80 и 443 (TCP) и 443/udp (QUIC) в файрволе
 - [ ] Настроен ежедневный бэкап базы данных (cron)
 - [ ] Passkeys настроены: HTTPS включён, `WEBAUTHN_RP_ID` и `WEBAUTHN_RP_ORIGIN` совпадают с доменом
 - [ ] Проверены все три сайта:

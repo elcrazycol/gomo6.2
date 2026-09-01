@@ -97,6 +97,25 @@ export default defineConfig(() => ({
         entryFileNames: "assets/[name]-[hash].js",
         chunkFileNames: "assets/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash].[ext]",
+        // Split heavy third-party libs out of the entry chunk. On slow
+        // connections a single 1-3 MB entry file is brutal: one long download
+        // that delays rendering and isn't cacheable separately. These chunks
+        // download in parallel over HTTP/2 and cache independently.
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("framer-motion")) return "vendor-motion";
+          if (id.includes("@bbob")) return "vendor-bbob";
+          if (id.includes("@ffmpeg")) return "vendor-ffmpeg";
+          if (id.includes("@tanstack")) return "vendor-query";
+          if (id.includes("i18next")) return "vendor-i18n";
+          if (id.includes("lucide-react")) return "vendor-icons";
+          // NOTE: @tiptap/prosemirror and recharts are intentionally NOT split
+          // here. Both are only reachable through lazy chunks (GomoRichEditor,
+          // Stats) — forcing them into a shared "vendor" chunk made the entry
+          // statically import them, which dragged tiptap (~430 kB) into the
+          // first-load critical path. Let Rollup keep them lazy.
+          return undefined;
+        },
       },
     },
     chunkSizeWarningLimit: 1000,
