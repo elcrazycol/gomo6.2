@@ -94,6 +94,10 @@ vi.mock("framer-motion", () => ({
   },
   useScroll: () => ({ scrollY: { getPrevious: () => (globalThis as any).__scrollPrevious ?? 0 } }),
   useMotionValueEvent: (_mv: any, _ev: any, cb: any) => {
+    // Only the scroll listener drives the header hide/show. The contentPad
+    // listener (useTransform mock returns the string "0px") only syncs a CSS
+    // var and is skipped here.
+    if (_mv === "0px") return;
     (globalThis as any).__scrollHandler = cb;
   },
   useMotionValue: (initial: any) => ({ get: () => initial, set: () => {} }),

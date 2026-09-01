@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { Gift, Pin, Trophy, Users } from "lucide-react";
+import { motion } from "framer-motion";
+import { Gift, LayoutGrid, MessageSquareText, Pin, Trophy, Users, type LucideIcon } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useFriendsStore } from "@/stores/friendsStore";
@@ -61,6 +62,47 @@ export interface ProfileTabsProps {
   onGiftSent: () => void;
 }
 
+interface TabDef {
+  key: ProfileTab;
+  icon: LucideIcon;
+  label: string;
+  count?: string;
+}
+
+/** Animated tab button: every tab is an icon; the active one expands to show
+ * icon + label. The active strip (shared layoutId) slides between tabs along
+ * the bottom edge and the label width animates open — delayed so the text
+ * unfolds after the strip lands — then collapses when switching away. */
+const TabButton = ({ tab, active, onClick }: { tab: TabDef; active: boolean; onClick: () => void }) => {
+  const Icon = tab.icon;
+  return (
+    <motion.button
+      onClick={onClick}
+      className={`relative flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${
+        active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {active && (
+        <motion.span
+          layoutId="profile-tabs-indicator"
+          className="absolute bottom-0 left-2 right-2 h-[2.5px] rounded-full bg-gradient-to-r from-primary to-accent"
+          transition={{ type: "spring", stiffness: 450, damping: 36 }}
+        />
+      )}
+      <Icon className="relative z-10 h-4 w-4 shrink-0" />
+      <motion.span
+        initial={false}
+        animate={{ width: active ? "auto" : 0, opacity: active ? 1 : 0 }}
+        transition={{ duration: 0.22, ease: "easeOut", delay: active ? 0.16 : 0 }}
+        className="relative z-10 overflow-hidden whitespace-nowrap"
+      >
+        {tab.label}
+        {tab.count}
+      </motion.span>
+    </motion.button>
+  );
+};
+
 // Friends tab button with count
 const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; onClick: () => void; userId: string }) => {
   const { profileFriends, fetchProfileFriends } = useFriendsStore();
@@ -81,26 +123,13 @@ const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; o
   }, [profileFriends]);
 
   return (
-    <button
+    <TabButton
+      tab={{ key: "friends", icon: Users, label: t("profile.friends"), count: ` (${friendCount})` }}
+      active={activeTab === 'friends'}
       onClick={onClick}
-      className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
-        activeTab === 'friends'
-          ? 'text-primary border-b-2 border-primary'
-          : 'text-muted-foreground hover:text-foreground'
-      }`}
-    >
-      <span className="flex items-center gap-1">
-        <Users className="w-3.5 h-3.5" />
-        {t("profile.friends")} ({friendCount})
-      </span>
-    </button>
+    />
   );
 };
-
-const tabButtonClass = (active: boolean) =>
-  `px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
-    active ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'
-  }`;
 
 /** Profile tabs bar + active tab body. Visibility follows the owner's privacy
  * settings; for non-friends on a private profile the wall tab always stays
@@ -145,42 +174,50 @@ export function ProfileTabs({
 
   return (
     <>
-      <div className="border-b border-border overflow-x-auto">
-        <div className="flex gap-0 min-w-max">
+      {/* Sticky bar: pins under the app header and follows its hide/show slide
+          (offset comes from --app-header-pad, kept in sync by AppLayout). */}
+      <div
+        className="sticky z-30 border-b border-border overflow-x-auto bg-background/95 backdrop-blur-md"
+        style={{ top: "var(--app-header-pad, 0px)" }}
+      >
+        <div className="flex gap-1 min-w-max px-1.5 py-1">
           {wallTabVisible && (
-            <button
+            <TabButton
+              tab={{ key: "wall", icon: LayoutGrid, label: t("profile.wall") }}
+              active={activeTab === 'wall'}
               onClick={() => onTabChange('wall')}
-              className={tabButtonClass(activeTab === 'wall')}
-            >
-              {t("profile.wall")}
-            </button>
+            />
           )}
           {canViewAchievements && (
-            <button
+            <TabButton
+              tab={{
+                key: "achievements",
+                icon: Trophy,
+                label: t("profile.achievements"),
+                count: achievementsLoaded ? ` (${achievements.length})` : undefined,
+              }}
+              active={activeTab === 'achievements'}
               onClick={() => onTabChange('achievements')}
-              className={tabButtonClass(activeTab === 'achievements')}
-            >
-              {t("profile.achievements")}{achievementsLoaded && ` (${achievements.length})`}
-            </button>
+            />
           )}
           {showThreadsTab && canViewThreads && (
-            <button
+            <TabButton
+              tab={{ key: "threads", icon: MessageSquareText, label: t("profile.threads") }}
+              active={activeTab === 'threads'}
               onClick={() => onTabChange('threads')}
-              className={tabButtonClass(activeTab === 'threads')}
-            >
-              {t("profile.threads")}
-            </button>
+            />
           )}
           {canViewGifts && (
-            <button
+            <TabButton
+              tab={{
+                key: "gifts",
+                icon: Gift,
+                label: t("profile.gifts"),
+                count: giftCountLoaded ? ` (${giftCount})` : undefined,
+              }}
+              active={activeTab === 'gifts'}
               onClick={() => onTabChange('gifts')}
-              className={tabButtonClass(activeTab === 'gifts')}
-            >
-              <span className="flex items-center gap-1">
-                <Gift className="w-3.5 h-3.5" />
-                {t("profile.gifts")}{giftCountLoaded && ` (${giftCount})`}
-              </span>
-            </button>
+            />
           )}
           {canViewFriends && (
             <FriendsTabButton

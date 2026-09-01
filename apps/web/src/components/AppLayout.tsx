@@ -103,6 +103,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const nowPlayingPadPx = nowPlaying && !nowPlayingHidden ? 52 : 0;
   const headerY = useTransform(headerProgress, (p) => -headerHeight * (1 - p));
   const contentPad = useTransform(headerProgress, (p) => 24 + (headerHeight - 24) * p + nowPlayingPadPx);
+  // Sticky elements (profile tab bar) offset by the header's visible bottom
+  // edge: flush under the header when open, flush with the viewport top when
+  // hidden — unlike contentPad, which keeps a 24px breathing gap at the top.
+  const stickyPad = useTransform(headerProgress, (p) => headerHeight * p + nowPlayingPadPx);
   const nowPlayingTop = useTransform(headerProgress, (p) => 12 + headerHeight * p);
 
   useTabTitle();
@@ -1027,6 +1031,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     document.documentElement.style.setProperty('--app-header-height', `${headerHeight}px`);
   }, [headerHeight]);
+
+  // Keep the animated sticky pad in sync for sticky elements (profile tab
+  // bar): stickyPad follows the header hide/show slide per frame, and a CSS
+  // custom property updates without re-rendering React on every frame.
+  useMotionValueEvent(stickyPad, "change", (v) => {
+    document.documentElement.style.setProperty('--app-header-pad', `${v}px`);
+  });
 
   if (isSpecialPage) {
     return <>{children}</>;
