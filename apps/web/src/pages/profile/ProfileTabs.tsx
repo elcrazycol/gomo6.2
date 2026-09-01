@@ -259,16 +259,22 @@ export function ProfileTabs({
   // the user was still above the bar (page-top zone): there the content just
   // swaps in place.
   const stickyBarRef = useRef<HTMLDivElement | null>(null);
+  const tabBodyWrapRef = useRef<HTMLDivElement | null>(null);
   const barSnapTargetRef = useRef<number | null>(null);
 
   const snapToBar = () => {
     const bar = stickyBarRef.current;
-    if (!bar) return;
-    // offsetTop = the bar's natural in-flow position. getBoundingClientRect()
-    // would return the PINNED viewport top once the bar is stuck (≈0), making
-    // the snap target equal the current scroll depth — i.e. the BOTTOM of the
-    // new tab — instead of its top.
-    const barDocTop = bar.offsetTop;
+    const body = tabBodyWrapRef.current;
+    if (!bar || !body) return;
+    // A stuck sticky element reports its PINNED position through both
+    // getBoundingClientRect() (top ≈ 0) and offsetTop (≈ scrollY), so neither
+    // can locate it in the document flow while the bar is stuck. The body
+    // wrapper is never sticky — its document top is stable — and the bar
+    // directly precedes it, so the bar's natural top is the wrapper's top
+    // minus the bar's height.
+    const barHeight = bar.getBoundingClientRect().height;
+    const bodyDocTop = body.getBoundingClientRect().top + window.scrollY;
+    const barDocTop = bodyDocTop - barHeight;
     if (window.scrollY >= barDocTop) barSnapTargetRef.current = barDocTop;
   };
 
@@ -519,7 +525,7 @@ export function ProfileTabs({
           at the bar (see snapToBar), so the new tab opens with the bar at
           the top and its content visible from the very start. An open album
           shows the album view instead of the full wall. */}
-      <div className="min-h-[100dvh]">
+      <div ref={tabBodyWrapRef} className="min-h-[100dvh]">
         {activeTab === 'wall' && wallTabVisible && (
           <div>
           {selectedAlbum ? (
