@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useRef, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -250,6 +250,39 @@ export function ProfileTabs({
 }: ProfileTabsProps) {
   const { t } = useTranslation();
 
+  // Switching tabs swaps the content node, which changes the document height.
+  // If the new tab is shorter than the scroll position, the browser clamps
+  // scrollY downward — and coming back to a long tab leaves you at the top.
+  // Each tab remembers where the user was: the position is captured when
+  // leaving a tab and restored (retrying while lazy chunks render and grow
+  // the page) when its turn comes back around.
+  const scrollPositionsRef = useRef<Partial<Record<ProfileTab, number>>>({});
+
+  const switchTab = (tab: ProfileTab) => {
+    if (tab !== activeTab) {
+      scrollPositionsRef.current[activeTab] = window.scrollY;
+      onTabChange(tab);
+    }
+  };
+
+  useLayoutEffect(() => {
+    const target = scrollPositionsRef.current[activeTab] ?? 0;
+    if (target <= 0) return;
+    let attempts = 0;
+    const tryRestore = () => {
+      attempts += 1;
+      const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      // Scroll is restorable once the page is at least as tall as the saved
+      // position — or after a safety cap so a slow lazy chunk can't stall us.
+      if (target <= max || attempts > 30) {
+        window.scrollTo(0, target);
+        return;
+      }
+      requestAnimationFrame(tryRestore);
+    };
+    tryRestore();
+  }, [activeTab]);
+
   // ── Profile albums (wall tab) ────────────────────────────────────────────
   // Albums are collections of wall posts; visibility follows the wall. The
   // albums list loads when the wall tab is open; management is owner-only.
@@ -334,7 +367,7 @@ export function ProfileTabs({
             <WallTabButton
               active={activeTab === 'wall'}
               label={t("profile.wall")}
-              onTabClick={() => onTabChange('wall')}
+              onTabClick={() => switchTab('wall')}
               showChevron={activeTab === 'wall' && (albums.length > 0 || isOwnProfile)}
               chevronOpen={albumsOpen || selectedAlbumId !== null}
               onChevronClick={toggleAlbumsRow}
@@ -350,14 +383,14 @@ export function ProfileTabs({
                 count: achievementsLoaded ? ` (${achievements.length})` : undefined,
               }}
               active={activeTab === 'achievements'}
-              onClick={() => onTabChange('achievements')}
+              onClick={() => switchTab('achievements')}
             />
           )}
           {showThreadsTab && canViewThreads && (
             <TabButton
               tab={{ key: "threads", icon: MessageSquareText, label: t("profile.threads") }}
               active={activeTab === 'threads'}
-              onClick={() => onTabChange('threads')}
+              onClick={() => switchTab('threads')}
             />
           )}
           {canViewGifts && (
@@ -369,13 +402,13 @@ export function ProfileTabs({
                 count: giftCountLoaded ? ` (${giftCount})` : undefined,
               }}
               active={activeTab === 'gifts'}
-              onClick={() => onTabChange('gifts')}
+              onClick={() => switchTab('gifts')}
             />
           )}
           {canViewFriends && (
             <FriendsTabButton
               activeTab={activeTab}
-              onClick={() => onTabChange('friends')}
+              onClick={() => switchTab('friends')}
               userId={userId}
             />
           )}
