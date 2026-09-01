@@ -208,6 +208,93 @@ jobs:
           printf '{"auths":{"codeberg.org":{"auth":"%s"}},"cliPluginsExtraDirs":["%s"]}' \
             "$AUTH" "$HOME/.docker/cli-plugins" > "$DOCKER_CONFIG/config.json"
 
+      - name: Prune old sha-* package versions (free quota BEFORE push)
+        # The Codeberg registry has a finite storage quota (pushes die with
+        # "413 enforcePackagesQuota" when full) and every deploy adds a
+        # sha-<commit> version that never goes away. This runs BEFORE the
+        # build+push so a full quota is freed first — otherwise the push that
+        # fills the quota fails before cleanup ever runs.
+        #
+        # API notes: GET /api/v1/packages/{owner} returns a FLAT, paginated
+        # list of (name, version, created_at) records — there is NO
+        # "/packages/{owner}/{type}/{name}" list-versions endpoint (it 404s).
+        # DELETE is /api/v1/packages/{owner}/container/{name}/{version}.
+        # Best-effort; never fails the job.
+        if: steps.detect.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          export REPO="${{ github.repository }}"
+          export OWNER="${REPO%/*}"
+          export NAME="gomo6-${{ matrix.service }}"
+          export TOKEN="${{ secrets.CODEREG_TOKEN }}"
+          # HTTP via curl (proven to work on the runner) — python's urllib can
+          # trip over local CA stores; curl -f turns 401/404 into a non-zero
+          # exit so they are handled as skips, not silent successes.
+          python3 - <<'PY'
+          import json, os, re, subprocess, sys, urllib.parse
+
+          owner = os.environ["OWNER"]
+          name = os.environ["NAME"]
+          keep_sha = 6
+          keep_v = 1
+          token = os.environ["TOKEN"]
+          base = "https://codeberg.org/api/v1/packages"
+
+          def curl(path, method="GET"):
+              cmd = ["curl", "-fsS", "--max-time", "30", "-X", method]
+              if token:  # packages are public: listing works even without auth
+                  cmd += ["-H", f"Authorization: token {token}"]
+              cmd.append(f"{base}{path}")
+              p = subprocess.run(cmd, capture_output=True, text=True)
+              if p.returncode != 0:
+                  return None
+              return p.stdout
+
+          # Flat list of (package, version) records, paginated (~50/page).
+          records = []
+          for page in range(1, 11):
+              out = curl(f"/{owner}?page={page}&limit=50")
+              if out is None:
+                  print(f"prune: list failed on page {page} — skipping")
+                  sys.exit(0)
+              try:
+                  batch = json.loads(out)
+              except Exception:
+                  print(f"prune: list unparseable on page {page} — skipping")
+                  sys.exit(0)
+              if not batch:
+                  break
+              records.extend(batch)
+              if len(batch) < 50:
+                  break
+
+          mine = [r for r in records if r.get("name") == name]
+          by_date = lambda r: r.get("created_at", "")
+          shas = sorted((r for r in mine if r.get("version", "").startswith("sha-")),
+                        key=by_date, reverse=True)
+          vtags = sorted((r for r in mine
+                          if re.fullmatch(r"v\d+\.\d+\.\d+", str(r.get("version", "")))),
+                         key=by_date, reverse=True)
+
+          # Keep: latest, the newest vX.Y.Z release tag, and the newest 6
+          # sha-<commit> rollback snapshots. Everything else (old release
+          # tags, sha256:* digest leftovers, stray test images) eats the
+          # registry quota — delete it.
+          keep = {"latest"}
+          keep |= {r["version"] for r in shas[:keep_sha]}
+          keep |= {r["version"] for r in vtags[:keep_v]}
+          old = [r for r in mine if r["version"] not in keep]
+          print(f"prune: {name}: {len(mine)} versions, keeping {sorted(keep)}, deleting {len(old)}")
+          for r in old:
+              ver = urllib.parse.quote(r["version"], safe="")
+              if curl(f"/{owner}/container/{name}/{ver}", method="DELETE") is None:
+                  # 401 = token lacks write:package; 404 = already gone.
+                  print(f"prune: skip {r['version']}: delete failed (401/404/network)")
+              else:
+                  print(f"prune: deleted {r['version']}")
+          PY
+
       - name: Build & push image (native arm64 build → codeberg registry)
         if: steps.detect.outputs.changed == 'true'
         run: |
@@ -249,59 +336,6 @@ jobs:
             $BUILD_ARGS \
             -f "$SRC/${{ matrix.dockerfile }}" \
             "$CTX"
-
-      - name: Prune old sha-* package versions (keep newest 6)
-        # The Codeberg registry has a finite storage quota (pushes die with
-        # "413 enforcePackagesQuota" when full) and every deploy adds a
-        # sha-<commit> version that never goes away. Best-effort cleanup keeps
-        # the newest 6 sha-* versions so deploys never get blocked; rollback
-        # still works within that window. Never fails the job.
-        if: steps.detect.outputs.changed == 'true'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          export REPO="${{ github.repository }}"
-          export OWNER="${REPO%/*}"
-          export NAME="gomo6-${{ matrix.service }}"
-          export TOKEN="${{ secrets.CODEREG_TOKEN }}"
-          export KEEP=6
-          curl -fsS --max-time 30 \
-            -H "Authorization: token $TOKEN" \
-            "https://codeberg.org/api/v1/packages/$OWNER/container/$NAME" \
-          | python3 - <<'PY'
-          import json, os, sys, urllib.error, urllib.parse, urllib.request
-
-          owner = os.environ["OWNER"]
-          name = os.environ["NAME"]
-          keep = int(os.environ["KEEP"])
-          token = os.environ["TOKEN"]
-          base = "https://codeberg.org/api/v1/packages"
-
-          try:
-              versions = json.load(sys.stdin)
-          except Exception as e:
-              print(f"prune: cannot parse versions list: {e}")
-              sys.exit(0)
-
-          if not isinstance(versions, list):
-              print(f"prune: unexpected response shape: {type(versions)}")
-              sys.exit(0)
-
-          sha = [v for v in versions if str(v.get("version", "")).startswith("sha-")]
-          sha.sort(key=lambda v: v.get("created_at", ""), reverse=True)
-          old = sha[keep:]
-          print(f"prune: {len(sha)} sha-* versions, deleting {len(old)} (keep {keep})")
-          for v in old:
-              ver = urllib.parse.quote(v["version"], safe="")
-              req = urllib.request.Request(f"{base}/{owner}/container/{name}/{ver}", method="DELETE")
-              req.add_header("Authorization", f"token {token}")
-              try:
-                  urllib.request.urlopen(req, timeout=30)
-                  print(f"prune: deleted {v['version']}")
-              except urllib.error.HTTPError as e:
-                  # 401 = token lacks package-write scope; 404 = already gone.
-                  print(f"prune: skip {v['version']}: {e.code} {e.reason}")
-          PY
 
       - name: Restart ${{ matrix.service }} on VPS (pull + compose up)
         if: steps.detect.outputs.changed == 'true'
