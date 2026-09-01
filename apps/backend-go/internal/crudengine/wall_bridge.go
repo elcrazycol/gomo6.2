@@ -19,6 +19,8 @@ import (
 // ReadHandler overrides (specialized wall queries).
 func (h *Engine) handleProfileWallPostsGet(c *gin.Context)        { h.wall.HandlePostsGet(c) }
 func (h *Engine) handleProfileWallPostCommentsGet(c *gin.Context) { h.wall.HandlePostCommentsGet(c) }
+func (h *Engine) handleProfileAlbumsGet(c *gin.Context)           { h.wall.HandleAlbumsGet(c) }
+func (h *Engine) handleProfileAlbumPostsGet(c *gin.Context)       { h.wall.HandleAlbumPostsGet(c) }
 
 // AfterWrite hooks (notifications, WebSocket, stats, dependent caches).
 func afterWallPostWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
@@ -44,6 +46,14 @@ func afterWallPostLikeWrite(h *Engine, c *gin.Context, method string, result map
 // InvalidateCache hooks.
 func invalidateProfileWallPostsCache(h *Engine, c *gin.Context, result map[string]interface{}) {
 	h.wall.InvalidatePostsCache(c, result)
+}
+
+func invalidateProfileAlbumsCache(h *Engine, c *gin.Context, result map[string]interface{}) {
+	h.wall.InvalidateAlbumsCache(c, result)
+}
+
+func invalidateProfileAlbumPostsCache(h *Engine, c *gin.Context, result map[string]interface{}) {
+	h.wall.InvalidateAlbumPostsCache(c, result)
 }
 
 func invalidateProfileWallPostCommentsCache(h *Engine, c *gin.Context, result map[string]interface{}) {
@@ -78,6 +88,14 @@ func emitProfileWallPostRepostsAchievements(h *Engine, result map[string]interfa
 // PrepareBody hooks.
 func prepareWallPostBody(h *Engine, c *gin.Context, tableName, method string, data map[string]interface{}) bool {
 	return h.wall.PreparePostBody(c, tableName, method, data)
+}
+
+func prepareAlbumBody(h *Engine, c *gin.Context, tableName, method string, data map[string]interface{}) bool {
+	return h.wall.PrepareAlbumBody(c, tableName, method, data)
+}
+
+func prepareAlbumPostBody(h *Engine, c *gin.Context, tableName, method string, data map[string]interface{}) bool {
+	return h.wall.PrepareAlbumPostBody(c, tableName, method, data)
 }
 
 func prepareWallCommentBody(h *Engine, c *gin.Context, tableName, method string, data map[string]interface{}) bool {

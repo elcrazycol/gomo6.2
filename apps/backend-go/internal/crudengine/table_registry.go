@@ -380,6 +380,47 @@ var genericTables = []TableMeta{
 		InvalidateCache: invalidatePrivacySettingsCache,
 	},
 	{
+		Name: "profile_album_posts",
+		// Both foreign keys are client-supplied at creation; the POST body
+		// guard (prepareAlbumPostBody) verifies the album belongs to the
+		// caller and the post sits on the caller's wall (L5 fail-closed
+		// lookups). PUT/DELETE are scoped to the caller's own albums via
+		// HandlerScope (this table has no user_id column — ownership is
+		// inherited from the album). Reads join the wall posts and gate on
+		// the album owner's wall privacy.
+		ReadAccess:   GuestRead,
+		ReadWildcard: true,
+		Writes:       []TableRoute{{Method: "POST", Wildcard: true}, {Method: "DELETE", Wildcard: true}},
+		WriteGroup:   GenericWrite,
+		WritableColumns: map[string]bool{
+			"album_id": true, "post_id": true,
+		},
+		HandlerScope:    "album_id IN (SELECT id FROM profile_albums WHERE user_id = $%d)",
+		PrepareBody:     prepareAlbumPostBody,
+		ReadHandler:     (*Engine).handleProfileAlbumPostsGet,
+		InvalidateCache: invalidateProfileAlbumPostsCache,
+	},
+	{
+		Name: "profile_albums",
+		// Only the name is client-writable; user_id/created_at/updated_at are
+		// server-managed (OwnSingle forces user_id on POST and scopes
+		// PUT/DELETE to the caller). Reads are gated by the album owner's
+		// wall privacy — the same rule as the wall itself — and embed a
+		// post_count.
+		ReadAccess:   GuestRead,
+		ReadWildcard: true,
+		Writes:       fullWrites(),
+		WriteGroup:   GenericWrite,
+		WritableColumns: map[string]bool{
+			"name": true,
+		},
+		PostOwner:       OwnSingle,
+		WriteOwner:      OwnSingle,
+		PrepareBody:     prepareAlbumBody,
+		ReadHandler:     (*Engine).handleProfileAlbumsGet,
+		InvalidateCache: invalidateProfileAlbumsCache,
+	},
+	{
 		Name:         "profile_customization",
 		ReadAccess:   GuestRead,
 		ReadWildcard: true,

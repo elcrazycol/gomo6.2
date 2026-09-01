@@ -6,11 +6,35 @@ import (
 	"github.com/gomo6/backend/internal/crud"
 )
 
-// InvalidatePostsCache clears the standalone wall-post page.
-func (s *Service) InvalidatePostsCache(_ *gin.Context, result map[string]interface{}) {
+// InvalidatePostsCache clears the standalone wall-post page. Deleting a wall
+// post cascades it out of every album it belonged to (FK ON DELETE CASCADE), so
+// the affected album post lists are cleared too, and any wall-post write keeps
+// the owner's album list fresh (its post_count can change on delete).
+func (s *Service) InvalidatePostsCache(c *gin.Context, result map[string]interface{}) {
 	id := crud.WallResultString(result["id"])
 	userID := crud.WallResultString(result["user_id"])
 	cache.InvalidateCacheForWallPostOfUser(s.redis, id, userID)
+
+	if s.redis == nil || id == "" {
+		return
+	}
+	if c.Request.Method == "DELETE" {
+		rows, err := s.db.QueryContext(c.Request.Context(),
+			"SELECT DISTINCT album_id FROM profile_album_posts WHERE post_id = $1", id)
+		if err == nil {
+			for rows.Next() {
+				var albumID string
+				if rows.Scan(&albumID) == nil && albumID != "" {
+					cache.InvalidateByPattern(s.redis, "data:/api/v1/profile_album_posts*album_id=eq."+albumID+"*")
+				}
+			}
+			rows.Close()
+		}
+	}
+	if userID != "" {
+		cache.InvalidateByPattern(s.redis, "data:/api/v1/profile_albums*user_id=eq."+userID+"*")
+		cache.InvalidateByPattern(s.redis, "data:/api/v1/profile_albums*user_id="+userID+"*")
+	}
 }
 
 // InvalidatePostCommentsCache clears the post's comments list.
