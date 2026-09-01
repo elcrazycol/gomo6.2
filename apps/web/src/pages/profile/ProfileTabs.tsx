@@ -319,8 +319,12 @@ export function ProfileTabs({
     <>
       {/* Sticky bar: pins under the app header and follows its hide/show slide
           (offset comes from --app-header-pad, kept in sync by AppLayout). */}
+      {/* Solid background (no backdrop-blur): a blur layer on a sticky element
+          gets dropped by Chrome when a Radix portal (dropdown/dialog) mounts,
+          which made the whole tab bar vanish. The solid fill also keeps posts
+          from showing through the stuck bar. */}
       <div
-        className="sticky z-30 border-b border-border overflow-x-auto bg-background/95 backdrop-blur-md"
+        className="sticky z-30 border-b border-border overflow-x-auto bg-background"
         style={{ top: "var(--app-header-pad, 0px)" }}
       >
         <div className="flex gap-1 min-w-max px-1.5 py-1">
