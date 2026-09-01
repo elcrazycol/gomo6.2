@@ -252,36 +252,25 @@ export function ProfileTabs({
 
   // Switching tabs swaps the content node, which changes the document height.
   // If the new tab is shorter than the scroll position, the browser clamps
-  // scrollY downward — and coming back to a long tab leaves you at the top.
-  // Each tab remembers where the user was: the position is captured when
-  // leaving a tab and restored (retrying while lazy chunks render and grow
-  // the page) when its turn comes back around.
-  const scrollPositionsRef = useRef<Partial<Record<ProfileTab, number>>>({});
+  // scrollY downward and the page visibly jumps toward the top mid-switch.
+  // Instead of fighting the clamp afterwards, the outgoing tab's height is
+  // captured at click time and held as a minimum height on the incoming tab,
+  // so the document never shrinks and scrollY never moves: the bar stays
+  // pinned and the new content simply appears beneath it.
+  const tabBodyRef = useRef<HTMLDivElement | null>(null);
+  const [preservedMinHeight, setPreservedMinHeight] = useState(0);
+
+  const preserveBodyHeight = () => {
+    const el = tabBodyRef.current;
+    if (el) setPreservedMinHeight(el.offsetHeight);
+  };
 
   const switchTab = (tab: ProfileTab) => {
     if (tab !== activeTab) {
-      scrollPositionsRef.current[activeTab] = window.scrollY;
+      preserveBodyHeight();
       onTabChange(tab);
     }
   };
-
-  useLayoutEffect(() => {
-    const target = scrollPositionsRef.current[activeTab] ?? 0;
-    if (target <= 0) return;
-    let attempts = 0;
-    const tryRestore = () => {
-      attempts += 1;
-      const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      // Scroll is restorable once the page is at least as tall as the saved
-      // position — or after a safety cap so a slow lazy chunk can't stall us.
-      if (target <= max || attempts > 30) {
-        window.scrollTo(0, target);
-        return;
-      }
-      requestAnimationFrame(tryRestore);
-    };
-    tryRestore();
-  }, [activeTab]);
 
   // ── Profile albums (wall tab) ────────────────────────────────────────────
   // Albums are collections of wall posts; visibility follows the wall. The
@@ -306,6 +295,7 @@ export function ProfileTabs({
   // the selection back to «Все» so the wall view never hides the selector.
   const toggleAlbumsRow = () => {
     if (albumsOpen || selectedAlbumId !== null) {
+      preserveBodyHeight();
       setAlbumsOpen(false);
       setSelectedAlbumId(null);
     } else {
@@ -427,7 +417,10 @@ export function ProfileTabs({
         {showAlbumsRow && (
           <div className="flex flex-wrap items-center gap-0.5 border-t border-border/60 px-1 pb-1.5 pt-0.5">
             <button
-              onClick={() => setSelectedAlbumId(null)}
+              onClick={() => {
+                preserveBodyHeight();
+                setSelectedAlbumId(null);
+              }}
               className={albumRowClass(selectedAlbumId === null)}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
@@ -436,7 +429,10 @@ export function ProfileTabs({
             {albums.map((album) => (
               <button
                 key={album.id}
-                onClick={() => setSelectedAlbumId(album.id)}
+                onClick={() => {
+                  preserveBodyHeight();
+                  setSelectedAlbumId(album.id);
+                }}
                 className={albumRowClass(selectedAlbumId === album.id)}
               >
                 <span className="max-w-40 truncate">{album.name}</span>
@@ -503,17 +499,19 @@ export function ProfileTabs({
         </DialogContent>
       </Dialog>
 
-      {/* Tab Content — the wall renders a "private profile" notice when it
-          is hidden server-side; other tabs render only when their section
-          is visible to this viewer. An open album shows the album view
-          instead of the full wall. */}
-      {/* Each tab body keeps a minimum height (~a viewport of content) so
-          switching to a short tab (empty achievements, hidden wall notice,
-          no threads) never collapses the page below the current scroll —
-          otherwise the browser clamps scrollY and the whole page jumps up
-          while the sticky tab bar is pinned. */}
-      {activeTab === 'wall' && wallTabVisible && (
-        <div className="min-h-[calc(100dvh-7rem)]">
+      {/* Tab Content — one always-mounted wrapper so the outgoing tab's
+          height can be held on the incoming one during a switch
+          (preserveBodyHeight). The page never shrinks, the browser never
+          clamps the scroll, and neither the scroll position nor the pinned
+          tab bar moves: the new content simply appears beneath the bar. An
+          open album shows the album view instead of the full wall. */}
+      <div
+        ref={tabBodyRef}
+        className="min-h-[calc(100dvh-7rem)]"
+        style={preservedMinHeight > 0 ? { minHeight: preservedMinHeight } : undefined}
+      >
+        {activeTab === 'wall' && wallTabVisible && (
+          <div>
           {selectedAlbum ? (
             <ProfileAlbumView
               album={selectedAlbum}
@@ -546,7 +544,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'achievements' && canViewAchievements && (
-        <div className="min-h-[calc(100dvh-7rem)]">
+        <div>
           {achievements.length === 0 ? (
             <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
           ) : (
@@ -595,7 +593,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'threads' && showThreadsTab && canViewThreads && (
-        <div className="min-h-[calc(100dvh-7rem)]">
+        <div>
           <h2 className="text-xl font-bold mb-4">{t("profile.threads")} ({userThreads.length})</h2>
           {threadsLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -627,7 +625,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'gifts' && canViewGifts && (
-        <div className="min-h-[calc(100dvh-7rem)]">
+        <div>
           <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
             <GiftsTab
               userId={userId}
@@ -641,13 +639,14 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'friends' && canViewFriends && (
-        <div className="min-h-[calc(100dvh-7rem)]">
+        <div>
           <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
             {isOwnProfile && <FriendRequestsList />}
             <FriendsList userId={userId} />
           </Suspense>
         </div>
       )}
+      </div>
     </>
   );
 }
