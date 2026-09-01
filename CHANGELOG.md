@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.4] — 2026-09-01
+
+### Added
+- **Метрики бэкенда в Grafana Cloud** — контейнер `alloy` скрейпит `/metrics` и remote-write'ит серии в hosted Prometheus:
+  - `/metrics` на бэкенде теперь отдаёт runtime-метрики: goroutines, heap, uptime (в дополнение к счётчикам мессенджера: активные WS, броадкасты, ошибки транзакций БД); доступ по `METRICS_TOKEN` (пусто = 404)
+  - Дашборды в Grafana Cloud: память/горутины/аптайм бэкенда и состояние реалтайма
+  - Нагрузка минимальна: скрейп ~1 КБ раз в минуту, Alloy ~30–60 МБ RAM, пользователей не затрагивает
+  - Включается через `METRICS_TOKEN` + `GRAFANA_CLOUD_METRICS_URL/_USERNAME/_PASSWORD` в `.env`; без них — no-op
+
 ## [2.3.3] — 2026-09-01
 
 Мониторинг производительности реальных пользователей (RUM): Sentry трейсит каждый заход и API-запрос, ловит ошибки и Web Vitals.
