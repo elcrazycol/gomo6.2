@@ -499,8 +499,13 @@ export function ProfileTabs({
           is hidden server-side; other tabs render only when their section
           is visible to this viewer. An open album shows the album view
           instead of the full wall. */}
+      {/* Each tab body keeps a minimum height (~a viewport of content) so
+          switching to a short tab (empty achievements, hidden wall notice,
+          no threads) never collapses the page below the current scroll —
+          otherwise the browser clamps scrollY and the whole page jumps up
+          while the sticky tab bar is pinned. */}
       {activeTab === 'wall' && wallTabVisible && (
-        <div>
+        <div className="min-h-[60vh]">
           {selectedAlbum ? (
             <ProfileAlbumView
               album={selectedAlbum}
@@ -533,7 +538,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'achievements' && canViewAchievements && (
-        <div>
+        <div className="min-h-[60vh]">
           {achievements.length === 0 ? (
             <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
           ) : (
@@ -582,7 +587,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'threads' && showThreadsTab && canViewThreads && (
-        <div>
+        <div className="min-h-[60vh]">
           <h2 className="text-xl font-bold mb-4">{t("profile.threads")} ({userThreads.length})</h2>
           {threadsLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -614,7 +619,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'gifts' && canViewGifts && (
-        <div>
+        <div className="min-h-[60vh]">
           <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
             <GiftsTab
               userId={userId}
@@ -628,7 +633,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'friends' && canViewFriends && (
-        <div>
+        <div className="min-h-[60vh]">
           <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
             {isOwnProfile && <FriendRequestsList />}
             <FriendsList userId={userId} />
