@@ -341,6 +341,14 @@ export function ProfileTabs({
     if (selectedAlbumId === albumId) setSelectedAlbumId(null);
   };
 
+  // Tell AppLayout to pause its hide/show header logic while swapped content
+  // settles: Chrome synthesizes a scroll clamp when the page shrinks, which
+  // reads as "scrolled up" and pops the header back in — dragging the sticky
+  // tab bar off the top of the viewport right when the user is switching.
+  useLayoutEffect(() => {
+    window.dispatchEvent(new Event("gomo6:profile-content-switch"));
+  }, [activeTab, selectedAlbumId]);
+
   // Minimalist row items — same visual language as the tabs above: icon +
   // label, active one tinted with the primary color, no pills/borders.
   const albumRowClass = (active: boolean) =>
@@ -505,7 +513,7 @@ export function ProfileTabs({
           otherwise the browser clamps scrollY and the whole page jumps up
           while the sticky tab bar is pinned. */}
       {activeTab === 'wall' && wallTabVisible && (
-        <div className="min-h-[60vh]">
+        <div className="min-h-[calc(100dvh-7rem)]">
           {selectedAlbum ? (
             <ProfileAlbumView
               album={selectedAlbum}
@@ -538,7 +546,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'achievements' && canViewAchievements && (
-        <div className="min-h-[60vh]">
+        <div className="min-h-[calc(100dvh-7rem)]">
           {achievements.length === 0 ? (
             <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
           ) : (
@@ -587,7 +595,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'threads' && showThreadsTab && canViewThreads && (
-        <div className="min-h-[60vh]">
+        <div className="min-h-[calc(100dvh-7rem)]">
           <h2 className="text-xl font-bold mb-4">{t("profile.threads")} ({userThreads.length})</h2>
           {threadsLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -619,7 +627,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'gifts' && canViewGifts && (
-        <div className="min-h-[60vh]">
+        <div className="min-h-[calc(100dvh-7rem)]">
           <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
             <GiftsTab
               userId={userId}
@@ -633,7 +641,7 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'friends' && canViewFriends && (
-        <div className="min-h-[60vh]">
+        <div className="min-h-[calc(100dvh-7rem)]">
           <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
             {isOwnProfile && <FriendRequestsList />}
             <FriendsList userId={userId} />

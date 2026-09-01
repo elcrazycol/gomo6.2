@@ -98,6 +98,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [headerHeight, setHeaderHeight] = useState(60);
   const headerRef = useRef<HTMLElement | null>(null);
   const isHeaderVisibleRef = useRef(true);
+  // Profile content switches (profile tabs/albums) change the document height;
+  // Chrome clamps the scroll and the synthetic "scrolled up" reads as a user
+  // scroll-up, popping the header back in right as the user switches tabs.
+  // The scroll handler pauses while this timestamp is in the future.
+  const suspendHeaderToggleUntilRef = useRef(0);
   const prefersReducedMotionRef = useRef(false);
   const headerProgress = useMotionValue(1); // 1 = fully visible, 0 = hidden
   const nowPlayingPadPx = nowPlaying && !nowPlayingHidden ? 52 : 0;
@@ -286,6 +291,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useMotionValueEvent(scrollY, "change", (latest) => {
     const previous = scrollY.getPrevious();
     if (previous === undefined) return;
+    // Paused during a profile tab/content switch (gomo6:profile-content-switch):
+    // the swap shrinks the page, Chrome clamps the scroll, and that synthetic
+    // scroll-up must not re-show the header and drop the sticky tab bar.
+    if (performance.now() < suspendHeaderToggleUntilRef.current) return;
 
     const doc = document.documentElement;
     const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
@@ -990,9 +999,20 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     window.addEventListener("gomo6:messenger-mobile-chat", syncChrome as EventListener);
     window.addEventListener("gomo6:app-surface", syncChrome as EventListener);
 
+    // A profile tab/album switch swaps the whole tab body, changing the page
+    // height; the browser clamps the scroll position and the synthetic upward
+    // scroll would re-show the header mid-switch (the same flicker the
+    // nearBottom guard avoids at the bottom of the page). Pause the header
+    // hide/show logic briefly while the new content settles.
+    const onProfileContentSwitch = () => {
+      suspendHeaderToggleUntilRef.current = performance.now() + 350;
+    };
+    window.addEventListener("gomo6:profile-content-switch", onProfileContentSwitch);
+
     return () => {
       window.removeEventListener("gomo6:messenger-mobile-chat", syncChrome as EventListener);
       window.removeEventListener("gomo6:app-surface", syncChrome as EventListener);
+      window.removeEventListener("gomo6:profile-content-switch", onProfileContentSwitch);
     };
   }, []);
 
