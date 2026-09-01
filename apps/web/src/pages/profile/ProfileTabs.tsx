@@ -447,13 +447,13 @@ export function ProfileTabs({
                   setCreatingAlbum(false);
                   setNewAlbumName("");
                 }}
-                className="rounded-full px-5 hover:bg-muted"
+                className="rounded-lg px-5 hover:bg-muted"
               >
                 {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
-                className="rounded-full px-6 shadow-sm"
+                className="rounded-lg px-6 shadow-sm"
               >
                 {t("common.save")}
               </Button>
