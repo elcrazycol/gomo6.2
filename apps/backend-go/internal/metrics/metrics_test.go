@@ -119,6 +119,33 @@ func TestHandler_ServesWithXMetricsToken(t *testing.T) {
 	}
 }
 
+func TestHandler_ServesRuntimeMetrics(t *testing.T) {
+	t.Setenv("METRICS_TOKEN", "secret-token")
+	m := &MessengerMetrics{}
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("X-Metrics-Token", "secret-token")
+	rec := httptest.NewRecorder()
+
+	Handler(m).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"# TYPE backend_goroutines gauge",
+		"backend_goroutines ",
+		"# TYPE backend_heap_inuse_bytes gauge",
+		"backend_heap_inuse_bytes ",
+		"# TYPE backend_uptime_seconds gauge",
+		"backend_uptime_seconds ",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("runtime metrics output missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestHandler_AcceptsBearerToken(t *testing.T) {
 	t.Setenv("METRICS_TOKEN", "secret-token")
 	m := &MessengerMetrics{}

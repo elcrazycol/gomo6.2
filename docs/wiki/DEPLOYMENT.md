@@ -356,6 +356,10 @@ docker compose up -d --build
 | `WEBAUTHN_RP_NAME` | `gomo6` | WebAuthn Relying Party display name |
 | `DATABASE_URL` | auto | Строка подключения к PostgreSQL |
 | `REDIS_URL` | auto | Строка подключения к Redis |
+| `METRICS_TOKEN` | — | Токен доступа к `/metrics` на бэкенде (пусто = 404; его же использует контейнер `alloy`) |
+| `GRAFANA_CLOUD_METRICS_URL` | — | Push-эндпоинт hosted Prometheus Grafana Cloud (например `https://prometheus-prod-XX-prod-XX.grafana.net/api/prom/push`) |
+| `GRAFANA_CLOUD_METRICS_USERNAME` | — | Instance ID Grafana Cloud |
+| `GRAFANA_CLOUD_METRICS_PASSWORD` | — | API-токен Grafana Cloud (write) |
 
 Обязательные production-секреты (`JWT_SECRET`, `FEDERATION_KEY`, `MESSENGER_ENCRYPTION_KEY`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`, `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`) можно безопасно заполнить командой `./scripts/generate-keys.sh --quiet .env`. Непустые значения сохраняются; не используйте `--force` без осознанной ротации ключей.
 
@@ -518,6 +522,18 @@ docker compose logs -f postgres
 # Логи за последний час
 docker compose logs --since 1h backend
 ```
+
+### Grafana Cloud (бэкенд-метрики)
+
+Контейнер `alloy` скрейпит `backend:8080/metrics` (токен `METRICS_TOKEN`) и шлёт серии в hosted Prometheus Grafana Cloud (дашборды — на grafana.com). Метрики: `messenger_ws_*`, `backend_goroutines`, `backend_heap_inuse_bytes`, `backend_uptime_seconds`.
+
+- В `.env` должны быть заполнены `METRICS_TOKEN` + `GRAFANA_CLOUD_METRICS_URL` / `_USERNAME` / `_PASSWORD` (стек Grafana Cloud → Connections → Hosted Prometheus → Send metrics).
+- **Разово** после появления сервиса в compose (деплой перезапускает только 4 матричных сервиса):
+  ```bash
+  docker compose up -d --no-build alloy
+  ```
+- Конфиг bind-mounted (`alloy/config.alloy`) — после правок: `docker compose restart alloy`.
+- Проверка: `docker compose logs alloy --tail=20` (свежий скрейп без ошибок), затем в Grafana Explore → Prometheus → `backend_uptime_seconds`.
 
 ---
 

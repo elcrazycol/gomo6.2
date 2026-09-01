@@ -171,6 +171,9 @@ services:
       SERVER_DOMAIN: ${DOMAIN:-localhost}
       DOMAIN: ${DOMAIN:-localhost}
       FEDERATION_KEY: ${FEDERATION_KEY:?FEDERATION_KEY is required}
+      # /metrics auth — set METRICS_TOKEN to expose Prometheus metrics
+      # (scraped by the alloy container with the same token). Empty = 404.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://localhost:5173,http://localhost:8081,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
       # WebAuthn / Passkeys
@@ -241,6 +244,25 @@ services:
     build:
       context: .
       dockerfile: apps/dev-dashboard/Dockerfile
+    restart: unless-stopped
+
+  # ── Observability: Grafana Alloy ───────────────────────────────────────
+  # Scrapes backend /metrics (METRICS_TOKEN) and remote-writes the series to
+  # Grafana Cloud Prometheus. Config is bind-mounted; the VPS needs a one-time
+  # `docker compose up -d --no-build alloy` after this service appears in the
+  # compose file (deploy restarts only the 4 matrix services).
+  alloy:
+    image: grafana/alloy:v1.9.0
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      GRAFANA_CLOUD_METRICS_URL: ${GRAFANA_CLOUD_METRICS_URL:-}
+      GRAFANA_CLOUD_METRICS_USERNAME: ${GRAFANA_CLOUD_METRICS_USERNAME:-}
+      GRAFANA_CLOUD_METRICS_PASSWORD: ${GRAFANA_CLOUD_METRICS_PASSWORD:-}
+    depends_on:
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
   # ── Caddy Reverse Proxy (TLS + routing + S3 CORS proxy) ─────────────────

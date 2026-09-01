@@ -102,6 +102,14 @@ VITE_TURNSTILE_SITEKEY=0x4AAAAAAEMbiZqJKU7PLzRG
 # web; в CI передаётся секретом VITE_SENTRY_DSN в .forgejo/workflows/deploy.yml.
 # Без него SDK — no-op. Проект: Sentry → Create project → React → Client Keys.
 VITE_SENTRY_DSN=
+# Grafana Cloud observability (backend /metrics → hosted Prometheus).
+# METRICS_TOKEN открывает /metrics на бэкенде (пусто = 404); остальные три —
+# стек Grafana Cloud: Connections → Hosted Prometheus → Send metrics.
+# Без них контейнер alloy просто не шлёт метрики.
+METRICS_TOKEN=
+GRAFANA_CLOUD_METRICS_URL=
+GRAFANA_CLOUD_METRICS_USERNAME=
+GRAFANA_CLOUD_METRICS_PASSWORD=
 # Web Push (PWA): сгенерировать `cd apps/backend-go && go run ./cmd/vapidgen` и
 # вставить пару ключей. БЕЗ них push просто отключён (логируем предупреждение),
 # остальное работает. Ключи должны быть стабильны — существующие подписки

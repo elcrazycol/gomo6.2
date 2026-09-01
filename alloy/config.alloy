@@ -1,0 +1,31 @@
+// =============================================================================
+// Grafana Alloy configuration — gomo6 observability agent.
+//
+// Runs inside the docker-compose `alloy` service. Scrapes the backend's
+// /metrics endpoint (protected by METRICS_TOKEN) and remote-writes the
+// series to Grafana Cloud Prometheus.
+//
+// The Grafana Cloud connection settings come from the container environment
+// (defined in docker-compose.yml, sourced from the VPS .env):
+//   GRAFANA_CLOUD_METRICS_URL      — hosted Prometheus push endpoint
+//   GRAFANA_CLOUD_METRICS_USERNAME — instance ID
+//   GRAFANA_CLOUD_METRICS_PASSWORD — API token
+//   METRICS_TOKEN                  — backend /metrics auth token
+// =============================================================================
+
+prometheus.scrape "backend" {
+  targets = [{"__address__" = "backend:8080"}]
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+  metrics_path = "/metrics"
+  bearer_token = env("METRICS_TOKEN")
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = env("GRAFANA_CLOUD_METRICS_URL")
+    basic_auth {
+      username = env("GRAFANA_CLOUD_METRICS_USERNAME")
+      password = env("GRAFANA_CLOUD_METRICS_PASSWORD")
+    }
+  }
+}

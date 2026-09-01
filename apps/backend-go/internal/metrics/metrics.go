@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
 	"sync/atomic"
 	"time"
 )
+
+// startedAt marks process start so /metrics can expose uptime.
+var startedAt = time.Now()
 
 // MessengerMetrics contains the small set of production signals needed for
 // realtime and transaction troubleshooting. Counters are process-local; scrape
@@ -74,5 +78,19 @@ func Handler(m *MessengerMetrics) http.Handler {
 				"# TYPE messenger_db_tx_errors_total counter\n"+
 				"messenger_db_tx_errors_total %d\n",
 			active, avgSeconds, count, m.dbTxErrors.Load())
+
+		// Runtime/process health — hand-rolled gauges (no client_golang dep in
+		// this vendored build): goroutines, heap, uptime. Together with the
+		// messenger counters above this is what the Grafana dashboard plots.
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		_, _ = fmt.Fprintf(w,
+			"# TYPE backend_goroutines gauge\n"+
+				"backend_goroutines %d\n"+
+				"# TYPE backend_heap_inuse_bytes gauge\n"+
+				"backend_heap_inuse_bytes %d\n"+
+				"# TYPE backend_uptime_seconds gauge\n"+
+				"backend_uptime_seconds %.0f\n",
+			runtime.NumGoroutine(), mem.HeapInuse, time.Since(startedAt).Seconds())
 	})
 }
