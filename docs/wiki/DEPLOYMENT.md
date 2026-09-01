@@ -360,6 +360,7 @@ docker compose up -d --build
 | `GRAFANA_CLOUD_METRICS_URL` | — | Push-эндпоинт hosted Prometheus Grafana Cloud (например `https://prometheus-prod-XX-prod-XX.grafana.net/api/prom/push`) |
 | `GRAFANA_CLOUD_METRICS_USERNAME` | — | Instance ID Grafana Cloud |
 | `GRAFANA_CLOUD_METRICS_PASSWORD` | — | API-токен Grafana Cloud (write) |
+| `VITE_SENTRY_DSN` | — | Sentry public DSN (RUM: ошибки + трейсы + Web Vitals). Секрет в Codeberg Actions (`VITE_SENTRY_DSN`) + в `.env` на VPS; без него SDK — no-op |
 
 Обязательные production-секреты (`JWT_SECRET`, `FEDERATION_KEY`, `MESSENGER_ENCRYPTION_KEY`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`, `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`) можно безопасно заполнить командой `./scripts/generate-keys.sh --quiet .env`. Непустые значения сохраняются; не используйте `--force` без осознанной ротации ключей.
 
@@ -490,7 +491,7 @@ docker image prune -f
 3. **Build & push** — `docker buildx build --push` в реестр Codeberg (`codeberg.org/crazycol/gomo6-*`): дедупликация слоёв, по сети едут только изменившиеся слои (web ~3-5 MB, backend ~12-14 MB вместо ~23 MB целиком)
 4. **Restart** — `scripts/restart-service.sh` на VPS: pull → ретаг под имя из `docker-compose.yml` (`ghcr.io/elcrazycol/*`) → `docker compose up -d --no-build <service>`
 
-**Секреты** (Codeberg → Settings → Actions → Secrets): `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT` (опц.), `CODEREG_TOKEN` — PAT аккаунта `crazycol` со скоупами `read:package` + `write:package` (пуш образов в реестр).
+**Секреты** (Codeberg → Settings → Actions → Secrets): `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT` (опц.), `CODEREG_TOKEN` — PAT аккаунта `crazycol` со скоупами `read:package` + `write:package` (пуш образов в реестр). Публичные build-секреты веб-сборки (безопасны в CI): `VITE_TURNSTILE_SITEKEY`, `VITE_SENTRY_DSN`; приватный — `VITE_DEPAY_INTEGRATION_ID` (см. комментарий в `deploy.yml`).
 
 **Реестр**: пакеты `codeberg.org/crazycol/gomo6-*` публичные — VPS тянет образы анонимно, без токенов. Если pull на VPS отклонили — проверь видимость пакетов в `codeberg.org/crazycol/-/packages`.
 
@@ -522,6 +523,15 @@ docker compose logs -f postgres
 # Логи за последний час
 docker compose logs --since 1h backend
 ```
+
+### Sentry (RUM — фронтенд)
+
+SDK на фронте (`@sentry/react`, init в `apps/web/src/instrument.ts`) ловит ошибки, трейсит каждый заход и API-запрос (водопад в Sentry → Performance → Traces) и собирает Web Vitals (LCP, CLS, INP).
+
+- DSN: `VITE_SENTRY_DSN` — секрет в **Codeberg Actions** (передаётся в web-сборку) и в `.env` на VPS. Без DSN SDK — no-op, сайт работает как раньше.
+- `tracesSampleRate: 0.2` в проде (20% сессий), 100% в dev; куки не отправляются (`cookies: false`).
+- CSP в Caddyfile разрешает `*.ingest.de.sentry.io` (регион задаётся доменом ingest в DSN).
+- Дальше: source maps (`@sentry/vite-plugin` + `SENTRY_AUTH_TOKEN`) — читаемые стектрейсы вместо минифицированного кода.
 
 ### Grafana Cloud (бэкенд-метрики)
 

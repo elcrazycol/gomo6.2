@@ -74,6 +74,7 @@
 | `postgres` | Primary database | PostgreSQL 15 |
 | `redis` | Cache, sessions, rate limiting | Redis 7 |
 | `garage` | S3-compatible object storage (files, avatars, audio) | Garage 2.3 |
+| `alloy` | Observability agent: scrapes backend `/metrics` → Grafana Cloud | Grafana Alloy |
 
 ### Storage architecture
 
@@ -188,6 +189,11 @@ docker compose up -d
 | `GARAGE_ADMIN_TOKEN` | yes (compose) | Garage admin API token |
 | `ENVIRONMENT` | no | `production` or `development` |
 | `ALLOWED_ORIGINS` | no | CORS allowed origins (comma-separated) |
+| `VITE_SENTRY_DSN` | no | Sentry public DSN — ошибки + трейсинг + Web Vitals на фронте (без него SDK — no-op) |
+| `METRICS_TOKEN` | no | Токен доступа к backend `/metrics` (пусто = 404; его же использует `alloy`) |
+| `GRAFANA_CLOUD_METRICS_URL` | no | Push-эндпоинт hosted Prometheus Grafana Cloud |
+| `GRAFANA_CLOUD_METRICS_USERNAME` | no | Instance ID Grafana Cloud |
+| `GRAFANA_CLOUD_METRICS_PASSWORD` | no | API-токен Grafana Cloud (write) |
 
 > All other variables (`DATABASE_URL`, `REDIS_URL`, `GARAGE_S3_*`, `WEBAUTHN_*`, etc.) are configured in `docker-compose.yml` and do not require manual setup.
 >
