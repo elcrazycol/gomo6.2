@@ -250,24 +250,27 @@ export function ProfileTabs({
 }: ProfileTabsProps) {
   const { t } = useTranslation();
 
-  // Switching tabs swaps the content node, which changes the document height.
-  // If the new tab is shorter than the scroll position, the browser clamps
-  // scrollY downward and the page visibly jumps toward the top mid-switch.
-  // Instead of fighting the clamp afterwards, the outgoing tab's height is
-  // captured at click time and held as a minimum height on the incoming tab,
-  // so the document never shrinks and scrollY never moves: the bar stays
-  // pinned and the new content simply appears beneath it.
-  const tabBodyRef = useRef<HTMLDivElement | null>(null);
-  const [preservedMinHeight, setPreservedMinHeight] = useState(0);
+  // Content switches (tabs, album pick) swap the body, so the destination is
+  // positioned at the tab bar: its document offset is captured at click time
+  // (everything above the bar — profile header/stats/bio — never changes, so
+  // the offset is stable across tabs) and the viewport snaps there once the
+  // new content rendered. That puts the bar at the top of the viewport with
+  // the new tab's content starting right under it. The snap is skipped when
+  // the user was still above the bar (page-top zone): there the content just
+  // swaps in place.
+  const stickyBarRef = useRef<HTMLDivElement | null>(null);
+  const barSnapTargetRef = useRef<number | null>(null);
 
-  const preserveBodyHeight = () => {
-    const el = tabBodyRef.current;
-    if (el) setPreservedMinHeight(el.offsetHeight);
+  const snapToBar = () => {
+    const bar = stickyBarRef.current;
+    if (!bar) return;
+    const barDocTop = bar.getBoundingClientRect().top + window.scrollY;
+    if (window.scrollY >= barDocTop) barSnapTargetRef.current = barDocTop;
   };
 
   const switchTab = (tab: ProfileTab) => {
     if (tab !== activeTab) {
-      preserveBodyHeight();
+      snapToBar();
       onTabChange(tab);
     }
   };
@@ -295,7 +298,7 @@ export function ProfileTabs({
   // the selection back to «Все» so the wall view never hides the selector.
   const toggleAlbumsRow = () => {
     if (albumsOpen || selectedAlbumId !== null) {
-      preserveBodyHeight();
+      snapToBar();
       setAlbumsOpen(false);
       setSelectedAlbumId(null);
     } else {
@@ -331,12 +334,18 @@ export function ProfileTabs({
     if (selectedAlbumId === albumId) setSelectedAlbumId(null);
   };
 
-  // Tell AppLayout to pause its hide/show header logic while swapped content
-  // settles: Chrome synthesizes a scroll clamp when the page shrinks, which
-  // reads as "scrolled up" and pops the header back in — dragging the sticky
-  // tab bar off the top of the viewport right when the user is switching.
+  // Keep the app header in its current hide/show state while the swapped
+  // content settles: the snap's synthetic scroll would otherwise read as a
+  // user scroll and pop the header back in, dropping the pinned tab bar.
+  // Then snap to the bar (when the user was in the pinned zone) so the new
+  // tab opens with the bar at the top and its content from the very top.
   useLayoutEffect(() => {
     window.dispatchEvent(new Event("gomo6:profile-content-switch"));
+    const target = barSnapTargetRef.current;
+    if (target == null) return;
+    barSnapTargetRef.current = null;
+    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    window.scrollTo(0, Math.min(target, max));
   }, [activeTab, selectedAlbumId]);
 
   // Minimalist row items — same visual language as the tabs above: icon +
@@ -357,6 +366,7 @@ export function ProfileTabs({
           which made the whole tab bar vanish. The solid fill also keeps posts
           from showing through the stuck bar. */}
       <div
+        ref={stickyBarRef}
         className="sticky z-30 border-b border-border overflow-x-auto bg-background"
         style={{ top: "var(--app-header-pad, 0px)" }}
       >
@@ -418,7 +428,7 @@ export function ProfileTabs({
           <div className="flex flex-wrap items-center gap-0.5 border-t border-border/60 px-1 pb-1.5 pt-0.5">
             <button
               onClick={() => {
-                preserveBodyHeight();
+                snapToBar();
                 setSelectedAlbumId(null);
               }}
               className={albumRowClass(selectedAlbumId === null)}
@@ -430,7 +440,7 @@ export function ProfileTabs({
               <button
                 key={album.id}
                 onClick={() => {
-                  preserveBodyHeight();
+                  snapToBar();
                   setSelectedAlbumId(album.id);
                 }}
                 className={albumRowClass(selectedAlbumId === album.id)}
@@ -499,17 +509,13 @@ export function ProfileTabs({
         </DialogContent>
       </Dialog>
 
-      {/* Tab Content — one always-mounted wrapper so the outgoing tab's
-          height can be held on the incoming one during a switch
-          (preserveBodyHeight). The page never shrinks, the browser never
-          clamps the scroll, and neither the scroll position nor the pinned
-          tab bar moves: the new content simply appears beneath the bar. An
-          open album shows the album view instead of the full wall. */}
-      <div
-        ref={tabBodyRef}
-        className="min-h-[calc(100dvh-7rem)]"
-        style={preservedMinHeight > 0 ? { minHeight: preservedMinHeight } : undefined}
-      >
+      {/* Tab Content — one always-mounted wrapper. Short tabs hold a
+          viewport-tall minimum height (min-h-[100dvh]) so the tab bar can
+          always pin at the top after a switch; switching positions the view
+          at the bar (see snapToBar), so the new tab opens with the bar at
+          the top and its content visible from the very start. An open album
+          shows the album view instead of the full wall. */}
+      <div className="min-h-[100dvh]">
         {activeTab === 'wall' && wallTabVisible && (
           <div>
           {selectedAlbum ? (
