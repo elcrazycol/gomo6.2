@@ -581,6 +581,7 @@ const ru: LocaleResources = {
     albums: "Альбомы",
     album: "Альбом",
     createAlbum: "Создать альбом",
+    albumCreateHint: "Дайте альбому название — потом можно будет переименовать.",
     albumNamePlaceholder: "Название альбома",
     albumNameRequired: "Введите название альбома",
     albumCreated: "Альбом создан",

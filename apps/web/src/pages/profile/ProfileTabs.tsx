@@ -2,8 +2,10 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ChevronDown, Gift, LayoutGrid, MessageSquareText, Pin, Plus, Trophy, Users, X, type LucideIcon } from "lucide-react";
+import { ChevronDown, Gift, LayoutGrid, MessageSquareText, Pin, Plus, Trophy, Users, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileWall } from "@/components/ProfileWall";
 import { ProfileAlbumView } from "@/components/ProfileAlbumView";
@@ -397,7 +399,6 @@ export function ProfileTabs({
                 className={albumRowClass(selectedAlbumId === album.id)}
               >
                 <span className="max-w-40 truncate">{album.name}</span>
-                <span className="opacity-60">({album.post_count})</span>
               </button>
             ))}
             {isOwnProfile && !creatingAlbum && (
@@ -409,44 +410,51 @@ export function ProfileTabs({
                 <Plus className="h-3.5 w-3.5" />
               </button>
             )}
-            {isOwnProfile && creatingAlbum && (
-              <form
-                className="flex items-center gap-1.5"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  submitCreateAlbum();
-                }}
-              >
-                <input
-                  autoFocus
-                  value={newAlbumName}
-                  onChange={(e) => setNewAlbumName(e.target.value)}
-                  placeholder={t("profile.albumNamePlaceholder")}
-                  maxLength={80}
-                  className="h-8 w-40 rounded-md border border-input bg-background px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-                <button
-                  type="submit"
-                  className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  {t("common.save")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreatingAlbum(false);
-                    setNewAlbumName("");
-                  }}
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-                  title={t("common.cancel")}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </form>
-            )}
           </div>
         )}
       </div>
+
+      {/* Create-album dialog — modal so it works on phones too (full-width
+          sheet instead of the cramped inline input row). */}
+      <Dialog open={creatingAlbum} onOpenChange={setCreatingAlbum}>
+        <DialogContent className="gap-4 p-5 sm:max-w-md sm:p-6">
+          <DialogHeader>
+            <DialogTitle>{t("profile.createAlbum")}</DialogTitle>
+            <DialogDescription>
+              {t("profile.albumCreateHint")}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitCreateAlbum();
+            }}
+            className="space-y-4"
+          >
+            <input
+              autoFocus
+              value={newAlbumName}
+              onChange={(e) => setNewAlbumName(e.target.value)}
+              placeholder={t("profile.albumNamePlaceholder")}
+              maxLength={80}
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setCreatingAlbum(false);
+                  setNewAlbumName("");
+                }}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button type="submit">{t("common.save")}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Tab Content — the wall renders a "private profile" notice when it
           is hidden server-side; other tabs render only when their section

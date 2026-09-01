@@ -556,6 +556,7 @@ const en: LocaleResources = {
     albums: "Albums",
     album: "Album",
     createAlbum: "Create album",
+    albumCreateHint: "Give the album a name — you can rename it later.",
     albumNamePlaceholder: "Album name",
     albumNameRequired: "Enter an album name",
     albumCreated: "Album created",

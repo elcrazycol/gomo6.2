@@ -225,10 +225,13 @@ export function ProfileAlbumView({
 
   return (
     <div className="space-y-4">
-      {/* Album header — no name here (it lives in the tab bar above): just
-          the management actions, owner only. */}
+      {/* Album header — the name as a real heading (same weight as the other
+          profile tab titles), actions grouped on the right. */}
       {isOwnProfile && (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="min-w-0 flex-1 truncate text-xl font-bold">
+            {album.name}
+          </h2>
           <button
             type="button"
             onClick={openPicker}
