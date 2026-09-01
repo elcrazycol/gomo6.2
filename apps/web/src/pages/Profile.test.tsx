@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
@@ -337,6 +337,42 @@ describe("Profile", () => {
     expect(screen.queryByRole("button", { name: "Записи" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Друзья/)).not.toBeInTheDocument();
+  });
+
+  it("opens the album row from the wall tab chevron and shows album chips", async () => {
+    setupOwnProfile();
+    // Serve one album for the wall owner.
+    const orig = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/v1/profile_albums")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            data: [{
+              id: "album-1",
+              user_id: "profile-user-1",
+              name: "Лучшее",
+              post_count: 2,
+              created_at: "2025-01-01T00:00:00Z",
+              updated_at: "2025-01-01T00:00:00Z",
+            }],
+          }),
+        });
+      }
+      return orig!(url);
+    });
+
+    renderWithProviders(<ProfileComponent />);
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    // The chevron next to «Стена» (own profile, wall tab open) reveals the row.
+    const chevron = await screen.findByTitle("Альбомы");
+    fireEvent.click(chevron);
+
+    expect(screen.getByText("Все")).toBeInTheDocument();
+    expect(screen.getByText("Лучшее")).toBeInTheDocument();
   });
 
   it("shows the friends tab when the owner keeps friends visible on a private profile", async () => {

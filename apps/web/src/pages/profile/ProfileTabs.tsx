@@ -2,10 +2,13 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Gift, LayoutGrid, MessageSquareText, Pin, Trophy, Users, type LucideIcon } from "lucide-react";
+import { ChevronDown, Gift, LayoutGrid, MessageSquareText, Pin, Plus, Trophy, Users, X, type LucideIcon } from "lucide-react";
+import { toast } from "sonner";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileWall } from "@/components/ProfileWall";
+import { ProfileAlbumView } from "@/components/ProfileAlbumView";
 import { useFriendsStore } from "@/stores/friendsStore";
+import { useProfileAlbums } from "./useProfileAlbums";
 import type { AchievementData } from "@/components/AchievementCard";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import type { Profile } from "./types";
@@ -103,6 +106,79 @@ const TabButton = ({ tab, active, onClick }: { tab: TabDef; active: boolean; onC
   );
 };
 
+/** Wall tab: icon + label + the album chevron fused into one unit. The active
+ * strip runs under the whole unit (label + chevron) so they read as one tab,
+ * but the chevron is its own button with its own click handler — toggling the
+ * album row never switches the tab. The chevron only appears while the wall
+ * tab is active and there is something to reveal (albums or an owner who can
+ * create them). */
+const WallTabButton = ({
+  active,
+  label,
+  onTabClick,
+  showChevron,
+  chevronOpen,
+  onChevronClick,
+  chevronTitle,
+}: {
+  active: boolean;
+  label: string;
+  onTabClick: () => void;
+  showChevron: boolean;
+  chevronOpen: boolean;
+  onChevronClick: () => void;
+  chevronTitle: string;
+}) => {
+  const Icon = LayoutGrid;
+  return (
+    <div
+      className={`relative flex items-center rounded-lg text-xs sm:text-sm font-medium transition-colors ${
+        active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      <button
+        onClick={onTabClick}
+        className="flex items-center gap-1.5 py-2 pl-2.5 sm:pl-3 pr-1"
+      >
+        <Icon className="relative z-10 h-4 w-4 shrink-0" />
+        <motion.span
+          initial={false}
+          animate={{ width: active ? "auto" : 0, opacity: active ? 1 : 0 }}
+          transition={{ duration: 0.22, ease: "easeOut", delay: active ? 0.16 : 0 }}
+          className="relative z-10 overflow-hidden whitespace-nowrap"
+        >
+          {label}
+        </motion.span>
+      </button>
+      <motion.span
+        initial={false}
+        animate={{ width: active && showChevron ? "auto" : 0, opacity: active && showChevron ? 1 : 0 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+        className="relative z-10 overflow-hidden"
+      >
+        <button
+          onClick={onChevronClick}
+          className={`flex items-center py-2 pr-2.5 pl-0.5 transition-colors ${
+            chevronOpen ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+          title={chevronTitle}
+        >
+          <ChevronDown
+            className={`h-4 w-4 transition-transform duration-200 ${chevronOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+      </motion.span>
+      {active && (
+        <motion.span
+          layoutId="profile-tabs-indicator"
+          className="absolute bottom-0 left-2 right-2 h-[2.5px] rounded-full bg-gradient-to-r from-primary to-accent"
+          transition={{ type: "spring", stiffness: 450, damping: 36 }}
+        />
+      )}
+    </div>
+  );
+};
+
 // Friends tab button with count
 const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; onClick: () => void; userId: string }) => {
   const { profileFriends, fetchProfileFriends } = useFriendsStore();
@@ -172,6 +248,73 @@ export function ProfileTabs({
 }: ProfileTabsProps) {
   const { t } = useTranslation();
 
+  // ── Profile albums (wall tab) ────────────────────────────────────────────
+  // Albums are collections of wall posts; visibility follows the wall. The
+  // albums list loads when the wall tab is open; management is owner-only.
+  const {
+    albums,
+    loadAlbums,
+    createAlbum,
+    renameAlbum,
+    deleteAlbum,
+    addPosts,
+    removePost,
+  } = useProfileAlbums(userId, activeTab === "wall" && wallTabVisible);
+  const [albumsOpen, setAlbumsOpen] = useState(false);
+  const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
+  const [creatingAlbum, setCreatingAlbum] = useState(false);
+  const [newAlbumName, setNewAlbumName] = useState("");
+
+  const showAlbumsRow = activeTab === "wall" && wallTabVisible && (albumsOpen || selectedAlbumId !== null);
+
+  // The chevron next to «Стена» toggles the album row; closing it also resets
+  // the selection back to «Все» so the wall view never hides the selector.
+  const toggleAlbumsRow = () => {
+    if (albumsOpen || selectedAlbumId !== null) {
+      setAlbumsOpen(false);
+      setSelectedAlbumId(null);
+    } else {
+      setAlbumsOpen(true);
+    }
+  };
+
+  const submitCreateAlbum = async () => {
+    const name = newAlbumName.trim();
+    if (!name) {
+      toast.error(t("profile.albumNameRequired"));
+      return;
+    }
+    try {
+      const created = await createAlbum(name);
+      setNewAlbumName("");
+      setCreatingAlbum(false);
+      setAlbumsOpen(true);
+      if (created) setSelectedAlbumId(created.id);
+      toast.success(t("profile.albumCreated"));
+    } catch (error) {
+      console.error("Error creating album:", error);
+      toast.error(t("profile.albumCreateError"));
+    }
+  };
+
+  const handleRenameAlbum = async (albumId: string, name: string) => {
+    await renameAlbum(albumId, name);
+  };
+
+  const handleDeleteAlbum = async (albumId: string) => {
+    await deleteAlbum(albumId);
+    if (selectedAlbumId === albumId) setSelectedAlbumId(null);
+  };
+
+  // Minimalist row items — same visual language as the tabs above: icon +
+  // label, active one tinted with the primary color, no pills/borders.
+  const albumRowClass = (active: boolean) =>
+    `inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+      active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+    }`;
+
+  const selectedAlbum = selectedAlbumId ? albums.find((a) => a.id === selectedAlbumId) || null : null;
+
   return (
     <>
       {/* Sticky bar: pins under the app header and follows its hide/show slide
@@ -182,10 +325,14 @@ export function ProfileTabs({
       >
         <div className="flex gap-1 min-w-max px-1.5 py-1">
           {wallTabVisible && (
-            <TabButton
-              tab={{ key: "wall", icon: LayoutGrid, label: t("profile.wall") }}
+            <WallTabButton
               active={activeTab === 'wall'}
-              onClick={() => onTabChange('wall')}
+              label={t("profile.wall")}
+              onTabClick={() => onTabChange('wall')}
+              showChevron={activeTab === 'wall' && (albums.length > 0 || isOwnProfile)}
+              chevronOpen={albumsOpen || selectedAlbumId !== null}
+              onChevronClick={toggleAlbumsRow}
+              chevronTitle={t("profile.albums")}
             />
           )}
           {canViewAchievements && (
@@ -227,25 +374,110 @@ export function ProfileTabs({
             />
           )}
         </div>
+
+        {/* Album row: «Все» + album chips + create. Drops below the tab
+            buttons inside the sticky bar when opened. */}
+        {showAlbumsRow && (
+          <div className="flex flex-wrap items-center gap-0.5 border-t border-border/60 px-1 pb-1.5 pt-0.5">
+            <button
+              onClick={() => setSelectedAlbumId(null)}
+              className={albumRowClass(selectedAlbumId === null)}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              {t("profile.allPosts")}
+            </button>
+            {albums.map((album) => (
+              <button
+                key={album.id}
+                onClick={() => setSelectedAlbumId(album.id)}
+                className={albumRowClass(selectedAlbumId === album.id)}
+              >
+                <span className="max-w-40 truncate">{album.name}</span>
+                <span className="opacity-60">({album.post_count})</span>
+              </button>
+            ))}
+            {isOwnProfile && !creatingAlbum && (
+              <button
+                onClick={() => setCreatingAlbum(true)}
+                className="inline-flex items-center rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:text-primary"
+                title={t("profile.createAlbum")}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {isOwnProfile && creatingAlbum && (
+              <form
+                className="flex items-center gap-1.5"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submitCreateAlbum();
+                }}
+              >
+                <input
+                  autoFocus
+                  value={newAlbumName}
+                  onChange={(e) => setNewAlbumName(e.target.value)}
+                  placeholder={t("profile.albumNamePlaceholder")}
+                  maxLength={80}
+                  className="h-8 w-40 rounded-md border border-input bg-background px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <button
+                  type="submit"
+                  className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  {t("common.save")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreatingAlbum(false);
+                    setNewAlbumName("");
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+                  title={t("common.cancel")}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </form>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tab Content — the wall renders a "private profile" notice when it
           is hidden server-side; other tabs render only when their section
-          is visible to this viewer. */}
+          is visible to this viewer. An open album shows the album view
+          instead of the full wall. */}
       {activeTab === 'wall' && wallTabVisible && (
         <div>
-          <ProfileWall
-            profileUserId={userId}
-            currentUserId={currentUser?.id || null}
-            currentUsername={currentUsername}
-            canPost={currentUser?.id === userId || allowWallPostsFromOthers}
-            showWall={showProfileWall}
-            refreshKey={wallRefreshKey}
-            wallHidden={wallHiddenFromViewer}
-            privateProfile={privateProfile}
-            createOpen={wallCreateOpen}
-            onCreateOpenChange={onWallCreateOpenChange}
-          />
+          {selectedAlbum ? (
+            <ProfileAlbumView
+              album={selectedAlbum}
+              profileUserId={userId}
+              currentUserId={currentUser?.id || null}
+              currentUsername={currentUsername}
+              currentUserColor={currentUserColor}
+              isOwnProfile={isOwnProfile}
+              onAddPosts={(postIds) => addPosts(selectedAlbum.id, postIds)}
+              onRemovePost={(postId) => removePost(selectedAlbum.id, postId)}
+              onRenameAlbum={(name) => handleRenameAlbum(selectedAlbum.id, name)}
+              onDeleteAlbum={() => handleDeleteAlbum(selectedAlbum.id)}
+              onAlbumPostsChanged={loadAlbums}
+            />
+          ) : (
+            <ProfileWall
+              profileUserId={userId}
+              currentUserId={currentUser?.id || null}
+              currentUsername={currentUsername}
+              canPost={currentUser?.id === userId || allowWallPostsFromOthers}
+              showWall={showProfileWall}
+              refreshKey={wallRefreshKey}
+              wallHidden={wallHiddenFromViewer}
+              privateProfile={privateProfile}
+              createOpen={wallCreateOpen}
+              onCreateOpenChange={onWallCreateOpenChange}
+            />
+          )}
         </div>
       )}
 
