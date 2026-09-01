@@ -250,6 +250,59 @@ jobs:
             -f "$SRC/${{ matrix.dockerfile }}" \
             "$CTX"
 
+      - name: Prune old sha-* package versions (keep newest 6)
+        # The Codeberg registry has a finite storage quota (pushes die with
+        # "413 enforcePackagesQuota" when full) and every deploy adds a
+        # sha-<commit> version that never goes away. Best-effort cleanup keeps
+        # the newest 6 sha-* versions so deploys never get blocked; rollback
+        # still works within that window. Never fails the job.
+        if: steps.detect.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          export REPO="${{ github.repository }}"
+          export OWNER="${REPO%/*}"
+          export NAME="gomo6-${{ matrix.service }}"
+          export TOKEN="${{ secrets.CODEREG_TOKEN }}"
+          export KEEP=6
+          curl -fsS --max-time 30 \
+            -H "Authorization: token $TOKEN" \
+            "https://codeberg.org/api/v1/packages/$OWNER/container/$NAME" \
+          | python3 - <<'PY'
+          import json, os, sys, urllib.error, urllib.parse, urllib.request
+
+          owner = os.environ["OWNER"]
+          name = os.environ["NAME"]
+          keep = int(os.environ["KEEP"])
+          token = os.environ["TOKEN"]
+          base = "https://codeberg.org/api/v1/packages"
+
+          try:
+              versions = json.load(sys.stdin)
+          except Exception as e:
+              print(f"prune: cannot parse versions list: {e}")
+              sys.exit(0)
+
+          if not isinstance(versions, list):
+              print(f"prune: unexpected response shape: {type(versions)}")
+              sys.exit(0)
+
+          sha = [v for v in versions if str(v.get("version", "")).startswith("sha-")]
+          sha.sort(key=lambda v: v.get("created_at", ""), reverse=True)
+          old = sha[keep:]
+          print(f"prune: {len(sha)} sha-* versions, deleting {len(old)} (keep {keep})")
+          for v in old:
+              ver = urllib.parse.quote(v["version"], safe="")
+              req = urllib.request.Request(f"{base}/{owner}/container/{name}/{ver}", method="DELETE")
+              req.add_header("Authorization", f"token {token}")
+              try:
+                  urllib.request.urlopen(req, timeout=30)
+                  print(f"prune: deleted {v['version']}")
+              except urllib.error.HTTPError as e:
+                  # 401 = token lacks package-write scope; 404 = already gone.
+                  print(f"prune: skip {v['version']}: {e.code} {e.reason}")
+          PY
+
       - name: Restart ${{ matrix.service }} on VPS (pull + compose up)
         if: steps.detect.outputs.changed == 'true'
         run: |
