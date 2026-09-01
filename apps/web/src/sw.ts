@@ -11,6 +11,24 @@ declare let self: ServiceWorkerGlobalScope;
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
+// ── Auto-update on deploy ──────────────────────────────────────────────
+// vite-plugin-pwa's injectManifest strategy does NOT add these automatically.
+// Without them a freshly deployed SW sits in the browser's "waiting" state
+// until every tab/window of the site is closed — open tabs and installed
+// PWAs would run the old build indefinitely. skipWaiting() activates the new
+// SW as soon as its precache finishes; clients.claim() takes control of
+// already-open pages, which fires controllerchange in the app and triggers
+// the reload toast in main.tsx.
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    await self.clients.claim();
+  })());
+});
+
 // SPA navigation fallback. The comment in the original generateSW config was
 // load-bearing: serving index.html for /api/* and /oauth/* (which Caddy proxies
 // to the Go backend) returns the SPA's own 404 page. Reproduced as a

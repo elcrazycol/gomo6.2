@@ -38,7 +38,40 @@ const setupServiceWorkerReload = (): (() => void) => {
       window.setTimeout(() => window.location.reload(), 1500);
     };
     navigator.serviceWorker.addEventListener('controllerchange', handler);
-    return () => navigator.serviceWorker.removeEventListener('controllerchange', handler);
+
+    // ── Active update checks ──────────────────────────────────────────────
+    // Browsers only check for a new service worker on hard navigations (and
+    // roughly every 24h). An open tab or installed PWA would otherwise never
+    // notice a deploy. registration.update() fetches sw.js; when its content
+    // changed the browser installs the new SW, whose self.skipWaiting()
+    // activates it → controllerchange above → reload with the fresh build.
+    // Checks run when the tab becomes visible/focused again (cheap, catches
+    // deploys that happened while the tab sat in the background) and once an
+    // hour as a safety net for long-lived tabs.
+    let disposed = false;
+    const checkForUpdates = () => {
+      if (disposed) return;
+      navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => {
+          if (reg) reg.update().catch(() => {});
+        })
+        .catch(() => {});
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkForUpdates();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', checkForUpdates);
+    const updateInterval = window.setInterval(checkForUpdates, 60 * 60 * 1000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(updateInterval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', checkForUpdates);
+      navigator.serviceWorker.removeEventListener('controllerchange', handler);
+    };
   }
   return () => undefined;
 };

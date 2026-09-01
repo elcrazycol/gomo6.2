@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Обновления реально доходят до пользователей**: service worker теперь вызывает `self.skipWaiting()` и `clients.claim()` — раньше новый SW после деплоя ждал закрытия всех вкладок и установленный PWA / открытая вкладка могли работать на старой версии вечно
+- **Открытая вкладка сама замечает деплой**: активная проверка обновлений при возврате на вкладку (focus/visibility) и раз в час — раньше браузер проверял новый SW только при жёсткой перезагрузке
+- **PWA-файлы не кэшируются HTTP-кэшем** (sw.js, registerSW.js, manifest.webmanifest в nginx) — иначе `registration.update()` мог видеть старые байты и не замечать деплой
+
 ## [2.3.1] — 2026-09-01
 
 Производительность на медленных сетях: сжатие всего трафика на краю, параллельная загрузка бандла, кэш публичного API в service worker и HTTP/3.
