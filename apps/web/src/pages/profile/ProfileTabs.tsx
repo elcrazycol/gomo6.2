@@ -417,9 +417,9 @@ export function ProfileTabs({
       {/* Create-album dialog — modal so it works on phones too (full-width
           sheet instead of the cramped inline input row). */}
       <Dialog open={creatingAlbum} onOpenChange={setCreatingAlbum}>
-        <DialogContent className="gap-4 p-5 sm:max-w-md sm:p-6">
-          <DialogHeader>
-            <DialogTitle>{t("profile.createAlbum")}</DialogTitle>
+        <DialogContent className="gap-5 overflow-hidden rounded-2xl border-border/70 bg-card p-5 shadow-2xl sm:max-w-md sm:p-6">
+          <DialogHeader className="text-left">
+            <DialogTitle className="text-base">{t("profile.createAlbum")}</DialogTitle>
             <DialogDescription>
               {t("profile.albumCreateHint")}
             </DialogDescription>
@@ -429,7 +429,7 @@ export function ProfileTabs({
               e.preventDefault();
               submitCreateAlbum();
             }}
-            className="space-y-4"
+            className="space-y-5"
           >
             <input
               autoFocus
@@ -437,20 +437,26 @@ export function ProfileTabs({
               onChange={(e) => setNewAlbumName(e.target.value)}
               placeholder={t("profile.albumNamePlaceholder")}
               maxLength={80}
-              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-12 w-full rounded-xl border border-border/60 bg-muted/30 px-4 text-sm outline-none transition-[border-color,box-shadow,background-color] placeholder:text-muted-foreground/70 focus:border-primary/50 focus:bg-background focus:ring-4 focus:ring-primary/10"
             />
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2 sm:gap-2.5">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 onClick={() => {
                   setCreatingAlbum(false);
                   setNewAlbumName("");
                 }}
+                className="rounded-full px-5 hover:bg-muted"
               >
                 {t("common.cancel")}
               </Button>
-              <Button type="submit">{t("common.save")}</Button>
+              <Button
+                type="submit"
+                className="rounded-full px-6 shadow-sm"
+              >
+                {t("common.save")}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
