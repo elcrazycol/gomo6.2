@@ -4567,7 +4567,7 @@ export interface components {
         OAuthRedirectUri: string;
         OAuthScope: string;
         OAuthState: string;
-        UniversalTable: "user_roles" | "gomosub_memberships" | "user_session_time" | "user_achievements" | "achievements" | "user_terms_acceptance" | "profile_customization" | "user_placeholders" | "polls" | "poll_votes" | "thread_subscriptions" | "privacy_settings" | "user_daily_visits" | "thread_custom_message_visits" | "profile_wall_posts" | "profile_wall_post_comments" | "profile_wall_post_likes" | "profile_wall_post_reposts" | "gomosub_rules_acceptance" | "reports" | "user_bans" | "user_settings_changes";
+        UniversalTable: "user_roles" | "gomosub_memberships" | "user_session_time" | "user_achievements" | "achievements" | "user_terms_acceptance" | "profile_customization" | "user_placeholders" | "polls" | "poll_votes" | "profile_album_posts" | "profile_albums" | "thread_subscriptions" | "privacy_settings" | "user_daily_visits" | "thread_custom_message_visits" | "profile_wall_posts" | "profile_wall_post_comments" | "profile_wall_post_likes" | "profile_wall_post_reposts" | "gomosub_rules_acceptance" | "reports" | "user_bans" | "user_settings_changes";
         UniversalFilter: Record<string, never>;
     };
     requestBodies: never;

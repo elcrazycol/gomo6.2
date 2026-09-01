@@ -22,6 +22,8 @@ const INVALIDATE_ON_WRITE: Record<string, string[]> = {
   profile_wall_post_reposts: ['/api/v1/profile_wall_posts', '/api/v1/profile_wall_post_reposts'],
   profile_wall_post_comments: ['/api/v1/profile_wall_posts', '/api/v1/profile_wall_post_comments'],
   profile_wall_comment_likes: ['/api/v1/profile_wall_post_comments', '/api/v1/profile_wall_comment_likes'],
+  // Album membership writes change the album list's post_count.
+  profile_album_posts: ['/api/v1/profile_albums'],
 };
 
 const invalidateOnWrite = (table: string) => {
@@ -226,7 +228,7 @@ export const from = (table: string, opts?: { ttlMs?: number }): TableApi => {
 
     // ── PUT with id filter → PUT /table/:id for known tables ───────────
     // NOTE: Add new tables here when they need PUT support via query builder.
-    if (method === 'PUT' && ['profiles', 'boards', 'threads', 'posts', 'user_session_time', 'user_daily_visits', 'privacy_settings', 'gomosub_memberships', 'gomosub_rules_acceptance', 'user_roles', 'user_achievements'].includes(table)) {
+    if (method === 'PUT' && ['profiles', 'boards', 'threads', 'posts', 'user_session_time', 'user_daily_visits', 'privacy_settings', 'gomosub_memberships', 'gomosub_rules_acceptance', 'user_roles', 'user_achievements', 'profile_albums'].includes(table)) {
       const idVal = popIdFilter(queryState);
       if (idVal !== undefined) {
         url = `/api/v1/${table}/${encodeURIComponent(String(idVal))}`;
