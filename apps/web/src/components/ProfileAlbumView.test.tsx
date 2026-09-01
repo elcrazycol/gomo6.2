@@ -127,9 +127,8 @@ describe("ProfileAlbumView", () => {
     ProfileAlbumViewComponent = mod.ProfileAlbumView;
   });
 
-  it("renders the album name and loads its posts", async () => {
+  it("loads the album posts", async () => {
     renderAlbumView();
-    expect(screen.getByText("Лучшее")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId("album-wall-post")).toHaveTextContent("Пост в альбоме");
     });
@@ -153,9 +152,9 @@ describe("ProfileAlbumView", () => {
     await waitFor(() => {
       expect(screen.getByTestId("album-wall-post")).toBeInTheDocument();
     });
+    // No management UI at all for visitors.
     expect(screen.queryByTitle("Добавить посты")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Переименовать")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Удалить альбом")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Изменить альбом")).not.toBeInTheDocument();
   });
 
   it("adds a post to the album from the picker", async () => {
@@ -207,6 +206,8 @@ describe("ProfileAlbumView", () => {
       expect(screen.getByTestId("album-wall-post")).toBeInTheDocument();
     });
 
+    // Rename lives inside the album ⋮ menu.
+    await userEvent.click(screen.getByTitle("Изменить альбом"));
     await userEvent.click(screen.getByTitle("Переименовать"));
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByPlaceholderText("Название альбома");
@@ -225,6 +226,8 @@ describe("ProfileAlbumView", () => {
       expect(screen.getByTestId("album-wall-post")).toBeInTheDocument();
     });
 
+    // Delete lives inside the album ⋮ menu.
+    await userEvent.click(screen.getByTitle("Изменить альбом"));
     await userEvent.click(screen.getByTitle("Удалить альбом"));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByText("Удалить"));

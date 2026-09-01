@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, MoreVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { CreateWallPost } from "@/components/CreateWallPost";
@@ -219,50 +225,54 @@ export function ProfileAlbumView({
 
   return (
     <div className="space-y-4">
-      {/* Album header + management (owner only) */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <h2 className="text-xl font-bold flex-1 min-w-0 truncate">
-          {album.name}{" "}
-          <span className="text-sm font-normal text-muted-foreground">
-            ({album.post_count})
-          </span>
-        </h2>
-        {isOwnProfile && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={openPicker}
-              className="gap-1.5"
-              title={t("profile.addPosts")}
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">{t("profile.addPosts")}</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => {
-                setRenameValue(album.name);
-                setRenameOpen(true);
-              }}
-              title={t("profile.renameAlbum")}
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive hover:text-destructive"
-              onClick={() => setDeleteOpen(true)}
-              title={t("profile.deleteAlbum")}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-      </div>
+      {/* Album header — no name here (it lives in the tab bar above): just
+          the management actions, owner only. */}
+      {isOwnProfile && (
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={openPicker}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-4 text-sm font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/10"
+            title={t("profile.addPosts")}
+          >
+            <Plus className="h-4 w-4" />
+            {t("profile.addPosts")}
+          </button>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:bg-transparent"
+                title={t("profile.editAlbum")}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-popover border-border shadow-lg">
+              <DropdownMenuItem
+                onClick={() => {
+                  setRenameValue(album.name);
+                  setRenameOpen(true);
+                }}
+                className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                title={t("profile.renameAlbum")}
+              >
+                <Pencil className="h-4 w-4 mr-3" />
+                {t("profile.renameAlbum")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setDeleteOpen(true)}
+                className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                title={t("profile.deleteAlbum")}
+              >
+                <Trash2 className="h-4 w-4 mr-3" />
+                {t("profile.deleteAlbum")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-8">
