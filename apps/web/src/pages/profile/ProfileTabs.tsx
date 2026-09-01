@@ -264,7 +264,11 @@ export function ProfileTabs({
   const snapToBar = () => {
     const bar = stickyBarRef.current;
     if (!bar) return;
-    const barDocTop = bar.getBoundingClientRect().top + window.scrollY;
+    // offsetTop = the bar's natural in-flow position. getBoundingClientRect()
+    // would return the PINNED viewport top once the bar is stuck (≈0), making
+    // the snap target equal the current scroll depth — i.e. the BOTTOM of the
+    // new tab — instead of its top.
+    const barDocTop = bar.offsetTop;
     if (window.scrollY >= barDocTop) barSnapTargetRef.current = barDocTop;
   };
 
