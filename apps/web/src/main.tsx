@@ -1,3 +1,4 @@
+import "./instrument"; // MUST be the first import — Sentry.init() before anything else
 import "./lib/polyfills";
 import "./i18n";
 import React from "react";

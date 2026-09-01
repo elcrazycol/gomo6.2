@@ -98,6 +98,10 @@ TURNSTILE_HOSTNAMES=gomo6.wtf
 # Публичный sitekey — для локальной сборки web (в CI передаётся секретом
 # VITE_TURNSTILE_SITEKEY в .forgejo/workflows/deploy.yml).
 VITE_TURNSTILE_SITEKEY=0x4AAAAAAEMbiZqJKU7PLzRG
+# Sentry public DSN (RUM: ошибки + трейсинг запросов) — для локальной сборки
+# web; в CI передаётся секретом VITE_SENTRY_DSN в .forgejo/workflows/deploy.yml.
+# Без него SDK — no-op. Проект: Sentry → Create project → React → Client Keys.
+VITE_SENTRY_DSN=
 # Web Push (PWA): сгенерировать `cd apps/backend-go && go run ./cmd/vapidgen` и
 # вставить пару ключей. БЕЗ них push просто отключён (логируем предупреждение),
 # остальное работает. Ключи должны быть стабильны — существующие подписки

@@ -44,6 +44,8 @@
 #   VITE_DEPAY_INTEGRATION_ID (only used by the web build)
 #   VITE_TURNSTILE_SITEKEY — Cloudflare Turnstile public sitekey (only used by
 #                            the web build; it is a PUBLIC key, safe in CI)
+#   VITE_SENTRY_DSN — Sentry public DSN (only used by the web build; it is a
+#                     PUBLIC key, safe in CI — Sentry events go to it)
 #
 # One-time setup:
 #   - Runner: native forgejo-runner binary + `.forgejo-runner.yaml` with
@@ -228,7 +230,7 @@ jobs:
           # (see CONTRIBUTING.md "Release ritual").
           APP_VERSION="$(cat "$SRC/VERSION")"
           if [ "${{ matrix.service }}" = "web" ]; then
-            BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_APP_VERSION=$APP_VERSION --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }} --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }}"
+            BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_APP_VERSION=$APP_VERSION --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }} --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }} --build-arg VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}"
           elif [ "${{ matrix.service }}" = "backend" ]; then
             BUILD_ARGS="--build-arg VERSION=$APP_VERSION --build-arg GIT_COMMIT=${{ github.sha }}"
           fi

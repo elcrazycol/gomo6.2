@@ -109,6 +109,7 @@ export default defineConfig(() => ({
           if (id.includes("@tanstack")) return "vendor-query";
           if (id.includes("i18next")) return "vendor-i18n";
           if (id.includes("lucide-react")) return "vendor-icons";
+          if (id.includes("@sentry")) return "vendor-sentry";
           // NOTE: @tiptap/prosemirror and recharts are intentionally NOT split
           // here. Both are only reachable through lazy chunks (GomoRichEditor,
           // Stats) — forcing them into a shared "vendor" chunk made the entry

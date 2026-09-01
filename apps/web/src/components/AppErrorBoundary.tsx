@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import * as Sentry from "@sentry/react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logClientError } from "@/lib/logging";
@@ -24,6 +25,11 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error("[AppErrorBoundary] Caught error:", error, errorInfo);
+    // Report to Sentry with the React component stack (the existing backend
+    // logger stays as the self-hosted fallback).
+    Sentry.captureException(error, {
+      extra: { componentStack: errorInfo.componentStack },
+    });
     logClientError(
       {
         message: error.message,
