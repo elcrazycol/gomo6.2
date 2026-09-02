@@ -45,6 +45,12 @@ const PAGE_SIZE = 10;
 // a burst of page fetches when the sentinel stays visible after an append
 // (e.g. a page of short text-only posts) — mirrors ThreadFeed's cooldown.
 const LOAD_MORE_COOLDOWN_MS = 1500;
+// How far past the viewport edge the sentinel may sit and still count as "the
+// user wants the next page". Kept in sync with the observer's rootMargin and
+// reused by the post-append re-check: the observer only fires on intersection
+// *changes*, so after a fast scroll the sentinel can stay visible without a
+// single new callback — the re-check has to evaluate the same zone itself.
+const LOAD_MORE_TRIGGER_MARGIN_PX = 600;
 
 // One canonical wall order: pinned first (by pinned_order), then newest. Used
 // by both the initial load and load-more merges so the list stays in the same
@@ -150,6 +156,20 @@ export const ProfileWall = ({
   const hasMoreRef = useRef(false);
   const loadMoreRef = useRef<() => void>(() => {});
   const nextLoadMoreAtRef = useRef(0);
+  // A trigger that arrived while a page fetch was in flight (or the cooldown
+  // was active) must not be dropped silently — remember it and re-run the
+  // check once the fetch settles.
+  const retryPendingRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
+  const requestLoadMoreRef = useRef<() => void>(() => {});
+
+  const clearLoadMoreRetry = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
   // The wall owner the current state belongs to — resets everything when the
   // owner changes (the route keeps the component mounted across profiles).
   const lastOwnerRef = useRef<string | null>(null);
@@ -165,6 +185,8 @@ export const ProfileWall = ({
   useEffect(() => {
     if (lastOwnerRef.current === profileUserId) return;
     lastOwnerRef.current = profileUserId;
+    clearLoadMoreRetry();
+    retryPendingRef.current = false;
     setPosts(initialPost ? [initialPost] : []);
     setHasMore(false);
     nextCursorRef.current = null;
@@ -317,12 +339,62 @@ export const ProfileWall = ({
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
+      // The observer only fires on intersection changes, so an append that
+      // leaves the sentinel visible (fast scrolling past the bottom) would
+      // never re-trigger it by itself. Re-check right after settling —
+      // requestLoadMore fetches the next page or re-arms its cooldown timer.
+      requestLoadMoreRef.current();
     }
   }, [fetchWallPage, loading]);
 
   // Keep the observer's snapshot of the loader fresh — the observer is only
   // created/destroyed when hasMore toggles, never on every posts change.
   loadMoreRef.current = loadMorePosts;
+
+  // Is the sentinel still within LOAD_MORE_TRIGGER_MARGIN_PX of the viewport?
+  // Mirrors the intersection check the observer performs, but callable on
+  // demand — e.g. right after a page of posts was appended.
+  const isSentinelInTriggerZone = useCallback(() => {
+    const el = sentinelRef.current;
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const viewportBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+    return rect.top <= viewportBottom + LOAD_MORE_TRIGGER_MARGIN_PX && rect.bottom >= -LOAD_MORE_TRIGGER_MARGIN_PX;
+  }, []);
+
+  // Single entry point for "the user wants more posts". Never drops a
+  // trigger: if a fetch is already running (fast scroll piling up events) or
+  // the cooldown is active, the request is re-armed — a flag re-evaluated from
+  // loadMorePosts' finally, plus a timer that wakes up when the cooldown
+  // expires — instead of being consumed and forgotten.
+  const requestLoadMore = useCallback(() => {
+    if (focusedPostId || !hasMoreRef.current) return;
+    if (loadingMoreRef.current) {
+      // A page fetch is in flight — re-evaluate when it settles.
+      retryPendingRef.current = true;
+      return;
+    }
+    // Demand-driven: only fetch while the sentinel is (still) near the
+    // viewport, unless a trigger is pending from while we were mid-fetch.
+    if (!retryPendingRef.current && !isSentinelInTriggerZone()) return;
+    const waitMs = nextLoadMoreAtRef.current - Date.now();
+    if (waitMs > 0) {
+      // Cooldown active and no further observer callback is coming (the
+      // sentinel never left and re-entered the zone) — wake up when it ends.
+      clearLoadMoreRetry();
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        retryPendingRef.current = false;
+        requestLoadMoreRef.current();
+      }, waitMs + 50);
+      return;
+    }
+    retryPendingRef.current = false;
+    nextLoadMoreAtRef.current = Date.now() + LOAD_MORE_COOLDOWN_MS;
+    loadMoreRef.current();
+  }, [clearLoadMoreRetry, focusedPostId, isSentinelInTriggerZone]);
+
+  requestLoadMoreRef.current = requestLoadMore;
 
   // Infinite scroll: fetch the next page when the sentinel enters the viewport.
   useEffect(() => {
@@ -331,16 +403,21 @@ export const ProfileWall = ({
     if (!sentinel || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some(entry => entry.isIntersecting) && Date.now() >= nextLoadMoreAtRef.current) {
-          nextLoadMoreAtRef.current = Date.now() + LOAD_MORE_COOLDOWN_MS;
-          loadMoreRef.current();
+        if (entries.some((entry) => entry.isIntersecting)) {
+          requestLoadMoreRef.current();
         }
       },
-      { rootMargin: "600px" }
+      { rootMargin: `${LOAD_MORE_TRIGGER_MARGIN_PX}px` }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [hasMore, focusedPostId]);
+
+  // Clear a pending cooldown re-arm on unmount so a stale timer can't fire a
+  // fetch after the wall left the screen.
+  useEffect(() => {
+    return () => clearLoadMoreRetry();
+  }, [clearLoadMoreRetry]);
 
   useEffect(() => {
     if (showWall && !wallHidden) {

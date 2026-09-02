@@ -2100,6 +2100,90 @@ describe("ProfileWall", () => {
     expect(screen.getAllByText("Post 1").length).toBe(1);
   });
 
+  it("keeps auto-loading when the sentinel stays visible (fast-scroll fling)", async () => {
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    let pageIdx = 0;
+    const cursorRequests: string[] = [];
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "profile_wall_posts") {
+        return wallPageChain(
+          () => {
+            if (pageIdx === 0) {
+              pageIdx++;
+              return {
+                data: Array.from({ length: 10 }, (_, i) =>
+                  createMockPost({ id: `fling-${i}`, content: `Fling ${i}` })
+                ),
+                has_more: true,
+                next_cursor: "cursor-1",
+              };
+            }
+            if (pageIdx === 1) {
+              pageIdx++;
+              return {
+                data: Array.from({ length: 10 }, (_, i) =>
+                  createMockPost({ id: `fling-1${i}`, content: `Fling 1${i}` })
+                ),
+                has_more: true,
+                next_cursor: "cursor-2",
+              };
+            }
+            pageIdx++;
+            return {
+              data: [createMockPost({ id: "fling-20", content: "Fling 20" })],
+              has_more: false,
+              next_cursor: null,
+            };
+          },
+          undefined,
+          (cursor) => cursorRequests.push(cursor),
+        );
+      }
+      return makeChain({ data: [], error: null });
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Fling 0")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("wall-sentinel")).toBeInTheDocument();
+
+    // The user flings to the bottom: the sentinel fires ONCE and then stays
+    // visible — the observer never fires again without an intersection
+    // *change*, so any further loads must come from the post-append re-check.
+    await act(async () => {
+      lastObserver().fire();
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Fling 19")).toBeInTheDocument();
+    });
+    expect(cursorRequests).toContain("cursor-1");
+
+    // Nothing fires again, but the cooldown timer armed by the post-append
+    // re-check must wake up and pull the next page on its own.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Fling 20")).toBeInTheDocument();
+    });
+    expect(cursorRequests).toContain("cursor-2");
+
+    // has_more is exhausted — the sentinel goes away.
+    await waitFor(() => {
+      expect(screen.queryByTestId("wall-sentinel")).not.toBeInTheDocument();
+    });
+  });
+
   it("resets the wall when the profile owner changes", async () => {
     vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
     let wallOwner: string | null = null;
