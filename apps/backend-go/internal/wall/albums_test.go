@@ -2,7 +2,9 @@ package wall
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
@@ -186,6 +188,116 @@ func TestHandleAlbumPostsGet_HiddenWallReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestHandleAlbumPostsGet_KeysetHasMore(t *testing.T) {
+	srv, mock := setupService(t)
+
+	// limit=2, 3 rows added → the probe (LIMIT 3) returns 3 rows,
+	// has_more=true, and next_cursor comes from the last KEPT row (post2,
+	// index 1 after slicing) keyed on the album membership's added_at.
+	mock.ExpectQuery(`SELECT user_id FROM profile_albums WHERE id = \$1`).
+		WithArgs("album-1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+	expectVisibleWall(mock, "u1")
+
+	columns := []string{
+		"id", "user_id", "author_id", "title", "content", "content_json", "image_url", "attachments",
+		"repost_of_post_id", "created_at", "updated_at", "is_pinned", "pinned_order", "added_at", "author",
+	}
+	mock.ExpectQuery(`(?s).*FROM profile_album_posts ap.*WHERE ap\.album_id = \$1.*ORDER BY ap\.added_at DESC, ap\.post_id DESC.*LIMIT 3`).
+		WithArgs("album-1", "viewer").
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow("post3", "u1", "u1", "Post 3", "C", nil, nil, nil, nil, "2025-01-03T00:00:00Z", "2025-01-03T00:00:00Z", false, nil, time.Date(2025, 1, 3, 0, 0, 0, 0, time.UTC), `{}`).
+			AddRow("post2", "u1", "u1", "Post 2", "C", nil, nil, nil, nil, "2025-01-02T00:00:00Z", "2025-01-02T00:00:00Z", false, nil, time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), `{}`).
+			AddRow("post1", "u1", "u1", "Post 1", "C", nil, nil, nil, nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), `{}`))
+
+	c, w := newRequestContext("GET", "/api/v1/profile_album_posts?album_id=eq.album-1&limit=2", nil, &auth.Claims{UserID: "viewer"})
+	srv.HandleAlbumPostsGet(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data       []map[string]interface{} `json:"data"`
+		HasMore    *bool                    `json:"has_more"`
+		NextCursor *string                  `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("expected 2 posts on page 1, got %d", len(resp.Data))
+	}
+	if resp.HasMore == nil || !*resp.HasMore {
+		t.Fatalf("expected has_more=true, got %v", resp.HasMore)
+	}
+	if resp.NextCursor == nil || !strings.HasPrefix(*resp.NextCursor, "2025-01-02T00:00:00Z::post2") {
+		t.Fatalf("expected next_cursor from the last kept row (post2), got %q", cursorOrNil(resp.NextCursor))
+	}
+}
+
+func TestHandleAlbumPostsGet_KeysetCursorPage(t *testing.T) {
+	srv, mock := setupService(t)
+
+	// A cursor page binds the keyset predicate after album_id and the viewer:
+	// $1 album_id, $2 viewer, $3 added_at, $4 post id.
+	mock.ExpectQuery(`SELECT user_id FROM profile_albums WHERE id = \$1`).
+		WithArgs("album-1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+	expectVisibleWall(mock, "u1")
+
+	columns := []string{
+		"id", "user_id", "author_id", "title", "content", "content_json", "image_url", "attachments",
+		"repost_of_post_id", "created_at", "updated_at", "is_pinned", "pinned_order", "added_at", "author",
+	}
+	mock.ExpectQuery(`(?s).*WHERE ap\.album_id = \$1 AND \(ap\.added_at, ap\.post_id\) < \(\$3::timestamptz, \$4::uuid\).*ORDER BY ap\.added_at DESC.*LIMIT 3`).
+		WithArgs("album-1", "viewer", time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC), "post2").
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow("post1", "u1", "u1", "Post 1", "C", nil, nil, nil, nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), `{}`).
+			AddRow("post0", "u1", "u1", "Post 0", "C", nil, nil, nil, nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC), `{}`))
+
+	c, w := newRequestContext("GET",
+		"/api/v1/profile_album_posts?album_id=eq.album-1&limit=2&cursor=2025-01-02T00:00:00Z::post2",
+		nil, &auth.Claims{UserID: "viewer"})
+	srv.HandleAlbumPostsGet(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data       []map[string]interface{} `json:"data"`
+		HasMore    *bool                    `json:"has_more"`
+		NextCursor *string                  `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("expected 2 posts on the cursor page, got %d", len(resp.Data))
+	}
+	if resp.HasMore == nil || *resp.HasMore {
+		t.Fatalf("expected has_more=false, got %v", resp.HasMore)
+	}
+	if resp.NextCursor != nil {
+		t.Fatalf("expected no next_cursor when the probe returned exactly limit rows, got %q", cursorOrNil(resp.NextCursor))
+	}
+}
+
+func TestHandleAlbumPostsGet_InvalidCursor_Returns400(t *testing.T) {
+	srv, mock := setupService(t)
+
+	mock.ExpectQuery(`SELECT user_id FROM profile_albums WHERE id = \$1`).
+		WithArgs("album-1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+	expectVisibleWall(mock, "u1")
+
+	c, w := newRequestContext("GET", "/api/v1/profile_album_posts?album_id=eq.album-1&cursor=not-a-valid-cursor", nil, &auth.Claims{UserID: "viewer"})
+	srv.HandleAlbumPostsGet(c)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for an invalid cursor, got %d", w.Code)
+	}
+}
+
 // ─── PrepareAlbumBody ───────────────────────────────────────────────────────
 
 func TestPrepareAlbumBody_ValidatesName(t *testing.T) {
@@ -299,4 +411,11 @@ func TestPrepareAlbumPostBody_HappyPath(t *testing.T) {
 	if !srv.PrepareAlbumPostBody(c, "profile_album_posts", "POST", map[string]interface{}{"album_id": "album-x", "post_id": "p1"}) {
 		t.Fatal("expected acceptance for own album + own wall post")
 	}
+}
+
+func cursorOrNil(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
 }

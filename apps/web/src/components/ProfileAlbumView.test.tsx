@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeAll, beforeEach, vi } from "vitest";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -105,7 +105,54 @@ function renderAlbumView(overrides: Record<string, unknown> = {}) {
   return { ...view, props };
 }
 
+// ─── IntersectionObserver stub (for infinite scroll tests) ───────────────────
+
+class MockIntersectionObserver {
+  static instances: MockIntersectionObserver[] = [];
+  private callback: IntersectionObserverCallback;
+
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+    MockIntersectionObserver.instances.push(this);
+  }
+
+  observe = vi.fn();
+  disconnect = vi.fn();
+
+  /** Fires the observer with the sentinel intersecting, as if it scrolled into view. */
+  fire() {
+    this.callback(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver
+    );
+  }
+}
+
+const lastObserver = () => MockIntersectionObserver.instances[MockIntersectionObserver.instances.length - 1];
+
+function makeAlbumPost(id: string, content: string) {
+  return {
+    id,
+    user_id: "profile-user-1",
+    author_id: "author-1",
+    title: "",
+    content,
+    content_json: null,
+    image_url: null,
+    attachments: null,
+    repost_of_post_id: null,
+    original_post: null,
+    created_at: "2025-01-15T10:00:00Z",
+    updated_at: "2025-01-15T10:00:00Z",
+    is_pinned: false,
+    pinned_order: null,
+    author: { username: "testuser", is_anonymous: false, avatar_url: null },
+  };
+}
+
 beforeEach(() => {
+  // afterEach unstubs globals, so restore the fetch binding for every test.
+  vi.stubGlobal("fetch", mockFetch);
   vi.clearAllMocks();
   mockFetch.mockImplementation((url: string) => {
     if (url.includes("/api/v1/profile_album_posts")) {
@@ -125,6 +172,11 @@ describe("ProfileAlbumView", () => {
   beforeAll(async () => {
     const mod = await import("./ProfileAlbumView");
     ProfileAlbumViewComponent = mod.ProfileAlbumView;
+  });
+
+  afterEach(() => {
+    MockIntersectionObserver.instances = [];
+    vi.unstubAllGlobals();
   });
 
   it("loads the album posts", async () => {
@@ -234,6 +286,85 @@ describe("ProfileAlbumView", () => {
 
     await waitFor(() => {
       expect(props.onDeleteAlbum).toHaveBeenCalled();
+    });
+  });
+
+  it("keeps auto-loading when the sentinel stays visible (fast-scroll fling)", async () => {
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    let pageIdx = 0;
+    const cursorRequests: string[] = [];
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/v1/profile_album_posts")) {
+        const m = url.match(/cursor=([^&]+)/);
+        if (m) cursorRequests.push(decodeURIComponent(m[1]));
+        if (pageIdx === 0) {
+          pageIdx++;
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                data: Array.from({ length: 10 }, (_, i) => makeAlbumPost(`album-0${i}`, `Album 0${i}`)),
+                has_more: true,
+                next_cursor: "album-cursor-1",
+              }),
+          });
+        }
+        if (pageIdx === 1) {
+          pageIdx++;
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                data: Array.from({ length: 10 }, (_, i) => makeAlbumPost(`album-1${i}`, `Album 1${i}`)),
+                has_more: true,
+                next_cursor: "album-cursor-2",
+              }),
+          });
+        }
+        pageIdx++;
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              data: [makeAlbumPost("album-20", "Album 20")],
+              has_more: false,
+              next_cursor: null,
+            }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+
+    renderAlbumView();
+    await waitFor(() => {
+      expect(screen.getByText("Album 00")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("album-sentinel")).toBeInTheDocument();
+
+    // The user flings to the bottom: the sentinel fires ONCE and then stays
+    // visible — the observer never fires again without an intersection
+    // *change*, so any further loads must come from the post-append re-check.
+    await act(async () => {
+      lastObserver().fire();
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Album 19")).toBeInTheDocument();
+    });
+    expect(cursorRequests).toContain("album-cursor-1");
+
+    // Nothing fires again, but the cooldown timer armed by the post-append
+    // re-check must wake up and pull the next page on its own.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Album 20")).toBeInTheDocument();
+    });
+    expect(cursorRequests).toContain("album-cursor-2");
+
+    // has_more is exhausted — the sentinel goes away.
+    await waitFor(() => {
+      expect(screen.queryByTestId("album-sentinel")).not.toBeInTheDocument();
     });
   });
 });

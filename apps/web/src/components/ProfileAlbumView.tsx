@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, MoreVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -34,6 +34,22 @@ interface ProfileAlbumViewProps {
   /** Fired after any membership change so the parent refreshes album counts. */
   onAlbumPostsChanged: () => void;
 }
+
+// Album posts are keyset-paginated exactly like the wall: limit + an opaque
+// next_cursor echoed back by the client (newest-added first, keyed on the
+// album membership row's added_at). Long albums no longer load in one request.
+const PAGE_SIZE = 10;
+
+// Minimum delay between auto-loads triggered by the scroll sentinel. Prevents
+// a burst of page fetches when the sentinel stays visible after an append —
+// mirrors the ProfileWall/ThreadFeed cooldown.
+const LOAD_MORE_COOLDOWN_MS = 1500;
+// How far past the viewport edge the sentinel may sit and still count as "the
+// user wants the next page". Kept in sync with the observer's rootMargin and
+// reused by the post-append re-check: the observer only fires on intersection
+// *changes*, so after a fast scroll the sentinel can stay visible without a
+// single new callback — the re-check has to evaluate the same zone itself.
+const LOAD_MORE_TRIGGER_MARGIN_PX = 600;
 
 /** Album view inside the wall tab: the album's posts plus the minimalistic
  * management panel (add/remove posts, rename, delete). Reuses WallPostCard
@@ -71,24 +87,189 @@ export function ProfileAlbumView({
   const [renameValue, setRenameValue] = useState(album.name);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // Keyset pagination state — refs so the long-lived scroll machinery never
+  // closes over stale values (the same pattern ProfileWall uses).
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const nextCursorRef = useRef<string | null>(null);
+  const hasMoreRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const nextLoadMoreAtRef = useRef(0);
+  const retryPendingRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
+  const loadMoreRef = useRef<() => void>(() => {});
+  const requestLoadMoreRef = useRef<() => void>(() => {});
+  // The album id the current state belongs to — resets pagination when the
+  // parent switches albums without remounting this component.
+  const lastAlbumIdRef = useRef<string | null>(null);
+
+  const clearLoadMoreRetry = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  // Fetch one page of album posts. cursor=null means the first page — the
+  // response replaces the list; the caller appends only cursor pages.
+  const fetchAlbumPage = useCallback(async (cursor: string | null, pageSize: number) => {
+    let url = `/api/v1/profile_album_posts?album_id=eq.${album.id}&limit=${pageSize}`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    const raw = (json.data as Record<string, unknown>[]) || [];
+    return {
+      posts: raw.map((row) => normalizeWallPostRecord(row, currentUsername)),
+      hasMore: json.has_more === true,
+      nextCursor: typeof json.next_cursor === "string" ? json.next_cursor : null,
+    };
+  }, [album.id, currentUsername]);
+
   const loadPosts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/profile_album_posts?album_id=eq.${album.id}`);
-      const json = await res.json();
-      const raw = (json.data as Record<string, unknown>[]) || [];
-      setPosts(raw.map((row) => normalizeWallPostRecord(row, currentUsername)));
+      const { posts: fetched, hasMore: hasMoreData, nextCursor } = await fetchAlbumPage(null, PAGE_SIZE);
+      setPosts(fetched);
+      setHasMore(hasMoreData);
+      nextCursorRef.current = nextCursor;
     } catch (error) {
       console.error("Error loading album posts:", error);
       toast.error(t("profile.threadsLoadError"));
     } finally {
       setLoading(false);
     }
-  }, [album.id, currentUsername, t]);
+  }, [fetchAlbumPage, t]);
+
+  const loadMorePosts = useCallback(async () => {
+    if (loadingMoreRef.current || loading || !hasMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const cursor = nextCursorRef.current;
+      // hasMore without a cursor means there is nothing more to fetch — the
+      // server only reports has_more when it also returns a cursor.
+      if (!cursor) {
+        setHasMore(false);
+        return;
+      }
+      const { posts: fetched, hasMore: hasMoreData, nextCursor } = await fetchAlbumPage(cursor, PAGE_SIZE);
+      nextCursorRef.current = nextCursor;
+      if (fetched.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      setPosts((prev) => {
+        const existingIds = new Set(prev.filter((p) => p.id).map((p) => p.id));
+        return [...prev, ...fetched.filter((p) => p.id && !existingIds.has(p.id))];
+      });
+      setHasMore(hasMoreData);
+    } catch (error) {
+      console.error("Error loading more album posts:", error);
+      toast.error(t("profile.threadsLoadError"));
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+      // The observer only fires on intersection changes, so an append that
+      // leaves the sentinel visible (fast scrolling past the bottom) would
+      // never re-trigger it by itself. Re-check right after settling —
+      // requestLoadMore fetches the next page or re-arms its cooldown timer.
+      requestLoadMoreRef.current();
+    }
+  }, [fetchAlbumPage, loading, t]);
+
+  // Keep the scroll machinery's snapshots fresh.
+  loadMoreRef.current = loadMorePosts;
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  // Reset pagination when the album changes — the parent keeps this component
+  // mounted while switching selectedAlbum, and stale pages must not leak.
+  useEffect(() => {
+    if (lastAlbumIdRef.current === album.id) return;
+    lastAlbumIdRef.current = album.id;
+    clearLoadMoreRetry();
+    retryPendingRef.current = false;
+    setPosts([]);
+    setHasMore(false);
+    nextCursorRef.current = null;
+    setLoading(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [album.id]);
 
   useEffect(() => {
     loadPosts();
-  }, [loadPosts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [album.id, currentUsername]);
+
+  // Is the sentinel still within LOAD_MORE_TRIGGER_MARGIN_PX of the viewport?
+  // Mirrors the intersection check the observer performs, but callable on
+  // demand — e.g. right after a page of posts was appended.
+  const isSentinelInTriggerZone = useCallback(() => {
+    const el = sentinelRef.current;
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const viewportBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+    return rect.top <= viewportBottom + LOAD_MORE_TRIGGER_MARGIN_PX && rect.bottom >= -LOAD_MORE_TRIGGER_MARGIN_PX;
+  }, []);
+
+  // Single entry point for "the user wants more posts". Never drops a
+  // trigger: if a fetch is already running (fast scroll piling up events) or
+  // the cooldown is active, the request is re-armed — a flag re-evaluated from
+  // loadMorePosts' finally, plus a timer that wakes up when the cooldown
+  // expires — instead of being consumed and forgotten.
+  const requestLoadMore = useCallback(() => {
+    if (!hasMoreRef.current) return;
+    if (loadingMoreRef.current) {
+      // A page fetch is in flight — re-evaluate when it settles.
+      retryPendingRef.current = true;
+      return;
+    }
+    // Demand-driven: only fetch while the sentinel is (still) near the
+    // viewport, unless a trigger is pending from while we were mid-fetch.
+    if (!retryPendingRef.current && !isSentinelInTriggerZone()) return;
+    const waitMs = nextLoadMoreAtRef.current - Date.now();
+    if (waitMs > 0) {
+      // Cooldown active and no further observer callback is coming (the
+      // sentinel never left and re-entered the zone) — wake up when it ends.
+      clearLoadMoreRetry();
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        retryPendingRef.current = false;
+        requestLoadMoreRef.current();
+      }, waitMs + 50);
+      return;
+    }
+    retryPendingRef.current = false;
+    nextLoadMoreAtRef.current = Date.now() + LOAD_MORE_COOLDOWN_MS;
+    loadMoreRef.current();
+  }, [clearLoadMoreRetry, isSentinelInTriggerZone]);
+
+  requestLoadMoreRef.current = requestLoadMore;
+
+  // Infinite scroll: fetch the next page when the sentinel enters the viewport.
+  useEffect(() => {
+    if (!hasMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          requestLoadMoreRef.current();
+        }
+      },
+      { rootMargin: `${LOAD_MORE_TRIGGER_MARGIN_PX}px` }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore]);
+
+  // Clear a pending cooldown re-arm on unmount so a stale timer can't fire a
+  // fetch after the album view left the screen.
+  useEffect(() => {
+    return () => clearLoadMoreRetry();
+  }, [clearLoadMoreRetry]);
 
   // Load the wall posts once when the picker first opens (a wall-size batch,
   // legacy single-query path: an offset disables keyset pagination).
@@ -314,6 +495,17 @@ export function ProfileAlbumView({
               }}
             />
           ))}
+          {hasMore && (
+            <div
+              ref={sentinelRef}
+              data-testid="album-sentinel"
+              className="flex justify-center py-4"
+            >
+              {loadingMore && (
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+              )}
+            </div>
+          )}
         </div>
       )}
 

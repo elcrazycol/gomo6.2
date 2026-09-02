@@ -2,8 +2,11 @@ package wall
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +26,27 @@ import (
 // owner-only: the generic registry binds profile_albums to the caller via
 // OwnSingle, and the album_posts POST guard verifies album + post ownership
 // here (fail-closed L5 lookups).
+
+// albumCursor is an opaque (added_at, post_id) keyset position for album
+// post pages — the album membership row's own timestamp column, NOT the
+// post's created_at (they differ when a post is added to an album later).
+// The client never inspects it — it just echoes next_cursor back.
+func encodeAlbumCursor(row map[string]interface{}) string {
+	ct, _ := row["added_at"].(time.Time)
+	return ct.Format(time.RFC3339Nano) + "::" + fmt.Sprint(row["id"])
+}
+
+func parseAlbumCursor(raw string) (wallCursor, bool) {
+	parts := strings.SplitN(raw, "::", 2)
+	if len(parts) != 2 {
+		return wallCursor{}, false
+	}
+	ct, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil || parts[1] == "" {
+		return wallCursor{}, false
+	}
+	return wallCursor{createdAt: ct, id: parts[1]}, true
+}
 
 // eqValue extracts the plain value of a PostgREST "op.value" filter
 // (e.g. "eq.abc-123" → "abc-123"); a plain value passes through.
@@ -115,6 +139,12 @@ func (s *Service) HandleAlbumsGet(c *gin.Context) {
 // album's wall posts as full wall rows (author embed + interaction counts),
 // newest-added first. The album must exist and its owner's wall must be
 // visible to the viewer; otherwise the response is empty.
+//
+// Long albums are keyset-paginated exactly like the wall list: limit (default
+// 10) plus an opaque next_cursor echo the (added_at, post_id) position of the
+// last row; each page probes limit+1 rows so has_more is exact. A plain
+// request without limit/cursor still returns the has_more/next_cursor
+// envelope with the default page — old callers keep working unchanged.
 func (s *Service) HandleAlbumPostsGet(c *gin.Context) {
 	albumID := eqValue(c.Query("album_id"))
 	if albumID == "" {
@@ -144,6 +174,13 @@ func (s *Service) HandleAlbumPostsGet(c *gin.Context) {
 		return
 	}
 
+	limit := 10
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
 	q := `
 SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
@@ -152,17 +189,32 @@ SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image
 FROM profile_album_posts ap
 JOIN profile_wall_posts p ON p.id = ap.post_id
 LEFT JOIN users u ON u.id = p.author_id
-WHERE ap.album_id = $1
-ORDER BY ap.added_at DESC, ap.post_id DESC`
+WHERE ap.album_id = $1 {cursor}
+ORDER BY ap.added_at DESC, ap.post_id DESC
+LIMIT {limit}`
+	args := []interface{}{albumID}
+	nextArg := 2
 	viewerArg := "NULL"
 	if viewerID != "" {
-		viewerArg = "$2"
+		viewerArg = "$" + strconv.Itoa(nextArg)
+		args = append(args, viewerID)
+		nextArg++
 	}
 	q = strings.ReplaceAll(q, "{viewer}", viewerArg)
-	args := []interface{}{albumID}
-	if viewerID != "" {
-		args = append(args, viewerID)
+
+	cursorClause := ""
+	if cursorRaw := c.Query("cursor"); cursorRaw != "" {
+		cur, ok := parseAlbumCursor(cursorRaw)
+		if !ok {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("invalid cursor"))
+			return
+		}
+		cursorClause = fmt.Sprintf(
+			"AND (ap.added_at, ap.post_id) < ($%d::timestamptz, $%d::uuid)", nextArg, nextArg+1)
+		args = append(args, cur.createdAt, cur.id)
 	}
+	q = strings.ReplaceAll(q, "{cursor}", cursorClause)
+	q = strings.ReplaceAll(q, "{limit}", strconv.Itoa(limit+1))
 
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
@@ -176,7 +228,18 @@ ORDER BY ap.added_at DESC, ap.post_id DESC`
 		httpx.ServerError(c, "database error", err)
 		return
 	}
-	c.JSON(http.StatusOK, models.SuccessResponse(results))
+
+	hasMore := len(results) > limit
+	var nextCursor *string
+	if hasMore {
+		results = results[:limit]
+		nc := encodeAlbumCursor(results[len(results)-1])
+		nextCursor = &nc
+	}
+	resp := models.SuccessResponse(results)
+	resp.HasMore = &hasMore
+	resp.NextCursor = nextCursor
+	c.JSON(http.StatusOK, resp)
 }
 
 // PrepareAlbumBody validates the client-writable album fields: a non-empty
