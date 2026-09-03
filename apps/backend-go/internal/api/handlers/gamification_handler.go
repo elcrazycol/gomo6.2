@@ -29,11 +29,9 @@ type fixedSource float64
 
 func (f fixedSource) Float64() float64 { return float64(f) }
 
-// randomSource is a gamification.Source backed by crypto/rand so server
+// cryptoRoll returns a uniform roll in [0,1) backed by crypto/rand so server
 // rolls are unpredictable even on this open surface.
-type randomSource struct{}
-
-func (randomSource) Float64() float64 {
+func cryptoRoll() float64 {
 	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err != nil {
 		return 0.5 // unreachable in practice; never block a chest tap on entropy
@@ -139,38 +137,41 @@ func (h *GamificationHandler) TapChest(c *gin.Context) {
 	// Resolve the roll: forced modes need the mechanic's current chance, which
 	// only rarity-style mechanics provide (via ChanceProvider). Anything else
 	// falls back to a plain random roll.
-	var src gamification.Source = randomSource{}
 	chance, hasChance := 0.0, false
 	if cp, ok := m.(gamification.ChanceProvider); ok {
 		chance, hasChance = cp.ChanceFor(req.State)
 	}
 
+	var roll float64
 	switch req.Force {
 	case "upgrade":
+		// A roll of 0 is always < chance, so this guarantees an upgrade
+		// whenever the tier is upgradeable. If the tier cannot be upgraded
+		// (chance 0 or top rarity), fall back to the roll the engine would
+		// draw randomly.
 		if hasChance && chance > 0 {
-			// A roll of 0 is always < chance, so this guarantees an upgrade
-			// whenever the tier is upgradeable.
-			src = fixedSource(0)
+			roll = 0
 		} else {
-			// Tier can't be upgraded (chance 0 or top rarity) — fall back to
-			// the same random roll the engine would do.
-			src = randomSource{}
+			roll = cryptoRoll()
 		}
 	case "fail":
+		// A roll >= chance guarantees a fail (chance is in [0,1]).
 		if hasChance {
-			// A roll >= chance guarantees a fail (chance is in [0,1]).
-			src = fixedSource(math.Min(chance+0.0001, 1))
+			roll = math.Min(chance+0.0001, 1)
 		} else {
-			src = fixedSource(1)
+			roll = 1
 		}
 	case "roll":
-		src = fixedSource(math.Max(0, math.Min(1, req.Roll)))
+		roll = math.Max(0, math.Min(1, req.Roll))
+	default:
+		roll = cryptoRoll()
 	}
 
-	next, ev := m.Step(req.State, src)
+	next, ev := m.Step(req.State, fixedSource(roll))
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"state":  next,
 		"event":  ev,
 		"chance": chance,
+		"roll":   roll,
 	}))
 }
