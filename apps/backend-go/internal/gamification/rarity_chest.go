@@ -37,7 +37,18 @@ type RarityChestConfig struct {
 
 // DefaultRarityChestConfig returns the production config for the built-in
 // rarity chest: Common → Eternal, 5 attempts per tier, and a deliberately
-// hard-to-climb chance curve.
+// steep chance curve. Per-attempt chances look mild, but 5 attempts make the
+// per-chest odds climb fast — so the table below is tuned for the cumulative
+// outcome, not the per-tap number:
+//
+//	per-attempt  →  chance a chest finishes at that tier or above
+//	0.20 (Common)     start
+//	0.15 (Unusual)    67%
+//	0.10 (Rare)       37%
+//	0.06 (Epic)       15%
+//	0.04 (Legendary)   4%
+//	0.03 (Mythic)      ~0.8%
+//	     (Eternal)     ~0.11%  (≈ 1 in 950 chests — a true jackpot)
 func DefaultRarityChestConfig() RarityChestConfig {
 	return RarityChestConfig{
 		Key:             RarityChestKey,
@@ -45,12 +56,12 @@ func DefaultRarityChestConfig() RarityChestConfig {
 		MaxRarity:       RarityEternal,
 		AttemptsPerTier: 5,
 		UpgradeChances: map[Rarity]float64{
-			RarityCommon:    0.60,
-			RarityUnusual:   0.50,
-			RarityRare:      0.35,
-			RarityEpic:      0.20,
-			RarityLegendary: 0.10,
-			RarityMythic:    0.05,
+			RarityCommon:    0.20,
+			RarityUnusual:   0.15,
+			RarityRare:      0.10,
+			RarityEpic:      0.06,
+			RarityLegendary: 0.04,
+			RarityMythic:    0.03,
 		},
 	}
 }
