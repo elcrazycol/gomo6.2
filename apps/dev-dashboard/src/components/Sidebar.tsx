@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   Bot,
+  Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logout } from "@/lib/oauth";
@@ -23,6 +24,7 @@ const navItems = [
   { label: "OAuth приложения", path: "/apps", icon: Shield },
   { label: "Боты", path: "/bots", icon: Bot },
   { label: "Подарки", path: "/gifts", icon: Gift },
+  { label: "Сундуки", path: "/chests", icon: Package },
 ];
 
 const externalLinks = [
