@@ -168,11 +168,24 @@ func (h *GamificationHandler) TapChest(c *gin.Context) {
 	}
 
 	next, ev := m.Step(req.State, fixedSource(roll))
+
+	// Roll the payout only when this tap actually opens a sealed chest. A tap
+	// on an already-opened chest re-reports it without re-rolling; opened
+	// states carry their FinalRarity, so rewards are decided once.
+	rewards := []gamification.Reward{}
+	if !req.State.Opened && ev.Type == gamification.EventOpened && next.FinalRarity.IsValid() {
+		rewards = gamification.RollRewards(m, next.FinalRarity, fixedSource(cryptoRoll()))
+		if rewards == nil {
+			rewards = []gamification.Reward{}
+		}
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"state":  next,
-		"event":  ev,
-		"chance": chance,
-		"roll":   roll,
+		"state":   next,
+		"event":   ev,
+		"chance":  chance,
+		"roll":    roll,
+		"rewards": rewards,
 	}))
 }
 

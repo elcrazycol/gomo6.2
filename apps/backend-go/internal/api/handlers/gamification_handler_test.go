@@ -169,8 +169,9 @@ func TestGamificationTapChest(t *testing.T) {
 				t.Fatalf("tap %d: status = %d (body: %s)", i+1, w.Code, w.Body.String())
 			}
 			var data struct {
-				State gamification.State `json:"state"`
-				Event gamification.Event `json:"event"`
+				State   gamification.State    `json:"state"`
+				Event   gamification.Event    `json:"event"`
+				Rewards []gamification.Reward `json:"rewards"`
 			}
 			unmarshalData(t, w.Body.String(), &data)
 			if i < 4 && data.Event.Type != gamification.EventFailed {
@@ -178,6 +179,17 @@ func TestGamificationTapChest(t *testing.T) {
 			}
 			if i == 4 && data.Event.Type != gamification.EventOpened {
 				t.Fatalf("tap %d: event = %q, want opened", i+1, data.Event.Type)
+			}
+			if i < 4 && len(data.Rewards) != 0 {
+				t.Errorf("tap %d: rewards = %+v, want none before opening", i+1, data.Rewards)
+			}
+			if i == 4 {
+				if len(data.Rewards) != 1 || data.Rewards[0].Kind != gamification.RewardGems {
+					t.Fatalf("tap %d: rewards = %+v, want exactly one gems payout", i+1, data.Rewards)
+				}
+				if amt := data.Rewards[0].Amount; amt < 15 || amt > 30 {
+					t.Errorf("tap %d: gem amount = %d, want in [15, 30] for common", i+1, amt)
+				}
 			}
 			s = data.State
 		}
@@ -248,12 +260,16 @@ func TestGamificationTapChest(t *testing.T) {
 			map[string]any{"state": opened}, nil, nil)
 		h.TapChest(c)
 		var data struct {
-			State gamification.State `json:"state"`
-			Event gamification.Event `json:"event"`
+			State   gamification.State    `json:"state"`
+			Event   gamification.Event    `json:"event"`
+			Rewards []gamification.Reward `json:"rewards"`
 		}
 		unmarshalData(t, w.Body.String(), &data)
 		if data.State.Opened != true || data.Event.Type != gamification.EventOpened {
 			t.Errorf("opened chest must stay opened, got state=%+v event=%+v", data.State, data.Event)
+		}
+		if len(data.Rewards) != 0 {
+			t.Errorf("tapping an already-opened chest must not re-roll rewards, got %+v", data.Rewards)
 		}
 	})
 
