@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Play, RotateCcw, Sparkles, XCircle, Dices, Package, Trash2 } from "lucide-react";
+import { Play, RotateCcw, Sparkles, XCircle, Dices, Package, Trash2, Upload, ImageOff, Check } from "lucide-react";
 import { toast } from "sonner";
 
-// ─── Types (mirror of internal/gamification) ────────────────────────────────
+// ─── Types (mirror of internal/gamification + catalog) ───────────────────────
 
 interface RarityInfo {
   rarity: string;
   color: string;
+  image_url: string;
+  opened_image_url: string;
 }
 
 interface ChestConfig {
@@ -66,6 +68,136 @@ function rarityLabel(r: string): string {
   return RARITY_LABELS[r] ?? r;
 }
 
+// Upload a PNG into the gamification bucket under an explicit key. Admin-only
+// server-side (same path and role as gift-layers), so textures are curated.
+async function uploadTexture(file: File, key: string): Promise<void> {
+  const token = api.getToken();
+  if (!token) throw new Error("Not authenticated");
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("bucket", "gamification");
+  formData.append("key", key);
+
+  const res = await fetch("/storage/v1/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || "Upload failed");
+}
+
+// ─── RarityTexture: image with color placeholder fallback ────────────────────
+
+function RarityTexture({ url, color, alt, className, iconClass }: {
+  url: string;
+  color: string;
+  alt: string;
+  className?: string;
+  iconClass?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+
+  if (!url || failed) {
+    return (
+      <div
+        className={`flex items-center justify-center ${className || ""}`}
+        style={{ background: `${color}1f`, border: `1px dashed ${color}66` }}
+      >
+        <ImageOff className={`${iconClass || "w-5 h-5"} text-muted-foreground/60`} />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className={`object-contain ${className || ""}`}
+      draggable={false}
+    />
+  );
+}
+
+// ─── TextureSlot: one rarity texture (closed or opened) with upload ─────────
+
+function TextureSlot({ rarity, opened, url, color, cacheBust, onUploaded }: {
+  rarity: string;
+  opened: boolean;
+  url: string;
+  color: string;
+  cacheBust: number;
+  onUploaded: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [justUploaded, setJustUploaded] = useState(false);
+
+  const key = opened ? `${rarity}_opened.png` : `${rarity}.png`;
+  const src = url ? `${url}?v=${cacheBust}` : "";
+
+  const doUpload = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Только картинки (PNG)");
+      return;
+    }
+    setUploading(true);
+    try {
+      await uploadTexture(file, key);
+      setJustUploaded(true);
+      setTimeout(() => setJustUploaded(false), 1500);
+      onUploaded();
+      toast.success(`${key} — загружено`);
+    } catch (err: any) {
+      toast.error(`Ошибка загрузки ${key}: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  }, [key, onUploaded]);
+
+  return (
+    <div
+      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={e => { e.preventDefault(); setDragOver(false); doUpload(e.dataTransfer.files?.[0]); }}
+      onClick={() => inputRef.current?.click()}
+      className={`relative aspect-square rounded-xl border overflow-hidden cursor-pointer transition-all ${
+        dragOver ? "border-primary ring-2 ring-primary/40 scale-[1.03]" : "border-border hover:border-primary/50"
+      }`}
+      title={opened ? `${rarityLabel(rarity)} (открытый) — кликни, чтобы загрузить ${key}` : `${rarityLabel(rarity)} — кликни, чтобы загрузить ${key}`}
+    >
+      {src && !justUploaded ? (
+        <RarityTexture url={src} color={color} alt={key} className="w-full h-full p-1.5" iconClass="w-6 h-6" />
+      ) : justUploaded ? (
+        <div className="w-full h-full flex items-center justify-center bg-emerald-500/10">
+          <Check className="w-6 h-6 text-emerald-500" />
+        </div>
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: `${color}14` }}>
+          <Upload className="w-5 h-5 text-muted-foreground/50" />
+          <span className="text-[9px] text-muted-foreground/70 font-medium">{opened ? "opened" : "closed"}</span>
+        </div>
+      )}
+      {uploading && (
+        <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
+          <PentagramLoader size="sm" />
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/webp,image/jpeg"
+        className="hidden"
+        onChange={e => { doUpload(e.target.files?.[0]); e.target.value = ""; }}
+      />
+    </div>
+  );
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const Chests = () => {
@@ -77,6 +209,8 @@ const Chests = () => {
   const [mechanics, setMechanics] = useState<MechanicInfo[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped after uploads so <img> URLs get a fresh query param (deterministic keys).
+  const [cacheBust, setCacheBust] = useState(0);
 
   // Active chest session
   const [mechanicKey, setMechanicKey] = useState<string>("");
@@ -94,31 +228,33 @@ const Chests = () => {
     });
   }, [navigate]);
 
+  const loadCatalog = useCallback(async () => {
+    try {
+      const res = await api.fetch("/api/v1/gamification/catalog");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load catalog");
+      const data = json.data as { rarities: RarityInfo[]; mechanics: MechanicInfo[] };
+      setRarities(data.rarities || []);
+      setMechanics(data.mechanics || []);
+      setMechanicKey(prev => prev || data.mechanics?.[0]?.key || "");
+      setCatalogError(null);
+    } catch (err: any) {
+      console.error(err);
+      setCatalogError(err.message || "Failed to load catalog");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Load the catalog once (rarities + registered chest mechanics).
   useEffect(() => {
     if (!sessionChecked) return;
-    (async () => {
-      try {
-        const res = await api.fetch("/api/v1/gamification/catalog");
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Failed to load catalog");
-        const data = json.data as { rarities: RarityInfo[]; mechanics: MechanicInfo[] };
-        setRarities(data.rarities || []);
-        setMechanics(data.mechanics || []);
-        const first = data.mechanics?.[0]?.key || "";
-        setMechanicKey(first);
-        setCatalogError(null);
-      } catch (err: any) {
-        console.error(err);
-        setCatalogError(err.message || "Failed to load catalog");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [sessionChecked]);
+    loadCatalog();
+  }, [sessionChecked, loadCatalog]);
 
   const mechanicConfig = mechanics.find((m) => m.key === mechanicKey)?.config;
-  const rarityColor = (r: string) => rarities.find((x) => x.rarity === r)?.color || "#888";
+  const rarityInfo = (r: string) => rarities.find((x) => x.rarity === r);
+  const rarityColor = (r: string) => rarityInfo(r)?.color || "#888";
 
   // Spawn a fresh chest.
   const startChest = useCallback(async (key?: string) => {
@@ -185,11 +321,16 @@ const Chests = () => {
     }
   }, [state, history]);
 
+  const onTextureUploaded = useCallback(() => {
+    setCacheBust(v => v + 1);
+  }, []);
+
   if (!sessionChecked || loading) {
     return <div className="flex items-center justify-center py-20"><PentagramLoader size="lg" /></div>;
   }
 
   const color = state ? rarityColor(state.rarity) : "#888";
+  const isEternal = state?.rarity === "eternal";
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -200,7 +341,7 @@ const Chests = () => {
             <Package className="w-6 h-6" /> Сундуки
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Песочница геймификации: тапай по сундуку и проверяй флоу редкостей
+            Песочница геймификации: тапай по сундуку, проверяй флоу редкостей и загружай текстурки
           </p>
         </div>
         {state && (
@@ -255,7 +396,7 @@ const Chests = () => {
       {/* ── Chest in play ── */}
       {state && (
         <>
-          {/* Rarity ladder */}
+          {/* Rarity ladder with textures */}
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-3">
@@ -268,26 +409,33 @@ const Chests = () => {
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {rarities.map((r) => {
-                  const reached = rarities.indexOf(r) <= (state ? rarities.findIndex((x) => x.rarity === state.rarity) : -1);
+                  const idx = rarities.findIndex((x) => x.rarity === state.rarity);
+                  const reached = rarities.indexOf(r) <= idx;
                   const current = state?.rarity === r.rarity;
                   return (
-                    <Badge
+                    <div
                       key={r.rarity}
-                      className={`h-7 gap-1.5 ${current ? "ring-2 ring-offset-1" : ""} ${
-                        !reached ? "opacity-40" : ""
-                      }`}
+                      className={`flex flex-col items-center gap-1 rounded-xl border p-1.5 transition-all ${
+                        current ? "ring-2 ring-offset-1" : ""
+                      } ${!reached ? "opacity-35 saturate-50" : ""}`}
                       style={{
-                        backgroundColor: `${r.color}22`,
-                        borderColor: r.color,
-                        color: r.color,
-                        boxShadow: current ? `0 0 12px ${r.color}66` : undefined,
+                        borderColor: current ? r.color : `${r.color}55`,
+                        boxShadow: current ? `0 0 14px ${r.color}66` : undefined,
                       }}
                     >
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
-                      {rarityLabel(r.rarity)}
-                    </Badge>
+                      <RarityTexture
+                        url={`${r.image_url}?v=${cacheBust}`}
+                        color={r.color}
+                        alt={r.rarity}
+                        className={`w-12 h-12 ${isEternal && current ? "eternal-glow rounded-lg" : ""}`}
+                        iconClass="w-4 h-4"
+                      />
+                      <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: r.color }}>
+                        {rarityLabel(r.rarity)}
+                      </span>
+                    </div>
                   );
                 })}
               </div>
@@ -297,26 +445,30 @@ const Chests = () => {
           {/* Chest + controls */}
           <Card>
             <CardContent className="p-6 flex flex-col items-center">
-              {/* Chest visual */}
+              {/* Chest visual — texture only */}
               <div
-                className={`w-40 h-40 rounded-2xl border-2 flex flex-col items-center justify-center gap-1 relative ${
+                className={`relative w-52 h-52 rounded-2xl border-2 flex items-center justify-center ${
                   state.opened ? "" : "cursor-pointer hover:scale-[1.02] active:scale-95 transition-transform"
-                }`}
+                } ${isEternal ? "eternal-glow" : ""}`}
                 style={{
-                  borderColor: color,
-                  background: `radial-gradient(circle at 50% 30%, ${color}33, ${color}11 70%)`,
+                  borderColor: isEternal ? "rgba(255,255,255,0.7)" : color,
+                  background: `radial-gradient(circle at 50% 30%, ${color}26, ${color}0d 70%)`,
                   boxShadow: state.opened ? `0 0 30px ${color}55` : `0 0 18px ${color}44`,
                 }}
                 onClick={() => !busy && !state.opened && tap("")}
                 title={state.opened ? "Сундук открыт" : "Тапни по сундуку"}
               >
+                <RarityTexture
+                  url={`${(state.opened ? rarityInfo(state.rarity)?.opened_image_url : rarityInfo(state.rarity)?.image_url) || ""}?v=${cacheBust}`}
+                  color={color}
+                  alt={state.opened ? `${state.rarity} opened` : state.rarity}
+                  className="w-40 h-40"
+                  iconClass="w-10 h-10"
+                />
                 <span
-                  className="text-5xl"
-                  style={{ filter: state.opened ? "drop-shadow(0 0 8px currentColor)" : undefined, color }}
+                  className="absolute bottom-1.5 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full"
+                  style={{ color, background: `${color}1a`, border: `1px solid ${color}44` }}
                 >
-                  {state.opened ? "🎁" : "📦"}
-                </span>
-                <span className="text-sm font-bold uppercase tracking-widest" style={{ color }}>
                   {rarityLabel(state.rarity)}
                 </span>
                 {state.opened && (
@@ -434,6 +586,52 @@ const Chests = () => {
           )}
         </>
       )}
+
+      {/* ── Texture upload panel (always visible) ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Upload className="w-4 h-4" /> Текстурки сундуков
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {rarities.length} редкостей × (closed + opened) · ключи <code className="text-foreground/70">{`<rarity>.png`}</code>
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <p className="text-xs text-muted-foreground">
+            Кликни по слоту или перетащи PNG (700×700, прозрачный фон). Текстурка сразу подхватится лестницей и сундуком —
+            бакет <code className="text-foreground/70">gamification</code>, ключи <code className="text-foreground/70">common.png</code>,{" "}
+            <code className="text-foreground/70">common_opened.png</code> и т.д.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            {rarities.map((r) => (
+              <div key={r.rarity} className="space-y-2">
+                <div className="text-center text-xs font-semibold uppercase tracking-wide" style={{ color: r.color }}>
+                  {rarityLabel(r.rarity)}
+                </div>
+                <TextureSlot
+                  rarity={r.rarity}
+                  opened={false}
+                  url={r.image_url}
+                  color={r.color}
+                  cacheBust={cacheBust}
+                  onUploaded={onTextureUploaded}
+                />
+                <TextureSlot
+                  rarity={r.rarity}
+                  opened={true}
+                  url={r.opened_image_url}
+                  color={r.color}
+                  cacheBust={cacheBust}
+                  onUploaded={onTextureUploaded}
+                />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
