@@ -64,6 +64,13 @@ func NewStorageHandler(client *storage.StorageClient, db ...*sql.DB) *StorageHan
 	return &StorageHandler{client: client, db: database}
 }
 
+// isAdminManagedBucket reports whether the bucket holds platform-curated
+// assets (gift layers, gamification textures) uploaded by the dev-dashboard
+// under keys that carry no user ID. Writes there require the admin role.
+func isAdminManagedBucket(bucket string) bool {
+	return bucket == "gift-layers" || bucket == "gamification"
+}
+
 // isAdmin reports whether the user holds the platform 'admin' role. Used to
 // gate writes to the admin-managed gift-layers bucket, whose keys are NOT
 // namespaced by user ID (e.g. gifts/<id>/base.png). Fails closed when the DB
@@ -263,16 +270,16 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	// every other user-uploaded object under <userID>/... . Keys are guessable
 	// (e.g. <userID>/avatar_<ts>.jpg), so an authenticated user must never be
 	// allowed to write into another user's namespace and overwrite their files.
-	// The admin-managed gift-layers bucket is exempt: gift images/layers are
-	// uploaded by the dev-dashboard under keys like gifts/<id>/base.png, which
-	// carry no user ID. Access there is gated by the platform admin role.
+	// The admin-managed buckets (gift-layers, gamification) are exempt: their
+	// keys (gifts/<id>/base.png, common.png, …) carry no user ID, so access is
+	// gated by the platform admin role instead.
 	claimsValue, exists := c.Get("claims")
 	claims, claimsOK := claimsValue.(*auth.Claims)
 	if !exists || !claimsOK || claims == nil || claims.UserID == "" {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
-	if bucket == "gift-layers" {
+	if isAdminManagedBucket(bucket) {
 		if !h.isAdmin(claims.UserID) {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 			return
@@ -468,15 +475,15 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	// the sender of an attachment row. Public-bucket objects are user-scoped by
 	// key (<userID>/...), so deleting outside your own namespace is forbidden —
 	// object keys are guessable enough to make an unauthorised DELETE dangerous.
-	// gift-layers is admin-managed (keys like gifts/<id>/base.png), so its
-	// deletions require the platform admin role instead of a user prefix.
+	// Admin-managed buckets (gift-layers, gamification) hold platform-curated
+	// assets (gifts/<id>/base.png, common.png, …) and require the admin role.
 	claimsValue, exists := c.Get("claims")
 	claims, claimsOK := claimsValue.(*auth.Claims)
 	if !exists || !claimsOK || claims == nil || claims.UserID == "" {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
-	if bucket == "gift-layers" {
+	if isAdminManagedBucket(bucket) {
 		if !h.isAdmin(claims.UserID) {
 			c.AbortWithStatus(http.StatusForbidden)
 			return

@@ -11,7 +11,7 @@ import (
 // "wall" is a PRIVATE bucket for profile-wall media (photos/attachments): it is
 // served only through the authenticated Go proxy with per-wall authorization,
 // never via Garage's public website endpoint.
-const defaultBuckets = "content,post-images,avatars,uploads,emojis,gift-layers,wall"
+const defaultBuckets = "content,post-images,avatars,uploads,emojis,gift-layers,gamification,wall"
 
 var (
 	allowedBucketsOnce sync.Once
