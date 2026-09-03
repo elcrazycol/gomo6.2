@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Play, RotateCcw, Sparkles, XCircle, Dices, Package, Trash2, Upload, ImageOff, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -67,6 +66,16 @@ const RARITY_LABELS: Record<string, string> = {
 function rarityLabel(r: string): string {
   return RARITY_LABELS[r] ?? r;
 }
+
+// Deterministic ambient backdrop for the chest stage (no Math.random in render).
+const TWINKLES = Array.from({ length: 16 }, (_, i) => ({
+  x: 4 + ((i * 61) % 92),
+  y: 6 + ((i * 37) % 88),
+  s: 1 + (i % 3),
+  c: i % 2 === 0 ? "#ffffff" : "#ffd9a0",
+  d: 2.5 + (i % 4) * 0.7,
+  delay: (i * 0.35) % 3,
+}));
 
 // Upload a PNG into the gamification bucket under an explicit key. Admin-only
 // server-side (same path and role as gift-layers), so textures are curated.
@@ -220,6 +229,10 @@ const Chests = () => {
   const [lastRoll, setLastRoll] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
+  // One-shot FX burst (rings/sparkles/chest animation), re-triggered by id.
+  const [fx, setFx] = useState<{ id: number; kind: "fail" | "upgrade" | "open" } | null>(null);
+  const [chestImgFailed, setChestImgFailed] = useState(false);
+  const chestRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
     api.getSession().then(({ session }) => {
@@ -256,6 +269,62 @@ const Chests = () => {
   const rarityInfo = (r: string) => rarities.find((x) => x.rarity === r);
   const rarityColor = (r: string) => rarityInfo(r)?.color || "#888";
 
+  // Sparkle burst particles, regenerated per FX burst.
+  const sparkles = useMemo(() => {
+    if (!fx || fx.kind === "fail") return [];
+    return Array.from({ length: 14 }, () => ({
+      dx: `${(Math.random() - 0.5) * 320}px`,
+      dy: `${-60 - Math.random() * 220}px`,
+      delay: `${(Math.random() * 0.28).toFixed(2)}s`,
+      size: 3 + Math.random() * 5,
+    }));
+  }, [fx]);
+
+  // Chest texture animation via Web Animations API — replayable, no remounts.
+  const animateChest = useCallback((kind: "fail" | "upgrade" | "open") => {
+    const el = chestRef.current;
+    if (!el) return;
+    el.getAnimations().forEach((a) => a.cancel());
+    if (kind === "fail") {
+      el.animate(
+        [
+          { transform: "translateX(0)" },
+          { transform: "translateX(-8px)" },
+          { transform: "translateX(7px)" },
+          { transform: "translateX(-5px)" },
+          { transform: "translateX(4px)" },
+          { transform: "translateX(0)" },
+        ],
+        { duration: 400, easing: "ease-in-out" }
+      );
+    } else if (kind === "upgrade") {
+      el.animate(
+        [
+          { transform: "translateY(0) scale(1)" },
+          { transform: "translateY(-14px) scale(1.08)" },
+          { transform: "translateY(0) scale(0.95)" },
+          { transform: "translateY(-6px) scale(1.03)" },
+          { transform: "translateY(0) scale(1)" },
+        ],
+        { duration: 600, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" }
+      );
+    } else {
+      el.animate(
+        [
+          { transform: "scale(0.8)", opacity: 0.3 },
+          { transform: "scale(1.07)", opacity: 1 },
+          { transform: "scale(1)", opacity: 1 },
+        ],
+        { duration: 500, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" }
+      );
+    }
+  }, []);
+
+  // Reset the texture error flag whenever the shown texture changes.
+  useEffect(() => {
+    setChestImgFailed(false);
+  }, [state?.rarity, state?.opened, cacheBust]);
+
   // Spawn a fresh chest.
   const startChest = useCallback(async (key?: string) => {
     const k = key || mechanicKey;
@@ -274,6 +343,8 @@ const Chests = () => {
       setLastChance(null);
       setLastRoll(null);
       setHistory([]);
+      setFx(null);
+      setChestImgFailed(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to start chest");
     } finally {
@@ -301,6 +372,11 @@ const Chests = () => {
       setLastChance(data.chance ?? null);
       setLastRoll(data.roll ?? null);
 
+      const kind: "fail" | "upgrade" | "open" =
+        data.event.type === "opened" ? "open" : data.event.type === "upgraded" ? "upgrade" : "fail";
+      setFx({ id: Date.now(), kind });
+      animateChest(kind);
+
       const chance = data.chance !== undefined && data.chance !== null
         ? `${(data.chance * 100).toFixed(0)}%`
         : "—";
@@ -319,7 +395,7 @@ const Chests = () => {
     } finally {
       setBusy(false);
     }
-  }, [state, history]);
+  }, [state, history, animateChest]);
 
   const onTextureUploaded = useCallback(() => {
     setCacheBust(v => v + 1);
@@ -331,6 +407,9 @@ const Chests = () => {
 
   const color = state ? rarityColor(state.rarity) : "#888";
   const isEternal = state?.rarity === "eternal";
+  const imgSrc = state
+    ? (state.opened ? rarityInfo(state.rarity)?.opened_image_url : rarityInfo(state.rarity)?.image_url) || ""
+    : "";
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -442,96 +521,235 @@ const Chests = () => {
             </CardContent>
           </Card>
 
-          {/* Chest + controls */}
-          <Card>
-            <CardContent className="p-6 flex flex-col items-center">
-              {/* Chest visual — texture only */}
+          {/* Chest stage — pure texture, every effect sits BEHIND the PNG */}
+          <Card className="overflow-hidden border-border/60">
+            <CardContent className="p-0">
               <div
-                className={`relative w-52 h-52 rounded-2xl border-2 flex items-center justify-center ${
-                  state.opened ? "" : "cursor-pointer hover:scale-[1.02] active:scale-95 transition-transform"
-                } ${isEternal ? "eternal-glow" : ""}`}
-                style={{
-                  borderColor: isEternal ? "rgba(255,255,255,0.7)" : color,
-                  background: `radial-gradient(circle at 50% 30%, ${color}26, ${color}0d 70%)`,
-                  boxShadow: state.opened ? `0 0 30px ${color}55` : `0 0 18px ${color}44`,
-                }}
-                onClick={() => !busy && !state.opened && tap("")}
-                title={state.opened ? "Сундук открыт" : "Тапни по сундуку"}
+                className="relative overflow-hidden flex flex-col items-center justify-center py-14 md:py-16 px-6"
+                style={{ background: "linear-gradient(180deg, #14161e 0%, #0a0b10 55%, #0e1016 100%)" }}
               >
-                <RarityTexture
-                  url={`${(state.opened ? rarityInfo(state.rarity)?.opened_image_url : rarityInfo(state.rarity)?.image_url) || ""}?v=${cacheBust}`}
-                  color={color}
-                  alt={state.opened ? `${state.rarity} opened` : state.rarity}
-                  className="w-40 h-40"
-                  iconClass="w-10 h-10"
+                {/* rarity tint wash */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{ background: `radial-gradient(55% 75% at 50% 38%, ${color}1f 0%, transparent 70%)` }}
                 />
-                <span
-                  className="absolute bottom-1.5 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full"
-                  style={{ color, background: `${color}1a`, border: `1px solid ${color}44` }}
-                >
-                  {rarityLabel(state.rarity)}
-                </span>
-                {state.opened && (
-                  <Badge className="absolute -bottom-3 bg-amber-500/20 text-amber-500 border-amber-500/40">
-                    Итог: {rarityLabel(state.final_rarity || state.rarity)}
-                  </Badge>
-                )}
-              </div>
-
-              {/* Attempt pips */}
-              {!state.opened && (
-                <div className="flex items-center gap-1.5 mt-6">
-                  {Array.from({ length: mechanicConfig?.attempts_per_tier ?? 5 }).map((_, i) => (
+                {/* ambient twinkles */}
+                <div className="absolute inset-0 pointer-events-none">
+                  {TWINKLES.map((t, i) => (
                     <span
                       key={i}
-                      className="w-3.5 h-3.5 rounded-full border"
+                      className="absolute rounded-full"
                       style={{
-                        backgroundColor: i < state.attempts_left ? color : "transparent",
-                        borderColor: color,
+                        left: `${t.x}%`,
+                        top: `${t.y}%`,
+                        width: t.s,
+                        height: t.s,
+                        background: t.c,
+                        animation: `chest-twinkle ${t.d}s ease-in-out ${t.delay}s infinite`,
                       }}
                     />
                   ))}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    попыток: {state.attempts_left}
-                  </span>
                 </div>
-              )}
 
-              {/* Controls */}
-              {!state.opened && (
-                <div className="flex flex-wrap items-center justify-center gap-2 mt-5">
-                  <Button onClick={() => tap("")} disabled={busy} className="gap-2" size="lg">
-                    <Dices className="w-4 h-4" /> Тапнуть (случайно)
-                  </Button>
-                  <Button onClick={() => tap("upgrade")} disabled={busy} variant="secondary" className="gap-2">
-                    <Sparkles className="w-4 h-4" /> Улучшить
-                  </Button>
-                  <Button onClick={() => tap("fail")} disabled={busy} variant="outline" className="gap-2 text-red-500 border-red-500/40 hover:bg-red-500/10">
-                    <XCircle className="w-4 h-4" /> Провалить
-                  </Button>
-                </div>
-              )}
-              {state.opened && (
-                <Button onClick={() => startChest()} disabled={busy} className="gap-2 mt-5">
-                  <RotateCcw className="w-4 h-4" /> Открыть следующий
-                </Button>
-              )}
+                {/* chest column */}
+                <div className="relative z-10 flex flex-col items-center">
+                  {/* floating chest + all FX behind the texture */}
+                  <div className="relative chest-float">
+                    {/* main glow — behind the PNG */}
+                    <div
+                      className="absolute left-1/2 top-1/2 w-[420px] h-[420px] rounded-full pointer-events-none"
+                      style={{
+                        background: isEternal
+                          ? "conic-gradient(#ff4d4d, #ff9a3d, #ffe14d, #5cff8a, #4dc9ff, #a44dff, #ff4d4d)"
+                          : `radial-gradient(circle, ${color} 0%, ${color}55 45%, transparent 70%)`,
+                        filter: "blur(44px)",
+                        opacity: 0.65,
+                        boxShadow: isEternal ? "0 0 90px 30px rgba(255,255,255,0.16)" : undefined,
+                        animation: isEternal
+                          ? "eternal-rainbow-spin 3.2s linear infinite"
+                          : "chest-glow-breathe 3.2s ease-in-out infinite",
+                      }}
+                    />
+                    {/* tight inner glow — behind the PNG */}
+                    <div
+                      className="absolute left-1/2 top-1/2 w-64 h-64 rounded-full pointer-events-none"
+                      style={{
+                        background: `radial-gradient(circle, ${color}dd 0%, transparent 62%)`,
+                        filter: "blur(26px)",
+                        opacity: 0.55,
+                        transform: "translate(-50%, -50%)",
+                      }}
+                    />
 
-              {/* Last event readout */}
-              {lastEvent && !state.opened && (
-                <div className="mt-5 flex items-center gap-2 text-sm">
-                  {lastEvent.type === "upgraded" ? (
-                    <span className="text-emerald-500 font-medium">⬆ Редкость повышена!</span>
+                    {/* expanding rings on upgrade / open */}
+                    {fx && fx.kind !== "fail" && (
+                      <div
+                        key={`ring-a-${fx.id}`}
+                        className="absolute left-1/2 top-1/2 w-40 h-40 rounded-full pointer-events-none"
+                        style={{
+                          border: `2.5px solid ${fx.kind === "open" ? "#ffffff" : color}`,
+                          animation: "chest-ring 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+                        }}
+                      />
+                    )}
+                    {fx && fx.kind === "open" && (
+                      <div
+                        key={`ring-b-${fx.id}`}
+                        className="absolute left-1/2 top-1/2 w-40 h-40 rounded-full pointer-events-none"
+                        style={{
+                          border: `1.5px solid ${color}`,
+                          animation: "chest-ring 1s cubic-bezier(0.16, 1, 0.3, 1) 0.12s forwards",
+                        }}
+                      />
+                    )}
+
+                    {/* sparkles on upgrade / open */}
+                    {fx &&
+                      fx.kind !== "fail" &&
+                      sparkles.map((s, i) => (
+                        <span
+                          key={`spark-${fx.id}-${i}`}
+                          className="absolute left-1/2 top-1/2 rounded-full pointer-events-none"
+                          style={{
+                            width: s.size,
+                            height: s.size,
+                            background: fx.kind === "open" ? "#ffffff" : color,
+                            boxShadow: `0 0 ${s.size * 3}px ${fx.kind === "open" ? "#ffffff" : color}`,
+                            animation: `chest-sparkle 1s ease-out ${s.delay}s forwards`,
+                            // @ts-expect-error custom CSS variable
+                            "--dx": s.dx,
+                            "--dy": s.dy,
+                          }}
+                        />
+                      ))}
+
+                    {/* the chest itself — no chrome, just the texture */}
+                    {imgSrc && !chestImgFailed ? (
+                      <img
+                        ref={chestRef}
+                        src={`${imgSrc}?v=${cacheBust}`}
+                        alt={state.opened ? `${state.rarity} opened` : state.rarity}
+                        draggable={false}
+                        onError={() => setChestImgFailed(true)}
+                        onClick={() => !busy && !state.opened && tap("")}
+                        className={`relative z-10 w-56 h-56 md:w-72 md:h-72 object-contain select-none ${
+                          state.opened
+                            ? ""
+                            : "cursor-pointer transition-transform duration-150 hover:scale-[1.05] active:scale-[0.96]"
+                        }`}
+                        style={{ filter: "drop-shadow(0 20px 34px rgba(0,0,0,0.55))" }}
+                        title={state.opened ? "Сундук открыт" : "Тапни по сундуку"}
+                      />
+                    ) : (
+                      <div
+                        className="relative z-10 w-56 h-56 md:w-72 md:h-72 rounded-2xl flex items-center justify-center"
+                        style={{ background: `${color}14`, border: `1px dashed ${color}55` }}
+                      >
+                        <ImageOff className="w-10 h-10 text-muted-foreground/40" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* rarity name */}
+                  <h3
+                    className="mt-7 text-2xl md:text-3xl font-extrabold uppercase tracking-[0.28em] text-center"
+                    style={{
+                      background: isEternal
+                        ? "linear-gradient(90deg, #ff5f5f, #ffb347, #ffe85c, #6dffa0, #5cc8ff, #b45cff, #ff5f5f)"
+                        : `linear-gradient(180deg, ${color}, ${color}b0)`,
+                      backgroundSize: isEternal ? "200% 100%" : undefined,
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      filter: `drop-shadow(0 0 16px ${color}99)`,
+                      animation: isEternal ? "eternal-text-shift 3s linear infinite" : undefined,
+                    }}
+                  >
+                    {rarityLabel(state.rarity)}
+                  </h3>
+
+                  {/* attempts / итог */}
+                  {!state.opened ? (
+                    <div className="mt-4 flex items-center gap-2.5">
+                      {Array.from({ length: mechanicConfig?.attempts_per_tier ?? 5 }).map((_, i) => {
+                        const spent = i >= state.attempts_left;
+                        return (
+                          <span
+                            key={i}
+                            className="rounded-full transition-all duration-300"
+                            style={{
+                              width: 11,
+                              height: 11,
+                              background: spent ? "transparent" : color,
+                              border: `1.5px solid ${spent ? `${color}55` : color}`,
+                              boxShadow: spent ? "none" : `0 0 12px ${color}cc`,
+                              opacity: spent ? 0.4 : 1,
+                              transform: spent ? "scale(0.85)" : "scale(1)",
+                            }}
+                          />
+                        );
+                      })}
+                      <span className="ml-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground/70 font-semibold">
+                        попыток: {state.attempts_left}
+                      </span>
+                    </div>
                   ) : (
-                    <span className="text-red-400 font-medium">Шанс не выпал</span>
+                    <div className="mt-4 flex items-center gap-3">
+                      <span className="h-px w-10" style={{ background: `linear-gradient(90deg, transparent, ${color}aa)` }} />
+                      <span className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground/70 font-semibold">итог</span>
+                      <span className="text-sm font-extrabold uppercase tracking-[0.2em]" style={{ color }}>
+                        {rarityLabel(state.final_rarity || state.rarity)}
+                      </span>
+                      <span className="h-px w-10" style={{ background: `linear-gradient(270deg, transparent, ${color}aa)` }} />
+                    </div>
                   )}
-                  <span className="text-muted-foreground text-xs">
-                    {lastChance !== null && <>шанс {Math.round(lastChance * 100)}% · </>}
-                    {lastRoll !== null && <>roll {lastRoll.toFixed(3)} · </>}
-                    попыток: {state.attempts_left}
-                  </span>
+
+                  {/* hint / last event */}
+                  {!state.opened && history.length === 0 && (
+                    <span className="mt-3 text-[10px] uppercase tracking-[0.3em] text-muted-foreground/40">
+                      тапни по сундуку
+                    </span>
+                  )}
+                  {lastEvent && !state.opened && (
+                    <div className="mt-3 flex items-center gap-2 text-xs">
+                      {lastEvent.type === "upgraded" ? (
+                        <span className="font-semibold" style={{ color: "#5cff8a", textShadow: "0 0 12px rgba(92,255,138,0.45)" }}>
+                          ⬆ Редкость повышена!
+                        </span>
+                      ) : (
+                        <span className="font-medium text-red-400/90">Шанс не выпал</span>
+                      )}
+                      {lastChance !== null && (
+                        <span className="text-muted-foreground/60 font-mono">шанс {Math.round(lastChance * 100)}%</span>
+                      )}
+                      {lastRoll !== null && (
+                        <span className="text-muted-foreground/60 font-mono">roll {lastRoll.toFixed(3)}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* dev controls — discreet, the chest itself is the button */}
+                  <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+                    {!state.opened ? (
+                      <>
+                        <Button onClick={() => tap("upgrade")} disabled={busy} variant="ghost" size="sm" className="gap-1.5 text-amber-300/80 hover:text-amber-200 hover:bg-white/5">
+                          <Sparkles className="w-3.5 h-3.5" /> Улучшить
+                        </Button>
+                        <Button onClick={() => tap("fail")} disabled={busy} variant="ghost" size="sm" className="gap-1.5 text-red-400/75 hover:text-red-300 hover:bg-white/5">
+                          <XCircle className="w-3.5 h-3.5" /> Провалить
+                        </Button>
+                        <span className="text-muted-foreground/40 text-xs select-none">·</span>
+                        <Button onClick={() => tap("")} disabled={busy} variant="ghost" size="sm" className="gap-1.5 text-muted-foreground/70 hover:text-foreground hover:bg-white/5">
+                          <Dices className="w-3.5 h-3.5" /> Случайно
+                        </Button>
+                      </>
+                    ) : (
+                      <Button onClick={() => startChest()} disabled={busy} size="sm" className="gap-2">
+                        <RotateCcw className="w-4 h-4" /> Открыть следующий
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
             </CardContent>
           </Card>
 
