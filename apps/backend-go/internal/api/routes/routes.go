@@ -172,6 +172,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	actieyeHandler := handlers.NewActiEyeHandler(db)
+	gamificationHandler := handlers.NewGamificationHandler()
 	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
@@ -225,6 +226,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			middleware.AuthMiddleware(authService),
 			middleware.AuthRateLimitMiddleware(audioRateLimiter),
 			audioHandler.ExtractAudioMetadata)
+
+		// Gamification playground (dev-dashboard): stateless chest sessions, so
+		// the surface is open — the state round-trips with the client and no
+		// reward/currency is granted yet. Gated + authed when the feature ships.
+		api.GET("/gamification/catalog", gamificationHandler.GetCatalog)
+		api.POST("/gamification/chests/start", gamificationHandler.StartChest)
+		api.POST("/gamification/chests/tap", gamificationHandler.TapChest)
 
 		// Test endpoint to verify AuthMiddleware works
 		api.GET("/test-auth", middleware.AuthMiddleware(authService), func(c *gin.Context) {

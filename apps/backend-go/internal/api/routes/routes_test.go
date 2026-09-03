@@ -58,6 +58,11 @@ var expectedRoutes = []string{
 	"GET /api/v1/metrics",
 	"GET /api/v1/docs/json",
 	"POST /api/v1/audio/metadata",
+
+	// Gamification playground (open, stateless)
+	"GET /api/v1/gamification/catalog",
+	"POST /api/v1/gamification/chests/start",
+	"POST /api/v1/gamification/chests/tap",
 	"GET /api/v1/test-auth",
 
 	// Auth
@@ -636,6 +641,9 @@ func TestSetupRoutes_SmokeRequests(t *testing.T) {
 		{name: "oidc config", method: http.MethodGet, path: "/.well-known/openid-configuration", wantCode: http.StatusOK},
 		{name: "jwks", method: http.MethodGet, path: "/.well-known/jwks.json", wantCode: http.StatusOK},
 		{name: "dev dashboard config", method: http.MethodGet, path: "/api/v1/dev-dashboard/config", wantCode: http.StatusOK},
+		{name: "gamification catalog", method: http.MethodGet, path: "/api/v1/gamification/catalog", wantCode: http.StatusOK},
+		{name: "gamification chest start dispatches", method: http.MethodPost, path: "/api/v1/gamification/chests/start", notAllowed: true},
+		{name: "gamification chest tap dispatches", method: http.MethodPost, path: "/api/v1/gamification/chests/tap", notAllowed: true},
 		{name: "test-auth requires auth", method: http.MethodGet, path: "/api/v1/test-auth", wantCode: http.StatusUnauthorized},
 		{name: "audio metadata requires auth", method: http.MethodPost, path: "/api/v1/audio/metadata", wantCode: http.StatusUnauthorized},
 		{name: "me requires auth", method: http.MethodGet, path: "/api/v1/auth/me", wantCode: http.StatusUnauthorized},
