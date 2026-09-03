@@ -707,9 +707,6 @@ const Chests = () => {
                           />
                         );
                       })}
-                      <span className="ml-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground/70 font-semibold">
-                        попыток: {state.attempts_left}
-                      </span>
                     </div>
                   ) : (
                     <div className="mt-4 flex items-center gap-3">
