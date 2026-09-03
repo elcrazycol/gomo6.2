@@ -67,6 +67,16 @@ function rarityLabel(r: string): string {
   return RARITY_LABELS[r] ?? r;
 }
 
+// Mix a hex rarity color toward white so letters stay readable on the dark
+// stage (background-clip:text proved unreliable here — plain solid text only).
+function lightenColor(hex: string, amt = 0.35): string {
+  const m = hex.replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(m)) return hex;
+  const n = parseInt(m, 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amt);
+  return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+}
+
 // Deterministic ambient backdrop for the chest stage (no Math.random in render).
 const TWINKLES = Array.from({ length: 16 }, (_, i) => ({
   x: 4 + ((i * 61) % 92),
@@ -650,21 +660,30 @@ const Chests = () => {
                     )}
                   </div>
 
-                  {/* rarity name */}
-                  <h3
-                    className="mt-7 text-2xl md:text-3xl font-extrabold uppercase tracking-[0.28em] text-center"
-                    style={{
-                      background: isEternal
-                        ? "linear-gradient(90deg, #ff5f5f, #ffb347, #ffe85c, #6dffa0, #5cc8ff, #b45cff, #ff5f5f)"
-                        : `linear-gradient(180deg, ${color}, ${color}b0)`,
-                      backgroundSize: isEternal ? "200% 100%" : undefined,
-                      WebkitBackgroundClip: "text",
-                      WebkitTextFillColor: "transparent",
-                      filter: `drop-shadow(0 0 16px ${color}99)`,
-                      animation: isEternal ? "eternal-text-shift 3s linear infinite" : undefined,
-                    }}
-                  >
-                    {rarityLabel(state.rarity)}
+                  {/* rarity name — solid letters (no bg-clip), glow via text-shadow */}
+                  <h3 className="mt-7 text-2xl md:text-3xl font-extrabold uppercase tracking-[0.28em] text-center">
+                    <span
+                      className={isEternal ? "eternal-rainbow-text" : undefined}
+                      style={{
+                        color: isEternal ? "#ffffff" : lightenColor(color),
+                        textShadow: isEternal
+                          ? undefined
+                          : `0 0 18px ${color}66, 0 0 44px ${color}40`,
+                      }}
+                    >
+                      {rarityLabel(state.rarity)}
+                    </span>
+                    <span
+                      className="block mx-auto mt-2.5 h-[3px] w-16 rounded-full"
+                      style={{
+                        background: isEternal
+                          ? "linear-gradient(90deg, #ff4d4d, #ffb347, #ffe14d, #5cff8a, #4dc9ff, #a44dff, #ff4d4d)"
+                          : `linear-gradient(90deg, transparent, ${color}, transparent)`,
+                        backgroundSize: isEternal ? "200% 100%" : undefined,
+                        boxShadow: isEternal ? "0 0 12px 1px rgba(255,255,255,0.35)" : `0 0 10px ${color}88`,
+                        animation: isEternal ? "eternal-text-shift 3s linear infinite" : undefined,
+                      }}
+                    />
                   </h3>
 
                   {/* attempts / итог */}
