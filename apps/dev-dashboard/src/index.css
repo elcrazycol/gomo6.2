@@ -110,3 +110,51 @@
 .eternal-glow {
   animation: eternal-glow 2.4s linear infinite;
 }
+
+/* ── Chest stage: premium opening UI ── */
+
+/* Gentle float of the chest texture (glows inside move with it). */
+@keyframes chest-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.chest-float {
+  animation: chest-float 4.5s ease-in-out infinite;
+}
+
+/* Rarity glow breathing behind the chest. */
+@keyframes chest-glow-breathe {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.1); }
+}
+
+/* Expanding ring emitted on upgrade / open. */
+@keyframes chest-ring {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; }
+}
+
+/* Sparkle particle flying up from behind the chest. Uses --dx/--dy. */
+@keyframes chest-sparkle {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1); opacity: 0; }
+}
+
+/* Eternal: rotating rainbow disc behind the white texture. */
+@keyframes eternal-rainbow-spin {
+  0% { transform: translate(-50%, -50%) rotate(0deg); }
+  100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* Eternal: rainbow flowing across the rarity name. */
+@keyframes eternal-text-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* Ambient backdrop twinkles. */
+@keyframes chest-twinkle {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.9; }
+}
