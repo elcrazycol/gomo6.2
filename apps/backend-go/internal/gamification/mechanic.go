@@ -6,6 +6,10 @@ package gamification
 //
 // A Mechanic must be pure: Start and Step do no I/O and keep no hidden
 // mutable state. All session data flows through State.
+//
+// Mechanics may additionally implement the optional Describable and
+// ChanceProvider interfaces to expose static config / success chances to UI
+// and API surfaces (the dev-dashboard playground uses both).
 type Mechanic interface {
 	// Key is the unique registry identifier, e.g. "rarity_chest".
 	Key() string
@@ -17,4 +21,19 @@ type Mechanic interface {
 	// Validate checks the mechanic's static configuration. It is called on
 	// registration; a broken config must fail fast at startup.
 	Validate() error
+}
+
+// Describable is an optional Mechanic capability: expose the mechanic's
+// static configuration (rarity window, attempt budget, chance table) as a
+// JSON-friendly value so generic UI can render it without duplicating config.
+// Implemented by rarityChest.
+type Describable interface {
+	Describe() any
+}
+
+// ChanceProvider is an optional Mechanic capability: expose the success
+// probability for the next step from a given state. UI uses it to display the
+// current chance and to build deterministic "force" rolls.
+type ChanceProvider interface {
+	ChanceFor(s State) (float64, bool)
 }

@@ -8,21 +8,26 @@ const RarityChestKey = "rarity_chest"
 // RarityChestConfig is the per-chest-type configuration. Everything is
 // tunable without touching the mechanic logic: the rarity window the chest
 // can span, the attempt budget per tier, and the per-tier upgrade chances.
+// RarityChestConfig is the per-chest-type configuration. Everything is
+// tunable without touching the mechanic logic: the rarity window the chest
+// can span, the attempt budget per tier, and the per-tier upgrade chances.
+// JSON tags mirror the API field naming so Describe() can be served straight
+// to UI consumers.
 type RarityChestConfig struct {
 	// Key is the registry key for this chest type. Defaults to RarityChestKey.
-	Key string
+	Key string `json:"key"`
 	// StartRarity is the rarity a fresh chest starts at. Defaults to Common.
-	StartRarity Rarity
+	StartRarity Rarity `json:"start_rarity"`
 	// MaxRarity is the highest rarity this chest can reach. Reaching it
 	// opens the chest immediately (top prize). Defaults to Eternal.
-	MaxRarity Rarity
+	MaxRarity Rarity `json:"max_rarity"`
 	// AttemptsPerTier is how many taps the player gets at each rarity.
 	// Defaults to 5.
-	AttemptsPerTier int
+	AttemptsPerTier int `json:"attempts_per_tier"`
 	// UpgradeChances maps a rarity to the probability (0..1) that a tap at
 	// that rarity upgrades it to the next one. It must cover every rarity
 	// from StartRarity up to (but excluding) MaxRarity.
-	UpgradeChances map[Rarity]float64
+	UpgradeChances map[Rarity]float64 `json:"upgrade_chances"`
 }
 
 // DefaultRarityChestConfig returns the production config for the built-in
@@ -173,6 +178,23 @@ func (c *rarityChest) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Describe implements Describable: expose the static config so generic UI can
+// render the rarity window, attempt budget and chance table.
+func (c *rarityChest) Describe() any {
+	return c.cfg
+}
+
+// ChanceFor implements ChanceProvider: the success probability of a tap at the
+// state's current rarity. Returns ok=false when the state is opened, at the
+// chest's top rarity, or on an unknown rarity (nothing to roll for).
+func (c *rarityChest) ChanceFor(s State) (float64, bool) {
+	if s.Opened {
+		return 0, false
+	}
+	chance, ok := c.cfg.UpgradeChances[s.Rarity]
+	return chance, ok
 }
 
 func init() {

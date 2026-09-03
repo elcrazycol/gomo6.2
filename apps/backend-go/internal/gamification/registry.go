@@ -1,6 +1,9 @@
 package gamification
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // registry holds every registered mechanic by key. It is populated at
 // startup (or via init in each mechanic file); nothing else mutates it.
@@ -29,6 +32,17 @@ func Register(m Mechanic) error {
 func Lookup(key string) (Mechanic, bool) {
 	m, ok := registry[key]
 	return m, ok
+}
+
+// RegisteredKeys returns every registered mechanic key, sorted, so catalog
+// surfaces can iterate the registry deterministically.
+func RegisteredKeys() []string {
+	keys := make([]string, 0, len(registry))
+	for k := range registry {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Start spawns a fresh session of the mechanic with the given key — the
