@@ -234,9 +234,7 @@ const Chests = () => {
   // Active chest session
   const [mechanicKey, setMechanicKey] = useState<string>("");
   const [state, setState] = useState<ChestState | null>(null);
-  const [lastEvent, setLastEvent] = useState<ChestEvent | null>(null);
-  const [lastChance, setLastChance] = useState<number | null>(null);
-  const [lastRoll, setLastRoll] = useState<number | null>(null);
+
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   // One-shot FX burst (rings/sparkles/chest animation), re-triggered by id.
@@ -349,9 +347,6 @@ const Chests = () => {
       if (!res.ok) throw new Error(json.error || "Failed to start");
       const data = json.data as { state: ChestState };
       setState(data.state);
-      setLastEvent(null);
-      setLastChance(null);
-      setLastRoll(null);
       setHistory([]);
       setFx(null);
       setChestImgFailed(false);
@@ -378,9 +373,6 @@ const Chests = () => {
       const data = json.data as TapResult;
 
       setState(data.state);
-      setLastEvent(data.event);
-      setLastChance(data.chance ?? null);
-      setLastRoll(data.roll ?? null);
 
       const kind: "fail" | "upgrade" | "open" =
         data.event.type === "opened" ? "open" : data.event.type === "upgraded" ? "upgrade" : "fail";
@@ -725,24 +717,6 @@ const Chests = () => {
                       тапни по сундуку
                     </span>
                   )}
-                  {lastEvent && !state.opened && (
-                    <div className="mt-3 flex items-center gap-2 text-xs">
-                      {lastEvent.type === "upgraded" ? (
-                        <span className="font-semibold" style={{ color: "#5cff8a", textShadow: "0 0 12px rgba(92,255,138,0.45)" }}>
-                          ⬆ Редкость повышена!
-                        </span>
-                      ) : (
-                        <span className="font-medium text-red-400/90">Шанс не выпал</span>
-                      )}
-                      {lastChance !== null && (
-                        <span className="text-muted-foreground/60 font-mono">шанс {Math.round(lastChance * 100)}%</span>
-                      )}
-                      {lastRoll !== null && (
-                        <span className="text-muted-foreground/60 font-mono">roll {lastRoll.toFixed(3)}</span>
-                      )}
-                    </div>
-                  )}
-
                   {/* dev controls — discreet, the chest itself is the button */}
                   <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
                     {!state.opened ? (
