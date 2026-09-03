@@ -46,8 +46,10 @@ func TestGamificationCatalog(t *testing.T) {
 	}
 	var data struct {
 		Rarities []struct {
-			Rarity string `json:"rarity"`
-			Color  string `json:"color"`
+			Rarity         string `json:"rarity"`
+			Color          string `json:"color"`
+			ImageURL       string `json:"image_url"`
+			OpenedImageURL string `json:"opened_image_url"`
 		} `json:"rarities"`
 		Mechanics []struct {
 			Key    string `json:"key"`
@@ -70,10 +72,19 @@ func TestGamificationCatalog(t *testing.T) {
 	if !found {
 		t.Error("rarity_chest missing from mechanics catalog")
 	}
-	// Every rarity must carry a color hint.
+	// Every rarity must carry a color hint and texture URLs following the
+	// <rarity>.png / <rarity>_opened.png convention in the gamification bucket.
 	for _, r := range data.Rarities {
 		if r.Color == "" {
 			t.Errorf("rarity %q has no color", r.Rarity)
+		}
+		wantClosed := "/storage/v1/object/gamification/" + r.Rarity + ".png"
+		wantOpened := "/storage/v1/object/gamification/" + r.Rarity + "_opened.png"
+		if r.ImageURL != wantClosed {
+			t.Errorf("rarity %q image_url = %q, want %q", r.Rarity, r.ImageURL, wantClosed)
+		}
+		if r.OpenedImageURL != wantOpened {
+			t.Errorf("rarity %q opened_image_url = %q, want %q", r.Rarity, r.OpenedImageURL, wantOpened)
 		}
 	}
 }

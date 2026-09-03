@@ -51,11 +51,9 @@ type tapRequest struct {
 	// Force: "" | "random" | "upgrade" | "fail" | "roll"
 	Force string  `json:"force"`
 	Roll  float64 `json:"roll"` // used when force == "roll"
-}
-
-// GetCatalog godoc
+} // GetCatalog godoc
 // @Summary      Gamification catalog
-// @Description  Registered chest mechanics with their static config plus the rarity ladder with colors.
+// @Description  Registered chest mechanics with their static config plus the rarity ladder with colors and texture URLs.
 // @Tags         Gamification
 // @Produce      json
 // @Success      200 {object} models.APIResponse
@@ -64,8 +62,10 @@ func (h *GamificationHandler) GetCatalog(c *gin.Context) {
 	rarities := make([]gin.H, 0, len(gamification.AllRarities()))
 	for _, r := range gamification.AllRarities() {
 		rarities = append(rarities, gin.H{
-			"rarity": r,
-			"color":  gamification.RarityColorFor(r),
+			"rarity":           r,
+			"color":            gamification.RarityColorFor(r),
+			"image_url":        rarityTextureURL(r, false),
+			"opened_image_url": rarityTextureURL(r, true),
 		})
 	}
 
@@ -174,4 +174,16 @@ func (h *GamificationHandler) TapChest(c *gin.Context) {
 		"chance": chance,
 		"roll":   roll,
 	}))
+}
+
+// rarityTextureURL builds the storage URL for a rarity's chest texture in the
+// gamification bucket. Keys are <rarity>.png for the closed chest and
+// <rarity>_opened.png for the opened one — uploads from the dev-dashboard
+// playground must match this convention so textures appear immediately.
+func rarityTextureURL(r gamification.Rarity, opened bool) string {
+	suffix := ""
+	if opened {
+		suffix = "_opened"
+	}
+	return "/storage/v1/object/gamification/" + string(r) + suffix + ".png"
 }
