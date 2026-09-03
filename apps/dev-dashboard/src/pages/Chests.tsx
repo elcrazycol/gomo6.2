@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Play, RotateCcw, Sparkles, XCircle, Dices, Package, Trash2, Upload, ImageOff, Check } from "lucide-react";
+import { Play, RotateCcw, Sparkles, XCircle, Dices, Package, Trash2, Upload, ImageOff, Check, Gem } from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Types (mirror of internal/gamification + catalog) ───────────────────────
@@ -22,6 +22,7 @@ interface ChestConfig {
   max_rarity: string;
   attempts_per_tier: number;
   upgrade_chances: Record<string, number>;
+  gems?: Record<string, { min: number; max: number }>;
 }
 
 interface MechanicInfo {
@@ -44,11 +45,17 @@ interface ChestEvent {
   final_rarity?: string;
 }
 
+interface Reward {
+  kind: string;
+  amount: number;
+}
+
 interface TapResult {
   state: ChestState;
   event: ChestEvent;
   chance?: number;
   roll?: number;
+  rewards?: Reward[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -237,6 +244,8 @@ const Chests = () => {
 
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
+  // Gems rolled when the chest opened (simulated — no wallet yet).
+  const [rewards, setRewards] = useState<Reward[]>([]);
   // One-shot FX burst (rings/sparkles/chest animation), re-triggered by id.
   const [fx, setFx] = useState<{ id: number; kind: "fail" | "upgrade" | "open" } | null>(null);
   const [chestImgFailed, setChestImgFailed] = useState(false);
@@ -348,6 +357,7 @@ const Chests = () => {
       const data = json.data as { state: ChestState };
       setState(data.state);
       setHistory([]);
+      setRewards([]);
       setFx(null);
       setChestImgFailed(false);
     } catch (err: any) {
@@ -373,6 +383,7 @@ const Chests = () => {
       const data = json.data as TapResult;
 
       setState(data.state);
+      setRewards(data.event.type === "opened" ? (data.rewards ?? []) : []);
 
       const kind: "fail" | "upgrade" | "open" =
         data.event.type === "opened" ? "open" : data.event.type === "upgraded" ? "upgrade" : "fail";
@@ -385,7 +396,10 @@ const Chests = () => {
       const roll = data.roll !== undefined ? data.roll.toFixed(3) : "—";
       const lines = [...history];
       if (data.event.type === "opened") {
-        lines.push(`→ Открыт: ${rarityLabel(data.event.final_rarity || data.event.rarity)} (roll ${roll})`);
+        const gems = (data.rewards ?? []).filter((r) => r.kind === "gems").reduce((s, r) => s + r.amount, 0);
+        lines.push(
+          `→ Открыт: ${rarityLabel(data.event.final_rarity || data.event.rarity)}${gems > 0 ? ` · +${gems} 💎` : ""} (roll ${roll})`
+        );
       } else {
         lines.push(
           `${data.event.type === "upgraded" ? "⬆" : "✗"} ${rarityLabel(data.event.rarity)} · шанс ${chance} · roll ${roll} · попыток: ${data.event.attempts_left}`
@@ -711,6 +725,23 @@ const Chests = () => {
                     </div>
                   )}
 
+                  {/* rolled gems on open */}
+                  {rewards.filter((r) => r.kind === "gems").length > 0 && (
+                    <div
+                      className="reward-pop relative z-10 mt-4 flex items-center gap-2 px-4 py-1.5 rounded-full border"
+                      style={{
+                        background: `${color}1f`,
+                        borderColor: `${color}59`,
+                        boxShadow: `0 0 22px ${color}40`,
+                      }}
+                    >
+                      <Gem className="w-4 h-4" style={{ color: lightenColor(color) }} />
+                      <span className="text-base font-extrabold" style={{ color: lightenColor(color) }}>
+                        +{rewards.filter((r) => r.kind === "gems").reduce((s, r) => s + r.amount, 0)}
+                      </span>
+                    </div>
+                  )}
+
                   {/* hint / last event */}
                   {!state.opened && history.length === 0 && (
                     <span className="mt-3 text-[10px] uppercase tracking-[0.3em] text-muted-foreground/40">
@@ -788,6 +819,24 @@ const Chests = () => {
                       <span className="text-muted-foreground">{Math.round(chance * 100)}%</span>
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 pt-3 border-t border-border">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    Гемы за редкость
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {Object.entries(mechanicConfig.gems || {}).map(([r, rg]) => (
+                      <div key={r} className="flex items-center justify-between text-xs px-3 py-1.5 rounded-lg border border-border">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: rarityColor(r) }} />
+                          {rarityLabel(r)}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {rg.min}–{rg.max} 💎
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </CardContent>
             </Card>
