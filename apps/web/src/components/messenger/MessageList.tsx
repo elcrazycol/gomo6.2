@@ -249,6 +249,9 @@ export const MessageList = memo(
     const loadingMoreRef = useRef(false);
     const lastLoadAtRef = useRef(0);
     const prevLastIdRef = useRef<string | null>(null);
+    // Handles for the pending entrance-animation clear timers, so unmount
+    // cancels them (a late setState after React is gone would throw).
+    const entranceTimersRef = useRef<Set<number>>(new Set());
 
     // Identity key matches the store's dedup key (id || client_id), so a temp
     // message later replaced by its server twin keeps its virtual slot.
@@ -473,13 +476,15 @@ export const MessageList = memo(
                 for (const id of ids) next.add(id);
                 return next;
               });
-              window.setTimeout(() => {
+              const timerId = window.setTimeout(() => {
+                entranceTimersRef.current.delete(timerId);
                 setNewMessageIds((previous) => {
                   const next = new Set(previous);
                   for (const id of ids) next.delete(id);
                   return next;
                 });
               }, NEW_MESSAGE_ANIMATION_MS);
+              entranceTimersRef.current.add(timerId);
             } else {
               // Own optimistic messages are not counted in the pill.
               const incoming = appended.filter((m) => m.localStatus !== "sending").length;
@@ -490,6 +495,18 @@ export const MessageList = memo(
       }
       prevLastIdRef.current = lastId;
     }, [messages]);
+
+    // Cancel any still-pending animation timers on unmount. Without this a
+    // message arriving right before teardown leaves a timer that fires into a
+    // torn-down environment (jsdom: window is gone) — an unhandled error that
+    // fails the test run.
+    useEffect(() => {
+      const timers = entranceTimersRef.current;
+      return () => {
+        for (const id of timers) window.clearTimeout(id);
+        timers.clear();
+      };
+    }, []);
 
     // ── Imperative API (send-scroll, pinned-message jump) ───────────────
     const scrollToBottom = useCallback(() => {
