@@ -21,6 +21,7 @@ import (
 	"github.com/gomo6/backend/internal/gomosubchat"
 	"github.com/gomo6/backend/internal/messenger"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/moderation"
 	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/oauth"
 	"github.com/gomo6/backend/internal/privacy"
@@ -89,6 +90,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// (900/min by default), anonymous requests share a per-IP bucket (300/min).
 	// Both are tunable via RATE_LIMIT_PER_USER / RATE_LIMIT_PER_IP env vars.
 	globalRateLimiter := middleware.NewGlobalRateLimiterFromEnv(redis, time.Minute)
+	// Report filing has its own tighter budget (10/min per user) so a flood of
+	// reports cannot become a moderation queue DoS — env-tunable via
+	// MODERATION_REPORT_RATE_LIMIT_PER_MIN without a rebuild.
+	moderationReportLimiter := middleware.NewAuthRateLimiterWithPrefix("moderation_report", redis,
+		ogEnvLimit("MODERATION_REPORT_RATE_LIMIT_PER_MIN", 10), time.Minute)
 	// Upload limits: per-user request rate + hourly byte quota. Redis-backed so
 	// the budget holds across instances and /storage/v1/upload cannot be used to
 	// exhaust object storage.
@@ -169,6 +175,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
 	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
+	// Content moderation: report filing (any user) + moderator queue/triage.
+	moderationHandler := moderation.NewHandler(db, redis, wsHub)
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	actieyeHandler := handlers.NewActiEyeHandler(db)
@@ -492,6 +500,17 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 			// Gifts
 			protected.POST("/gifts/send", giftsHandler.SendGift)
+
+			// Content moderation
+			// Report filing is open to any authenticated user (own rate-limit
+			// budget); the queue and triage endpoints require the moderator or
+			// admin role (checked by middleware + handler).
+			protected.POST("/moderation/reports",
+				middleware.AuthRateLimitMiddleware(moderationReportLimiter),
+				moderationHandler.CreateReport)
+			protected.GET("/moderation/reports", moderatorOrAdminMiddleware(db), moderationHandler.ListReports)
+			protected.POST("/moderation/posts/:postId/resolve", moderatorOrAdminMiddleware(db), moderationHandler.ResolvePostReports)
+			protected.DELETE("/moderation/posts/:postId", moderatorOrAdminMiddleware(db), moderationHandler.DeletePost)
 
 			// Drops
 			protected.GET("/user/drops", dropsHandler.GetDropsBalance)
@@ -967,6 +986,28 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		} else if err != nil {
 			log.Printf("[Achievements] backfill marker check failed: %v", err)
 		}
+	}
+}
+
+// moderatorOrAdminMiddleware rejects the request unless the authenticated user
+// holds the platform 'moderator' or 'admin' role. Gates the moderation queue
+// and triage endpoints (reports carry reporter identities).
+func moderatorOrAdminMiddleware(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claimsValue, exists := c.Get("claims")
+		claims, ok := claimsValue.(*auth.Claims)
+		if !exists || !ok || claims == nil || claims.UserID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			c.Abort()
+			return
+		}
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`, claims.UserID).Scan(&count); err != nil || count == 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Moderator access required"})
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
 }
 

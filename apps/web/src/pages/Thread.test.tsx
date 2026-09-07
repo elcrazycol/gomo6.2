@@ -34,7 +34,7 @@ vi.mock("@/components/UserBadge", () => ({ UserBadge: () => <span data-testid="u
 vi.mock("@/components/LikeButton", () => ({ LikeButton: () => null }));
 vi.mock("@/components/Lightbox", () => ({ Lightbox: () => null }));
 vi.mock("@/components/Poll", () => ({ Poll: () => null }));
-vi.mock("@/components/UserMenu", () => ({ UserMenu: () => <div data-testid="user-menu" /> }));
+vi.mock("@/components/PostActionsMenu", () => ({ PostActionsMenu: () => <div data-testid="post-actions-menu" /> }));
 vi.mock("@/components/GomoRichEditor", () => ({
   GomoRichEditor: ({ legacyContent, onChange }: any) => (
     <textarea
@@ -247,9 +247,9 @@ describe("Thread", () => {
 
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
-      expect(screen.getByTestId("user-menu")).toBeInTheDocument();
+      expect(screen.getByTestId("post-actions-menu")).toBeInTheDocument();
     });
-    // The edit handler lives behind UserMenu (mocked) — the card itself renders.
+    // The edit handler lives behind PostActionsMenu (mocked) — the card itself renders.
     expect(screen.getByText("Test Thread")).toBeInTheDocument();
   });
 });

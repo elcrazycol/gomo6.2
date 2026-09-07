@@ -7,18 +7,14 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import {
-  Edit3, Heart, Loader2, MessageCircle, MoreVertical, Pin, PinOff,
+  Edit3, Heart, Loader2, MessageCircle, Pin, PinOff,
   Repeat2, Share2, Trash2,
 } from "lucide-react";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { Button } from "@/components/ui/button";
+import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogDescription,
@@ -368,56 +364,43 @@ export const WallPostCard = ({
             </div>
           </div>
 
-          {canManage && (
-            <div className="flex shrink-0 items-center">
-              {/* Non-modal: Radix dropdowns are modal by default, which locks
-                  page scroll (overflow:hidden on body) — that kills the sticky
-                  profile tab bar (it unsticks and scrolls away). A plain menu
-                  doesn't need the modal focus trap or scroll lock. */}
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:bg-transparent data-[state=open]:text-foreground"
-                    title="Меню поста"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-popover border-border shadow-lg">
-                  {currentUserId === post.user_id && (
-                    <DropdownMenuItem
-                      onClick={() => onTogglePin(post.id)}
-                      className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
-                      title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
-                    >
-                      {post.is_pinned ? <PinOff className="h-4 w-4 mr-3" /> : <Pin className="h-4 w-4 mr-3" />}
-                      {post.is_pinned ? "Открепить пост" : "Закрепить пост"}
-                    </DropdownMenuItem>
-                  )}
-                  {currentUserId === post.author_id && (
-                    <DropdownMenuItem
-                      onClick={onStartEditing}
-                      className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
-                      title="Редактировать"
-                    >
-                      <Edit3 className="h-4 w-4 mr-3" />
-                      Редактировать
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem
-                    onClick={() => setDeleteConfirmOpen(true)}
-                    className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
-                    title="Удалить"
-                  >
-                    <Trash2 className="h-4 w-4 mr-3" />
-                    Удалить
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
+          <div className="flex shrink-0 items-center">
+            {/* The shared actions menu: management items (pin/edit/delete) are
+                only offered to the wall owner/author; the report item is there
+                for everyone. Non-modal — see PostActionsMenu. */}
+            <PostActionsMenu postId={post.id}>
+              {currentUserId === post.user_id && (
+                <DropdownMenuItem
+                  onClick={() => onTogglePin(post.id)}
+                  className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                  title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
+                >
+                  {post.is_pinned ? <PinOff className="h-4 w-4 mr-3" /> : <Pin className="h-4 w-4 mr-3" />}
+                  {post.is_pinned ? "Открепить пост" : "Закрепить пост"}
+                </DropdownMenuItem>
+              )}
+              {currentUserId === post.author_id && (
+                <DropdownMenuItem
+                  onClick={onStartEditing}
+                  className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                  title="Редактировать"
+                >
+                  <Edit3 className="h-4 w-4 mr-3" />
+                  Редактировать
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <DropdownMenuItem
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                  title="Удалить"
+                >
+                  <Trash2 className="h-4 w-4 mr-3" />
+                  Удалить
+                </DropdownMenuItem>
+              )}
+            </PostActionsMenu>
+          </div>
         </div>
 
         <div

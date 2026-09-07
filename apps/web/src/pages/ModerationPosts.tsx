@@ -1,517 +1,420 @@
-import { useState, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { api } from "@/integrations/api/compat";
-import { useModeratorGate } from "@/hooks/useModeratorGate";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
-import { safeDate } from "@/utils/safeDate";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { formatDistanceToNow } from "date-fns";
+import { useDateLocale } from "@/i18n/dateLocale";
+import {
+  CheckCheck, ChevronDown, ChevronRight, Flag, Loader2, MessageSquareWarning, Shield, Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings } from "lucide-react";
-import { storageUrl } from "@/utils/storage";
 
+import { apiClient } from "@/integrations/api/client";
+import { useModeratorGate } from "@/hooks/useModeratorGate";
+import { wsService } from "@/services/websocket";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { UserBadge } from "@/components/UserBadge";
+import { ProcessedContent } from "@/components/ProcessedContent";
+import { WallAttachments } from "@/components/WallAttachments";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
+import { REPORT_CATEGORIES } from "@/components/moderation/ReportDialog";
+import {
+  type WallPost,
+  normalizeAttachments,
+  normalizeWallPostRecord,
+  getWallPostPath,
+} from "@/utils/wallNormalizers";
+import { safeDate } from "@/utils/safeDate";
+import { cn } from "@/lib/utils";
 
-interface Report {
+interface QueueReport {
   id: string;
+  post_id: string;
+  reporter_id: string;
+  reporter: {
+    username: string;
+    display_name?: string | null;
+    avatar_url?: string | null;
+  };
+  category: string;
   reason: string;
-  status: string;
+  status: "open" | "resolved";
   created_at: string;
-  reporter_id: string | null;
-  reported_post_id: string | null;
-  reported_thread_id: string | null;
-  moderator_note: string | null;
 }
 
-interface ReportedContent {
-  post?: {
-    content: string;
-    image_url: string | null;
-    user_id: string;
-    profiles?: {
-      username: string;
-    };
-  };
-  thread?: {
-    title: string;
-    content: string;
-    image_url: string | null;
-    user_id: string;
-    profiles?: {
-      username: string;
-    };
-  };
+interface ReportGroup {
+  post: Record<string, unknown>;
+  reports: QueueReport[];
+  report_count: number;
+  open_count: number;
 }
 
-const Moderation = () => {
-  const navigate = useNavigate();
-  const { user, isModerator, currentUserUsername, currentUserColor } = useModeratorGate();
-  const [reports, setReports] = useState<Report[]>([]);
-  const [selectedReport, setSelectedReport] = useState<string | null>(null);
-  const [moderatorNote, setModeratorNote] = useState("");
-  const [reportedContent, setReportedContent] = useState<Record<string, ReportedContent>>({});
-  const [warningReason, setWarningReason] = useState("");
-  const [banReason, setBanReason] = useState("");
-  const [banDays, setBanDays] = useState("7");
+const categoryLabel = (value: string): string =>
+  REPORT_CATEGORIES.find((c) => c.value === value)?.label ?? value;
 
-  const loadReports = useCallback(async () => {
+/**
+ * Moderation queue for wall-post reports: every post with at least one open
+ * report, grouped under ONE entry per post (expandable to see each report),
+ * sorted server-side by open report count so the most-reported content sits on
+ * top. Fresh reports land here in realtime via the "moderation" WebSocket
+ * room (new_report event) — no manual refresh needed.
+ */
+const ModerationPosts = () => {
+  const { isModerator, currentUserUsername, currentUserColor } = useModeratorGate();
+  const dateLocale = useDateLocale();
+
+  const [groups, setGroups] = useState<ReportGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null); // postId being resolved/deleted
+  const [deleteTarget, setDeleteTarget] = useState<ReportGroup | null>(null);
+  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  const loadGroups = useCallback(async () => {
     try {
-      const { data, error } = await api
-        .from("reports")
-        .select("*")
-        .order("created_at", { ascending: false });
-
+      const { data, error } = await apiClient.rawRequest<ReportGroup[]>("/api/v1/moderation/reports");
       if (error) throw error;
-      setReports(data || []);
-    } catch (error) {
-      console.error("Error loading reports:", error);
+      // The generic ApiResponse types data as T | T[], so narrow explicitly.
+      setGroups((Array.isArray(data) ? data : [data]).filter(Boolean) as ReportGroup[]);
+    } catch (err) {
+      console.error("Error loading moderation queue:", err);
       toast.error("Ошибка загрузки жалоб");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const loadReportContent = useCallback(async (report: Report) => {
-    const content: ReportedContent = {};
+  useEffect(() => {
+    if (!isModerator) return;
+    loadGroups();
+  }, [isModerator, loadGroups]);
 
-    if (report.reported_post_id) {
-      const { data: post } = await api
-        .from("posts")
-        .select(`
-          content,
-          image_url,
-          user_id,
-          profiles(username)
-        `)
-        .eq("id", report.reported_post_id)
-        .single();
-      
-      if (post) {
-        content.post = {
-          content: post.content,
-          image_url: post.image_url,
-          user_id: post.user_id,
-          profiles: Array.isArray(post.profiles) ? post.profiles[0] : post.profiles
-        };
+  // Realtime: a fresh report anywhere lands in the queue immediately.
+  useEffect(() => {
+    if (!isModerator) return;
+    wsService.subscribe("moderation");
+    const unsubscribe = wsService.on("new_report", () => {
+      loadGroups();
+    });
+    return () => {
+      unsubscribe();
+      wsService.unsubscribe("moderation");
+    };
+  }, [isModerator, loadGroups]);
+
+  const totalOpen = useMemo(() => groups.reduce((sum, g) => sum + g.open_count, 0), [groups]);
+
+  const toggleExpanded = (postId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) {
+        next.delete(postId);
+      } else {
+        next.add(postId);
       }
-    }
-
-    if (report.reported_thread_id) {
-      const { data: thread } = await api
-        .from("threads")
-        .select(`
-          title,
-          content,
-          image_url,
-          user_id,
-          profiles(username)
-        `)
-        .eq("id", report.reported_thread_id)
-        .single();
-      
-      if (thread) {
-        content.thread = {
-          title: thread.title,
-          content: thread.content,
-          image_url: thread.image_url,
-          user_id: thread.user_id,
-          profiles: Array.isArray(thread.profiles) ? thread.profiles[0] : thread.profiles
-        };
-      }
-    }
-
-    setReportedContent(prev => ({ ...prev, [report.id]: content }));
-  }, []);
-
-  const handleDeletePost = async (postId: string) => {
-    const { error } = await api
-      .from("posts")
-      .delete()
-      .eq("id", postId);
-
-    if (error) {
-      toast.error("Ошибка удаления поста");
-    } else {
-      toast.success("Пост удален");
-      loadReports();
-    }
+      return next;
+    });
   };
 
-  const handleSendWarning = async (userId: string) => {
-    if (!warningReason.trim()) {
-      toast.error("Укажите причину предупреждения");
-      return;
-    }
-
-    const { error } = await api
-      .from("user_warnings")
-      .insert({
-        user_id: userId,
-        warned_by: user.id,
-        reason: warningReason.trim(),
+  const handleResolve = async (group: ReportGroup) => {
+    setBusy(group.post.id as string);
+    try {
+      await apiClient.rawRequest(`/api/v1/moderation/posts/${group.post.id}/resolve`, {
+        method: "POST",
       });
-
-    if (error) {
-      toast.error("Ошибка отправки предупреждения");
-    } else {
-      toast.success("Предупреждение отправлено");
-      setWarningReason("");
+      toast.success("Жалобы решены — пост остаётся на стене");
+      await loadGroups();
+    } catch (err) {
+      toast.error((err as Error)?.message || "Не удалось обработать жалобы");
+    } finally {
+      setBusy(null);
     }
   };
 
-  const handleBanUser = async (userId: string, isPermanent: boolean) => {
-    if (!banReason.trim()) {
-      toast.error("Укажите причину бана");
-      return;
-    }
-
-    const expiresAt = isPermanent 
-      ? null 
-      : new Date(Date.now() + parseInt(banDays) * 24 * 60 * 60 * 1000).toISOString();
-
-    const { error } = await api
-      .from("user_bans")
-      .insert({
-        user_id: userId,
-        banned_by: user.id,
-        reason: banReason.trim(),
-        expires_at: expiresAt,
-        is_permanent: isPermanent,
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const postId = deleteTarget.post.id as string;
+    setBusy(postId);
+    try {
+      await apiClient.rawRequest(`/api/v1/moderation/posts/${postId}`, {
+        method: "DELETE",
       });
-
-    if (error) {
-      toast.error("Ошибка выдачи бана");
-    } else {
-      toast.success(isPermanent ? "Пользователь забанен навсегда" : `Пользователь забанен на ${banDays} дней`);
-      setBanReason("");
-    }
-  };
-
-  const handleResolve = async (reportId: string, action: 'approve' | 'reject') => {
-    const { error } = await api
-      .from("reports")
-      .update({
-        status: action === 'approve' ? 'resolved' : 'rejected',
-        moderator_id: user.id,
-        moderator_note: moderatorNote,
-        resolved_at: new Date().toISOString(),
-      })
-      .eq("id", reportId);
-
-    if (error) {
-      toast.error("Ошибка обработки жалобы");
-    } else {
-      toast.success(action === 'approve' ? "Жалоба принята" : "Жалоба отклонена");
-      setSelectedReport(null);
-      setModeratorNote("");
-      loadReports();
+      toast.success("Пост удалён");
+      setDeleteTarget(null);
+      await loadGroups();
+    } catch (err) {
+      toast.error((err as Error)?.message || "Не удалось удалить пост");
+    } finally {
+      setBusy(null);
     }
   };
 
   if (!isModerator) return null;
 
-  const pendingReports = reports.filter(r => r.status === 'pending');
-  const resolvedReports = reports.filter(r => r.status !== 'pending');
-
   return (
-    <div className="bg-background">
-      <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-          <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
-            gomo6
+    <div className="bg-background min-h-screen">
+      <main className="mx-auto max-w-3xl p-4">
+        <div className="mb-6">
+          <Link
+            to="/moderation"
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-primary"
+          >
+            ← Модерация
           </Link>
-          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </Link>
-            {user && <NotificationBell userId={user.id} />}
-            {user && <ChatIcon userId={user.id} />}
-            <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-              {user && (
-                <ProfileHoverCard userId={user.id}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                        className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
-                          currentUserColor === 'purple' ? 'text-purple-500' :
-                          currentUserColor === 'gold' ? 'text-yellow-500' :
-                          currentUserColor === 'orange' ? 'text-orange-500' :
-                          currentUserColor === 'red' ? 'text-red-500' :
-                          currentUserColor === 'blue' ? 'text-blue-500' :
-                          currentUserColor === 'green' ? 'text-green-500' :
-                          currentUserColor === 'yellow' ? 'text-yellow-400' :
-                          currentUserColor === 'cyan' ? 'text-cyan-500' :
-                          'text-quote'
-                        }`}
-                    onClick={() => navigate(`/profile/${user.id}`)}
-                  >
-                    {currentUserUsername || 'Профиль'}
-                  </Button>
-                </ProfileHoverCard>
-              )}
-            </div>
-            {user && (
-              <MobileMenu
-                user={user}
-                isModerator={true}
-              />
-            )}
-          </div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold">
+            <MessageSquareWarning className="h-6 w-6 text-primary" />
+            Жалобы на записи
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {loading
+              ? "Загружаем очередь…"
+              : totalOpen === 0
+                ? "Всё чисто — открытых жалоб нет"
+                : `${totalOpen} ${totalOpen === 1 ? "открытая жалоба" : totalOpen < 5 ? "открытые жалобы" : "открытых жалоб"} · чем больше жалоб на запись, тем выше она в списке`}
+          </p>
         </div>
-      </header>
 
-      <main className="max-w-5xl mx-auto p-2 sm:p-4">
-        <Tabs defaultValue="pending">
-          <TabsList>
-            <TabsTrigger value="pending">
-              Новые ({pendingReports.length})
-            </TabsTrigger>
-            <TabsTrigger value="resolved">
-              Обработанные ({resolvedReports.length})
-            </TabsTrigger>
-          </TabsList>
+        {loading ? (
+          <div className="space-y-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-32 animate-pulse rounded-xl border border-border/60 bg-muted/40" />
+            ))}
+          </div>
+        ) : groups.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-6 py-16 text-center">
+            <Shield className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+            <p className="text-lg font-medium">Очередь пуста</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Новые жалобы появятся здесь автоматически.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {groups.map((group) => {
+              const post = normalizeWallPostRecord(group.post, currentUserUsername) as WallPost;
+              const attachments = normalizeAttachments(post);
+              const openReports = group.reports.filter((r) => r.status === "open");
+              const isExpanded = expanded.has(post.id);
+              const isBusy = busy === post.id;
 
-          <TabsContent value="pending" className="space-y-4 mt-4">
-            {pendingReports.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">
-                Нет новых жалоб
-              </p>
-            ) : (
-              pendingReports.map((report) => {
-                const content = reportedContent[report.id];
-                const targetUserId = content?.post?.user_id || content?.thread?.user_id;
-                const username = content?.post?.profiles?.username || content?.thread?.profiles?.username;
-
-                return (
-                  <div key={report.id} className="bg-card border border-border p-3 sm:p-4 space-y-3">
-                    <div className="flex flex-col sm:flex-row justify-between gap-3">
-                      <div className="flex-1">
-                        <p className="text-xs sm:text-sm text-muted-foreground">
-                          {safeDate(report.created_at).toLocaleString('ru-RU')}
-                        </p>
-                        <p className="font-bold mt-1 text-sm sm:text-base">Причина жалобы:</p>
-                        <p className="text-xs sm:text-sm">{report.reason}</p>
-
-                        {content ? (
-                          <div className="mt-3 p-2 sm:p-3 bg-post-header border border-border">
-                            <p className="text-xs text-muted-foreground mb-2">
-                              Пользователь: {username || "Неизвестен"}
-                            </p>
-                            {content.thread && (
-                              <>
-                                <p className="font-bold mb-1 text-sm">{content.thread.title}</p>
-                                <p className="text-xs sm:text-sm whitespace-pre-wrap break-words">
-                                  {content.thread.content}
-                                </p>
-                                {content.thread.image_url && (
-                                  <img 
-                                    src={storageUrl("content", content.thread.image_url) || content.thread.image_url} 
-                                    alt="Thread" 
-                                    className="mt-2 max-w-full sm:max-w-xs max-h-48 border border-border"
-                                  />
-                                )}
-                              </>
-                            )}
-                            {content.post && (
-                              <>
-                                <p className="text-xs sm:text-sm whitespace-pre-wrap break-words">
-                                  {content.post.content}
-                                </p>
-                                {content.post.image_url && (
-                                  <img 
-                                    src={storageUrl("content", content.post.image_url) || content.post.image_url} 
-                                    alt="Post" 
-                                    className="mt-2 max-w-full sm:max-w-xs max-h-48 border border-border"
-                                  />
-                                )}
-                              </>
-                            )}
+              return (
+                <div key={post.id} className="overflow-clip rounded-xl border border-border/70 bg-card shadow-none">
+                  {/* Post preview */}
+                  <div className="p-3 sm:p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <UserBadge
+                              userId={post.author_id}
+                              username={post.author.username}
+                              displayName={post.author.display_name}
+                              emojiId={post.author.nickname_emoji_id}
+                              isAnonymous={post.author.is_anonymous}
+                              disableLink={false}
+                              stopPropagationOnClick
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              {formatDistanceToNow(safeDate(post.created_at), {
+                                locale: dateLocale,
+                                addSuffix: true,
+                              })}
+                            </span>
                           </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground mt-2">Контент удален или недоступен</p>
-                        )}
-                      </div>
-                      <div className="flex sm:flex-col gap-2 flex-shrink-0">
-                        {report.reported_thread_id && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const slug = window.location.pathname.split('/')[1] || 'b';
-                              navigate(`/${slug}/thread/${report.reported_thread_id}`);
-                            }}
-                            className="text-xs"
-                          >
-                            Открыть
-                          </Button>
-                        )}
+                        </div>
+                        {/* Open-report count badge */}
+                        <span
+                          className={cn(
+                            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                            openReports.length > 0
+                              ? "border-orange-500/30 bg-orange-500/10 text-orange-600"
+                              : "border-border/60 bg-muted/40 text-muted-foreground",
+                          )}
+                        >
+                          <Flag className="h-3 w-3" />
+                          {openReports.length} {openReports.length === 1 ? "жалоба" : openReports.length < 5 ? "жалобы" : "жалоб"}
+                        </span>
                       </div>
                     </div>
 
-                    {selectedReport === report.id ? (
-                      <div className="space-y-3 border-t border-border pt-3">
-                        <Textarea
-                          placeholder="Заметка модератора..."
-                          value={moderatorNote}
-                          onChange={(e) => setModeratorNote(e.target.value)}
-                          rows={2}
+                    {post.content?.trim() && (
+                      <div className="mt-3 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                        <ProcessedContent
+                          content={(post.content as string) || ""}
+                          contentJson={post.content_json}
+                          currentUserId={null}
+                          isAdmin={false}
+                          currentUsername={currentUserUsername}
+                          currentUserColor={currentUserColor}
+                          postAuthorId={post.author_id}
+                          authorUsername={post.author.username}
+                          showHiddenIndicators={false}
                         />
-                        
-                        <div className="flex gap-2 flex-wrap text-xs sm:text-sm">
-                          <Button
-                            onClick={() => handleResolve(report.id, 'approve')}
-                            variant="default"
-                            size="sm"
-                          >
-                            Принять
-                          </Button>
-                          <Button
-                            onClick={() => handleResolve(report.id, 'reject')}
-                            variant="destructive"
-                            size="sm"
-                          >
-                            Отклонить
-                          </Button>
-                          
-                          {report.reported_post_id && (
-                            <Button
-                              onClick={() => handleDeletePost(report.reported_post_id!)}
-                              variant="destructive"
-                              size="sm"
-                            >
-                              Удалить пост
-                            </Button>
-                          )}
-                          
-                          {targetUserId && (
-                            <>
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button variant="outline" size="sm">
-                                    Предупредить
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent className="bg-background border-border">
-                                  <DialogHeader>
-                                    <DialogTitle>Отправить предупреждение</DialogTitle>
-                                  </DialogHeader>
-                                  <Textarea
-                                    placeholder="Причина предупреждения..."
-                                    value={warningReason}
-                                    onChange={(e) => setWarningReason(e.target.value)}
-                                    rows={3}
-                                  />
-                                  <Button onClick={() => handleSendWarning(targetUserId)}>
-                                    Отправить
-                                  </Button>
-                                </DialogContent>
-                              </Dialog>
-
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button variant="destructive" size="sm">
-                                    Забанить
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent className="bg-background border-border">
-                                  <DialogHeader>
-                                    <DialogTitle>Забанить пользователя</DialogTitle>
-                                  </DialogHeader>
-                                  <div className="space-y-3">
-                                    <Textarea
-                                      placeholder="Причина бана..."
-                                      value={banReason}
-                                      onChange={(e) => setBanReason(e.target.value)}
-                                      rows={3}
-                                    />
-                                    <Input
-                                      type="number"
-                                      placeholder="Дней"
-                                      value={banDays}
-                                      onChange={(e) => setBanDays(e.target.value)}
-                                      min="1"
-                                    />
-                                    <div className="flex gap-2">
-                                      <Button 
-                                        onClick={() => handleBanUser(targetUserId, false)}
-                                        variant="destructive"
-                                      >
-                                        Забанить на {banDays} дней
-                                      </Button>
-                                      <Button 
-                                        onClick={() => handleBanUser(targetUserId, true)}
-                                        variant="destructive"
-                                      >
-                                        Забанить навсегда
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </DialogContent>
-                              </Dialog>
-                            </>
-                          )}
-                          
-                          <Button
-                            onClick={() => {
-                              setSelectedReport(null);
-                              setModeratorNote("");
-                            }}
-                            variant="outline"
-                            size="sm"
-                          >
-                            Отмена
-                          </Button>
-                        </div>
                       </div>
-                    ) : (
-                      <Button
-                        onClick={() => setSelectedReport(report.id)}
-                        variant="secondary"
-                        size="sm"
-                      >
-                        Обработать
-                      </Button>
                     )}
-                  </div>
-                );
-              })
-            )}
-          </TabsContent>
 
-          <TabsContent value="resolved" className="space-y-4 mt-4">
-            {resolvedReports.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">
-                Нет обработанных жалоб
-              </p>
-            ) : (
-              resolvedReports.map((report) => (
-                <div key={report.id} className="bg-card border border-border p-4 opacity-70">
-                  <p className="text-sm text-muted-foreground">
-                    {safeDate(report.created_at).toLocaleString('ru-RU')}
-                  </p>
-                  <p className="font-bold mt-1">Причина: {report.reason}</p>
-                  <p className="text-sm text-primary mt-2">
-                    Статус: {report.status === 'resolved' ? 'Принята' : 'Отклонена'}
-                  </p>
-                  {report.moderator_note && (
-                    <p className="text-sm mt-1">
-                      Заметка: {report.moderator_note}
-                    </p>
+                    {attachments.length > 0 && (
+                      <div className="mt-3">
+                        <WallAttachments
+                          attachments={attachments}
+                          galleryKey={`moderation-${post.id}`}
+                          onImageClick={(items, idx) => {
+                            setGalleryItems(items);
+                            setGalleryIndex(idx);
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Actions row */}
+                    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => toggleExpanded(post.id)}
+                        aria-expanded={isExpanded}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="mr-1.5 h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="mr-1.5 h-4 w-4" />
+                        )}
+                        {isExpanded
+                          ? "Свернуть жалобы"
+                          : `Жалобы (${group.reports.length})`}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                      >
+                        <Link
+                          to={getWallPostPath(post.user_id, post.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Открыть запись
+                        </Link>
+                      </Button>
+                      <div className="ml-auto flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleResolve(group)}
+                          disabled={isBusy || openReports.length === 0}
+                        >
+                          {isBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCheck className="mr-1.5 h-4 w-4" />}
+                          Решить
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setDeleteTarget(group)}
+                          disabled={isBusy}
+                        >
+                          <Trash2 className="mr-1.5 h-4 w-4" />
+                          Удалить пост
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expandable report list */}
+                  {isExpanded && (
+                    <div className="space-y-2 border-t border-border/60 bg-muted/20 p-3 sm:p-4">
+                      {group.reports.map((report) => (
+                        <div
+                          key={report.id}
+                          className={cn(
+                            "rounded-lg border border-border/60 bg-background p-3",
+                            report.status === "resolved" && "opacity-60",
+                          )}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <UserBadge
+                              userId={report.reporter_id}
+                              username={report.reporter.username}
+                              displayName={report.reporter.display_name}
+                              disableLink={false}
+                              stopPropagationOnClick
+                            />
+                            <span
+                              className={cn(
+                                "rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                                report.category === "other"
+                                  ? "border-border/60 bg-muted/40 text-muted-foreground"
+                                  : "border-primary/25 bg-primary/5 text-primary",
+                              )}
+                            >
+                              {categoryLabel(report.category)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDistanceToNow(safeDate(report.created_at), {
+                                locale: dateLocale,
+                                addSuffix: true,
+                              })}
+                            </span>
+                            {report.status === "resolved" && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[11px] text-green-600">
+                                <CheckCheck className="h-3 w-3" />
+                                Решена
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-2 whitespace-pre-wrap break-words text-sm">{report.reason}</p>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              ))
-            )}
-          </TabsContent>
-        </Tabs>
+              );
+            })}
+          </div>
+        )}
       </main>
+
+      {galleryItems && (
+        <Lightbox
+          items={galleryItems}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryItems(null)}
+        />
+      )}
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Удалить запись?</DialogTitle>
+            <DialogDescription>
+              Запись будет удалена безвозвратно вместе со всеми жалобами,
+              комментариями и лайками. Восстановить её будет невозможно.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Отмена
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={busy !== null}>
+              {busy === deleteTarget?.post.id ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Удаляем
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  Удалить
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
-export default Moderation;
+export default ModerationPosts;

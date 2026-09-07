@@ -14,6 +14,7 @@ import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
+import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { safeDate } from "@/utils/safeDate";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 import {
@@ -147,6 +148,11 @@ export const FeedWallPostCard = ({
                 </span>
               </div>
             </div>
+          </div>
+          {/* Report menu — the trigger is a button, so its clicks are excluded
+              from the card's navigate-on-click handler (isInteractiveTarget). */}
+          <div className="flex shrink-0 items-center">
+            <PostActionsMenu postId={post.id} />
           </div>
         </div>
 

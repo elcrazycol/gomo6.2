@@ -51,6 +51,7 @@ export type WebSocketMessageType =
   | 'group_updated'
   | 'now_playing'
   | 'session_revoked'
+  | 'new_report'
   | 'disconnected';
 
 export interface WebSocketMessage {

@@ -58,6 +58,10 @@ const (
 	MessageTypeChannelMessageEdited  = "channel_message_edited"
 	MessageTypeChannelMessageDeleted = "channel_message_deleted"
 
+	// Content-moderation events: a fresh report fans out to the "moderation"
+	// room so open moderation screens show it immediately.
+	MessageTypeNewReport = "new_report"
+
 	// Redis channels
 	RedisChannelPosts         = "realtime:posts"
 	RedisChannelThreads       = "realtime:threads"
@@ -68,6 +72,7 @@ const (
 	RedisChannelNotifications = "realtime:notifications"
 	RedisChannelSpotify       = "realtime:spotify"
 	RedisChannelUserRevoke    = "user:revoke"
+	RedisChannelModeration    = "realtime:moderation"
 
 	// Presence lifecycle timings
 	PresenceTTL        = 60 * time.Second // how long a user stays "online" without any heartbeat
@@ -324,7 +329,7 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify, RedisChannelUserRevoke)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify, RedisChannelUserRevoke, RedisChannelModeration)
 	defer pubsub.Close()
 
 	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
@@ -507,6 +512,10 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 		if userID := extractRoomID(payload, "user_id"); userID != "" {
 			h.BroadcastToRoom(fmt.Sprintf("notifications_%s", userID), messageBytes)
 		}
+
+	case MessageTypeNewReport:
+		// Scoped to the moderation room — only moderator clients subscribe.
+		h.BroadcastToRoom("moderation", messageBytes)
 
 	case MessageTypeUserOnline, MessageTypeUserOffline:
 		h.broadcastPresenceEvent(payload, messageBytes)
@@ -718,6 +727,10 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 		return channelID != "" && h.canAccessChannelRoom(userID, channelID)
 	case room == "feed":
 		return true
+	case room == "moderation":
+		// Only platform moderators/admins receive moderation events — reports
+		// carry reporter identities and content excerpts.
+		return h.isModerator(userID)
 	case strings.HasPrefix(room, "profile_wall_"):
 		targetID := strings.TrimPrefix(room, "profile_wall_")
 		return targetID != "" && h.canViewWallRoom(userID, targetID)
@@ -822,6 +835,21 @@ func (h *Hub) areFriends(userID, targetID string) bool {
 		return false
 	}
 	return friend
+}
+
+// isModerator reports whether userID holds the platform 'moderator' or
+// 'admin' role. Gates the moderation realtime room; nil DB fails closed.
+func (h *Hub) isModerator(userID string) bool {
+	if h.db == nil || userID == "" {
+		return false
+	}
+	var count int
+	err := h.db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`, userID).Scan(&count)
+	if err != nil {
+		log.Printf("[WebSocket] moderator check error: %v", err)
+		return false
+	}
+	return count > 0
 }
 
 func isPublicRoom(room string) bool {
@@ -1146,6 +1174,17 @@ func (h *Hub) PublishNewChatMessage(message interface{}) error {
 		Payload: message,
 	}
 	return h.PublishToRedis(RedisChannelChat, event)
+}
+
+// PublishNewReport publishes a fresh content-moderation report to Redis. It
+// fans out to the "moderation" room so open moderation screens update in
+// realtime (nil-Redis safe — no-op).
+func (h *Hub) PublishNewReport(report interface{}) error {
+	event := RealtimeEvent{
+		Type:    MessageTypeNewReport,
+		Payload: report,
+	}
+	return h.PublishToRedis(RedisChannelModeration, event)
 }
 
 // PublishNowPlaying publishes a Spotify now-playing event to Redis

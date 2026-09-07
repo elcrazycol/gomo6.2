@@ -6,7 +6,7 @@ import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { toast } from "sonner";
 
 /**
- * Shared moderator gate for admin pages (/moderation/*, /moderation/emojis/*).
+ * Shared moderator gate for admin pages (/moderation/*).
  *
  * Every admin page used to run the same uncached 4-request sequence on mount:
  *   getUser → user_roles → profiles → user_achievements

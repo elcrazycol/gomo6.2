@@ -77,10 +77,6 @@ const Profile = lazyWithRetry(() => import("./pages/Profile"));
 const WallPost = lazyWithRetry(() => import("./pages/WallPost"));
 const Moderation = lazyWithRetry(() => import("./pages/Moderation"));
 const ModerationPosts = lazyWithRetry(() => import("./pages/ModerationPosts"));
-const EmojiModeration = lazyWithRetry(() => import("./pages/EmojiModeration"));
-const EmojiCreate = lazyWithRetry(() => import("./pages/EmojiCreate"));
-const EmojiEdit = lazyWithRetry(() => import("./pages/EmojiEdit"));
-const EmojiEditForm = lazyWithRetry(() => import("./pages/EmojiEditForm"));
 const EmojiPacks = lazyWithRetry(() => import("./pages/EmojiPacks"));
 const EmojiPackDetail = lazyWithRetry(() => import("./pages/EmojiPackDetail"));
 const EmojiPackCreate = lazyWithRetry(() => import("./pages/EmojiPackCreate"));
@@ -261,10 +257,6 @@ function AppRoutes() {
           <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
           <Route path="moderation" element={<AuthGuard><LazyPage component={Moderation} /></AuthGuard>} />
           <Route path="moderation/posts" element={<AuthGuard><LazyPage component={ModerationPosts} /></AuthGuard>} />
-          <Route path="moderation/emojis" element={<AuthGuard><LazyPage component={EmojiModeration} /></AuthGuard>} />
-          <Route path="moderation/emojis/create" element={<AuthGuard><LazyPage component={EmojiCreate} /></AuthGuard>} />
-          <Route path="moderation/emojis/edit" element={<AuthGuard><LazyPage component={EmojiEdit} /></AuthGuard>} />
-          <Route path="moderation/emojis/edit/:emojiId" element={<AuthGuard><LazyPage component={EmojiEditForm} /></AuthGuard>} />
           <Route path="emojis" element={<LazyPage component={EmojiPacks} />} />
           <Route path="emojis/pack/:slug" element={<LazyPage component={EmojiPackDetail} />} />
           <Route path="emojis/create" element={<AuthGuard><LazyPage component={EmojiPackCreate} /></AuthGuard>} />

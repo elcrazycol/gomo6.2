@@ -12,8 +12,9 @@ import { useTranslation } from "react-i18next";
 import { safeDate } from "@/utils/safeDate";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { UserBadge } from "@/components/UserBadge";
-import { Bell, BellOff, ChevronLeft, MessageCircle, Share2 } from "lucide-react";
-import { UserMenu } from "@/components/UserMenu";
+import { Bell, BellOff, ChevronLeft, Edit3, MessageCircle, Share2, Trash2 } from "lucide-react";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { Poll } from "@/components/Poll";
 import type { Poll as PollData } from "@/components/Poll";
 import { storageUrl } from "@/utils/storage";
@@ -385,16 +386,28 @@ const Thread = () => {
               {/* Own-thread actions */}
               {isOwner && (
                 <div className="flex shrink-0 items-center gap-1">
-                  <UserMenu
-                    type="thread"
-                    onEdit={() => {
-                      setEditingThread(true);
-                      setEditContent(tx.content);
-                      setEditContentJson(tx.content_json ?? null);
-                    }}
-                    onDelete={handleDeleteThread}
-                    onReport={() => {}}
-                  />
+                  <PostActionsMenu>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setEditingThread(true);
+                        setEditContent(tx.content);
+                        setEditContentJson(tx.content_json ?? null);
+                      }}
+                      className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                      title="Изменить запись"
+                    >
+                      <Edit3 className="h-4 w-4 mr-3" />
+                      Изменить запись
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleDeleteThread}
+                      className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                      title="Удалить запись"
+                    >
+                      <Trash2 className="h-4 w-4 mr-3" />
+                      Удалить запись
+                    </DropdownMenuItem>
+                  </PostActionsMenu>
                 </div>
               )}
             </div>

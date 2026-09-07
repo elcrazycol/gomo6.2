@@ -353,6 +353,12 @@ var expectedRoutes = []string{
 	"PUT /api/v1/gomosubchat/channels/:id/messages/:msgId",
 	"DELETE /api/v1/gomosubchat/channels/:id/messages/:msgId",
 
+	// Content moderation
+	"POST /api/v1/moderation/reports",
+	"GET /api/v1/moderation/reports",
+	"POST /api/v1/moderation/posts/:postId/resolve",
+	"DELETE /api/v1/moderation/posts/:postId",
+
 	"POST /api/v1/friends/request",
 	"PUT /api/v1/friends/request/:id/accept",
 	"PUT /api/v1/friends/request/:id/reject",

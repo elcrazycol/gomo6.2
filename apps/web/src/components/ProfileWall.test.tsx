@@ -1392,12 +1392,14 @@ describe("ProfileWall", () => {
     expect(screen.queryByTestId("share-sheet")).not.toBeInTheDocument();
 
     // Share ActionButton has showLabel=false — no visible label text, only the Share2 icon.
-    // Exclude the "Написать на стене" button which also has only an icon.
+    // Exclude the "Написать на стене" plus button and the post-menu trigger
+    // ("Меню поста") which are also icon-only.
     const buttons = screen.getAllByRole("button");
     const shareButton = buttons.find((btn) => {
       const hasNoText = btn.textContent?.trim() === "";
-      const isNotPlusButton = btn.getAttribute("title") !== "Написать на стене";
-      return hasNoText && isNotPlusButton;
+      const title = btn.getAttribute("title");
+      const isNotOtherIconButton = title !== "Написать на стене" && title !== "Меню поста";
+      return hasNoText && isNotOtherIconButton;
     });
     expect(shareButton).toBeTruthy();
     await userEvent.click(shareButton!);
@@ -1922,7 +1924,7 @@ describe("ProfileWall", () => {
 
   // ─── WallPostCard: no management for other users ────────────────────────────
 
-  it("hides management buttons for non-author non-owner users", async () => {
+  it("offers only the report item to non-author non-owner users", async () => {
     setupApiMocks({
       posts: [createMockPost()], // author_id: "author-1", user_id: "profile-user-1"
     });
@@ -1941,8 +1943,15 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    // No management menu at all for strangers.
-    expect(screen.queryByTitle("Меню поста")).not.toBeInTheDocument();
+    // The three-dots menu is visible to everyone — strangers get the report
+    // item but no management items (pin/edit/delete are author/owner-only).
+    await userEvent.click(screen.getByTitle("Меню поста"));
+    await waitFor(() => {
+      expect(screen.getByTitle("Пожаловаться")).toBeInTheDocument();
+    });
+    expect(screen.queryByTitle("Закрепить пост")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Редактировать")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Удалить")).not.toBeInTheDocument();
   });
 
   // ─── ProfileWall: infinite scroll pagination ────────────────────────────────
