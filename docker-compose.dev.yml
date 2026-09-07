@@ -1,0 +1,20 @@
+# =============================================================================
+# Gomo6 — Dev-only Compose override
+# =============================================================================
+# Publishes the infrastructure ports to the host so the Go backend, run
+# locally via `go run cmd/server/main.go`, can reach Postgres / Redis / Garage
+# on 127.0.0.1. Used by `make dev` (scripts/dev.sh). Never used in production.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis garage
+# =============================================================================
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+  redis:
+    ports:
+      - "6379:6379"
+  garage:
+    ports:
+      - "3900:3900"   # S3 API
+      - "3902:3902"   # website (direct file reads)
