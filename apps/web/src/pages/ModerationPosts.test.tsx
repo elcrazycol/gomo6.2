@@ -38,19 +38,6 @@ vi.mock("react-router-dom", () => ({
   Link: ({ children, to }: any) => <a href={to}>{children}</a>,
 }));
 
-vi.mock("@/components/UserBadge", () => ({
-  UserBadge: ({ username }: any) => <span data-testid="user-badge">{username}</span>,
-}));
-vi.mock("@/components/ProcessedContent", () => ({
-  ProcessedContent: ({ content }: any) => <span data-testid="processed-content">{content}</span>,
-}));
-vi.mock("@/components/WallAttachments", () => ({
-  WallAttachments: () => null,
-}));
-vi.mock("@/components/Lightbox", () => ({
-  Lightbox: () => null,
-}));
-
 const group = (overrides: Record<string, unknown> = {}) => ({
   post: {
     id: "post-1",
@@ -101,7 +88,7 @@ describe("ModerationPosts", () => {
   it("shows the empty state when the queue is empty", async () => {
     render(<ModerationPosts />);
     await waitFor(() => {
-      expect(screen.getByText("Очередь пуста")).toBeInTheDocument();
+      expect(screen.getByText(/Очередь пуста/)).toBeInTheDocument();
     });
   });
 
@@ -187,7 +174,9 @@ describe("ModerationPosts", () => {
       expect(screen.getByText("Спорная запись")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole("button", { name: /Удалить пост/ }));
+    // The row action and the confirm dialog both say "Удалить" — click the
+    // row's action first (there is exactly one group), then confirm inside the dialog.
+    await userEvent.click(screen.getAllByRole("button", { name: /Удалить/ })[0]);
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: /Удалить/ }));
 

@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
-import {
-  CheckCheck, ChevronDown, ChevronRight, Flag, Loader2, MessageSquareWarning, Shield, Trash2,
-} from "lucide-react";
+import { CheckCheck, ChevronDown, ChevronRight, Flag, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiClient } from "@/integrations/api/client";
@@ -14,17 +12,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { UserBadge } from "@/components/UserBadge";
-import { ProcessedContent } from "@/components/ProcessedContent";
-import { WallAttachments } from "@/components/WallAttachments";
-import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { REPORT_CATEGORIES } from "@/components/moderation/ReportDialog";
-import {
-  type WallPost,
-  normalizeAttachments,
-  normalizeWallPostRecord,
-  getWallPostPath,
-} from "@/utils/wallNormalizers";
 import { safeDate } from "@/utils/safeDate";
 import { cn } from "@/lib/utils";
 
@@ -53,30 +41,28 @@ interface ReportGroup {
 const categoryLabel = (value: string): string =>
   REPORT_CATEGORIES.find((c) => c.value === value)?.label ?? value;
 
+const plural = (n: number, one: string, few: string, many: string): string =>
+  n === 1 ? one : n < 5 ? few : many;
+
 /**
- * Moderation queue for wall-post reports: every post with at least one open
- * report, grouped under ONE entry per post (expandable to see each report),
- * sorted server-side by open report count so the most-reported content sits on
- * top. Fresh reports land here in realtime via the "moderation" WebSocket
- * room (new_report event) — no manual refresh needed.
+ * Minimal moderation queue: every post with open reports grouped under one
+ * entry, sorted by open report count (most-reported first). Fresh reports
+ * arrive in realtime via the "moderation" WebSocket room.
  */
 const ModerationPosts = () => {
-  const { isModerator, currentUserUsername, currentUserColor } = useModeratorGate();
+  const { isModerator } = useModeratorGate();
   const dateLocale = useDateLocale();
 
   const [groups, setGroups] = useState<ReportGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<string | null>(null); // postId being resolved/deleted
+  const [busy, setBusy] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ReportGroup | null>(null);
-  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
-  const [galleryIndex, setGalleryIndex] = useState(0);
 
   const loadGroups = useCallback(async () => {
     try {
       const { data, error } = await apiClient.rawRequest<ReportGroup[]>("/api/v1/moderation/reports");
       if (error) throw error;
-      // The generic ApiResponse types data as T | T[], so narrow explicitly.
       setGroups((Array.isArray(data) ? data : [data]).filter(Boolean) as ReportGroup[]);
     } catch (err) {
       console.error("Error loading moderation queue:", err);
@@ -119,11 +105,10 @@ const ModerationPosts = () => {
   };
 
   const handleResolve = async (group: ReportGroup) => {
-    setBusy(group.post.id as string);
+    const postId = group.post.id as string;
+    setBusy(postId);
     try {
-      await apiClient.rawRequest(`/api/v1/moderation/posts/${group.post.id}/resolve`, {
-        method: "POST",
-      });
+      await apiClient.rawRequest(`/api/v1/moderation/posts/${postId}/resolve`, { method: "POST" });
       toast.success("Жалобы решены — пост остаётся на стене");
       await loadGroups();
     } catch (err) {
@@ -138,9 +123,7 @@ const ModerationPosts = () => {
     const postId = deleteTarget.post.id as string;
     setBusy(postId);
     try {
-      await apiClient.rawRequest(`/api/v1/moderation/posts/${postId}`, {
-        method: "DELETE",
-      });
+      await apiClient.rawRequest(`/api/v1/moderation/posts/${postId}`, { method: "DELETE" });
       toast.success("Пост удалён");
       setDeleteTarget(null);
       await loadGroups();
@@ -155,215 +138,143 @@ const ModerationPosts = () => {
 
   return (
     <div className="bg-background min-h-screen">
-      <main className="mx-auto max-w-3xl p-4">
-        <div className="mb-6">
+      <main className="mx-auto max-w-2xl p-4">
+        <div className="mb-5">
           <Link
             to="/moderation"
-            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-primary"
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
           >
             ← Модерация
           </Link>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <MessageSquareWarning className="h-6 w-6 text-primary" />
-            Жалобы на записи
+          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
+            <Flag className="h-5 w-5 text-primary" />
+            Жалобы
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {loading
-              ? "Загружаем очередь…"
+              ? "Загружаем…"
               : totalOpen === 0
                 ? "Всё чисто — открытых жалоб нет"
-                : `${totalOpen} ${totalOpen === 1 ? "открытая жалоба" : totalOpen < 5 ? "открытые жалобы" : "открытых жалоб"} · чем больше жалоб на запись, тем выше она в списке`}
+                : `${totalOpen} ${plural(totalOpen, "открытая жалоба", "открытые жалобы", "открытых жалоб")} · больше жалоб = выше в списке`}
           </p>
         </div>
 
         {loading ? (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-32 animate-pulse rounded-xl border border-border/60 bg-muted/40" />
+              <div key={i} className="h-24 animate-pulse rounded-lg border border-border/60 bg-muted/40" />
             ))}
           </div>
         ) : groups.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-6 py-16 text-center">
-            <Shield className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-            <p className="text-lg font-medium">Очередь пуста</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Новые жалобы появятся здесь автоматически.
-            </p>
-          </div>
+          <p className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center text-muted-foreground">
+            Очередь пуста. Новые жалобы появятся здесь автоматически.
+          </p>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {groups.map((group) => {
-              const post = normalizeWallPostRecord(group.post, currentUserUsername) as WallPost;
-              const attachments = normalizeAttachments(post);
+              const post = group.post;
+              const postId = post.id as string;
+              const content = (post.content as string) ?? "";
+              const authorUsername = (post.author as { username?: string } | null)?.username ?? "неизвестный";
+              const createdAt = safeDate(post.created_at as string);
+              const attachments = (post.attachments as unknown[] | null) ?? [];
               const openReports = group.reports.filter((r) => r.status === "open");
-              const isExpanded = expanded.has(post.id);
-              const isBusy = busy === post.id;
+              const isExpanded = expanded.has(postId);
+              const isBusy = busy === postId;
 
               return (
-                <div key={post.id} className="overflow-clip rounded-xl border border-border/70 bg-card shadow-none">
-                  {/* Post preview */}
-                  <div className="p-3 sm:p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <UserBadge
-                              userId={post.author_id}
-                              username={post.author.username}
-                              displayName={post.author.display_name}
-                              emojiId={post.author.nickname_emoji_id}
-                              isAnonymous={post.author.is_anonymous}
-                              disableLink={false}
-                              stopPropagationOnClick
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(safeDate(post.created_at), {
-                                locale: dateLocale,
-                                addSuffix: true,
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                        {/* Open-report count badge */}
-                        <span
-                          className={cn(
-                            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                            openReports.length > 0
-                              ? "border-orange-500/30 bg-orange-500/10 text-orange-600"
-                              : "border-border/60 bg-muted/40 text-muted-foreground",
-                          )}
-                        >
-                          <Flag className="h-3 w-3" />
-                          {openReports.length} {openReports.length === 1 ? "жалоба" : openReports.length < 5 ? "жалобы" : "жалоб"}
+                <div key={postId} className="rounded-lg border border-border/70 bg-card p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                        <span className="font-medium">{authorUsername}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(createdAt, { locale: dateLocale, addSuffix: true })}
                         </span>
                       </div>
+                      {content.trim() && (
+                        <p className="mt-1 whitespace-pre-wrap break-words text-sm">{content}</p>
+                      )}
+                      {attachments.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          + {attachments.length} {plural(attachments.length, "вложение", "вложения", "вложений")}
+                        </p>
+                      )}
                     </div>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium",
+                        openReports.length > 0
+                          ? "border-orange-500/30 bg-orange-500/10 text-orange-600"
+                          : "border-border/60 bg-muted/40 text-muted-foreground",
+                      )}
+                    >
+                      {openReports.length} {plural(openReports.length, "жалоба", "жалобы", "жалоб")}
+                    </span>
+                  </div>
 
-                    {post.content?.trim() && (
-                      <div className="mt-3 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-                        <ProcessedContent
-                          content={(post.content as string) || ""}
-                          contentJson={post.content_json}
-                          currentUserId={null}
-                          isAdmin={false}
-                          currentUsername={currentUserUsername}
-                          currentUserColor={currentUserColor}
-                          postAuthorId={post.author_id}
-                          authorUsername={post.author.username}
-                          showHiddenIndicators={false}
-                        />
-                      </div>
-                    )}
-
-                    {attachments.length > 0 && (
-                      <div className="mt-3">
-                        <WallAttachments
-                          attachments={attachments}
-                          galleryKey={`moderation-${post.id}`}
-                          onImageClick={(items, idx) => {
-                            setGalleryItems(items);
-                            setGalleryIndex(idx);
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    {/* Actions row */}
-                    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+                  <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(postId)}
+                      aria-expanded={isExpanded}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      Жалобы ({group.reports.length})
+                    </button>
+                    <div className="ml-auto flex gap-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => toggleExpanded(post.id)}
-                        aria-expanded={isExpanded}
+                        onClick={() => handleResolve(group)}
+                        disabled={isBusy || openReports.length === 0}
                       >
-                        {isExpanded ? (
-                          <ChevronDown className="mr-1.5 h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="mr-1.5 h-4 w-4" />
-                        )}
-                        {isExpanded
-                          ? "Свернуть жалобы"
-                          : `Жалобы (${group.reports.length})`}
+                        {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
+                        Решить
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="destructive"
                         size="sm"
-                        asChild
+                        onClick={() => setDeleteTarget(group)}
+                        disabled={isBusy}
                       >
-                        <Link
-                          to={getWallPostPath(post.user_id, post.id)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Открыть запись
-                        </Link>
+                        <Trash2 className="h-4 w-4" />
+                        Удалить
                       </Button>
-                      <div className="ml-auto flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleResolve(group)}
-                          disabled={isBusy || openReports.length === 0}
-                        >
-                          {isBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCheck className="mr-1.5 h-4 w-4" />}
-                          Решить
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setDeleteTarget(group)}
-                          disabled={isBusy}
-                        >
-                          <Trash2 className="mr-1.5 h-4 w-4" />
-                          Удалить пост
-                        </Button>
-                      </div>
                     </div>
                   </div>
 
-                  {/* Expandable report list */}
                   {isExpanded && (
-                    <div className="space-y-2 border-t border-border/60 bg-muted/20 p-3 sm:p-4">
+                    <div className="mt-2 space-y-2">
                       {group.reports.map((report) => (
                         <div
                           key={report.id}
                           className={cn(
-                            "rounded-lg border border-border/60 bg-background p-3",
+                            "rounded-md border border-border/60 bg-muted/20 p-2.5",
                             report.status === "resolved" && "opacity-60",
                           )}
                         >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <UserBadge
-                              userId={report.reporter_id}
-                              username={report.reporter.username}
-                              displayName={report.reporter.display_name}
-                              disableLink={false}
-                              stopPropagationOnClick
-                            />
-                            <span
-                              className={cn(
-                                "rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                                report.category === "other"
-                                  ? "border-border/60 bg-muted/40 text-muted-foreground"
-                                  : "border-primary/25 bg-primary/5 text-primary",
-                              )}
-                            >
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                            <span className="font-medium">{report.reporter.username}</span>
+                            <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                               {categoryLabel(report.category)}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(safeDate(report.created_at), {
-                                locale: dateLocale,
-                                addSuffix: true,
-                              })}
+                              {formatDistanceToNow(safeDate(report.created_at), { locale: dateLocale, addSuffix: true })}
                             </span>
                             {report.status === "resolved" && (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[11px] text-green-600">
+                              <span className="inline-flex items-center gap-1 text-[11px] text-green-600">
                                 <CheckCheck className="h-3 w-3" />
                                 Решена
                               </span>
                             )}
                           </div>
-                          <p className="mt-2 whitespace-pre-wrap break-words text-sm">{report.reason}</p>
+                          <p className="mt-1 whitespace-pre-wrap break-words text-sm">{report.reason}</p>
                         </div>
                       ))}
                     </div>
@@ -375,22 +286,12 @@ const ModerationPosts = () => {
         )}
       </main>
 
-      {galleryItems && (
-        <Lightbox
-          items={galleryItems}
-          initialIndex={galleryIndex}
-          onClose={() => setGalleryItems(null)}
-        />
-      )}
-
-      {/* Delete confirmation */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Удалить запись?</DialogTitle>
             <DialogDescription>
-              Запись будет удалена безвозвратно вместе со всеми жалобами,
-              комментариями и лайками. Восстановить её будет невозможно.
+              Запись будет удалена безвозвратно вместе со всеми жалобами, комментариями и лайками.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -399,13 +300,10 @@ const ModerationPosts = () => {
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={busy !== null}>
               {busy === deleteTarget?.post.id ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Удаляем
-                </>
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <>
-                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  <Trash2 className="mr-1.5 h-4 w-4" />
                   Удалить
                 </>
               )}
