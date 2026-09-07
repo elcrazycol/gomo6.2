@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { toast } from "sonner";
@@ -36,6 +36,22 @@ describe("PostActionsMenu", () => {
     await waitFor(() => {
       expect(screen.getByText("Пожаловаться на запись")).toBeInTheDocument();
     });
+  });
+
+  it("opens the dialog on pointerdown and cancels the gesture so the click cannot pass through to the post card", () => {
+    render(<PostActionsMenu postId="post-1" />);
+    const trigger = screen.getByTitle("Меню поста");
+    fireEvent.pointerDown(trigger);
+    fireEvent.click(trigger);
+
+    const item = screen.getByTitle("Пожаловаться");
+    const pointerDown = fireEvent.pointerDown(item, { cancelable: true });
+    // preventDefault cancels the browser's synthesized mouse/click events, which
+    // is what stops the click from landing on the clickable post card behind the
+    // closed menu (and opening the post page instead of the report dialog).
+    expect(pointerDown).toBe(false);
+    expect(screen.getByText("Пожаловаться на запись")).toBeInTheDocument();
+    expect(screen.queryByTitle("Пожаловаться")).not.toBeInTheDocument();
   });
 
   it("renders caller-provided items above the report item", async () => {

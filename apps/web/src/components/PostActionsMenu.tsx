@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type PointerEvent, type ReactNode, useState } from "react";
 import { BadgeCheck, Flag, MoreVertical } from "lucide-react";
 
 import {
@@ -35,13 +35,29 @@ interface PostActionsMenuProps {
  * need the focus trap or scroll lock.
  */
 export const PostActionsMenu = ({ postId, children, align = "end" }: PostActionsMenuProps) => {
+  const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const reportedPosts = useReportedPosts();
   const alreadyReported = postId ? reportedPosts.has(postId) : false;
 
+  /**
+   * Act on pointerdown instead of click: once the menu closes, the browser
+   * re-targets the rest of the gesture onto whatever is under the cursor — on
+   * the feed the whole post card is clickable, so the menu item's click was
+   * "passing through" to the card and opening the post page. preventDefault on
+   * pointerdown cancels the synthesized mouse/click events entirely (per the
+   * pointer-events spec), so the card never sees the gesture. Keyboard users
+   * still activate via the item's onClick (no pointerdown fires).
+   */
+  const openReportDialog = (e: PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setReportOpen(true);
+    setMenuOpen(false);
+  };
+
   return (
     <>
-      <DropdownMenu modal={false}>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -67,6 +83,7 @@ export const PostActionsMenu = ({ postId, children, align = "end" }: PostActions
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
+                onPointerDown={openReportDialog}
                 onClick={() => setReportOpen(true)}
                 className="cursor-pointer text-orange-600 hover:bg-orange-500/15 hover:text-orange-600 focus:bg-orange-500/15 focus:text-orange-600 transition-colors px-3 py-2"
                 title="Пожаловаться"
