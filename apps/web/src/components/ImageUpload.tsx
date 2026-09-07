@@ -136,7 +136,7 @@ export const ImageUpload = ({
         const randomStr = Math.random().toString(36).substring(2, 9);
         const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
 
-        const { error: uploadError } = await api.storage
+        const { data: uploadData, error: uploadError } = await api.storage
           .from('content')
           .upload(fileName, file, {
             cacheControl: '3600',
@@ -148,8 +148,10 @@ export const ImageUpload = ({
           throw new Error(uploadError.message || 'Ошибка загрузки файла');
         }
 
-        // Store storageKey in DB; UI previews are rendered via storageUrl().
-        return fileName;
+        // The upload pipeline may re-encode the image (JPEG → WebP) and store
+        // it under a renamed key — persist the actual stored path returned by
+        // the server, never the pre-computed key (a stale extension 404s later).
+        return uploadData?.path || fileName;
       });
 
       const newUrls = await Promise.all(uploadPromises);

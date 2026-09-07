@@ -81,8 +81,10 @@ const extractAudioMetadata = async (file: File): Promise<{
               const coverKey = `${session.user.id}/${timestamp}_${randomStr}.${ext}`;
 
               try {
-                await uploadFile('content', coverKey, coverFile, undefined, true);
-                coverArt = coverKey;
+                // The upload pipeline may re-encode the cover (JPEG → WebP) and
+                // store it under a renamed key — persist the returned path.
+                const uploaded = await uploadFile('content', coverKey, coverFile, undefined, true);
+                coverArt = uploaded.path;
               } catch (e) {
                 console.error('Failed to upload cover art:', e);
               }

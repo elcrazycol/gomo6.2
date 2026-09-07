@@ -82,8 +82,10 @@ export function EmojiPackForm({ initialData, onSuccess, onCancel }: EmojiPackFor
       if (iconFile) {
         const ext = iconFile.name.split('.').pop() || 'webp';
         const key = `${user.id}/${slug}/_icon.${ext}`;
-        await uploadFile('emojis', key, iconFile);
-        iconUrl = key;
+        // The upload pipeline may re-encode the image and store it under a
+        // renamed key — persist the actual stored path.
+        const uploaded = await uploadFile('emojis', key, iconFile);
+        iconUrl = uploaded.path;
       }
 
       const packData = {

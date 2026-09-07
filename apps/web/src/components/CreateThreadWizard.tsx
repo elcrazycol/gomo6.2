@@ -204,8 +204,10 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
                         return;
                       }
                       const imageKey = `${user.id}/threads/${Date.now()}-${file.name}`;
-                      await uploadFile('content', imageKey, file);
-                      setThreadImageUrl(imageKey);
+                      // The upload pipeline may re-encode the image and store it
+                      // under a renamed key — persist the actual stored path.
+                      const uploaded = await uploadFile('content', imageKey, file);
+                      setThreadImageUrl(uploaded.path);
                     } catch (error) {
                       console.error('Error uploading thread image:', error);
                       toast.error('Ошибка загрузки изображения');

@@ -216,10 +216,14 @@ const GomoSubCreate = () => {
 
       const ext = file.name.split(".").pop() || "jpg";
       const fileName = `${user.id}/${Date.now()}_${kind}.${ext}`;
-      await uploadFile("post-images", fileName, file);
+      // The upload pipeline may re-encode the image (JPEG → WebP) and store it
+      // under a renamed key — always persist the actual stored path returned by
+      // the server, never the pre-computed key (a stale extension 404s later).
+      const uploaded = await uploadFile("post-images", fileName, file);
+      const storedPath = uploaded.path;
 
-      if (kind === "avatar") setAvatarImages([fileName]);
-      else setCoverImages([fileName]);
+      if (kind === "avatar") setAvatarImages([storedPath]);
+      else setCoverImages([storedPath]);
       toast.success(kind === "avatar" ? "Аватар загружен" : "Фон загружен");
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
