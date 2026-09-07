@@ -1,4 +1,4 @@
-import { type PointerEvent, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { BadgeCheck, Flag, MoreVertical } from "lucide-react";
 
 import {
@@ -25,39 +25,24 @@ interface PostActionsMenuProps {
 }
 
 /**
- * Shared three-dots actions menu for wall posts (profile wall + feed). Callers
- * pass their own management items (pin/edit/delete) as children; the report
- * item and its dialog are built in, so every surface gets "Пожаловаться" for
- * free and the trigger styling stays consistent across the app.
+ * Shared three-dots actions menu for wall posts. Callers pass their own
+ * management items (pin/edit/delete) as children; the report item and its
+ * dialog are built in. Renders nothing when there is nothing to show.
  *
  * Non-modal on purpose: a modal Radix dropdown locks page scroll (overflow:
  * hidden on body), which kills sticky headers/composers — a plain menu doesn't
  * need the focus trap or scroll lock.
  */
 export const PostActionsMenu = ({ postId, children, align = "end" }: PostActionsMenuProps) => {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const reportedPosts = useReportedPosts();
   const alreadyReported = postId ? reportedPosts.has(postId) : false;
 
-  /**
-   * Act on pointerdown instead of click: once the menu closes, the browser
-   * re-targets the rest of the gesture onto whatever is under the cursor — on
-   * the feed the whole post card is clickable, so the menu item's click was
-   * "passing through" to the card and opening the post page. preventDefault on
-   * pointerdown cancels the synthesized mouse/click events entirely (per the
-   * pointer-events spec), so the card never sees the gesture. Keyboard users
-   * still activate via the item's onClick (no pointerdown fires).
-   */
-  const openReportDialog = (e: PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setReportOpen(true);
-    setMenuOpen(false);
-  };
+  if (!postId && !children) return null;
 
   return (
     <>
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -83,7 +68,6 @@ export const PostActionsMenu = ({ postId, children, align = "end" }: PostActions
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
-                onPointerDown={openReportDialog}
                 onClick={() => setReportOpen(true)}
                 className="cursor-pointer text-orange-600 hover:bg-orange-500/15 hover:text-orange-600 focus:bg-orange-500/15 focus:text-orange-600 transition-colors px-3 py-2"
                 title="Пожаловаться"

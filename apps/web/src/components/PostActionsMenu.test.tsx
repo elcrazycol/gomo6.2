@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { toast } from "sonner";
@@ -38,22 +38,6 @@ describe("PostActionsMenu", () => {
     });
   });
 
-  it("opens the dialog on pointerdown and cancels the gesture so the click cannot pass through to the post card", () => {
-    render(<PostActionsMenu postId="post-1" />);
-    const trigger = screen.getByTitle("Меню поста");
-    fireEvent.pointerDown(trigger);
-    fireEvent.click(trigger);
-
-    const item = screen.getByTitle("Пожаловаться");
-    const pointerDown = fireEvent.pointerDown(item, { cancelable: true });
-    // preventDefault cancels the browser's synthesized mouse/click events, which
-    // is what stops the click from landing on the clickable post card behind the
-    // closed menu (and opening the post page instead of the report dialog).
-    expect(pointerDown).toBe(false);
-    expect(screen.getByText("Пожаловаться на запись")).toBeInTheDocument();
-    expect(screen.queryByTitle("Пожаловаться")).not.toBeInTheDocument();
-  });
-
   it("renders caller-provided items above the report item", async () => {
     render(
       <PostActionsMenu postId="post-1">
@@ -69,11 +53,22 @@ describe("PostActionsMenu", () => {
     });
   });
 
-  it("does not render a report item without a postId (threads)", async () => {
+  it("renders no trigger when there is nothing to show (no postId and no items)", () => {
     render(<PostActionsMenu />);
+    expect(screen.queryByTitle("Меню поста")).not.toBeInTheDocument();
+  });
+
+  it("does not render a report item without a postId (caller-provided items only)", async () => {
+    render(
+      <PostActionsMenu>
+        <button type="button" title="Редактировать">
+          Edit
+        </button>
+      </PostActionsMenu>,
+    );
     await userEvent.click(screen.getByTitle("Меню поста"));
     await waitFor(() => {
-      expect(screen.getByTitle("Меню поста")).toBeInTheDocument();
+      expect(screen.getByTitle("Редактировать")).toBeInTheDocument();
     });
     expect(screen.queryByTitle("Пожаловаться")).not.toBeInTheDocument();
   });

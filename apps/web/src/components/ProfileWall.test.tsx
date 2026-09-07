@@ -884,6 +884,40 @@ describe("ProfileWall", () => {
     expect(screen.queryByText("Запись на стене не найдена")).not.toBeInTheDocument();
   });
 
+  // ─── WallPostCard: report on the standalone post page ───────────────────────
+
+  it("offers the report item on the standalone post page to any visitor", async () => {
+    setupApiMocks({
+      posts: [createMockPost({ id: "focused-post", content: "Focused post" })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="stranger"
+        currentUsername="stranger"
+        canPost={false}
+        showWall={true}
+        focusedPostId="focused-post"
+        standalone={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Focused post")).toBeInTheDocument();
+    });
+
+    // The three-dots lives on the opened post: a stranger sees the report item
+    // there (but no pin/edit/delete management items).
+    await userEvent.click(screen.getByTitle("Меню поста"));
+    await waitFor(() => {
+      expect(screen.getByTitle("Пожаловаться")).toBeInTheDocument();
+    });
+    expect(screen.queryByTitle("Закрепить пост")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Редактировать")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Удалить")).not.toBeInTheDocument();
+  });
+
   // ─── ProfileWall: autoplay flag propagation ────────────────────────────────
 
   it("forwards autoplayVideo to the focused post's video player (no open-mode)", async () => {
@@ -1922,9 +1956,9 @@ describe("ProfileWall", () => {
     });
   });
 
-  // ─── WallPostCard: no management for other users ────────────────────────────
+  // ─── WallPostCard: no management menu for other users in the list ───────────
 
-  it("offers only the report item to non-author non-owner users", async () => {
+  it("shows no three-dots menu to non-author non-owner users in the wall list", async () => {
     setupApiMocks({
       posts: [createMockPost()], // author_id: "author-1", user_id: "profile-user-1"
     });
@@ -1943,15 +1977,10 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    // The three-dots menu is visible to everyone — strangers get the report
-    // item but no management items (pin/edit/delete are author/owner-only).
-    await userEvent.click(screen.getByTitle("Меню поста"));
-    await waitFor(() => {
-      expect(screen.getByTitle("Пожаловаться")).toBeInTheDocument();
-    });
-    expect(screen.queryByTitle("Закрепить пост")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Редактировать")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Удалить")).not.toBeInTheDocument();
+    // Reporting lives on the opened post page, so a stranger browsing the wall
+    // list gets no menu (no pin/edit/delete, no report).
+    expect(screen.queryByTitle("Меню поста")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Пожаловаться")).not.toBeInTheDocument();
   });
 
   // ─── ProfileWall: infinite scroll pagination ────────────────────────────────

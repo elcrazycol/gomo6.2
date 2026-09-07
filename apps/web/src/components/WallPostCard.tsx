@@ -364,43 +364,47 @@ export const WallPostCard = ({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center">
-            {/* The shared actions menu: management items (pin/edit/delete) are
-                only offered to the wall owner/author; the report item is there
-                for everyone. Non-modal — see PostActionsMenu. */}
-            <PostActionsMenu postId={post.id}>
-              {currentUserId === post.user_id && (
-                <DropdownMenuItem
-                  onClick={() => onTogglePin(post.id)}
-                  className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
-                  title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
-                >
-                  {post.is_pinned ? <PinOff className="h-4 w-4 mr-3" /> : <Pin className="h-4 w-4 mr-3" />}
-                  {post.is_pinned ? "Открепить пост" : "Закрепить пост"}
-                </DropdownMenuItem>
-              )}
-              {currentUserId === post.author_id && (
-                <DropdownMenuItem
-                  onClick={onStartEditing}
-                  className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
-                  title="Редактировать"
-                >
-                  <Edit3 className="h-4 w-4 mr-3" />
-                  Редактировать
-                </DropdownMenuItem>
-              )}
-              {canManage && (
-                <DropdownMenuItem
-                  onClick={() => setDeleteConfirmOpen(true)}
-                  className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
-                  title="Удалить"
-                >
-                  <Trash2 className="h-4 w-4 mr-3" />
-                  Удалить
-                </DropdownMenuItem>
-              )}
-            </PostActionsMenu>
-          </div>
+          {/* The three-dots menu: on the standalone post page it carries the
+              report item for everyone plus the owner's management items. In
+              wall lists only the owner/author sees their management items
+              (pin/edit/delete) — reporting happens on the opened post, so
+              visitors in list context get no menu at all. */}
+          {(standalone || canManage) && (
+            <div className="flex shrink-0 items-center">
+              <PostActionsMenu postId={standalone ? post.id : undefined}>
+                {currentUserId === post.user_id && (
+                  <DropdownMenuItem
+                    onClick={() => onTogglePin(post.id)}
+                    className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                    title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
+                  >
+                    {post.is_pinned ? <PinOff className="h-4 w-4 mr-3" /> : <Pin className="h-4 w-4 mr-3" />}
+                    {post.is_pinned ? "Открепить пост" : "Закрепить пост"}
+                  </DropdownMenuItem>
+                )}
+                {currentUserId === post.author_id && (
+                  <DropdownMenuItem
+                    onClick={onStartEditing}
+                    className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                    title="Редактировать"
+                  >
+                    <Edit3 className="h-4 w-4 mr-3" />
+                    Редактировать
+                  </DropdownMenuItem>
+                )}
+                {canManage && (
+                  <DropdownMenuItem
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                    title="Удалить"
+                  >
+                    <Trash2 className="h-4 w-4 mr-3" />
+                    Удалить
+                  </DropdownMenuItem>
+                )}
+              </PostActionsMenu>
+            </div>
+          )}
         </div>
 
         <div
