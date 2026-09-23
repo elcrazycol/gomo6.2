@@ -53,6 +53,25 @@ go test -race -count=1 ./...       # test with race detector (needs Postgres+Red
 
 Deploy to production only after CI passes on `main`.
 
+## Self-hosted runner (this Mac)
+
+CI/CD runs on the project Mac, not on Codeberg's infra — see
+[docs/wiki/SELF_HOSTED_RUNNER.md](docs/wiki/SELF_HOSTED_RUNNER.md) for the full
+guide. Short version:
+
+```bash
+# 1. Docker Desktop must be running (jobs use docker buildx)
+docker info >/dev/null && echo "docker: UP"
+# 2. Start the runner daemon
+cd ~/forgejo-runner && ~/bin/forgejo-runner daemon --config .forgejo-runner.yaml
+```
+
+Binary `~/bin/forgejo-runner`, config `~/forgejo-runner/.forgejo-runner.yaml`
+(host mode; labels `self-hosted` / `macos` / `arm64` / `macos-arm64`; capacity 4).
+There is no launchd agent — start it in `tmux`/`nohup` if it must survive the
+terminal. If jobs are not picked up, the registration token is stale:
+re-register with a fresh Codeberg runner token.
+
 ## Pre-commit hook
 
 Runs on staged files only:

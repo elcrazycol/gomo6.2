@@ -257,6 +257,7 @@ Optional:
 - **Wiki guides** (`docs/wiki/`):
   - [DEPLOYMENT.md](docs/wiki/DEPLOYMENT.md) — VPS deployment guide
   - [DOCKER_SETUP.md](docs/wiki/DOCKER_SETUP.md) — Docker deployment with Caddy
+  - [SELF_HOSTED_RUNNER.md](docs/wiki/SELF_HOSTED_RUNNER.md) — how to run the Codeberg Actions runner on the project Mac
   - [OAUTH_API.md](docs/wiki/OAUTH_API.md) — OAuth 2.0 API reference
   - [MESSENGER_SECURITY.md](docs/wiki/MESSENGER_SECURITY.md) — messenger security model
   - [REALTIME_WEBSOCKET_PATTERN.md](docs/wiki/REALTIME_WEBSOCKET_PATTERN.md) — WebSocket patterns
