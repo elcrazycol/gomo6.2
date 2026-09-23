@@ -103,38 +103,47 @@ The fastest way to get the whole stack running locally — **no manual setup** (
 make dev
 ```
 
-Requirements: **Docker**, **Node 22+**, **npm**, **Go 1.26+**, **openssl** — and `ffmpeg`/`ffprobe` if you want video uploads to work locally (e.g. `brew install ffmpeg`).
+Requirements: **Docker**, **Node 22+**, **npm**, **Go 1.26+**, **openssl**, and **`tmux`** (or **`overmind`**, installed by `make tools`) for the process manager — plus `ffmpeg`/`ffprobe` if you want video uploads to work locally (e.g. `brew install ffmpeg`). Run `make doctor` to check every prerequisite, the Docker daemon, `.env` and the dev ports.
 
 What it does:
 
-1. Checks the prerequisites and installs npm dependencies
-2. Creates `.env` from `.env.example` and generates all required secrets (existing values are **preserved**)
-3. Renders `.garage.toml` and starts **Postgres + Redis + Garage** in Docker (ports published to localhost for the locally-run backend)
-4. Waits for the infra to become healthy and pulls the Garage S3 keys out of the `garage_keys` volume — uploads work out of the box
-5. Starts the **Go backend** (:8080) and the **frontend dev servers** in parallel:
+1. Starts **Docker Desktop** automatically when the daemon is not running
+2. Installs npm dependencies (skipped while `package-lock.json` is unchanged)
+3. Creates `.env` from `.env.example` and generates all required secrets (existing values are **preserved**)
+4. Renders `.garage.toml` and starts **Postgres + Redis + Garage** in Docker (ports published to localhost for the locally-run backend)
+5. Waits for the infra to become healthy and pulls the Garage S3 keys out of the `garage_keys` volume — uploads work out of the box
+6. Starts every process declared in **[`Procfile.dev`](Procfile.dev)** — the Go backend (:8080) and the frontend dev servers:
 
 ```
-🚀  http://localhost:8081   — main web app
-    http://localhost:3001   — docs
-    http://localhost:3002   — dev dashboard
+🚀  http://localhost:8081        — main web app
+    http://localhost:3001        — docs
+    http://localhost:3002        — dev dashboard
+    http://localhost:8080/health — backend
 ```
 
-**Ctrl+C** stops the backend and frontends (the infra containers keep running). To stop everything:
+**Process manager** — `overmind` is used when installed (`make tools`), otherwise the same `Procfile.dev` is fanned out into **tmux** windows (`backend`, `web`, `docs`, `dev-dashboard`) with per-service control. Detach tmux with **Ctrl-b d** and return with `make attach`; `make dev-stop` stops the processes. The infra containers keep running either way — stop them with `make stop`.
 
-```bash
-make stop
-```
+**Demo data** — with the backend up, `make seed` fills the local database with an idempotent demo dataset (a filled-out profile with an avatar, wall posts, friends, feed content and a chat) so the UI has real content to render. Sign in as `demo@gomo6.local` / `gomo6-demo-9f3k2x` (also `alice@` / `bob@`, same password).
 
 ### Make targets
 
 | Target | What it does |
 |---|---|
 | `make dev` | Full one-command dev environment (above) |
+| `make attach` | Attach to the `make dev` tmux session |
+| `make dev-stop` | Stop the `make dev` processes (infra keeps running) |
+| `make seed` | Populate the local DB with idempotent demo data |
+| `make doctor` | Check prerequisites, Docker, `.env` and dev ports |
 | `make install` | `npm install` for the whole workspace |
 | `make env` | Create `.env` + generate secrets + render `.garage.toml` |
 | `make infra` | Start Postgres + Redis + Garage on localhost (dev ports) |
 | `make backend` | Run the Go backend on :8080 (needs `make env` + `make infra` first) |
 | `make web` | Frontend dev servers (web :8081, docs :3001, dev-dashboard :3002) |
+| `make psql` | Open `psql` on the dev database |
+| `make redis-cli` | Open `redis-cli` on the dev Redis |
+| `make logs` | Tail the infra container logs |
+| `make reset-db` | **Destructive** — drop the dev Postgres/Redis/Garage volumes |
+| `make tools` | Install optional dev tooling (`overmind`) |
 | `make stop` | Stop the dev infra containers (volumes kept) |
 | `make test` | Backend (`go test ./...`) + web (vitest) |
 | `make lint` | golangci-lint + eslint |

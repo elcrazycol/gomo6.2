@@ -18,6 +18,14 @@ Production: Docker Compose on single VPS. Caddy reverse proxy auto-routes subdom
 ## Quick commands
 
 ```bash
+# Local dev environment (one command)
+make dev                           # infra + backend + 3 frontends (tmux/overmind, Procfile.dev)
+make seed                          # idempotent demo data (backend must be running)
+make doctor                        # check prerequisites / ports / .env
+make attach                        # re-attach to the `make dev` tmux session
+make dev-stop                      # stop the dev processes (infra keeps running)
+make reset-db                      # DESTRUCTIVE: drop dev Postgres/Redis/Garage volumes
+
 # Frontend
 npm install                        # install all deps
 npm run dev                        # all apps in parallel
@@ -206,6 +214,7 @@ docker compose up -d
 ## Key gotchas
 
 - **Repo is named `gomo6.2`** (not `gomo6`). Deploy scripts search for `/root/gomo6.2` or `/home/*/gomo6.2`. Wrong directory name = deploy fails.
+- **Local dev stack**: `make dev` writes `.dev.env` (gitignored — full backend env) which `Procfile.dev` sources; the dev infra ports are published to `127.0.0.1` only (so a Homebrew Postgres on IPv6 `[::1]:5432` coexists). `garage-init` must be named explicitly in `docker compose up` — Compose starts dependencies, not dependents.
 - **Cache invalidation for new tables**: `crud.go` handles generic CRUD. Adding a new table to the frontend requires adding a cache invalidation case in the `invalidateCacheForTableResult` switch. Missing this = stale data.
 - **Rate limit budgets are per-surface**: the generic REST surface uses `RATE_LIMIT_PER_USER` / `RATE_LIMIT_PER_IP` (900/300 per minute); the public `/api/rpc` surface (likes batch, recent likers, emoji resolve, avatar history — reachable by guests) has its own stricter budgets `RPC_RATE_LIMIT_PER_USER` / `RPC_RATE_LIMIT_PER_IP` (900/120 per minute) namespaced under the `rpc` Redis prefix. Tune via env without a rebuild.
 - **Caddy depends on all services**: backend crash = entire site 502s. Healthcheck at `/health` registered before heavy init.

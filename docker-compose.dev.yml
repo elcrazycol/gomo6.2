@@ -6,15 +6,20 @@
 # on 127.0.0.1. Used by `make dev` (scripts/dev.sh). Never used in production.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis garage
+#
+# Ports are bound to 127.0.0.1 (IPv4 loopback) explicitly — not 0.0.0.0 — so
+# the dev database is never exposed on the LAN, and a native service listening
+# only on IPv6 localhost (e.g. a Homebrew Postgres on [::1]:5432) does not
+# collide with the containers.
 # =============================================================================
 services:
   postgres:
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
   redis:
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
   garage:
     ports:
-      - "3900:3900"   # S3 API
-      - "3902:3902"   # website (direct file reads)
+      - "127.0.0.1:3900:3900"   # S3 API
+      - "127.0.0.1:3902:3902"   # website (direct file reads)

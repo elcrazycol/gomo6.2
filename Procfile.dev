@@ -1,0 +1,15 @@
+# Gomo6 — local dev processes, consumed by `make dev` (scripts/dev.sh).
+#
+# One line per long-running process:  <name>: <command>
+# `make dev` fans this list out into tmux windows, or hands it to overmind
+# when overmind is installed (`make tools`). Keep the names stable — the tmux
+# window and the overmind process are addressed by them
+# (`overmind restart backend`, `tmux select-window -t gomo6-dev:web`).
+#
+# Infra (Postgres / Redis / Garage) is NOT here: it lives in Docker and is
+# started by scripts/dev.sh before these processes come up.
+
+backend: [ -f .dev.env ] && . ./.dev.env; cd apps/backend-go && go run cmd/server/main.go
+web: npm run dev --workspace @gomo6/web
+docs: npm run dev --workspace @gomo6/docs
+dev-dashboard: npm run dev --workspace @gomo6/dev-dashboard

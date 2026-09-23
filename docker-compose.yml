@@ -68,13 +68,16 @@ services:
       - |
         G="chroot /proc/1/root /garage -c /etc/garage.toml"
 
-        # Ждём Garage RPC
+        # Ждём Garage RPC. `garage status` реально подключается по RPC, в
+        # отличие от `node id` (локальная команда — она возвращает результат
+        # сразу, ещё до того, как RPC начнёт слушать порт, и `layout assign`
+        # ниже падал с "Connection refused").
         for i in $$(seq 1 180); do
-          if $$G node id -q >/dev/null 2>&1; then break; fi
+          if $$G status >/dev/null 2>&1; then break; fi
           echo "Waiting for Garage RPC... ($$i/180)"
           sleep 2
         done
-        $$G node id -q >/dev/null 2>&1 || { echo "Garage RPC not ready"; exit 1; }
+        $$G status >/dev/null 2>&1 || { echo "Garage RPC not ready"; exit 1; }
 
         # Layout: проверяем, не настроен ли уже
         NODE_ID=$$($$G node id -q | cut -c1-16)
