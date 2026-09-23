@@ -45,7 +45,6 @@ vi.mock("@/components/ProfileWall", () => ({
   },
 }));
 vi.mock("@/components/AvatarCropper", () => ({ AvatarCropper: () => null }));
-vi.mock("@/components/AvatarGallery", () => ({ AvatarGallery: () => null }));
 vi.mock("@/components/OnlineStatus", () => ({ OnlineStatus: () => null }));
 vi.mock("@/components/NotificationBell", () => ({ NotificationBell: () => null }));
 vi.mock("@/components/ChatIcon", () => ({ ChatIcon: () => null }));

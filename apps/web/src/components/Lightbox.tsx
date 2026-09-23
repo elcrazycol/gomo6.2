@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import useEmblaCarousel from "embla-carousel-react";
-import { X, Download, ZoomOut, ChevronLeft, ChevronRight, Scissors } from "lucide-react";
+import { X, Download, ZoomOut, ChevronLeft, ChevronRight, Scissors, Trash2 } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { parseImageMeta, useAuthenticatedAttachmentUrl } from "@/components/messenger/attachmentMedia";
 import type { Attachment } from "@/components/messenger/types";
@@ -43,6 +43,18 @@ export type LightboxProps = {
   /** "uploads" resolves through the authenticated messenger endpoint; any
       other bucket (default "content") resolves via plain storageUrl. */
   bucket?: string;
+  /** When provided, a delete action appears in the top bar for the current
+      item. The caller owns the item list (e.g. an avatar-history delete that
+      reloads the list); the lightbox only reports the selected index. */
+  onDeleteItem?: (index: number) => void;
+  /** Accessible label / tooltip for the delete action. */
+  deleteLabel?: string;
+  /** Telegram-style idle chrome: hide the top bar, arrows and thumbnails after
+      a few seconds without interaction; any pointer/key activity brings them
+      back. On by default across the app — opt out with `false`. */
+  autoHideControls?: boolean;
+  /** Idle delay before the chrome fades, in milliseconds. */
+  controlsHideDelay?: number;
 };
 
 function zoomAround(prevZoom: number, prevPan: Pan, newZoom: number, anchorX: number, anchorY: number): { zoom: number; pan: Pan } {
@@ -205,8 +217,15 @@ function LightboxThumbnail({ item, bucket, index, active, onSelect }: { item: Li
   const meta = parseImageMeta(toAttachment(item));
   const previewKey = meta.preview_key || item.url;
   const url = useLightboxItemUrl(item, bucket, previewKey, true);
+  const ref = useRef<HTMLButtonElement | null>(null);
+
+  // Keep the active thumbnail in view as the user swipes through a long strip.
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [active]);
+
   return (
-    <button type="button" className={`msg-lightbox-thumbnail${active ? " is-active" : ""}`} onClick={() => onSelect(index)} aria-label={`Фото ${index + 1}`} aria-current={active ? "true" : undefined}>
+    <button ref={ref} type="button" className={`msg-lightbox-thumbnail${active ? " is-active" : ""}`} onClick={() => onSelect(index)} aria-label={`Фото ${index + 1}`} aria-current={active ? "true" : undefined}>
       {url ? <img src={url} alt="" loading="lazy" /> : <span className="msg-lightbox-thumbnail-placeholder" />}
     </button>
   );
@@ -214,7 +233,7 @@ function LightboxThumbnail({ item, bucket, index, active, onSelect }: { item: Li
 
 // ─── Unified Lightbox ────────────────────────────────────────────────────────
 
-export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startInEditMode = false, bucket = "content" }: LightboxProps) {
+export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startInEditMode = false, bucket = "content", onDeleteItem, deleteLabel = "Удалить", autoHideControls = true, controlsHideDelay = 3000 }: LightboxProps) {
   const [localItems, setLocalItems] = useState<LightboxItem[]>(items);
   const [selectedIndex, setSelectedIndex] = useState(initialIndex);
   const [isEditing, setIsEditing] = useState(false);
@@ -295,6 +314,44 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
     setPan(next.pan);
   }, [zoom, pan]);
 
+  // ── Telegram-style idle chrome ────────────────────────────────────────────
+  // The top bar, arrows, thumbnails and hint fade out after a few idle seconds
+  // so only the photo remains; any pointer/key activity brings them back.
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsTimerRef = useRef<number | null>(null);
+  const isEditingRef = useRef(isEditing);
+  isEditingRef.current = isEditing;
+
+  const clearControlsTimer = useCallback(() => {
+    if (controlsTimerRef.current !== null) {
+      window.clearTimeout(controlsTimerRef.current);
+      controlsTimerRef.current = null;
+    }
+  }, []);
+
+  const revealControls = useCallback(() => {
+    if (!autoHideControls) return;
+    setControlsVisible(true);
+    clearControlsTimer();
+    controlsTimerRef.current = window.setTimeout(() => {
+      controlsTimerRef.current = null;
+      if (!isEditingRef.current) setControlsVisible(false);
+    }, controlsHideDelay);
+  }, [autoHideControls, clearControlsTimer, controlsHideDelay]);
+
+  useEffect(() => {
+    // Keep the chrome on screen while editing — the editor owns the screen.
+    if (!autoHideControls || isEditing) {
+      clearControlsTimer();
+      setControlsVisible(true);
+      return clearControlsTimer;
+    }
+    revealControls();
+    return clearControlsTimer;
+  }, [autoHideControls, isEditing, revealControls, clearControlsTimer]);
+
+  const chromeHidden = autoHideControls && !controlsVisible;
+
   const handleApplyEdit = useCallback((dataUrl: string) => {
     setLocalItems((prev) => prev.map((item, i) => (i === selectedIndex ? { ...item, url: dataUrl, meta: null } : item)));
     onEditImage?.(selectedIndex, dataUrl);
@@ -303,6 +360,10 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Let a higher layer (e.g. a confirm dialog stacked over the lightbox)
+      // own the key first — Radix marks it handled via preventDefault.
+      if (event.defaultPrevented) return;
+      revealControls();
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "Escape") return onClose();
       if (isEditing) return;
@@ -314,7 +375,7 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, zoom, isImage, scrollTo, selectedIndex, localItems.length, zoomAroundCenter, resetZoom, isEditing]);
+  }, [onClose, zoom, isImage, scrollTo, selectedIndex, localItems.length, zoomAroundCenter, resetZoom, isEditing, revealControls]);
 
   const handleRootMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null;
@@ -330,10 +391,24 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
   const currentEditSrc = useLightboxItemUrlSafe(current, bucket, canEdit);
 
   return createPortal(
-    <div className="msg-lightbox" role="dialog" aria-modal="true" aria-label="Просмотр медиа" onMouseDown={handleRootMouseDown}>
-      <div className="msg-lightbox-topbar">
+    <div
+      className={`msg-lightbox${autoHideControls ? " is-autohide" : ""}${chromeHidden ? " is-idle" : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Просмотр медиа"
+      onMouseDown={handleRootMouseDown}
+      onPointerMove={autoHideControls ? revealControls : undefined}
+      onPointerDown={autoHideControls ? revealControls : undefined}
+      onWheel={autoHideControls ? revealControls : undefined}
+    >
+      <div className={`msg-lightbox-topbar${chromeHidden ? " is-hidden" : ""}`}>
         <span className="msg-lightbox-counter">{selectedIndex + 1} / {localItems.length}</span>
         <div className="msg-lightbox-actions">
+          {onDeleteItem && (
+            <button type="button" className="msg-lightbox-action is-danger" onClick={() => onDeleteItem(selectedIndex)} aria-label={deleteLabel} title={deleteLabel}>
+              <Trash2 size={18} />
+            </button>
+          )}
           {canEdit && !isEditing && (
             <button type="button" className="msg-lightbox-action" onClick={() => setIsEditing(true)} aria-label="Редактировать" title="Редактировать (кисть · размытие · кадрирование)">
               <Scissors size={18} />
@@ -345,8 +420,8 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
         </div>
       </div>
       {showArrows && !isEditing && <>
-        <button type="button" className="msg-lightbox-arrow prev" onClick={() => scrollTo(Math.max(0, selectedIndex - 1))} aria-label="Предыдущее фото" disabled={zoom > MIN_ZOOM}><ChevronLeft size={26} /></button>
-        <button type="button" className="msg-lightbox-arrow next" onClick={() => scrollTo(Math.min(localItems.length - 1, selectedIndex + 1))} aria-label="Следующее фото" disabled={zoom > MIN_ZOOM}><ChevronRight size={26} /></button>
+        <button type="button" className={`msg-lightbox-arrow prev${chromeHidden ? " is-hidden" : ""}`} onClick={() => scrollTo(Math.max(0, selectedIndex - 1))} aria-label="Предыдущее фото" disabled={zoom > MIN_ZOOM}><ChevronLeft size={26} /></button>
+        <button type="button" className={`msg-lightbox-arrow next${chromeHidden ? " is-hidden" : ""}`} onClick={() => scrollTo(Math.min(localItems.length - 1, selectedIndex + 1))} aria-label="Следующее фото" disabled={zoom > MIN_ZOOM}><ChevronRight size={26} /></button>
       </>}
       <div className="msg-lightbox-viewport" ref={emblaRef} style={isEditing ? { display: "none" } : undefined}>
         <div className="msg-lightbox-track">
@@ -363,11 +438,10 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
         </div>
       )}
       {!isEditing && (
-        <div className="msg-lightbox-thumbnails" role="tablist" aria-label="Миниатюры фотографий">
+        <div className={`msg-lightbox-thumbnails${chromeHidden ? " is-hidden" : ""}`} role="tablist" aria-label="Миниатюры фотографий">
           {localItems.map((item, index) => <LightboxThumbnail key={item.id || item.url + index} item={item} bucket={bucket} index={index} active={index === selectedIndex} onSelect={selectThumbnail} />)}
         </div>
       )}
-      <div className="msg-lightbox-hint">{isEditing ? "Кадрировать · Кисть · Размытие · Отменить (по шагу) · Esc — закрыть" : (isImage ? "Колесо — масштаб · двойной клик — зум · Esc — закрыть" : "Свайп — переключение · Esc — закрыть")}</div>
     </div>,
     document.body,
   );

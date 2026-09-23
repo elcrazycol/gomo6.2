@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import { Lightbox, type LightboxItem } from "./Lightbox";
 
 vi.mock("@/utils/storage", () => ({
@@ -227,9 +227,80 @@ describe("Lightbox", () => {
     expect(document.body.querySelector('[aria-label="Редактировать"]')).not.toBeInTheDocument();
   });
 
+  it("shows a delete action only when onDeleteItem is provided and reports the selected index", () => {
+    render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} />);
+    expect(document.body.querySelector('[aria-label="Удалить"]')).not.toBeInTheDocument();
+  });
+
+  it("reports the currently selected index when the delete action is used", () => {
+    const onDeleteItem = vi.fn();
+    render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} onDeleteItem={onDeleteItem} deleteLabel="Удалить аватар" />);
+    const deleteButton = document.body.querySelector('[aria-label="Удалить аватар"]');
+    expect(deleteButton).toBeInTheDocument();
+    fireEvent.click(document.body.querySelector(".msg-lightbox-thumbnail:nth-child(2)")!);
+    fireEvent.click(deleteButton!);
+    expect(onDeleteItem).toHaveBeenCalledWith(1);
+  });
+
+  it("ignores keys already handled by a higher layer", () => {
+    const onClose = vi.fn();
+    render(<Lightbox items={items} initialIndex={0} onClose={onClose} />);
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    // A stacked dialog (e.g. delete confirmation) marks Escape handled first.
+    event.preventDefault();
+    window.dispatchEvent(event);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("renders video slides as a video element", () => {
     render(<Lightbox items={[makeItem("movie.mp4", "video")]} initialIndex={0} onClose={vi.fn()} />);
     expect(document.body.querySelector(".msg-lightbox-slide video")).toBeInTheDocument();
+  });
+});
+
+// ─── Telegram-style idle chrome ─────────────────────────────────────────────
+
+describe("Lightbox idle chrome", () => {
+  const items = [makeItem("a.jpg"), makeItem("b.jpg"), makeItem("c.jpg")];
+
+  function topbarClass(): string {
+    return (document.body.querySelector(".msg-lightbox-topbar") as HTMLElement).className;
+  }
+
+  it("fades the chrome after the idle delay and restores it on interaction", () => {
+    vi.useFakeTimers();
+    try {
+      render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} autoHideControls controlsHideDelay={2000} />);
+      expect(topbarClass()).not.toContain("is-hidden");
+
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(topbarClass()).toContain("is-hidden");
+
+      fireEvent.pointerMove(document.body.querySelector(".msg-lightbox")!);
+      expect(topbarClass()).not.toContain("is-hidden");
+
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(topbarClass()).toContain("is-hidden");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("enables the idle chrome by default", () => {
+    render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} />);
+    expect(document.body.querySelector(".msg-lightbox")!.className).toContain("is-autohide");
+  });
+
+  it("keeps the chrome permanently visible when autoHideControls is disabled", () => {
+    vi.useFakeTimers();
+    try {
+      render(<Lightbox items={items} initialIndex={0} onClose={vi.fn()} autoHideControls={false} />);
+      act(() => { vi.advanceTimersByTime(10000); });
+      expect(topbarClass()).not.toContain("is-hidden");
+      expect(document.body.querySelector(".msg-lightbox")!.className).not.toContain("is-autohide");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

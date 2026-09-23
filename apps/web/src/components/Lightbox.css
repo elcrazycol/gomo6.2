@@ -67,6 +67,15 @@
   background: rgb(255 255 255 / 0.24);
 }
 
+.msg-lightbox-action.is-danger {
+  color: rgb(248 113 113);
+}
+
+.msg-lightbox-action.is-danger:hover:not(:disabled) {
+  background: rgb(239 68 68 / 0.9);
+  color: #fff;
+}
+
 .msg-lightbox-action:active:not(:disabled):not(.is-disabled) {
   transform: scale(0.9);
 }
@@ -187,46 +196,47 @@
 .msg-lightbox-thumbnails {
   position: absolute;
   left: 50%;
-  bottom: 28px;
+  bottom: 24px;
   z-index: 4;
   display: flex;
   align-items: center;
-  gap: 6px;
-  max-width: min(92vw, 900px);
-  padding: 6px;
+  gap: 4px;
+  max-width: min(92vw, 1100px);
+  padding: 5px;
   overflow-x: auto;
   transform: translateX(-50%);
-  border: 1px solid rgb(255 255 255 / 0.14);
-  border-radius: 12px;
-  background: rgb(0 0 0 / 0.48);
-  backdrop-filter: blur(12px);
-  scrollbar-width: thin;
+  border: 0;
+  border-radius: 10px;
+  background: rgb(0 0 0 / 0.4);
+  backdrop-filter: blur(10px);
+  scrollbar-width: none;
+}
+
+.msg-lightbox-thumbnails::-webkit-scrollbar {
+  display: none;
 }
 
 .msg-lightbox-thumbnail {
   position: relative;
-  flex: 0 0 52px;
-  width: 52px;
-  height: 52px;
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
   padding: 0;
-  border: 2px solid transparent;
-  border-radius: 7px;
+  border: 0;
+  border-radius: 5px;
   overflow: hidden;
   background: hsl(var(--muted) / 0.5);
   cursor: pointer;
-  opacity: 0.72;
-  transition: opacity 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+  opacity: 0.5;
+  transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
 .msg-lightbox-thumbnail:hover {
-  opacity: 1;
-  transform: translateY(-2px);
+  opacity: 0.85;
 }
 
 .msg-lightbox-thumbnail.is-active {
-  border-color: #fff;
   opacity: 1;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4);
 }
 
 .msg-lightbox-thumbnail img,
@@ -243,24 +253,89 @@
   animation: media-shimmer 1.4s linear infinite;
 }
 
-.msg-lightbox-hint {
-  position: absolute;
-  bottom: 96px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgb(0 0 0 / 0.4);
-  color: rgb(255 255 255 / 0.85);
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
+/* ── Idle chrome (Telegram-style) ──
+   With autoHideControls the viewer fades its top bar, arrows and thumbnails
+   after a few idle seconds, leaving just the photo. Any pointer/key activity
+   restores them. */
+.msg-lightbox-topbar,
+.msg-lightbox-thumbnails {
+  transition: opacity 0.28s ease;
+}
+
+.msg-lightbox-topbar.is-hidden,
+.msg-lightbox-arrow.is-hidden,
+.msg-lightbox-thumbnails.is-hidden {
+  opacity: 0;
   pointer-events: none;
-  backdrop-filter: blur(6px);
+}
+
+/* Hide the pointer as well while the chrome is idle so nothing distracts from
+   the photo (the media keeps its own zoom cursor, hence the explicit reset). */
+.msg-lightbox.is-idle,
+.msg-lightbox.is-idle .msg-lightbox-media {
+  cursor: none;
+}
+
+/* Autohide mode goes full Telegram: the photo owns the whole screen, the
+   filmstrip floats over its lower edge with no container or outlines, and the
+   arrows are bare chevrons instead of filled buttons. */
+.msg-lightbox.is-autohide .msg-lightbox-viewport {
+  height: 100%;
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-media {
+  max-width: min(94vw, 1680px);
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-thumbnails {
+  bottom: 20px;
+  gap: 3px;
+  max-width: min(96vw, 1280px);
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-thumbnail {
+  flex-basis: 58px;
+  width: 58px;
+  height: 58px;
+  opacity: 0.45;
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-thumbnail:hover {
+  opacity: 0.8;
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-thumbnail.is-active {
+  opacity: 1;
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-arrow {
+  width: 52px;
+  height: 52px;
+  background: none;
+  filter: drop-shadow(0 1px 5px rgb(0 0 0 / 0.7));
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-arrow:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.12);
+}
+
+/* Bare icons with a drop shadow instead of filled buttons — Telegram's
+   desktop viewer has no chrome around them. */
+.msg-lightbox.is-autohide .msg-lightbox-topbar {
+  background: none;
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-action {
+  background: none;
+  filter: drop-shadow(0 1px 4px rgb(0 0 0 / 0.75));
+}
+
+.msg-lightbox.is-autohide .msg-lightbox-action:not(.is-danger):hover:not(:disabled):not(.is-disabled) {
+  background: rgb(255 255 255 / 0.16);
 }
 
 .msg-attachment-loading-shimmer {
@@ -282,12 +357,14 @@
   }
 
   .msg-lightbox-thumbnail {
-    flex-basis: 44px;
-    width: 44px;
-    height: 44px;
+    flex-basis: 46px;
+    width: 46px;
+    height: 46px;
   }
 
-  .msg-lightbox-hint {
-    display: none;
+  .msg-lightbox.is-autohide .msg-lightbox-thumbnail {
+    flex-basis: 50px;
+    width: 50px;
+    height: 50px;
   }
 }
