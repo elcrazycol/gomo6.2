@@ -1,0 +1,60 @@
+/* Telegram-style autoplaying clip: fills its reserved box, no chrome.
+   The container is sized by its parent (a fixed aspect-ratio box or a
+   position:absolute tile); when the parent height is auto the video falls back
+   to its intrinsic ratio. */
+
+.animated-video {
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+.animated-video-el {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.animated-video-fallback,
+.animated-video-toggle {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.animated-video-fallback {
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  transform: translate(-50%, -50%);
+}
+
+.animated-video-fallback:hover {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.animated-video-toggle {
+  right: 8px;
+  bottom: 8px;
+  width: 30px;
+  height: 30px;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.animated-video-toggle:hover {
+  opacity: 1;
+}
