@@ -102,6 +102,7 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
         {actor?.avatarUrl ? (
           <UserAvatar
             src={avatarSrc}
+            userId={notification.related_user_id}
             alt={actor.username || "Avatar"}
             className="h-9 w-9 border border-border/60"
             fallback={

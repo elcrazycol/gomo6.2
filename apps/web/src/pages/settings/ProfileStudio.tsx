@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ArrowLeft, ImageIcon, Palette, Type, Award, Wand2, Trash2, Check, Loader2 } from "lucide-react";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
+import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { normalizeProfileBackgroundVariant, PROFILE_BACKGROUND_VARIANTS, type ProfileBackgroundVariant } from "@/utils/profileBackground";
 import { applyProfileThemeTokens, generateThemeVariants, isValidThemeTokens, type ThemeTokenMap, type ThemeVariant } from "@/utils/profileTheme";
@@ -254,6 +255,9 @@ const ProfileStudio = () => {
       });
       if (!res.ok) throw new Error("Failed to update avatar");
       setAvatarUrl(uploaded.path);
+      // Keep the session-wide avatar source in sync so the new picture shows
+      // immediately in surfaces that fetch the avatar only once (e.g. the menu).
+      useAvatarOverrideStore.getState().setAvatarOverride(userId, { url: uploaded.path, animated: false });
       dispatchProfileCacheInvalidate();
       toast.success("Аватар обновлён");
     } catch (error) {

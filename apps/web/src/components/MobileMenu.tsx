@@ -152,6 +152,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   {/* Avatar */}
                   <UserAvatar
                     src={avatarUrl}
+                    userId={user.id}
                     alt={username || t('common.user')}
                     className="w-12 h-12 flex-shrink-0"
                   />

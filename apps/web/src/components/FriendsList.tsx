@@ -21,7 +21,7 @@ const FriendItem = ({ friend, liveStatus }: { friend: Friend; liveStatus?: UserS
     >
       {/* Avatar */}
       <div className="relative">
-        <UserAvatar src={friend.avatar_url} alt={friend.username} className="w-10 h-10" />
+        <UserAvatar src={friend.avatar_url} userId={friend.user_id} alt={friend.username} className="w-10 h-10" />
         {/* Online indicator */}
         {isOnline && (
           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />

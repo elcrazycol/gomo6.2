@@ -64,6 +64,7 @@ const ConversationCard = memo(function ConversationCard({
           ) : conversation.other_avatar_url ? (
             <UserAvatar
               src={conversation.other_avatar_url}
+              userId={conversation.other_user_id}
               alt={conversation.other_username || ""}
               className="w-full h-full"
             />

@@ -530,6 +530,7 @@ const ru: LocaleResources = {
     updated: "Профиль обновлен",
     updateError: "Ошибка обновления профиля",
     avatarUpdated: "Аватар обновлен",
+    uploadingAvatar: "Загрузка аватара",
     imageProcessError: "Ошибка обработки изображения",
     avatarDeleted: "Аватар удален",
     avatarDeleteError: "Не удалось удалить аватар",

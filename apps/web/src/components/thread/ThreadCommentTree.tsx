@@ -257,6 +257,7 @@ const ThreadPostNode = ({
             >
               <UserAvatar
                 src={avatarUrl}
+                userId={post.user_id}
                 alt={authorLabel}
                 className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 shadow-sm`}
                 fallback={

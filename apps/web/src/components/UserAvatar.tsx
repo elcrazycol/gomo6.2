@@ -1,12 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { AnimatedVideo } from "@/components/AnimatedVideo";
+import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import "./UserAvatar.css";
 
 export type UserAvatarProps = {
   /** Storage key or absolute URL. */
   src?: string | null;
+  /** Owner of this avatar. When set, a freshly picked (still uploading) avatar
+   * for that user wins over `src`, so a new upload shows everywhere at once. */
+  userId?: string | null;
   alt?: string;
   /** Size/shape classes for the container (e.g. "h-10 w-10"). */
   className?: string;
@@ -32,6 +36,7 @@ export function isAnimatedAvatarUrl(url: string): boolean {
  */
 export function UserAvatar({
   src,
+  userId,
   alt = "",
   className,
   animated,
@@ -40,8 +45,20 @@ export function UserAvatar({
   fallback,
 }: UserAvatarProps) {
   const [failed, setFailed] = useState(false);
-  const url = src ? storageUrl(bucket, src) || src : null;
-  const isAnimated = Boolean(url && (animated ?? isAnimatedAvatarUrl(url)));
+  // A pending local upload for this user overrides whatever the caches hold.
+  const override = useAvatarOverrideStore((state) =>
+    userId ? state.overrides[userId] : undefined,
+  );
+  const source = override?.url ?? src;
+  const url = source ? storageUrl(bucket, source) || source : null;
+  const isAnimated = Boolean(
+    url && ((override ? override.animated : animated) ?? isAnimatedAvatarUrl(url)),
+  );
+
+  // A URL swap (e.g. a broken image replaced by a fresh upload) retries the load.
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
 
   const containerClass = `user-avatar${square ? "" : " user-avatar--round"}${className ? ` ${className}` : ""}`;
   const fallbackNode = fallback ?? <User className="user-avatar-icon" aria-hidden="true" />;

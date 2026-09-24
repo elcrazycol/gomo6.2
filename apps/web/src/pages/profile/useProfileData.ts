@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { getGiftCatalog } from "@/utils/currentUserMeta";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
+import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import type { AchievementData } from "@/components/AchievementCard";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { mapUserAchievementRaw } from "./utils";
@@ -262,10 +263,19 @@ export function useProfileData({
 
         // Update avatar URL from history — find the current one.
         if (historyResult.length > 0) {
-          const currentAvatar = historyResult.find((a) => a.is_current);
-          onAvatarUrlChange(currentAvatar ? currentAvatar.avatar_url : historyResult[0].avatar_url);
+          const currentAvatar = historyResult.find((a) => a.is_current) ?? historyResult[0];
+          onAvatarUrlChange(currentAvatar.avatar_url);
+          // The deleted avatar may have been the session-wide override — keep
+          // every surface pinned to the avatar that is current now.
+          if (userId) {
+            useAvatarOverrideStore.getState().setAvatarOverride(userId, {
+              url: currentAvatar.avatar_url,
+              animated: currentAvatar.is_animated,
+            });
+          }
         } else {
           onAvatarUrlChange(null);
+          if (userId) useAvatarOverrideStore.getState().clearAvatarOverride(userId);
         }
 
         // Close gallery if no more avatars.

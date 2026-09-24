@@ -1,0 +1,94 @@
+/* Overlay drawn on top of an avatar while a new photo/video is uploading.
+   The outer ring fills clockwise starting from the bottom-centre point — it
+   tracks the real upload percentage and closes exactly when the avatar is
+   saved. A small indeterminate arc spins in the centre. The dimmed gradient
+   keeps the freshly picked avatar readable underneath. */
+
+.avatar-upload-progress {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  pointer-events: none;
+  overflow: hidden;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(0, 0, 0, 0.1) 38%,
+    rgba(0, 0, 0, 0.44) 100%
+  );
+  animation: avatar-upload-fade-in 160ms ease-out;
+}
+
+.avatar-upload-progress-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 0deg puts the dash start at 3 o'clock; +90deg moves it to 6 o'clock, so
+     the sweep grows clockwise from the bottom of the circle. */
+  transform: rotate(90deg);
+  transform-origin: center;
+}
+
+.avatar-upload-progress-track,
+.avatar-upload-progress-arc {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.avatar-upload-progress-track {
+  stroke: rgba(255, 255, 255, 0.25);
+}
+
+.avatar-upload-progress-arc {
+  stroke: #fff;
+  transition: stroke-dashoffset 240ms linear;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.65))
+    drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
+}
+
+.avatar-upload-progress-spinner {
+  position: relative;
+  width: 34%;
+  height: 34%;
+  animation: avatar-upload-spin 0.75s linear infinite;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.7));
+}
+
+.avatar-upload-progress-spinner circle {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+@keyframes avatar-upload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes avatar-upload-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-upload-progress {
+    animation: none;
+  }
+  .avatar-upload-progress-arc {
+    transition: none;
+  }
+  .avatar-upload-progress-spinner {
+    animation-duration: 1.6s;
+  }
+}
