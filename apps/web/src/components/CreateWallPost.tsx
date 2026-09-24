@@ -9,7 +9,13 @@ import { RichContentRenderer } from "@/components/RichContentRenderer";
 import { PublishButton } from "@/components/PublishButton";
 import { getPublishButtonStyle } from "@/lib/publishButtonStyle";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
-import { uploadAttachments, uploadEditedDataUrl, type AttachmentMeta } from "@/utils/mediaUpload";
+import { SquareUploadProgress } from "@/components/SquareUploadProgress";
+import {
+  uploadAttachments,
+  uploadEditedDataUrl,
+  type AttachmentMeta,
+  type AttachmentUploadPhase,
+} from "@/utils/mediaUpload";
 import { storageUrl } from "@/utils/storage";
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
@@ -39,6 +45,44 @@ interface WallDraft {
   contentJson: unknown;
   attachments: AttachmentMeta[];
 }
+
+type PreviewMediaType = "image" | "video" | "audio" | "file";
+
+/**
+ * A picked file that is being uploaded right now. It is shown in the grid
+ * immediately (with a local object URL for photos/videos) so the wall post
+ * reflects the choice before the bytes leave the device; the tile is swapped
+ * for the real attachment once the server replies.
+ */
+interface PendingUpload {
+  id: string;
+  name: string;
+  mediaType: PreviewMediaType;
+  /** Local `blob:` preview for photos/videos; null for documents/audio. */
+  previewUrl: string | null;
+  percent: number;
+  phase: AttachmentUploadPhase;
+}
+
+const previewMediaType = (file: File): PreviewMediaType => {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  return "file";
+};
+
+// jsdom (tests) has no URL.createObjectURL; previews are simply skipped there.
+const makePreviewUrl = (file: File): string | null => {
+  if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return null;
+  if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return null;
+  return URL.createObjectURL(file);
+};
+
+const revokePreviewUrl = (url: string | null) => {
+  if (url && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+    URL.revokeObjectURL(url);
+  }
+};
 
 const deriveTitle = (content: string) => {
   const plain = content
@@ -99,7 +143,8 @@ export const CreateWallPost = ({
   // Publish button style — read once on mount (user picks it in Settings → Appearance).
   const [publishButtonStyle] = useState(getPublishButtonStyle);
   const [showPreview, setShowPreview] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  // Files currently uploading — rendered optimistically until the server replies.
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -108,7 +153,10 @@ export const CreateWallPost = ({
   const [closing, setClosing] = useState(false);
 
   const isEditing = !!editingPost;
-  const canSubmit = content.trim().length > 0 || attachments.length > 0;
+  const uploading = pendingUploads.length > 0;
+  // Never publish mid-upload: pending files are not in `attachments` yet, so
+  // submitting now would silently drop them from the post.
+  const canSubmit = (content.trim().length > 0 || attachments.length > 0) && !uploading;
   const draftKey = `${DRAFT_PREFIX}${profileUserId}`;
 
   const close = useCallback(() => {
@@ -245,18 +293,47 @@ export const CreateWallPost = ({
   };
 
   // Shared upload path for the paperclip button and drag & drop — goes to the
-  // private, authorization-gated "wall" bucket.
+  // private, authorization-gated "wall" bucket. Picked files show up in the
+  // grid right away (optimistic tiles) and are replaced by the stored
+  // attachments as soon as the server replies.
   const uploadFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
-    setUploading(true);
+
+    const batch: PendingUpload[] = files.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: file.name,
+      mediaType: previewMediaType(file),
+      previewUrl: makePreviewUrl(file),
+      percent: 0,
+      phase: "upload",
+    }));
+    const ids = new Set(batch.map((item) => item.id));
+
+    setPendingUploads((prev) => [...prev, ...batch]);
+
+    const updateProgress = (
+      index: number,
+      percent: number,
+      phase?: AttachmentUploadPhase,
+    ) => {
+      const id = batch[index]?.id;
+      if (!id) return;
+      setPendingUploads((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, percent, phase: phase ?? item.phase } : item)),
+      );
+    };
+
     try {
-      const uploaded = await uploadAttachments(files, "wall");
+      const uploaded = await uploadAttachments(files, "wall", (progress) => {
+        updateProgress(progress.index, progress.percent, progress.phase);
+      });
       setAttachments((prev) => [...prev, ...uploaded]);
     } catch (err) {
       console.error("Attachment upload error", err);
       toast.error("Не удалось загрузить файлы");
     } finally {
-      setUploading(false);
+      setPendingUploads((prev) => prev.filter((item) => !ids.has(item.id)));
+      batch.forEach((item) => revokePreviewUrl(item.previewUrl));
     }
   }, []);
 
@@ -264,7 +341,7 @@ export const CreateWallPost = ({
     const files = Array.from(e.target.files || []);
     e.target.value = "";
     if (files.length === 0) return;
-    if (attachments.length + files.length > MAX_WALL_ATTACHMENTS) {
+    if (attachments.length + pendingUploads.length + files.length > MAX_WALL_ATTACHMENTS) {
       toast.error(`Максимум ${MAX_WALL_ATTACHMENTS} файлов`);
       return;
     }
@@ -274,10 +351,10 @@ export const CreateWallPost = ({
   // Files dropped anywhere on the composer panel attach via the same path.
   const handleDropFiles = useCallback((files: File[]) => {
     if (isSubmitting) return;
-    const remaining = MAX_WALL_ATTACHMENTS - attachments.length;
+    const remaining = MAX_WALL_ATTACHMENTS - attachments.length - pendingUploads.length;
     if (remaining <= 0) return;
     void uploadFiles(files.slice(0, remaining));
-  }, [attachments, isSubmitting, uploadFiles]);
+  }, [attachments, pendingUploads, isSubmitting, uploadFiles]);
 
   const { isDragging: isWallDragging, dragHandlers: wallDragHandlers } = useFileDrop(handleDropFiles);
 
@@ -298,9 +375,46 @@ export const CreateWallPost = ({
   };
 
   const renderAttachmentsGrid = (readonly: boolean) => {
-    if (attachments.length === 0) return null;
+    if (attachments.length === 0 && pendingUploads.length === 0) return null;
     return (
       <div className="grid grid-cols-3 gap-2 max-h-[22dvh] overflow-y-auto pr-0.5">
+        {pendingUploads.map((pending) => (
+          <div
+            key={`pending-${pending.id}`}
+            className="relative aspect-square rounded-lg overflow-hidden border border-border/60 bg-muted/40"
+          >
+            {pending.previewUrl && pending.mediaType === "image" ? (
+              <img src={pending.previewUrl} alt={pending.name} className="w-full h-full object-cover" />
+            ) : pending.previewUrl && pending.mediaType === "video" ? (
+              <video
+                src={pending.previewUrl}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
+                onLoadedMetadata={(e) => {
+                  try {
+                    // Nudge to a real frame instead of a black first frame.
+                    e.currentTarget.currentTime = 0.1;
+                  } catch {
+                    // Best effort — the tile still shows something.
+                  }
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                {pending.mediaType === "audio" ? (
+                  <Music className="w-8 h-8 text-muted-foreground" />
+                ) : pending.mediaType === "video" ? (
+                  <FileVideo2 className="w-8 h-8 text-muted-foreground" />
+                ) : (
+                  <FileText className="w-8 h-8 text-muted-foreground" />
+                )}
+              </div>
+            )}
+            <SquareUploadProgress percent={pending.percent} phase={pending.phase} />
+          </div>
+        ))}
         {attachments.map((att, index) => {
           const removeBtn = (
             <button
@@ -587,7 +701,7 @@ export const CreateWallPost = ({
         </div>
 
         {/* Attachments grid */}
-        {attachments.length > 0 && !showPreview && (
+        {(attachments.length > 0 || pendingUploads.length > 0) && !showPreview && (
           <div className="px-4 pb-2 shrink-0">{renderAttachmentsGrid(false)}</div>
         )}
 

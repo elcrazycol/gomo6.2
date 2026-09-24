@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { toast } from "sonner";
@@ -130,6 +130,23 @@ vi.mock("@/components/Lightbox", () => ({
 vi.mock("@/components/RichContentRenderer", () => ({
   RichContentRenderer: () => <div data-testid="rich-content-renderer">Preview</div>,
 }));
+
+// jsdom has no object-URL support; the optimistic media preview uses it. Kept
+// local to this file (a global polyfill makes prepareMessengerImage hang in the
+// storage tests, which rely on createObjectURL being absent).
+let objectUrlCounter = 0;
+if (typeof URL.createObjectURL !== "function") {
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => `blob:mock-${(objectUrlCounter += 1)}`,
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+}
 
 // ─── Query Builder Mock ──────────────────────────────────────────────────────
 
@@ -328,6 +345,96 @@ describe("CreateWallPost", () => {
     await waitFor(() => {
       expect(screen.getByText("Опубликовать")).not.toBeDisabled();
     });
+  });
+
+  // ─── Optimistic attachment upload ──────────────────────────────────────────
+
+  const deferred = () => {
+    let resolve!: (value: any) => void;
+    let reject!: (reason?: any) => void;
+    const promise = new Promise<any>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+
+  it("previews a picked photo instantly, then swaps it for the stored attachment", async () => {
+    setupApiMocks();
+    const d = deferred();
+    mockUploadAttachments.mockReturnValue(d.promise);
+    render(<Component {...defaultProps} />);
+
+    const file = new File(["x"], "pic.jpg", { type: "image/jpeg" });
+    await userEvent.upload(screen.getByTestId("composer-file-input"), file);
+
+    // Optimistic tile: local blob preview + the square progress frame.
+    const preview = await screen.findByAltText("pic.jpg");
+    expect(preview.getAttribute("src")).toMatch(/^blob:/);
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+
+    await act(async () => {
+      d.resolve([mockAttachment]);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    });
+    expect(screen.getByAltText("pic.jpg").getAttribute("src")).not.toMatch(/^blob:/);
+  });
+
+  it("drives the square frame with the reported upload percentage", async () => {
+    setupApiMocks();
+    const d = deferred();
+    let report: ((progress: any) => void) | undefined;
+    mockUploadAttachments.mockImplementation((_files: any, _bucket: any, onProgress: any) => {
+      report = onProgress;
+      return d.promise;
+    });
+    render(<Component {...defaultProps} />);
+
+    await userEvent.upload(
+      screen.getByTestId("composer-file-input"),
+      new File(["x"], "clip.mp4", { type: "video/mp4" })
+    );
+    await waitFor(() => expect(report).toBeTypeOf("function"));
+
+    act(() => report?.({ index: 0, name: "clip.mp4", percent: 40, phase: "upload" }));
+    await waitFor(() => {
+      expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "40");
+    });
+
+    // The server-side transcode drops the (meaningless) percentage.
+    act(() => report?.({ index: 0, name: "clip.mp4", percent: 100, phase: "processing" }));
+    await waitFor(() => {
+      expect(screen.queryByText("100%")).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      d.resolve([{ ...mockAttachment, type: "video", name: "clip.mp4" }]);
+    });
+  });
+
+  it("does not publish while a file is still uploading", async () => {
+    setupApiMocks();
+    const d = deferred();
+    mockUploadAttachments.mockReturnValue(d.promise);
+    render(<Component {...defaultProps} />);
+
+    await userEvent.type(screen.getByTestId("rich-editor-textarea"), "Hi");
+    expect(screen.getByText("Опубликовать")).not.toBeDisabled();
+
+    await userEvent.upload(
+      screen.getByTestId("composer-file-input"),
+      new File(["x"], "p.jpg", { type: "image/jpeg" })
+    );
+    await waitFor(() => expect(screen.getByRole("progressbar")).toBeInTheDocument());
+    expect(screen.getByText("Опубликовать")).toBeDisabled();
+
+    await act(async () => {
+      d.resolve([mockAttachment]);
+    });
+    await waitFor(() => expect(screen.getByText("Опубликовать")).not.toBeDisabled());
   });
 
   it("creates a post successfully and calls onPostCreated", async () => {
@@ -694,7 +801,7 @@ describe("CreateWallPost", () => {
       });
 
       await waitFor(() => {
-        expect(mockUploadAttachments).toHaveBeenCalledWith([file], "wall");
+        expect(mockUploadAttachments).toHaveBeenCalledWith([file], "wall", expect.any(Function));
       });
       expect(screen.getByText("Опубликовать")).not.toBeDisabled();
     });
