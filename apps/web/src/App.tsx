@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, type Locat
 import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
 import { AuthGuard } from "@/components/AuthGuard";
+import { VideoEditorHost } from "@/components/VideoEditorHost";
 import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { wsService } from "./services/websocket";
 import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
@@ -224,6 +225,7 @@ const App = () => {
                 <BrowserRouter>
                   <AppRoutes />
                 </BrowserRouter>
+                <VideoEditorHost />
               </TooltipProvider>
             </EmojiDataProvider>
           </LikesCacheProvider>

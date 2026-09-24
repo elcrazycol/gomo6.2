@@ -1,7 +1,9 @@
 // ─── Attachment upload helpers (shared by the paperclip button and drag&drop) ──
 import type { Attachment } from "./types";
+import type { VideoEdit } from "@/components/videoEditor/types";
 import { messengerApi } from "@/services/messengerApi";
 import { prepareMessengerImage } from "@/lib/imageProcessing";
+import { openVideoEditor } from "@/stores/videoEditorStore";
 
 function detectAttachmentType(file: File): Attachment["type"] {
   if (file.type.startsWith("image/")) return "image";
@@ -38,13 +40,20 @@ export async function uploadFilesAsAttachments(
       const type = detectAttachmentType(file);
       const prepared = type === "image" ? await prepareMessengerImage(file) : null;
       const uploadSource = prepared?.file ?? file;
-      const uploaded = await messengerApi.uploadFile(uploadSource, (percent) => {
-        onProgress?.({
-          index,
-          name: file.name,
-          percent: Math.min(95, Math.max(2, percent)),
-        });
-      });
+      // Videos get the trim/crop editor before upload; the server applies the
+      // picked edit during transcoding. A null result uploads the clip as-is.
+      const videoEdit: VideoEdit | null = type === "video" ? await openVideoEditor(uploadSource) : null;
+      const uploaded = await messengerApi.uploadFile(
+        uploadSource,
+        (percent) => {
+          onProgress?.({
+            index,
+            name: file.name,
+            percent: Math.min(95, Math.max(2, percent)),
+          });
+        },
+        videoEdit,
+      );
       onProgress?.({ index, name: file.name, percent: 100 });
       if (type === "image" && !uploaded.variants) {
         throw new Error("Сервер не вернул preview для изображения");
@@ -64,13 +73,20 @@ export async function uploadFilesAsAttachments(
             stored_size: uploadSource.size,
           }
         : null;
+      // Soundless clip (editor "GIF" mode): keep the flag so renderers can
+      // later autoplay/loop it without a player.
+      const videoMeta = type === "video" && uploaded.video?.animated ? { animated: true } : null;
       attachments.push({
         url: uploaded.path,
         type,
         name: file.name,
         size: uploadSource.size,
         mime: uploadSource.type || file.type || "application/octet-stream",
-        ...(imageMeta ? { meta: JSON.stringify(imageMeta) } : {}),
+        ...(imageMeta
+          ? { meta: JSON.stringify(imageMeta) }
+          : videoMeta
+            ? { meta: JSON.stringify(videoMeta) }
+            : {}),
       });
     } catch (err) {
       console.error("Upload failed:", err);
