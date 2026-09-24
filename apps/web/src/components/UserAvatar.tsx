@@ -16,6 +16,8 @@ export type UserAvatarProps = {
   bucket?: string;
   /** Square instead of a circle. */
   square?: boolean;
+  /** Shown when there is no image, or it fails to load (initials/icon). */
+  fallback?: React.ReactNode;
 };
 
 /** A video avatar key ends in .mp4/.webm; its poster is `<key>.poster.jpg`. */
@@ -35,19 +37,17 @@ export function UserAvatar({
   animated,
   bucket = "post-images",
   square = false,
+  fallback,
 }: UserAvatarProps) {
   const [failed, setFailed] = useState(false);
   const url = src ? storageUrl(bucket, src) || src : null;
   const isAnimated = Boolean(url && (animated ?? isAnimatedAvatarUrl(url)));
 
   const containerClass = `user-avatar${square ? "" : " user-avatar--round"}${className ? ` ${className}` : ""}`;
+  const fallbackNode = fallback ?? <User className="user-avatar-icon" aria-hidden="true" />;
 
   if (!url) {
-    return (
-      <span className={containerClass}>
-        <User className="user-avatar-icon" aria-hidden="true" />
-      </span>
-    );
+    return <span className={containerClass}>{fallbackNode}</span>;
   }
 
   if (isAnimated) {
@@ -67,7 +67,7 @@ export function UserAvatar({
   return (
     <span className={containerClass}>
       {failed ? (
-        <User className="user-avatar-icon" aria-hidden="true" />
+        fallbackNode
       ) : (
         <img
           className="user-avatar-img"

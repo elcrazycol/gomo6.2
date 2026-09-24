@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 import type { Notification } from "@/integrations/api/client";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { NotificationThumb } from "@/components/NotificationThumb";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { notificationLink, notificationTitle } from "@/utils/notifications";
@@ -100,10 +100,16 @@ export const NotificationItem = ({ notification, threadSlug, onOpen, hideUnreadD
     >
       <div className="relative shrink-0">
         {actor?.avatarUrl ? (
-          <Avatar className="h-9 w-9 border border-border/60">
-            <AvatarImage src={avatarSrc ?? undefined} alt={actor.username || "Avatar"} />
-            <AvatarFallback className="bg-muted text-xs font-medium text-muted-foreground">{fallback}</AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            src={avatarSrc}
+            alt={actor.username || "Avatar"}
+            className="h-9 w-9 border border-border/60"
+            fallback={
+              <span className="flex h-full w-full items-center justify-center bg-muted text-xs font-medium text-muted-foreground">
+                {fallback}
+              </span>
+            }
+          />
         ) : (
           <div className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted">
             <Icon className="h-4 w-4 text-muted-foreground" />

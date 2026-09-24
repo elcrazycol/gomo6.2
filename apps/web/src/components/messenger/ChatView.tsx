@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { UserAvatar } from "@/components/UserAvatar";
-import { storageUrl, giftImageUrl } from "@/utils/storage";
+import { giftImageUrl } from "@/utils/storage";
 import { useMessengerStore, selectSelectedConversation, queueMarkDelivered } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
 import { formatPresence, getInitials, getUserColorClass } from "./utils";

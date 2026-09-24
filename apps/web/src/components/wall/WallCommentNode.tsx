@@ -10,7 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { WallCommentComposer } from "./WallCommentComposer";
@@ -159,28 +159,33 @@ export const WallCommentNode = ({
               />
             )}
             {isDeleted ? (
-              <div className="relative z-10 mt-0.5 shrink-0">
-                <Avatar data-wall-avatar="deleted" className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
-                  <AvatarFallback className="bg-muted text-muted-foreground/70">
-                    <Ghost className="h-4 w-4" aria-hidden="true" />
-                  </AvatarFallback>
-                </Avatar>
+              <div data-wall-avatar="deleted" className="relative z-10 mt-0.5 shrink-0">
+                <UserAvatar
+                  className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 shadow-sm`}
+                  fallback={
+                    <span className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground/70">
+                      <Ghost className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                  }
+                />
               </div>
             ) : (
               <Link
                 to={`/profile/${comment.user_id}`}
+                data-wall-avatar="current"
                 className="relative z-10 mt-0.5 shrink-0"
                 onClick={(e) => e.stopPropagation()}
               >
-                <Avatar data-wall-avatar="current" className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
-                  <AvatarImage
-                    src={avatarUrl || undefined}
-                    alt={authorLabel}
-                  />
-                  <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                    {authorLabel.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
+                <UserAvatar
+                  src={avatarUrl}
+                  alt={authorLabel}
+                  className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 shadow-sm`}
+                  fallback={
+                    <span className="flex h-full w-full items-center justify-center bg-primary/10 text-xs font-semibold text-primary">
+                      {authorLabel.charAt(0).toUpperCase()}
+                    </span>
+                  }
+                />
               </Link>
             )}
 

@@ -4,7 +4,6 @@ import { Gift, Link2, MessageCircle, NotebookPen, Search, UserPlus, X } from "lu
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { UserAvatar } from "@/components/UserAvatar";
-import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
 import { formatConversationDate, formatPresence, getInitials } from "./utils";
