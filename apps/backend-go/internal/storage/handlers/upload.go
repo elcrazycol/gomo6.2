@@ -46,6 +46,9 @@ type imageVariantResponse struct {
 type videoVariantResponse struct {
 	PosterKey   string `json:"poster_key"`
 	ContentType string `json:"content_type"`
+	// Animated marks a soundless clip (the editor's "GIF" mode) so clients can
+	// treat it like an animated image.
+	Animated bool `json:"animated,omitempty"`
 }
 
 type StorageHandler struct {
@@ -237,6 +240,9 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	bucket := strings.TrimSpace(c.PostForm("bucket"))
 	key := strings.TrimSpace(c.PostForm("key"))
+	// Read the optional editor params up front, alongside bucket/key, so they
+	// are captured before readUploadFile consumes the multipart body.
+	videoEditRaw := c.PostForm("video_edit")
 
 	if bucket == "" || key == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
@@ -322,7 +328,14 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	var videoVariants *videoVariantResponse
 	var poster []byte
 	if isVideoKey(key) {
-		generatedVideo, videoErr := media.GenerateVideoVariants(c.Request.Context(), data, filepath.Ext(key))
+		// Optional trim/crop from the client video editor. Absent field keeps
+		// the legacy "store as-is" behavior; a malformed one is a client error.
+		videoEdit, editErr := media.ParseVideoEdit(videoEditRaw)
+		if editErr != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrVideoProcessing, "Failed to process video", map[string]string{"reason": editErr.Error()}))
+			return
+		}
+		generatedVideo, videoErr := media.GenerateVideoVariants(c.Request.Context(), data, filepath.Ext(key), videoEdit)
 		if videoErr != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrVideoProcessing, "Failed to process video", map[string]string{"reason": videoErr.Error()}))
 			return
@@ -333,7 +346,11 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		data = generatedVideo.Video
 		poster = generatedVideo.Poster
 		contentType = "video/mp4"
-		videoVariants = &videoVariantResponse{PosterKey: key + ".poster.jpg", ContentType: "video/mp4"}
+		videoVariants = &videoVariantResponse{
+			PosterKey:   key + ".poster.jpg",
+			ContentType: "video/mp4",
+			Animated:    videoEdit != nil && videoEdit.Muted,
+		}
 	}
 
 	// Encrypt messenger attachments at rest.

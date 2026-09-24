@@ -104,7 +104,11 @@ func canStreamCopy(video, audio streamInfo) bool {
 // (stream copy) in seconds with ~zero CPU; everything else is transcoded with
 // the 1-CPU-friendly ultrafast settings. ffmpeg/ffprobe are included in the
 // production backend image.
-func GenerateVideoVariants(parent context.Context, data []byte, ext string) (*VideoVariants, error) {
+//
+// edit is the optional trim/crop picked in the client video editor. A nil edit
+// (or one without trim/crop) reproduces the original behavior. A crop always
+// forces the transcode path, since stream copy cannot reshape pixels.
+func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit *VideoEdit) (*VideoVariants, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("empty video")
 	}
@@ -131,16 +135,37 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string) (*Vi
 	// for a tiny but very long source.
 	streams, probeErr := probeVideoStreams(ctx, input)
 	video, audio := firstStream(streams, "video"), firstStream(streams, "audio")
-	if probeErr == nil && canStreamCopy(video, audio) {
+	// Trim is expressed as a duration cap; start is an input seek so the cut is
+	// cheap even for long sources.
+	duration := fmt.Sprintf("%.3f", edit.trimDuration())
+	seekArgs := []string{}
+	if start := edit.startSeconds(); start > 0 {
+		seekArgs = append(seekArgs, "-ss", fmt.Sprintf("%.3f", start))
+	}
+	// A muted clip drops audio, so an exotic (or absent) audio codec no longer
+	// blocks the stream-copy fast path.
+	audioForCopy := audio
+	if edit.IsMuted() {
+		audioForCopy = streamInfo{}
+	}
+	if probeErr == nil && !edit.HasCrop() && !edit.HasTransform() && canStreamCopy(video, audioForCopy) {
 		// Fast path: near-instant remux, ~zero CPU. Stream copy preserves
 		// rotation side data, while -map_metadata -1 drops global (container)
 		// metadata and per-stream tags — GPS/title chunks in phone MP4s live
-		// at the container level and are removed.
-		cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", input,
-			"-t", fmt.Sprintf("%d", int(maxVideoDuration.Seconds())),
-			"-map", "0:v:0", "-map", "0:a?", "-c", "copy",
+		// at the container level and are removed. A trim-only edit still
+		// qualifies: -ss before -i seeks to the nearest keyframe, and -t caps
+		// the output to the selected range.
+		args := append([]string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y"}, seekArgs...)
+		args = append(args, "-i", input, "-t", duration, "-map", "0:v:0")
+		if edit.IsMuted() {
+			args = append(args, "-an")
+		} else {
+			args = append(args, "-map", "0:a?")
+		}
+		args = append(args, "-c", "copy",
 			"-map_metadata", "-1", "-map_metadata:s:v", "-1", "-map_metadata:s:a", "-1",
 			"-movflags", "+faststart", output)
+		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		if _, err := cmd.CombinedOutput(); err != nil {
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("processing timed out")
@@ -154,16 +179,24 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string) (*Vi
 		// slows it down (the old `-threads 2` was counterproductive here). CRF
 		// 26 compensates the ultrafast preset, and the 2M maxrate keeps the
 		// output compact despite the faster preset.
-		scale := fmt.Sprintf("fps=30,scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2",
-			maxVideoWidth, maxVideoHeight)
-		cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", input,
-			"-t", fmt.Sprintf("%d", int(maxVideoDuration.Seconds())), "-map", "0:v:0", "-map", "0:a?",
-			// Drop to 30fps before scaling (cheaper), then scale to 720p.
-			// H.264 requires even dimensions for yuv420p, so pad only the
-			// final row / column when a camera produces an odd-sized frame.
-			"-vf", scale,
-			"-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-maxrate", "2M", "-bufsize", "4M",
-			"-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", output)
+		args := append([]string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y"}, seekArgs...)
+		args = append(args, "-i", input, "-t", duration, "-map", "0:v:0")
+		if edit.IsMuted() {
+			args = append(args, "-an")
+		} else {
+			args = append(args, "-map", "0:a?")
+		}
+		// Optional orientation/crop first, then drop to 30fps before scaling
+		// (cheaper) and scale to 720p. H.264 requires even dimensions for
+		// yuv420p, so pad only the final row / column when a camera produces an
+		// odd-sized frame.
+		args = append(args, "-vf", buildVideoFilter(edit),
+			"-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-maxrate", "2M", "-bufsize", "4M")
+		if !edit.IsMuted() {
+			args = append(args, "-c:a", "aac", "-b:a", "128k")
+		}
+		args = append(args, "-movflags", "+faststart", output)
+		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		if _, err := cmd.CombinedOutput(); err != nil {
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("processing timed out")
