@@ -75,12 +75,23 @@
   touch-action: none;
 }
 
-/* Telegram-style corner brackets: crisp white L's, no continuous border. */
+/* Thin grey outline around the whole window, sitting under the white corners. */
+.ve-crop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Telegram-style corner brackets: crisp, square white L's. */
 .ve-corner {
   position: absolute;
   width: 30px;
   height: 30px;
   pointer-events: none;
+  z-index: 1;
 }
 
 .ve-corner::before,
@@ -88,7 +99,6 @@
   content: "";
   position: absolute;
   background: #fff;
-  border-radius: 2px;
   box-shadow: 0 0 3px rgba(0, 0, 0, 0.45);
 }
 
@@ -127,6 +137,7 @@
   border: none;
   background: transparent;
   touch-action: none;
+  z-index: 2;
 }
 
 .ve-handle-nw { left: -16px; top: -16px; cursor: nwse-resize; }
@@ -184,7 +195,7 @@
   position: relative;
   height: 62px;
   border: 1.5px solid rgba(255, 255, 255, 0.85);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #17171a;
   touch-action: none;
   cursor: pointer;
@@ -232,7 +243,7 @@
   top: 0;
   bottom: 0;
   border: 2px solid #fff;
-  border-radius: 8px;
+  border-radius: 2px;
   box-sizing: border-box;
   pointer-events: none;
   z-index: 2;
@@ -259,7 +270,7 @@
   top: 4px;
   bottom: 4px;
   width: 8px;
-  border-radius: 4px;
+  border-radius: 2px;
   background: #fff;
   box-shadow: 0 0 3px rgba(0, 0, 0, 0.45);
 }
@@ -272,8 +283,8 @@
 
 .ve-film-playhead {
   position: absolute;
-  top: -4px;
-  bottom: -4px;
+  top: -6px;
+  bottom: -6px;
   width: 22px;
   transform: translateX(-50%);
   cursor: ew-resize;
@@ -285,26 +296,34 @@
 .ve-film-playhead::before {
   content: "";
   position: absolute;
-  top: 5px;
-  bottom: 5px;
+  top: 7px;
+  bottom: 7px;
   left: 50%;
   width: 2px;
   transform: translateX(-50%);
-  border-radius: 2px;
+  border-radius: 1px;
   background: #fff;
   box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
 }
 
+/* The knob floats clear above the strip; pressing/dragging enlarges it and
+   tints it with the accent colour so the active pointer is obvious. */
 .ve-film-playhead-dot {
   position: absolute;
-  top: -3px;
+  top: -8px;
   left: 50%;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 9999px;
   background: #fff;
   transform: translateX(-50%);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.ve-film-playhead.is-active .ve-film-playhead-dot {
+  transform: translateX(-50%) scale(1.5);
+  background: #2ea6ff;
 }
 
 .ve-times {

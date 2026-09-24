@@ -94,6 +94,7 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
   const [mirror, setMirror] = useState(false);
   const [gif, setGif] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [scrubbing, setScrubbing] = useState(false);
 
   const frames = useFilmstrip(src, duration, FILMSTRIP_FRAMES);
 
@@ -263,7 +264,10 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
     el.setPointerCapture?.(event.pointerId);
     // Scrubbing/trimming should not fight live playback.
     videoRef.current?.pause();
-    if (kind === "playhead") applyFilmPoint(event.clientX);
+    if (kind === "playhead") {
+      setScrubbing(true);
+      applyFilmPoint(event.clientX);
+    }
   };
 
   const handleFilmPointerMove = (event: React.PointerEvent) => {
@@ -273,6 +277,7 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
   const endFilmGesture = (event: React.PointerEvent) => {
     if (!filmGestureRef.current) return;
     filmGestureRef.current = null;
+    setScrubbing(false);
     filmRef.current?.releasePointerCapture?.(event.pointerId);
   };
 
@@ -457,7 +462,7 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
           </div>
 
           <div
-            className="ve-film-playhead"
+            className={`ve-film-playhead ${scrubbing ? "is-active" : ""}`}
             data-role="playhead"
             style={{ left: `${currentPct}%` }}
           >
