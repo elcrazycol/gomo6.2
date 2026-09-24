@@ -38,6 +38,7 @@ type User struct {
 	Email              *string         `json:"email" db:"email"`
 	Domain             string          `json:"domain" db:"domain"`
 	AvatarURL          *string         `json:"avatar_url" db:"avatar_url"`
+	AvatarAnimated     bool            `json:"avatar_animated" db:"avatar_animated"`
 	BackgroundURL      *string         `json:"background_url,omitempty" db:"background_url"`
 	BackgroundVariant  string          `json:"background_variant,omitempty" db:"background_variant"`
 	ThemeEnabled       bool            `json:"theme_enabled,omitempty" db:"theme_enabled"`
