@@ -38,10 +38,13 @@ const (
 type VideoVariants struct {
 	Video  []byte
 	Poster []byte
-	// HasAudio and Duration describe the *output*, so callers can derive media
-	// facts (e.g. the animated flag) without trusting the client.
+	// HasAudio, Duration and Width/Height describe the *output*, so callers can
+	// derive media facts (the animated flag, the reserved layout box) without
+	// trusting the client.
 	HasAudio bool
 	Duration time.Duration
+	Width    int
+	Height   int
 	// FromGif marks a clip that was converted from a real .gif; it is always
 	// animated regardless of length.
 	FromGif bool
@@ -116,37 +119,42 @@ func probeDuration(ctx context.Context, path string) time.Duration {
 	return time.Duration(seconds * float64(time.Second))
 }
 
-// probeOutputInfo reports whether the finished file carries an audio track and
-// how long it is. This is what the server-side `animated` decision is based on.
-func probeOutputInfo(ctx context.Context, path string) (hasAudio bool, duration time.Duration, err error) {
+// probeOutputInfo reports the finished file's media facts: whether it carries
+// audio, its duration and its video dimensions. These drive the server-side
+// `animated` decision and the width/height clients reserve space with.
+func probeOutputInfo(ctx context.Context, path string) (hasAudio bool, duration time.Duration, width, height int, err error) {
 	out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error",
-		"-show_entries", "stream=codec_type",
+		"-show_entries", "stream=codec_type,width,height",
 		"-show_entries", "format=duration",
 		"-of", "json", path).Output()
 	if err != nil {
-		return false, 0, err
+		return false, 0, 0, 0, err
 	}
 	var res struct {
 		Streams []struct {
 			CodecType string `json:"codec_type"`
+			Width     int    `json:"width"`
+			Height    int    `json:"height"`
 		} `json:"streams"`
 		Format struct {
 			Duration string `json:"duration"`
 		} `json:"format"`
 	}
 	if err := json.Unmarshal(out, &res); err != nil {
-		return false, 0, err
+		return false, 0, 0, 0, err
 	}
 	for _, s := range res.Streams {
 		if s.CodecType == "audio" {
 			hasAudio = true
-			break
+		}
+		if s.CodecType == "video" {
+			width, height = s.Width, s.Height
 		}
 	}
-	if seconds, err := strconv.ParseFloat(res.Format.Duration, 64); err == nil && seconds > 0 {
+	if seconds, parseErr := strconv.ParseFloat(res.Format.Duration, 64); parseErr == nil && seconds > 0 {
 		duration = time.Duration(seconds * float64(time.Second))
 	}
-	return hasAudio, duration, nil
+	return hasAudio, duration, width, height, nil
 }
 
 // canStreamCopy reports whether the upload can be remuxed instead of
@@ -303,10 +311,14 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 	}
 	// Probe the finished file first: its facts drive both the poster offset
 	// clamp and the server-side `animated` decision.
-	hasAudio, outDuration, probeOutErr := probeOutputInfo(ctx, output)
+	hasAudio, outDuration, outWidth, outHeight, probeOutErr := probeOutputInfo(ctx, output)
 	if probeOutErr != nil {
 		hasAudio = !edit.IsMuted() && audio.CodecName != ""
 		outDuration = time.Duration(effectiveSeconds * float64(time.Second))
+		outWidth, outHeight = video.Width, video.Height
+		if edit != nil && normalizedRotation(edit.Rotate)%180 != 0 {
+			outWidth, outHeight = outHeight, outWidth
+		}
 	}
 	// Poster: the frame the user picked, offset into the trimmed output and
 	// clamped so a stale pick can never seek past the end. Defaults to the
@@ -347,6 +359,8 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 		Poster:   preview,
 		HasAudio: hasAudio,
 		Duration: outDuration,
+		Width:    outWidth,
+		Height:   outHeight,
 		FromGif:  fromGif,
 	}, nil
 }

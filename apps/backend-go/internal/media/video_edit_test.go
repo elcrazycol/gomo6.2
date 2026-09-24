@@ -240,6 +240,9 @@ func TestGenerateVideoVariantsIntegration(t *testing.T) {
 		if got.IsAnimated() {
 			t.Fatal("a clip with audio must not be animated")
 		}
+		if got.Width != 320 || got.Height != 240 {
+			t.Fatalf("output dims = %dx%d, want 320x240", got.Width, got.Height)
+		}
 	})
 
 	t.Run("trim shortens the clip", func(t *testing.T) {
@@ -291,6 +294,9 @@ func TestGenerateVideoVariantsIntegration(t *testing.T) {
 		v := firstStream(streams, "video")
 		if v.Width != 240 || v.Height != 320 {
 			t.Fatalf("rotated frame = %dx%d, want 240x320", v.Width, v.Height)
+		}
+		if got.Width != 240 || got.Height != 320 {
+			t.Fatalf("reported dims = %dx%d, want 240x320", got.Width, got.Height)
 		}
 	})
 
@@ -413,6 +419,9 @@ func TestGenerateVideoVariantsFromGif(t *testing.T) {
 	}
 	if !got.IsAnimated() {
 		t.Fatal("a converted gif must be animated")
+	}
+	if got.Width != 160 || got.Height != 120 {
+		t.Fatalf("converted dims = %dx%d, want 160x120", got.Width, got.Height)
 	}
 
 	dir := t.TempDir()

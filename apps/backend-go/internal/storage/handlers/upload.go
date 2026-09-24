@@ -49,6 +49,10 @@ type videoVariantResponse struct {
 	// Animated marks a soundless clip (the editor's "GIF" mode) so clients can
 	// treat it like an animated image.
 	Animated bool `json:"animated,omitempty"`
+	// Width/Height let clients reserve the layout box up-front so the feed
+	// does not jump while the clip loads.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 }
 
 type StorageHandler struct {
@@ -352,6 +356,8 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 			// Derived from the finished file (soundless + short, or a converted
 			// .gif), never from the client's edit flag.
 			Animated: generatedVideo.IsAnimated(),
+			Width:    generatedVideo.Width,
+			Height:   generatedVideo.Height,
 		}
 	}
 
@@ -435,6 +441,21 @@ func isImageBucket(bucket string) bool {
 
 func isPreviewKey(key string) bool {
 	return strings.HasSuffix(strings.ToLower(key), ".preview.jpg")
+}
+
+// isImmutableMediaKey reports whether a public object is safe to cache forever:
+// an image/video under a unique upload key. Admin-managed buckets are excluded
+// because their objects (e.g. gifts/<id>/base.png) are replaced in place.
+func isImmutableMediaKey(bucket, key string) bool {
+	if isAdminManagedBucket(bucket) {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(key)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov", ".m4v":
+		return true
+	default:
+		return false
+	}
 }
 
 func attachmentKeyForLookup(key string) string {
@@ -699,7 +720,10 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 		} else {
 			c.Header("Cache-Control", "private, no-store")
 		}
-	} else if isPreviewKey(key) {
+	} else if isPreviewKey(key) || isImmutableMediaKey(bucket, key) {
+		// User uploads are content-addressed by a unique key, so they never
+		// change and can be cached forever. Admin-curated buckets are excluded
+		// because those objects are replaced in place.
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		c.Header("Cache-Control", "public, max-age=3600")
