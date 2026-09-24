@@ -436,6 +436,20 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* GIF active reads as an accent-coloured label, never a background chip. */
+.ve-dock-btn--gif {
+  opacity: 0.6;
+}
+
+.ve-dock-btn--gif:hover {
+  opacity: 1;
+}
+
+.ve-dock-btn--gif.is-active {
+  opacity: 1;
+  color: #2ea6ff;
+}
+
 .ve-dock-btn--primary {
   background: #fff;
   color: #111;

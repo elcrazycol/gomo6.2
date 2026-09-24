@@ -539,7 +539,7 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
             </button>
             <button
               type="button"
-              className={`ve-dock-btn ve-dock-btn--plain ${gif ? "is-active" : ""}`}
+              className={`ve-dock-btn ve-dock-btn--gif ${gif ? "is-active" : ""}`}
               onClick={() => setGif((value) => !value)}
               aria-label="GIF (без звука)"
               aria-pressed={gif}
