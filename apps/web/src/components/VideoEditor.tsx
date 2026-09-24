@@ -19,6 +19,7 @@ import {
   type CropHandle,
 } from "@/components/videoEditor/geometry";
 import { useFilmstrip } from "@/components/videoEditor/useFilmstrip";
+import { useFrameCapture } from "@/components/videoEditor/useFrameCapture";
 import "./VideoEditor.css";
 
 export type VideoEditorProps = {
@@ -70,6 +71,8 @@ type FilmGesture = {
   kind: "start" | "end" | "playhead";
   left: number;
   width: number;
+  /** Playhead dragged by its knob (above the strip): pick a poster frame. */
+  poster: boolean;
 };
 
 export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorProps) {
@@ -95,8 +98,12 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
   const [gif, setGif] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
+  const [pickingPoster, setPickingPoster] = useState(false);
+  const [posterPreview, setPosterPreview] = useState<string | null>(null);
+  const [posterTime, setPosterTime] = useState<number | null>(null);
 
   const frames = useFilmstrip(src, duration, FILMSTRIP_FRAMES);
+  const captureFrame = useFrameCapture(src);
 
   // Refs mirror the latest values for pointer handlers, which may fire between
   // renders while a gesture is in flight.
@@ -104,6 +111,14 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
   trimRef.current = trim;
   const currentRef = useRef(current);
   currentRef.current = current;
+  const cropRef = useRef(crop);
+  cropRef.current = crop;
+  const rotateRef = useRef(rotate);
+  rotateRef.current = rotate;
+  const mirrorRef = useRef(mirror);
+  mirrorRef.current = mirror;
+  const lastPreviewAtRef = useRef(0);
+  const previewSeqRef = useRef(0);
 
   // A 90/270° rotation swaps the displayed width and height.
   const quarterTurn = rotate % 180 !== 0;
@@ -235,7 +250,19 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
 
   // ── Filmstrip gestures (trim handles + playhead scrubbing) ───────────────
 
-  const applyFilmPoint = useCallback((clientX: number) => {
+  // Capture the frame at `time` for the poster preview, throttled so a drag
+  // does not queue a seek per pointer move. Only the newest capture is kept.
+  const requestPosterPreview = (time: number) => {
+    const now = performance.now();
+    if (now - lastPreviewAtRef.current < 110) return;
+    lastPreviewAtRef.current = now;
+    const seq = (previewSeqRef.current += 1);
+    void captureFrame(time, cropRef.current, rotateRef.current, mirrorRef.current).then((url) => {
+      if (url && seq === previewSeqRef.current) setPosterPreview(url);
+    });
+  };
+
+  const applyFilmPoint = (clientX: number) => {
     const gesture = filmGestureRef.current;
     if (!gesture || gesture.width <= 0 || duration <= 0) return;
     const fraction = clamp((clientX - gesture.left) / gesture.width, 0, 1);
@@ -250,22 +277,31 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
       const video = videoRef.current;
       if (video) video.currentTime = t;
       setCurrent(t);
+      if (gesture.poster) requestPosterPreview(t);
     }
-  }, [duration]);
+  };
 
   const beginFilmGesture = (event: React.PointerEvent) => {
     const el = filmRef.current;
     if (!el || duration <= 0) return;
     event.preventDefault();
     const rect = el.getBoundingClientRect();
-    const role = (event.target as HTMLElement).dataset.role;
+    const target = event.target as HTMLElement;
+    const role = target.dataset.role;
     const kind: FilmGesture["kind"] = role === "start" ? "start" : role === "end" ? "end" : "playhead";
-    filmGestureRef.current = { kind, left: rect.left, width: rect.width };
+    // Dragging the playhead *knob* (the circle above the strip) picks a poster
+    // frame; dragging anywhere else on the strip just scrubs.
+    const poster = kind === "playhead" && !!target.closest(".ve-film-playhead");
+    filmGestureRef.current = { kind, left: rect.left, width: rect.width, poster };
     el.setPointerCapture?.(event.pointerId);
     // Scrubbing/trimming should not fight live playback.
     videoRef.current?.pause();
     if (kind === "playhead") {
       setScrubbing(true);
+      if (poster) {
+        setPickingPoster(true);
+        lastPreviewAtRef.current = 0; // force the first capture immediately
+      }
       applyFilmPoint(event.clientX);
     }
   };
@@ -275,9 +311,16 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
   };
 
   const endFilmGesture = (event: React.PointerEvent) => {
-    if (!filmGestureRef.current) return;
+    const gesture = filmGestureRef.current;
+    if (!gesture) return;
     filmGestureRef.current = null;
     setScrubbing(false);
+    if (gesture.poster) {
+      // Where the knob is released becomes the poster frame.
+      setPosterTime(currentRef.current);
+      setPickingPoster(false);
+      setPosterPreview(null);
+    }
     filmRef.current?.releasePointerCapture?.(event.pointerId);
   };
 
@@ -295,6 +338,9 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
     setRotate(0);
     setMirror(false);
     setGif(false);
+    setPosterTime(null);
+    setPosterPreview(null);
+    setPickingPoster(false);
   };
 
   const handleApply = () => {
@@ -315,6 +361,7 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
     if (rotate % 360 !== 0) edit.rotate = ((rotate % 360) + 360) % 360;
     if (mirror) edit.mirror = true;
     if (gif) edit.muted = true;
+    if (posterTime != null && posterTime > TRIM_EPSILON) edit.poster = round3(posterTime);
     onApply(Object.keys(edit).length > 0 ? edit : null);
   };
 
@@ -330,6 +377,7 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
   const startPct = pct(trim[0]);
   const endPct = pct(trim[1]);
   const currentPct = pct(current);
+  const posterPct = posterTime != null ? pct(posterTime) : 0;
 
   return createPortal(
     <div
@@ -468,6 +516,18 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
           >
             <span className="ve-film-playhead-dot" />
           </div>
+
+          {/* Red marker: where the poster (thumbnail) frame sits. */}
+          {posterTime != null && (
+            <div className="ve-film-poster" style={{ left: `${posterPct}%` }} />
+          )}
+
+          {/* Frame-accurate preview shown while dragging the playhead knob. */}
+          {pickingPoster && posterPreview && (
+            <div className="ve-film-frame" style={{ left: `${currentPct}%` }}>
+              <img src={posterPreview} alt="" draggable={false} />
+            </div>
+          )}
         </div>
 
         <div className="ve-times">

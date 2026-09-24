@@ -326,6 +326,42 @@
   background: #2ea6ff;
 }
 
+/* Red marker showing where the chosen poster (thumbnail) frame sits. */
+.ve-film-poster {
+  position: absolute;
+  bottom: calc(100% + 3px);
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #ff3b30;
+  transform: translateX(-50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Frame-accurate preview floating above the knob while picking a poster. */
+.ve-film-frame {
+  position: absolute;
+  bottom: calc(100% + 24px);
+  transform: translateX(-50%);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: #000;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+  z-index: 7;
+}
+
+.ve-film-frame img {
+  display: block;
+  max-width: 148px;
+  max-height: 148px;
+  width: auto;
+  height: auto;
+}
+
 .ve-times {
   display: flex;
   justify-content: space-between;

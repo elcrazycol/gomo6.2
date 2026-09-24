@@ -18,6 +18,8 @@ export type VideoEdit = {
   mirror?: boolean;
   /** Drop the audio track (the "GIF" mode). */
   muted?: boolean;
+  /** Poster frame, in seconds of the source clip. */
+  poster?: number;
 };
 
 export type AspectPreset = "free" | "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
