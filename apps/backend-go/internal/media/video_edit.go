@@ -34,6 +34,8 @@ type VideoEdit struct {
 	// Muted drops the audio track entirely (the client's "GIF" mode). The
 	// stored clip is silent; the API surfaces it as `animated` downstream.
 	Muted bool `json:"muted"`
+	// Poster is the source-time (seconds) of the frame to use as the thumbnail.
+	Poster float64 `json:"poster"`
 }
 
 const (
@@ -90,6 +92,18 @@ func (e *VideoEdit) startSeconds() float64 {
 	return e.Start
 }
 
+// posterOffset returns the poster frame's offset from the start of the trimmed
+// output (0 when unset). The caller clamps it to the output duration.
+func (e *VideoEdit) posterOffset() float64 {
+	if e == nil || e.Poster <= 0 {
+		return 0
+	}
+	if rel := e.Poster - e.startSeconds(); rel > 0 {
+		return rel
+	}
+	return 0
+}
+
 func (e *VideoEdit) validate() error {
 	for _, v := range []float64{e.Start, e.End} {
 		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
@@ -98,6 +112,9 @@ func (e *VideoEdit) validate() error {
 	}
 	if e.End > 0 && e.End <= e.Start {
 		return fmt.Errorf("video end must be greater than start")
+	}
+	if math.IsNaN(e.Poster) || math.IsInf(e.Poster, 0) || e.Poster < 0 {
+		return fmt.Errorf("video poster must be a positive number of seconds")
 	}
 	switch normalizedRotation(e.Rotate) {
 	case 0, 90, 180, 270:

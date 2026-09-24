@@ -301,12 +301,38 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 			return nil, fmt.Errorf("unsupported or damaged video")
 		}
 	}
-	// Use the first frame rather than seeking to one second: short clips are
-	// valid videos too and may end before the old one-second seek point.
-	posterCmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", "0", "-i", output,
-		"-frames:v", "1", "-vf", "scale=w='min(640,iw)':h=-2", "-q:v", "5", poster)
-	if _, err := posterCmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("create preview")
+	// Probe the finished file first: its facts drive both the poster offset
+	// clamp and the server-side `animated` decision.
+	hasAudio, outDuration, probeOutErr := probeOutputInfo(ctx, output)
+	if probeOutErr != nil {
+		hasAudio = !edit.IsMuted() && audio.CodecName != ""
+		outDuration = time.Duration(effectiveSeconds * float64(time.Second))
+	}
+	// Poster: the frame the user picked, offset into the trimmed output and
+	// clamped so a stale pick can never seek past the end. Defaults to the
+	// first frame, which also keeps short clips valid.
+	posterOffset := edit.posterOffset()
+	if outDuration > 0 {
+		// Keep a margin so the seek always lands on a real frame; the last frame
+		// can be up to one frame interval before the container duration.
+		if maxOffset := outDuration.Seconds() - 0.2; posterOffset > maxOffset {
+			posterOffset = maxOffset
+		}
+	}
+	if posterOffset < 0 {
+		posterOffset = 0
+	}
+	posterArgs := func(seek float64) []string {
+		return []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+			"-ss", fmt.Sprintf("%.3f", seek), "-i", output,
+			"-frames:v", "1", "-vf", "scale=w='min(640,iw)':h=-2", "-q:v", "5", poster}
+	}
+	if _, err := exec.CommandContext(ctx, "ffmpeg", posterArgs(posterOffset)...).CombinedOutput(); err != nil {
+		// A pick that still lands past the end must never fail the upload:
+		// fall back to the first frame.
+		if _, fallbackErr := exec.CommandContext(ctx, "ffmpeg", posterArgs(0)...).CombinedOutput(); fallbackErr != nil {
+			return nil, fmt.Errorf("create preview")
+		}
 	}
 	videoBytes, err := os.ReadFile(output)
 	if err != nil || len(videoBytes) == 0 {
@@ -315,13 +341,6 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 	preview, err := os.ReadFile(poster)
 	if err != nil || len(preview) == 0 {
 		return nil, fmt.Errorf("read video preview")
-	}
-	// Derive media facts from the finished file so callers never have to trust
-	// the client (e.g. for the `animated` flag).
-	hasAudio, outDuration, probeOutErr := probeOutputInfo(ctx, output)
-	if probeOutErr != nil {
-		hasAudio = !edit.IsMuted() && audio.CodecName != ""
-		outDuration = time.Duration(effectiveSeconds * float64(time.Second))
 	}
 	return &VideoVariants{
 		Video:    videoBytes,

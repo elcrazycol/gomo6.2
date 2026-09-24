@@ -1,6 +1,7 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -53,6 +54,16 @@ func TestParseVideoEdit(t *testing.T) {
 		}
 	})
 
+	t.Run("poster", func(t *testing.T) {
+		got, err := ParseVideoEdit(`{"poster":2.5}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Poster != 2.5 {
+			t.Fatalf("unexpected poster: %+v", got)
+		}
+	})
+
 	bad := map[string]string{
 		"negative start":    `{"start":-1}`,
 		"end before start":  `{"start":5,"end":3}`,
@@ -60,6 +71,7 @@ func TestParseVideoEdit(t *testing.T) {
 		"crop too small":    `{"crop":{"x":0,"y":0,"w":0.001,"h":0.5}}`,
 		"crop out of frame": `{"crop":{"x":0.5,"y":0,"w":0.6,"h":0.5}}`,
 		"bad rotation":      `{"rotate":45}`,
+		"negative poster":   `{"poster":-1}`,
 		"unknown field":     `{"zoom":2}`,
 		"not json":          `{`,
 	}
@@ -88,6 +100,27 @@ func TestVideoEditTrimDuration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := tc.edit.trimDuration(); got != tc.want {
 				t.Fatalf("trimDuration = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVideoEditPosterOffset(t *testing.T) {
+	cases := []struct {
+		name string
+		edit *VideoEdit
+		want float64
+	}{
+		{"nil", nil, 0},
+		{"unset", &VideoEdit{}, 0},
+		{"absolute", &VideoEdit{Poster: 4}, 4},
+		{"relative to trim start", &VideoEdit{Start: 1.5, Poster: 4}, 2.5},
+		{"before the trim start clamps to 0", &VideoEdit{Start: 3, Poster: 1}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.edit.posterOffset(); got != tc.want {
+				t.Fatalf("posterOffset = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -268,6 +301,34 @@ func TestGenerateVideoVariantsIntegration(t *testing.T) {
 		}
 		if len(got.Video) == 0 {
 			t.Fatal("expected non-empty video")
+		}
+	})
+
+	t.Run("poster frame is taken at the picked time", func(t *testing.T) {
+		first, err := GenerateVideoVariants(context.Background(), data, ".mp4", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		later, err := GenerateVideoVariants(context.Background(), data, ".mp4", &VideoEdit{Poster: 1.5})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(first.Poster) == 0 || len(later.Poster) == 0 {
+			t.Fatal("expected non-empty posters")
+		}
+		// testsrc changes every frame, so the two posters must differ.
+		if bytes.Equal(first.Poster, later.Poster) {
+			t.Fatal("poster at 1.5s must differ from the first-frame poster")
+		}
+	})
+
+	t.Run("out-of-range poster clamps instead of failing", func(t *testing.T) {
+		got, err := GenerateVideoVariants(context.Background(), data, ".mp4", &VideoEdit{Poster: 999})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got.Poster) == 0 {
+			t.Fatal("expected a clamped poster")
 		}
 	})
 
