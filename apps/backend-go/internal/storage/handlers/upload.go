@@ -349,7 +349,9 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		videoVariants = &videoVariantResponse{
 			PosterKey:   key + ".poster.jpg",
 			ContentType: "video/mp4",
-			Animated:    videoEdit != nil && videoEdit.Muted,
+			// Derived from the finished file (soundless + short, or a converted
+			// .gif), never from the client's edit flag.
+			Animated: generatedVideo.IsAnimated(),
 		}
 	}
 

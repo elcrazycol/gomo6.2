@@ -157,7 +157,7 @@ func makeTestVideo(t *testing.T) []byte {
 	return data
 }
 
-func probeDuration(t *testing.T, data []byte) float64 {
+func probeDurationSeconds(t *testing.T, data []byte) float64 {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "probe.mp4")
@@ -198,8 +198,14 @@ func TestGenerateVideoVariantsIntegration(t *testing.T) {
 		if len(got.Video) == 0 || len(got.Poster) == 0 {
 			t.Fatal("expected non-empty video and poster")
 		}
-		if d := probeDuration(t, got.Video); d < 1.8 || d > 2.3 {
+		if d := probeDurationSeconds(t, got.Video); d < 1.8 || d > 2.3 {
 			t.Fatalf("duration = %v, want ~2s", d)
+		}
+		if !got.HasAudio {
+			t.Fatal("source audio must be preserved")
+		}
+		if got.IsAnimated() {
+			t.Fatal("a clip with audio must not be animated")
 		}
 	})
 
@@ -209,7 +215,7 @@ func TestGenerateVideoVariantsIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if d := probeDuration(t, got.Video); d < 0.7 || d > 1.4 {
+		if d := probeDurationSeconds(t, got.Video); d < 0.7 || d > 1.4 {
 			t.Fatalf("duration = %v, want ~1s", d)
 		}
 	})
@@ -285,6 +291,9 @@ func TestGenerateVideoVariantsIntegration(t *testing.T) {
 		if v := firstStream(streams, "video"); v.Width != 320 || v.Height != 240 {
 			t.Fatalf("muted frame = %dx%d, want 320x240", v.Width, v.Height)
 		}
+		if !got.IsAnimated() {
+			t.Fatal("a short soundless clip must be surfaced as animated")
+		}
 	})
 
 	t.Run("trim and crop together", func(t *testing.T) {
@@ -305,4 +314,57 @@ func TestGenerateVideoVariantsIntegration(t *testing.T) {
 			t.Fatal("expected an error for an already-cancelled context")
 		}
 	})
+}
+
+// makeTestGif renders a tiny animated GIF so the conversion path is exercised
+// with a real gif input.
+func makeTestGif(t *testing.T) []byte {
+	t.Helper()
+	dir := t.TempDir()
+	out := filepath.Join(dir, "anim.gif")
+	cmd := exec.Command("ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=1", out)
+	if outBytes, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("ffmpeg gif fixture failed: %v\n%s", err, outBytes)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read gif fixture: %v", err)
+	}
+	return data
+}
+
+func TestGenerateVideoVariantsFromGif(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	data := makeTestGif(t)
+
+	got, err := GenerateVideoVariants(context.Background(), data, ".gif", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.FromGif {
+		t.Fatal("FromGif = false, want true")
+	}
+	if got.HasAudio {
+		t.Fatal("a converted gif must not carry audio")
+	}
+	if !got.IsAnimated() {
+		t.Fatal("a converted gif must be animated")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "from-gif.mp4")
+	if err := os.WriteFile(path, got.Video, 0o600); err != nil {
+		t.Fatalf("write converted: %v", err)
+	}
+	streams, err := probeVideoStreams(context.Background(), path)
+	if err != nil {
+		t.Fatalf("probe converted: %v", err)
+	}
+	v := firstStream(streams, "video")
+	if v.CodecName != "h264" || v.Width != 160 || v.Height != 120 {
+		t.Fatalf("converted stream = %s %dx%d, want h264 160x120", v.CodecName, v.Width, v.Height)
+	}
 }

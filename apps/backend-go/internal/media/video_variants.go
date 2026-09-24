@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,13 @@ const (
 	// uploads (camera originals) still go through the transcode so they are
 	// squeezed down to the 2M cap instead of being stored as-is.
 	maxSkipBitrate = 3_000_000
+	// shortClipDuration is the point below which a slower x264 preset is
+	// effectively free on the 1-CPU box while producing noticeably smaller
+	// files than `ultrafast`.
+	shortClipDuration = 10 * time.Second
+	// maxAnimatedDuration bounds the "soundless clip = GIF" heuristic. Longer
+	// clips are never surfaced as animated, so the flag cannot be faked.
+	maxAnimatedDuration = 10 * time.Second
 )
 
 // VideoVariants is the compact, streamable video plus its JPEG poster.
@@ -30,6 +38,30 @@ const (
 type VideoVariants struct {
 	Video  []byte
 	Poster []byte
+	// HasAudio and Duration describe the *output*, so callers can derive media
+	// facts (e.g. the animated flag) without trusting the client.
+	HasAudio bool
+	Duration time.Duration
+	// FromGif marks a clip that was converted from a real .gif; it is always
+	// animated regardless of length.
+	FromGif bool
+}
+
+// IsAnimated reports whether the finished clip should be surfaced as an
+// animated (GIF-like) attachment: a converted .gif, or any soundless clip short
+// enough to loop. Deriving this from the output means a client cannot fake it,
+// and silent screen recordings qualify automatically.
+func (v *VideoVariants) IsAnimated() bool {
+	if v == nil {
+		return false
+	}
+	if v.FromGif {
+		return true
+	}
+	if v.HasAudio {
+		return false
+	}
+	return v.Duration > 0 && v.Duration <= maxAnimatedDuration
 }
 
 // streamInfo mirrors the ffprobe -show_entries stream=... JSON subset we
@@ -68,6 +100,53 @@ func firstStream(streams []streamInfo, codecType string) streamInfo {
 		}
 	}
 	return streamInfo{}
+}
+
+// probeDuration returns a file's container duration, or 0 when unknown.
+func probeDuration(ctx context.Context, path string) time.Duration {
+	out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error",
+		"-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path).Output()
+	if err != nil {
+		return 0
+	}
+	seconds, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
+// probeOutputInfo reports whether the finished file carries an audio track and
+// how long it is. This is what the server-side `animated` decision is based on.
+func probeOutputInfo(ctx context.Context, path string) (hasAudio bool, duration time.Duration, err error) {
+	out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error",
+		"-show_entries", "stream=codec_type",
+		"-show_entries", "format=duration",
+		"-of", "json", path).Output()
+	if err != nil {
+		return false, 0, err
+	}
+	var res struct {
+		Streams []struct {
+			CodecType string `json:"codec_type"`
+		} `json:"streams"`
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(out, &res); err != nil {
+		return false, 0, err
+	}
+	for _, s := range res.Streams {
+		if s.CodecType == "audio" {
+			hasAudio = true
+			break
+		}
+	}
+	if seconds, err := strconv.ParseFloat(res.Format.Duration, 64); err == nil && seconds > 0 {
+		duration = time.Duration(seconds * float64(time.Second))
+	}
+	return hasAudio, duration, nil
 }
 
 // canStreamCopy reports whether the upload can be remuxed instead of
@@ -135,6 +214,20 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 	// for a tiny but very long source.
 	streams, probeErr := probeVideoStreams(ctx, input)
 	video, audio := firstStream(streams, "video"), firstStream(streams, "audio")
+	fromGif := video.CodecName == "gif"
+	// Short clips get a slower (but still nearly free) preset for noticeably
+	// smaller files; longer ones keep the ultrafast 1-CPU setting. Prefer the
+	// real source length over the requested trim cap when it is shorter.
+	effectiveSeconds := edit.trimDuration()
+	if src := probeDuration(ctx, input); src > 0 {
+		if remaining := src.Seconds() - edit.startSeconds(); remaining > 0 && remaining < effectiveSeconds {
+			effectiveSeconds = remaining
+		}
+	}
+	x264Preset := "ultrafast"
+	if effectiveSeconds <= shortClipDuration.Seconds() {
+		x264Preset = "faster"
+	}
 	// Trim is expressed as a duration cap; start is an input seek so the cut is
 	// cheap even for long sources.
 	duration := fmt.Sprintf("%.3f", edit.trimDuration())
@@ -173,12 +266,13 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 			return nil, fmt.Errorf("unsupported or damaged video")
 		}
 	} else {
-		// 1-CPU VPS tuning: `-preset ultrafast` + a 30fps cap + no forced
-		// threading keep the encode light. 60fps clips encode ~2x faster after
-		// dropping frames, and x264's frame-thread sync on a single core only
-		// slows it down (the old `-threads 2` was counterproductive here). CRF
-		// 26 compensates the ultrafast preset, and the 2M maxrate keeps the
-		// output compact despite the faster preset.
+		// 1-CPU VPS tuning: a light x264 preset + a 30fps cap + no forced
+		// threading keep the encode cheap. Short clips use `faster` (nearly
+		// free for a few seconds, much smaller output); long ones stay on
+		// `ultrafast`. 60fps clips encode ~2x faster after dropping frames, and
+		// x264's frame-thread sync on a single core only slows it down (the old
+		// `-threads 2` was counterproductive here). CRF 26 compensates the
+		// faster preset, and the 2M maxrate keeps the output compact.
 		args := append([]string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y"}, seekArgs...)
 		args = append(args, "-i", input, "-t", duration, "-map", "0:v:0")
 		if edit.IsMuted() {
@@ -191,7 +285,10 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 		// yuv420p, so pad only the final row / column when a camera produces an
 		// odd-sized frame.
 		args = append(args, "-vf", buildVideoFilter(edit),
-			"-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-maxrate", "2M", "-bufsize", "4M")
+			"-c:v", "libx264", "-preset", x264Preset, "-crf", "26", "-maxrate", "2M", "-bufsize", "4M",
+			// yuv420p keeps the output universally playable — required for GIF
+			// sources, which decode to a paletted/rgb frame otherwise.
+			"-pix_fmt", "yuv420p")
 		if !edit.IsMuted() {
 			args = append(args, "-c:a", "aac", "-b:a", "128k")
 		}
@@ -219,5 +316,18 @@ func GenerateVideoVariants(parent context.Context, data []byte, ext string, edit
 	if err != nil || len(preview) == 0 {
 		return nil, fmt.Errorf("read video preview")
 	}
-	return &VideoVariants{Video: videoBytes, Poster: preview}, nil
+	// Derive media facts from the finished file so callers never have to trust
+	// the client (e.g. for the `animated` flag).
+	hasAudio, outDuration, probeOutErr := probeOutputInfo(ctx, output)
+	if probeOutErr != nil {
+		hasAudio = !edit.IsMuted() && audio.CodecName != ""
+		outDuration = time.Duration(effectiveSeconds * float64(time.Second))
+	}
+	return &VideoVariants{
+		Video:    videoBytes,
+		Poster:   preview,
+		HasAudio: hasAudio,
+		Duration: outDuration,
+		FromGif:  fromGif,
+	}, nil
 }

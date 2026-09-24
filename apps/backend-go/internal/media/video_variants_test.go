@@ -1,6 +1,36 @@
 package media
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestVideoVariantsIsAnimated(t *testing.T) {
+	cases := []struct {
+		name string
+		v    VideoVariants
+		want bool
+	}{
+		{"soundless short", VideoVariants{Duration: 3 * time.Second}, true},
+		{"soundless at the cap", VideoVariants{Duration: maxAnimatedDuration}, true},
+		{"soundless long", VideoVariants{Duration: maxAnimatedDuration + time.Second}, false},
+		{"has audio", VideoVariants{HasAudio: true, Duration: 3 * time.Second}, false},
+		{"unknown duration", VideoVariants{}, false},
+		{"converted gif is always animated", VideoVariants{FromGif: true, HasAudio: true, Duration: time.Hour}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.v.IsAnimated(); got != tc.want {
+				t.Fatalf("IsAnimated = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	var nilVariants *VideoVariants
+	if nilVariants.IsAnimated() {
+		t.Fatal("nil VideoVariants must not be animated")
+	}
+}
 
 func TestCanStreamCopy(t *testing.T) {
 	cases := []struct {
