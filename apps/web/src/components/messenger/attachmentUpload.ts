@@ -6,6 +6,8 @@ import { prepareMessengerImage } from "@/lib/imageProcessing";
 import { openVideoEditor } from "@/stores/videoEditorStore";
 
 function detectAttachmentType(file: File): Attachment["type"] {
+  // GIFs are transcoded to silent mp4 server-side, so they take the video path.
+  if (file.type === "image/gif") return "video";
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
@@ -38,11 +40,13 @@ export async function uploadFilesAsAttachments(
     const file = files[index];
     try {
       const type = detectAttachmentType(file);
+      const isGif = file.type === "image/gif";
       const prepared = type === "image" ? await prepareMessengerImage(file) : null;
       const uploadSource = prepared?.file ?? file;
-      // Videos get the trim/crop editor before upload; the server applies the
-      // picked edit during transcoding. A null result uploads the clip as-is.
-      const videoEdit: VideoEdit | null = type === "video" ? await openVideoEditor(uploadSource) : null;
+      // Videos get the trim/crop editor before upload (not GIFs — already short
+      // loops); the server applies the picked edit during transcoding.
+      const videoEdit: VideoEdit | null =
+        type === "video" && !isGif ? await openVideoEditor(uploadSource) : null;
       const uploaded = await messengerApi.uploadFile(
         uploadSource,
         (percent) => {

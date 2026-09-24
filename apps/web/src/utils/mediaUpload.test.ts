@@ -235,6 +235,33 @@ describe("uploadAttachments", () => {
     expect(results[0].animated).toBe(true);
   });
 
+  it("routes a GIF through the video pipeline (server converts to mp4)", async () => {
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({
+      path: key,
+      video: { poster_key: `${key}.poster.jpg`, content_type: "video/mp4", animated: true },
+    }));
+
+    const results = await uploadAttachments([makeFile("anim.gif", "image/gif")]);
+
+    expect(results[0].type).toBe("video");
+    expect(results[0].mime).toBe("video/mp4");
+    expect(results[0].animated).toBe(true);
+    // No editor for a GIF, and no lossy browser-side image prep.
+    expect(mockOpenVideoEditor).not.toHaveBeenCalled();
+    expect(mockPrepareMessengerImage).not.toHaveBeenCalled();
+    // The key must end in .mp4 so the backend runs the video pipeline.
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      "content",
+      expect.stringMatching(/\.mp4$/),
+      expect.any(File),
+      "token-abc",
+      false,
+      expect.any(Function),
+      expect.any(Function),
+      undefined,
+    );
+  });
+
   it("skips the editor when editVideo is disabled", async () => {
     mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({
       path: key,
