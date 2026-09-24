@@ -67,7 +67,10 @@ export function AnimatedVideo({
     (el as HTMLVideoElement & { disableRemotePlayback?: boolean }).disableRemotePlayback = true;
   }, []);
 
-  // Two-stage visibility: `near` gates loading, `visible` gates playback.
+  // Two observers: `near` (300px margin) gates loading, `visible` (50%) gates
+  // playback. They must be separate — with a single expanded-root observer a
+  // short (landscape) clip reaches ratio 1 while still off-screen, so playback
+  // would never start without a tap.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || typeof IntersectionObserver === "undefined") {
@@ -75,21 +78,20 @@ export function AnimatedVideo({
       setVisible(true);
       return;
     }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        const rect = entry.boundingClientRect;
-        const viewportHeight = window.innerHeight || 0;
-        setNear(rect.bottom > -300 && rect.top < viewportHeight + 300);
-        const visibleHeight = Math.max(
-          0,
-          Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0),
-        );
-        setVisible(visibleHeight / Math.max(1, rect.height) >= 0.5);
-      },
-      { rootMargin: NEAR_MARGIN, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    const nearObserver = new IntersectionObserver(([entry]) => setNear(entry.isIntersecting), {
+      rootMargin: NEAR_MARGIN,
+      threshold: 0,
+    });
+    const visibleObserver = new IntersectionObserver(
+      ([entry]) => setVisible(entry.intersectionRatio >= 0.5),
+      { threshold: [0, 0.5, 1] },
     );
-    observer.observe(el);
-    return () => observer.disconnect();
+    nearObserver.observe(el);
+    visibleObserver.observe(el);
+    return () => {
+      nearObserver.disconnect();
+      visibleObserver.disconnect();
+    };
   }, []);
 
   // Compete for one of the global playback slots only while near the viewport.
