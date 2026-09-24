@@ -289,16 +289,16 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
     const target = event.target as HTMLElement;
     const role = target.dataset.role;
     const kind: FilmGesture["kind"] = role === "start" ? "start" : role === "end" ? "end" : "playhead";
-    // Dragging the playhead *knob* (the circle above the strip) picks a poster
-    // frame; dragging anywhere else on the strip just scrubs.
-    const poster = kind === "playhead" && !!target.closest(".ve-film-playhead");
+    // Only the *knob* (the circle above the strip) picks a poster frame.
+    // Dragging the line or the strip just scrubs and leaves the poster alone.
+    const poster = kind === "playhead" && !!target.closest(".ve-film-playhead-dot");
     filmGestureRef.current = { kind, left: rect.left, width: rect.width, poster };
     el.setPointerCapture?.(event.pointerId);
     // Scrubbing/trimming should not fight live playback.
     videoRef.current?.pause();
     if (kind === "playhead") {
-      setScrubbing(true);
       if (poster) {
+        setScrubbing(true);
         setPickingPoster(true);
         lastPreviewAtRef.current = 0; // force the first capture immediately
       }

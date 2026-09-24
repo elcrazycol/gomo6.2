@@ -326,6 +326,14 @@
   background: #2ea6ff;
 }
 
+/* Enlarged, invisible hit area so the small circle is easy to grab. */
+.ve-film-playhead-dot::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border-radius: 9999px;
+}
+
 /* Red marker showing where the chosen poster (thumbnail) frame sits. */
 .ve-film-poster {
   position: absolute;

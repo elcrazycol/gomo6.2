@@ -224,14 +224,29 @@ describe("VideoEditor", () => {
     await screen.findByLabelText("Готово");
 
     const film = baseElement.querySelector(".ve-film") as HTMLElement;
-    const knob = baseElement.querySelector(".ve-film-playhead") as HTMLElement;
-    // Press the knob (not the strip) at 50%, drag to 60%, release.
+    const knob = baseElement.querySelector(".ve-film-playhead-dot") as HTMLElement;
+    // Press the circle at 50%, drag to 60%, release.
     fireEvent.pointerDown(knob, { pointerId: 1, clientX: 200, clientY: 30 });
     fireEvent.pointerMove(film, { pointerId: 1, clientX: 240, clientY: 30 });
     fireEvent.pointerUp(film, { pointerId: 1 });
 
     fireEvent.click(screen.getByLabelText("Готово"));
     expect(onApply.mock.calls.at(-1)?.[0]?.poster).toBeCloseTo(6, 1);
+  });
+
+  it("dragging the playhead line scrubs without setting a poster", async () => {
+    const { baseElement, onApply } = renderEditor();
+    loadVideo(baseElement, 640, 360, 10);
+    await screen.findByLabelText("Готово");
+
+    const film = baseElement.querySelector(".ve-film") as HTMLElement;
+    const line = baseElement.querySelector(".ve-film-playhead") as HTMLElement;
+    fireEvent.pointerDown(line, { pointerId: 1, clientX: 200, clientY: 30 });
+    fireEvent.pointerMove(film, { pointerId: 1, clientX: 240, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+
+    fireEvent.click(screen.getByLabelText("Готово"));
+    expect(onApply).toHaveBeenCalledWith(null);
   });
 
   it("plain scrubbing on the strip does not set a poster", async () => {
