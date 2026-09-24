@@ -78,8 +78,17 @@ export async function uploadFilesAsAttachments(
           }
         : null;
       // Soundless clip (editor "GIF" mode): keep the flag so renderers can
-      // later autoplay/loop it without a player.
-      const videoMeta = type === "video" && uploaded.video?.animated ? { animated: true } : null;
+      // autoplay/loop it without a player, plus the dimensions so the feed
+      // reserves the box.
+      const videoMeta =
+        type === "video" && uploaded.video
+          ? {
+              ...(uploaded.video.animated ? { animated: true } : {}),
+              ...(uploaded.video.width ? { width: uploaded.video.width } : {}),
+              ...(uploaded.video.height ? { height: uploaded.video.height } : {}),
+            }
+          : null;
+      const hasVideoMeta = videoMeta && Object.keys(videoMeta).length > 0;
       attachments.push({
         url: uploaded.path,
         type,
@@ -88,7 +97,7 @@ export async function uploadFilesAsAttachments(
         mime: uploadSource.type || file.type || "application/octet-stream",
         ...(imageMeta
           ? { meta: JSON.stringify(imageMeta) }
-          : videoMeta
+          : hasVideoMeta
             ? { meta: JSON.stringify(videoMeta) }
             : {}),
       });

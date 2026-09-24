@@ -98,11 +98,11 @@ export type UploadedImageVariants = {
 export type UploadFileResult = {
   path: string;
   variants?: UploadedImageVariants;
-  video?: { poster_key: string; content_type: string; animated?: boolean };
+  video?: { poster_key: string; content_type: string; animated?: boolean; width?: number; height?: number };
 };
 
 type UploadBody = {
-  data?: { key?: string; variants?: UploadedImageVariants; video?: { poster_key: string; content_type: string; animated?: boolean } };
+  data?: { key?: string; variants?: UploadedImageVariants; video?: { poster_key: string; content_type: string; animated?: boolean; width?: number; height?: number } };
   error?: string;
   code?: string;
   params?: unknown;

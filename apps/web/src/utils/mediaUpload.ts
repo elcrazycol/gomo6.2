@@ -16,7 +16,9 @@ export interface AttachmentMeta {
   name: string;
   size: number;
   poster?: string; // preview for videos
-  animated?: boolean; // soundless video ("GIF" mode) — autoplay/loop later
+  animated?: boolean; // soundless short clip ("GIF") that autoplays and loops
+  width?: number; // video dimensions, to reserve the layout box
+  height?: number;
   title?: string; // audio track title
   artist?: string; // audio artist name
   album?: string; // audio album name
@@ -326,8 +328,12 @@ export const uploadAttachments = async (
         ? (bucket === "content" ? uploaded.video.poster_key : storageUrl(bucket, uploaded.video.poster_key) || uploaded.video.poster_key)
         : poster,
       // Soundless clip (editor "GIF" mode): keep the flag so renderers can
-      // later autoplay/loop it without a player.
+      // autoplay/loop it without a player, plus the dimensions so the feed
+      // reserves the box and does not jump while the clip loads.
       ...(uploaded.video?.animated ? { animated: true } : {}),
+      ...(uploaded.video?.width && uploaded.video?.height
+        ? { width: uploaded.video.width, height: uploaded.video.height }
+        : {}),
       ...(type === "image" && uploaded.variants ? {
         meta: {
           preview_key: storedPreview,

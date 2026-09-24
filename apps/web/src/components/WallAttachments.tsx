@@ -178,9 +178,11 @@ export const WallAttachments = ({
                   src={resolveUrl(attachment.url) ?? attachment.url}
                   poster={resolveUrl(attachment.poster) ?? undefined}
                   aspectRatio={
-                    attachment.meta?.width && attachment.meta?.height
-                      ? attachment.meta.width / attachment.meta.height
-                      : undefined
+                    attachment.width && attachment.height
+                      ? attachment.width / attachment.height
+                      : attachment.meta?.width && attachment.meta?.height
+                        ? attachment.meta.width / attachment.meta.height
+                        : undefined
                   }
                   ariaLabel={attachment.name}
                 />

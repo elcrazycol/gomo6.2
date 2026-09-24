@@ -122,9 +122,11 @@ export const renderAttachments = (
                     src={storageUrl("content", att.url) || att.url}
                     poster={att.poster}
                     aspectRatio={
-                      att.meta?.width && att.meta?.height
-                        ? att.meta.width / att.meta.height
-                        : undefined
+                      att.width && att.height
+                        ? att.width / att.height
+                        : att.meta?.width && att.meta?.height
+                          ? att.meta.width / att.meta.height
+                          : undefined
                     }
                     ariaLabel={att.name}
                   />
