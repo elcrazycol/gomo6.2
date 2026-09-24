@@ -13,7 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, Send } from "lucide-react";
+import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle } from "lucide-react";
+import { useAnimatedVideoStore, type AutoplayMode } from "@/stores/animatedVideoStore";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
@@ -79,6 +80,13 @@ const Settings = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
+  const autoplayMode = useAnimatedVideoStore((state) => state.autoplayMode);
+  const setAutoplayMode = useAnimatedVideoStore((state) => state.setAutoplayMode);
+  const autoplayOptions: { id: AutoplayMode; labelKey: string }[] = [
+    { id: "always", labelKey: "settings.autoplayAlways" },
+    { id: "wifi", labelKey: "settings.autoplayWifi" },
+    { id: "never", labelKey: "settings.autoplayNever" },
+  ];
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [privacySettings, setPrivacySettings] = useState<PrivacySettingsData>(defaultPrivacySettings);
@@ -556,6 +564,30 @@ const Settings = () => {
                   <Link to="/translate">
                     <Button variant="outline">{t("settings.openTranslationEditor")}</Button>
                   </Link>
+                </div>
+
+                {/* Автовоспроизведение GIF / коротких клипов */}
+                <div className="bg-card border border-border p-4 sm:p-6 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <PlayCircle className="h-5 w-5" />
+                    <div>
+                      <span className="text-lg font-semibold">{t("settings.autoplayMedia")}</span>
+                      <p className="text-sm text-muted-foreground">{t("settings.autoplayMediaDescription")}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {autoplayOptions.map((option) => (
+                      <Button
+                        key={option.id}
+                        type="button"
+                        size="sm"
+                        variant={autoplayMode === option.id ? "default" : "outline"}
+                        onClick={() => setAutoplayMode(option.id)}
+                      >
+                        {t(option.labelKey)}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Темы — сворачиваемая секция */}
