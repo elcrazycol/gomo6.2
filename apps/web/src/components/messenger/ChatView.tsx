@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronDown, Folder, Lock, MessageCircle, NotebookPen, Pin, 
 import { toast } from "sonner";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
+import { UserAvatar } from "@/components/UserAvatar";
 import { storageUrl, giftImageUrl } from "@/utils/storage";
 import { useMessengerStore, selectSelectedConversation, queueMarkDelivered } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
@@ -429,7 +430,11 @@ export const ChatView = memo(function ChatView({
               ) : conversation.is_group ? (
                 <span>{conversation.group_name ? conversation.group_name.slice(0, 2).toUpperCase() : "ГР"}</span>
               ) : conversation.other_avatar_url ? (
-                <img src={storageUrl("post-images", conversation.other_avatar_url) || undefined} alt={conversation.other_username || ""} />
+                <UserAvatar
+                  src={conversation.other_avatar_url}
+                  alt={conversation.other_username || ""}
+                  className="w-full h-full"
+                />
               ) : (
                 <span>{getInitials(conversation.other_username || "")}</span>
               )}

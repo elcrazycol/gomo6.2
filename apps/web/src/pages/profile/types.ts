@@ -20,6 +20,8 @@ export interface Profile {
   drops: number;
   created_at: string;
   avatar_url?: string | null;
+  /** True when the avatar is an animated (video) clip. */
+  avatar_animated?: boolean;
   background_url?: string | null;
   background_variant?: string;
   theme_enabled?: boolean;
@@ -60,6 +62,7 @@ export interface AvatarHistoryItem {
   id: string;
   avatar_url: string;
   is_current: boolean;
+  is_animated?: boolean;
 }
 
 /** Visibility flags returned by the owner's privacy endpoint. Field names match

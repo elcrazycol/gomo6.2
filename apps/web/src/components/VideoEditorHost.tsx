@@ -37,6 +37,7 @@ export function VideoEditorHost() {
       <VideoEditor
         src={src}
         fileName={pending.file.name}
+        mode={pending.mode}
         onApply={finish}
         onCancel={() => finish(null)}
       />

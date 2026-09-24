@@ -13,6 +13,8 @@ export type AnimatedVideoProps = {
   onOpen?: () => void;
   /** When false the clip ignores pointer events — the parent handles taps. */
   interactive?: boolean;
+  /** Stretch to fill an absolutely-sized parent (avatar circles, tiles). */
+  fill?: boolean;
   ariaLabel?: string;
   /** Fires once the first frame is decoded (for the caller's load state). */
   onReady?: () => void;
@@ -37,6 +39,7 @@ export function AnimatedVideo({
   className,
   onOpen,
   interactive = true,
+  fill = false,
   ariaLabel,
   onReady,
 }: AnimatedVideoProps) {
@@ -179,7 +182,7 @@ export function AnimatedVideo({
   return (
     <div
       ref={containerRef}
-      className={`animated-video${className ? ` ${className}` : ""}`}
+      className={`animated-video${fill ? " is-fill" : ""}${className ? ` ${className}` : ""}`}
       style={aspectRatio ? { aspectRatio } : undefined}
     >
       <video

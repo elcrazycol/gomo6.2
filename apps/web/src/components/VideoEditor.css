@@ -128,6 +128,28 @@
 .ve-corner-se::before { bottom: 0; right: 0; }
 .ve-corner-se::after { bottom: 0; right: 0; }
 
+/* Avatar mode: a circular mask (the avatar area) instead of a square frame. */
+.ve-crop.is-avatar {
+  box-shadow: none;
+}
+
+.ve-crop.is-avatar::after {
+  display: none;
+}
+
+.ve-crop.is-avatar .ve-corner {
+  display: none;
+}
+
+.ve-avatar-circle {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
 /* Invisible, generous hit areas for dragging — the brackets are the visuals. */
 .ve-handle {
   position: absolute;
@@ -459,6 +481,11 @@
 
 .ve-dock.is-open {
   width: 380px;
+}
+
+/* Avatar mode hides the crop tool, so the pill hugs four buttons. */
+.ve-dock.is-compact {
+  width: 212px;
 }
 
 /* On narrow screens the pill fills the available width and the buttons shrink

@@ -2,7 +2,8 @@ import { useState, cloneElement, useRef, useEffect, useLayoutEffect, useCallback
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
-import { User, Droplets } from "lucide-react";
+import { Droplets } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
 import { format } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
@@ -245,17 +246,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
           <div className="p-4">
           <div className="flex items-start gap-3">
             {/* Avatar */}
-            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt="Avatar"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <User className="w-6 h-6 text-muted-foreground" />
-              )}
-            </div>
+            <UserAvatar src={avatarUrl} alt="Avatar" className="w-12 h-12" />
 
             {/* User Info */}
             <div className="flex-1 min-w-0">

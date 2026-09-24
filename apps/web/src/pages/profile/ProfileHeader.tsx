@@ -1,6 +1,6 @@
 import { lazy, Suspense, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Camera, Edit2, MessageSquare, Smile, User, X } from "lucide-react";
+import { Camera, Edit2, MessageSquare, Smile, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AdminBadge } from "@/components/AdminBadge";
@@ -8,7 +8,7 @@ import { FriendButton } from "@/components/FriendButton";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { storageUrl } from "@/utils/storage";
+import { UserAvatar } from "@/components/UserAvatar";
 import { parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import type { ProfileBackgroundVariant } from "@/utils/profileBackground";
 import type { AvatarDragHandlers, Profile } from "./types";
@@ -96,14 +96,8 @@ export function ProfileHeader({
                 <div className="w-full h-full flex items-center justify-center">
                   <PentagramLoader size="sm" />
                 </div>
-              ) : avatarUrl ? (
-                <img
-                  src={storageUrl("post-images", avatarUrl) || avatarUrl}
-                  alt="Avatar"
-                  className="w-full h-full object-cover"
-                />
               ) : (
-                <User className="w-10 h-10 text-muted-foreground" />
+                <UserAvatar src={avatarUrl} alt="Avatar" className="w-full h-full" />
               )}
             </div>
             {isOwnProfile && isEditing && (
@@ -111,7 +105,7 @@ export function ProfileHeader({
                 <Camera className="w-4 h-4 text-primary-foreground" />
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   onChange={onAvatarUpload}
                   className="hidden"
                 />

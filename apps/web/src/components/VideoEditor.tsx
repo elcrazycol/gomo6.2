@@ -22,6 +22,8 @@ import { useFilmstrip } from "@/components/videoEditor/useFilmstrip";
 import { useFrameCapture } from "@/components/videoEditor/useFrameCapture";
 import "./VideoEditor.css";
 
+export type VideoEditorMode = "default" | "avatar";
+
 export type VideoEditorProps = {
   /** Local object URL (or any playable URL) of the clip being edited. */
   src: string;
@@ -29,6 +31,11 @@ export type VideoEditorProps = {
   /** Called with the picked trim/crop, or null when nothing was changed. */
   onApply: (edit: VideoEdit | null) => void;
   onCancel: () => void;
+  /**
+   * "avatar" locks the crop to 1:1 with a circular mask, hides the crop and
+   * GIF tools, caps the selection at 7.5s and always stores a silent clip.
+   */
+  mode?: VideoEditorMode;
 };
 
 /** Trim shorter than this (seconds) is treated as "no trim". */
@@ -37,6 +44,8 @@ const TRIM_EPSILON = 0.05;
 const MIN_TRIM = 0.1;
 /** Number of filmstrip thumbnails. */
 const FILMSTRIP_FRAMES = 8;
+/** Animated avatars may not be longer than this. */
+const AVATAR_MAX_SECONDS = 7.5;
 
 const HANDLES: CropHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 /** Visible Telegram-style corner brackets (interaction still uses HANDLES). */
@@ -75,7 +84,8 @@ type FilmGesture = {
   poster: boolean;
 };
 
-export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorProps) {
+export function VideoEditor({ src, fileName, onApply, onCancel, mode = "default" }: VideoEditorProps) {
+  const isAvatar = mode === "avatar";
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -179,7 +189,16 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
     const d = Number.isFinite(video.duration) ? video.duration : 0;
     setVideoSize({ w: video.videoWidth, h: video.videoHeight });
     setDuration(d);
-    setTrim([0, d]);
+    if (isAvatar) {
+      // Avatars are square and short: lock the crop to 1:1 and cap the range.
+      setAspect("1:1");
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        setCrop(centeredCrop(video.videoWidth / video.videoHeight, "1:1"));
+      }
+      setTrim([0, Math.min(d, AVATAR_MAX_SECONDS)]);
+    } else {
+      setTrim([0, d]);
+    }
     setReady(true);
   };
 
@@ -268,10 +287,15 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
     const fraction = clamp((clientX - gesture.left) / gesture.width, 0, 1);
     const time = fraction * duration;
     const [start, end] = trimRef.current;
+    const maxLength = isAvatar ? AVATAR_MAX_SECONDS : Infinity;
     if (gesture.kind === "start") {
-      setTrim([clamp(Math.min(time, end - MIN_TRIM), 0, duration), end]);
+      let next = clamp(Math.min(time, end - MIN_TRIM), 0, duration);
+      if (end - next > maxLength) next = end - maxLength;
+      setTrim([Math.max(0, next), end]);
     } else if (gesture.kind === "end") {
-      setTrim([start, clamp(Math.max(time, start + MIN_TRIM), 0, duration)]);
+      let next = clamp(Math.max(time, start + MIN_TRIM), 0, duration);
+      if (next - start > maxLength) next = start + maxLength;
+      setTrim([start, Math.min(duration, next)]);
     } else {
       const t = clamp(time, 0, duration);
       const video = videoRef.current;
@@ -360,7 +384,8 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
     }
     if (rotate % 360 !== 0) edit.rotate = ((rotate % 360) + 360) % 360;
     if (mirror) edit.mirror = true;
-    if (gif) edit.muted = true;
+    // Avatars are always silent; the explicit GIF toggle is for regular clips.
+    if (gif || isAvatar) edit.muted = true;
     if (posterTime != null && posterTime > TRIM_EPSILON) edit.poster = round3(posterTime);
     onApply(Object.keys(edit).length > 0 ? edit : null);
   };
@@ -425,10 +450,11 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
                   onPointerCancel={endCropGesture}
                 >
                   <div
-                    className="ve-crop"
+                    className={`ve-crop${isAvatar ? " is-avatar" : ""}`}
                     style={cropStyle}
                     onPointerDown={(e) => beginCropGesture(e, "move")}
                   >
+                    {isAvatar && <span className="ve-avatar-circle" aria-hidden="true" />}
                     {CORNERS.map((corner) => (
                       <span
                         key={corner}
@@ -548,7 +574,7 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
 
         {/* The whole bottom bar is one pill: round buttons on a shared body.
             Pressing a tool grows the pill upward, revealing its panel. */}
-        <div className={`ve-dock ${toolsOpen ? "is-open" : ""}`}>
+        <div className={`ve-dock ${toolsOpen ? "is-open" : ""}${isAvatar ? " is-compact" : ""}`}>
           <div className="ve-dock-expander">
             <div className="ve-dock-expander-inner">
               <div className="ve-dock-panel" role="group" aria-label="Соотношение сторон">
@@ -589,15 +615,17 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
             >
               <X size={22} />
             </button>
-            <button
-              type="button"
-              className={`ve-dock-btn ve-dock-btn--plain ${toolsOpen ? "is-active" : ""}`}
-              onClick={() => setToolsOpen((open) => !open)}
-              aria-label="Кадрирование"
-              aria-expanded={toolsOpen}
-            >
-              <Crop size={21} />
-            </button>
+            {!isAvatar && (
+              <button
+                type="button"
+                className={`ve-dock-btn ve-dock-btn--plain ${toolsOpen ? "is-active" : ""}`}
+                onClick={() => setToolsOpen((open) => !open)}
+                aria-label="Кадрирование"
+                aria-expanded={toolsOpen}
+              >
+                <Crop size={21} />
+              </button>
+            )}
             <button
               type="button"
               className={`ve-dock-btn ve-dock-btn--plain ${mirror ? "is-active" : ""}`}
@@ -615,15 +643,17 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
             >
               <RotateCw size={21} />
             </button>
-            <button
-              type="button"
-              className={`ve-dock-btn ve-dock-btn--gif ${gif ? "is-active" : ""}`}
-              onClick={() => setGif((value) => !value)}
-              aria-label="GIF (без звука)"
-              aria-pressed={gif}
-            >
-              <span className="ve-dock-label">GIF</span>
-            </button>
+            {!isAvatar && (
+              <button
+                type="button"
+                className={`ve-dock-btn ve-dock-btn--gif ${gif ? "is-active" : ""}`}
+                onClick={() => setGif((value) => !value)}
+                aria-label="GIF (без звука)"
+                aria-pressed={gif}
+              >
+                <span className="ve-dock-label">GIF</span>
+              </button>
+            )}
             <button
               type="button"
               className="ve-dock-btn ve-dock-btn--primary"

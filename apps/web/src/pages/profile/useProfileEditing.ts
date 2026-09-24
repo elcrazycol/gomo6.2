@@ -6,6 +6,7 @@ import { uploadFile } from "@/utils/storage";
 import { apiErrorMessage } from "@/utils/apiErrors";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { useFileDrop } from "@/hooks/useFileDrop";
+import { openVideoEditor } from "@/stores/videoEditorStore";
 import type { AvatarDragHandlers, AvatarHistoryItem, Profile } from "./types";
 
 export interface UseProfileEditingParams {
@@ -115,20 +116,76 @@ export function useProfileEditing({
     reader.readAsDataURL(file);
   }, []);
 
+  // Upload a video avatar: pick trim/crop/poster in the avatar editor, then
+  // store the silent mp4 and flag the profile as animated.
+  const handleAvatarVideoUpload = useCallback(async (file: File) => {
+    if (!userId) return;
+    const edit = await openVideoEditor(file, { mode: "avatar" });
+    if (!edit) return; // cancelled → leave the current avatar alone
+
+    setAvatarUploading(true);
+    try {
+      const fileName = `${userId}/avatar_${Date.now()}.mp4`;
+      const uploaded = await uploadFile(
+        "post-images",
+        fileName,
+        file,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        { video_edit: JSON.stringify(edit) },
+      );
+
+      const token = (await api.auth.getSession()).data.session?.access_token;
+      const updateRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ avatar_url: uploaded.path, avatar_animated: true }),
+      });
+      if (!updateRes.ok) {
+        setAvatarUploading(false);
+        console.error("Update error:", await updateRes.text());
+        toast.error(t("profile.updateError"));
+        return;
+      }
+
+      onAvatarUrlChange(uploaded.path);
+      setAvatarUploading(false);
+      toast.success(t("profile.avatarUpdated"));
+      dispatchProfileCacheInvalidate();
+      await loadAvatarHistory();
+    } catch (error) {
+      setAvatarUploading(false);
+      toast.error(t("profile.imageProcessError"));
+      console.error(error);
+    }
+  }, [userId, t, onAvatarUrlChange, loadAvatarHistory]);
+
+  const handleAvatarFile = useCallback((file: File) => {
+    if (!file || !userId) return;
+    if (file.type.startsWith("video/")) {
+      void handleAvatarVideoUpload(file);
+      return;
+    }
+    readAvatarFile(file);
+  }, [userId, readAvatarFile, handleAvatarVideoUpload]);
+
   const handleAvatarUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !userId) return;
-    readAvatarFile(file);
-  }, [userId, readAvatarFile]);
+    if (file) handleAvatarFile(file);
+    // Allow re-selecting the same file.
+    e.target.value = "";
+  }, [handleAvatarFile]);
 
   // Drag & drop an image straight onto the avatar (edit mode only).
   const { isDragging: isAvatarDragging, dragHandlers: avatarDragHandlers } = useFileDrop(
     useCallback((files: File[]) => {
       const file = files[0];
       if (file && !!currentUser?.id && currentUser.id === userId && isEditing) {
-        readAvatarFile(file);
+        handleAvatarFile(file);
       }
-    }, [currentUser, userId, isEditing, readAvatarFile]),
+    }, [currentUser, userId, isEditing, handleAvatarFile]),
   );
 
   const handleCropConfirm = useCallback(async (croppedImage?: Blob) => {
@@ -160,7 +217,7 @@ export function useProfileEditing({
       const updateRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({ avatar_url: uploaded.path }),
+        body: JSON.stringify({ avatar_url: uploaded.path, avatar_animated: false }),
       });
 
       if (!updateRes.ok) {
