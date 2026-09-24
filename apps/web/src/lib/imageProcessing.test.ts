@@ -7,7 +7,7 @@ import {
 
 type MockBitmap = { width: number; height: number; close: ReturnType<typeof vi.fn> };
 
-const createCanvasMock = (blob: Blob) => {
+const createCanvasMock = (blob: Blob, webpSupported = true) => {
   const context = {
     imageSmoothingEnabled: false,
     imageSmoothingQuality: "low",
@@ -17,7 +17,9 @@ const createCanvasMock = (blob: Blob) => {
     width: 0,
     height: 0,
     getContext: vi.fn(() => context),
-    toDataURL: vi.fn(() => "data:image/webp;base64,probe"),
+    toDataURL: vi.fn(() =>
+      webpSupported ? "data:image/webp;base64,probe" : "data:image/png;base64,probe",
+    ),
     toBlob: vi.fn((callback: BlobCallback) => callback(blob)),
   } as unknown as HTMLCanvasElement;
 };
@@ -62,5 +64,38 @@ describe("prepareMessengerImage", () => {
     expect(result.width).toBe(800);
     expect(result.height).toBe(600);
     expect(canvas.toBlob).not.toHaveBeenCalled();
+  });
+
+  it("re-encodes WebP (first frame) so an animated file cannot reach the decoder", async () => {
+    const bitmap: MockBitmap = { width: 320, height: 240, close: vi.fn() };
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    // The derivative is LARGER than the (tiny) source, yet must still win for
+    // WebP — returning the original could hand an undecodable animated file up.
+    const output = new Blob([new Uint8Array(4096)], { type: "image/webp" });
+    const canvas = createCanvasMock(output);
+    vi.spyOn(document, "createElement").mockReturnValue(canvas as unknown as HTMLElement);
+
+    const source = new File([new Uint8Array(10)], "anim.webp", { type: "image/webp" });
+    const result = await prepareMessengerImage(source);
+
+    expect(result.file).not.toBe(source);
+    expect(result.file.type).toBe("image/webp");
+    expect(result.file.name).toBe("anim.webp");
+    expect(result.compressed).toBe(true);
+    expect(canvas.toBlob).toHaveBeenCalled();
+  });
+
+  it("falls back to JPEG for WebP when the browser cannot encode WebP", async () => {
+    const bitmap: MockBitmap = { width: 100, height: 100, close: vi.fn() };
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    const jpeg = new Blob([new Uint8Array(500)], { type: "image/jpeg" });
+    const canvas = createCanvasMock(jpeg, false);
+    vi.spyOn(document, "createElement").mockReturnValue(canvas as unknown as HTMLElement);
+
+    const source = new File([new Uint8Array(400)], "photo.webp", { type: "image/webp" });
+    const result = await prepareMessengerImage(source);
+
+    expect(result.file.type).toBe("image/jpeg");
+    expect(result.file.name).toBe("photo.jpg");
   });
 });

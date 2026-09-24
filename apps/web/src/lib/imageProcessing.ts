@@ -203,11 +203,18 @@ export const prepareMessengerImage = async (file: File): Promise<PreparedMesseng
   const height = Math.max(1, Math.round(sourceHeight * scale));
 
   try {
-    // Preserve animated formats. Decoding is used only for dimensions; a
-    // canvas round-trip would silently keep one frame and destroy animation.
-    if (file.type === "image/gif" || file.type === "image/webp") {
+    // Preserve animated GIFs: they ride the server video pipeline (silent mp4
+    // loop), so a canvas round-trip that keeps a single frame must not run.
+    if (file.type === "image/gif") {
       return { file, width: sourceWidth, height: sourceHeight, sourceSize: file.size, storedSize: file.size, compressed: false };
     }
+
+    // WebP is re-encoded even when the source already is WebP: the backend
+    // decoder (golang.org/x/image/webp) cannot read *animated* WebP and would
+    // reject the upload with "invalid image". The canvas keeps the first frame,
+    // turning an animated file into a plain photo — the desired attachment
+    // shape. Static WebP stays WebP (alpha preserved).
+    const isWebp = file.type === "image/webp";
 
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -232,7 +239,9 @@ export const prepareMessengerImage = async (file: File): Promise<PreparedMesseng
 
     // JPEG is a compatibility fallback only for photographic inputs. Keep
     // PNGs untouched when WebP is unavailable so alpha is never destroyed.
-    if (!blob && file.type === "image/jpeg") {
+    // A WebP source must be re-encoded by any means: passing it through would
+    // let an animated file reach the decoder that cannot read it.
+    if (!blob && (file.type === "image/jpeg" || isWebp)) {
       blob = await canvasToBlob(canvas, "image/jpeg", 0.92);
       outputType = "image/jpeg";
       extension = "jpg";
@@ -243,8 +252,10 @@ export const prepareMessengerImage = async (file: File): Promise<PreparedMesseng
 
     // Never replace an already efficient source with a larger derivative,
     // unless downscaling was necessary to stay within the safe display budget.
+    // WebP is exempt: an animated source may well be smaller than its
+    // first-frame derivative, and returning it would break the upload.
     const downscaled = width !== sourceWidth || height !== sourceHeight;
-    if (!downscaled && blob.size >= file.size * 0.98) {
+    if (!isWebp && !downscaled && blob.size >= file.size * 0.98) {
       return { file, width: sourceWidth, height: sourceHeight, sourceSize: file.size, storedSize: file.size, compressed: false };
     }
 
