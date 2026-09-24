@@ -4,6 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { UserBadge } from "@/components/UserBadge";
+import { UserAvatar } from "@/components/UserAvatar";
 import { storageUrl } from "@/utils/storage";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { Heart, MessageCircle, Eye } from "lucide-react";
@@ -236,19 +237,16 @@ const ThreadCard = ({
       onClick={() => navigate(`${boardPrefix}/${boardSlug}/thread/${thread.id}`)}
     >
         <div className="flex items-start gap-3 mb-3">
-          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
-            {thread.profiles?.avatar_url ? (
-              <img
-                src={storageUrl("post-images", thread.profiles.avatar_url) || undefined}
-                alt={thread.profiles.username || "Пользователь"}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-sm font-medium">
+          <UserAvatar
+            src={thread.profiles?.avatar_url}
+            alt={thread.profiles?.username || "Пользователь"}
+            className="w-10 h-10"
+            fallback={
+              <span className="flex h-full w-full items-center justify-center text-sm font-medium">
                 {(thread.profiles?.username || "А").charAt(0).toUpperCase()}
               </span>
-            )}
-          </div>
+            }
+          />
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">

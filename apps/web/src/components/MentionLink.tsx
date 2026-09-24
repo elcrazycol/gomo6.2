@@ -3,6 +3,7 @@ import { api } from "@/integrations/api/compat";
 import { Link } from "react-router-dom";
 import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
+import { UserAvatar } from "@/components/UserAvatar";
 
 interface MentionLinkProps {
   username: string;
@@ -76,26 +77,14 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
         className={`inline-flex items-center gap-1.5 h-6 px-2 py-0.5 text-xs font-medium bg-muted/50 hover:bg-primary/10 hover:text-primary border border-border/40 hover:border-primary/30 transition-all duration-200 cursor-pointer rounded-md group`}
         title={`Профиль пользователя ${username}`}
       >
-        <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex-shrink-0 bg-muted">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={`${username} avatar`}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // Fallback to icon if image fails to load
-                const target = e.target as HTMLImageElement;
-                target.style.display = 'none';
-                const parent = target.parentElement;
-                if (parent) {
-                  parent.innerHTML = '<svg class="w-2 h-2 text-muted-foreground group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>';
-                }
-              }}
-            />
-          ) : (
+        <UserAvatar
+          src={avatarUrl}
+          alt={`${username} avatar`}
+          className="w-3.5 h-3.5 flex-shrink-0"
+          fallback={
             <User className="w-2 h-2 text-muted-foreground group-hover:text-primary transition-colors" />
-          )}
-        </div>		<span className={`text-link font-medium truncate max-w-20`}>
+          }
+        />		<span className={`text-link font-medium truncate max-w-20`}>
           {username}
         </span>
       </Link>
