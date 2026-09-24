@@ -38,6 +38,8 @@ const MIN_TRIM = 0.1;
 const FILMSTRIP_FRAMES = 8;
 
 const HANDLES: CropHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+/** Visible Telegram-style corner brackets (interaction still uses HANDLES). */
+const CORNERS = ["nw", "ne", "sw", "se"] as const;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -374,6 +376,13 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
                     style={cropStyle}
                     onPointerDown={(e) => beginCropGesture(e, "move")}
                   >
+                    {CORNERS.map((corner) => (
+                      <span
+                        key={corner}
+                        aria-hidden="true"
+                        className={`ve-corner ve-corner-${corner}`}
+                      />
+                    ))}
                     {HANDLES.map((handle) => (
                       <button
                         key={handle}
@@ -410,37 +419,41 @@ export function VideoEditor({ src, fileName, onApply, onCancel }: VideoEditorPro
           onPointerUp={endFilmGesture}
           onPointerCancel={endFilmGesture}
         >
-          <div className="ve-film-frames">
-            {frames.length > 0 ? (
-              frames.map((frame, index) => (
-                <img key={index} src={frame} alt="" draggable={false} />
-              ))
-            ) : (
-              <div className="ve-film-empty" />
-            )}
-          </div>
+          {/* Frames + selection are clipped to the rounded strip; the playhead
+              stays outside so its knob can sit above the strip. */}
+          <div className="ve-film-clip">
+            <div className="ve-film-frames">
+              {frames.length > 0 ? (
+                frames.map((frame, index) => (
+                  <img key={index} src={frame} alt="" draggable={false} />
+                ))
+              ) : (
+                <div className="ve-film-empty" />
+              )}
+            </div>
 
-          <div className="ve-film-dim" style={{ left: 0, width: `${startPct}%` }} />
-          <div className="ve-film-dim" style={{ right: 0, width: `${100 - endPct}%` }} />
+            <div className="ve-film-dim" style={{ left: 0, width: `${startPct}%` }} />
+            <div className="ve-film-dim" style={{ right: 0, width: `${100 - endPct}%` }} />
 
-          <div
-            className="ve-film-selection"
-            style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
-          >
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              data-role="start"
-              className="ve-film-handle ve-film-handle-start"
-            />
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              data-role="end"
-              className="ve-film-handle ve-film-handle-end"
-            />
+            <div
+              className="ve-film-selection"
+              style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
+            >
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                data-role="start"
+                className="ve-film-handle ve-film-handle-start"
+              />
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                data-role="end"
+                className="ve-film-handle ve-film-handle-end"
+              />
+            </div>
           </div>
 
           <div

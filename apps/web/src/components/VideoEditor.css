@@ -70,38 +70,73 @@
 /* The crop window; its oversized shadow dims everything outside it. */
 .ve-crop {
   position: absolute;
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
   cursor: move;
   touch-action: none;
 }
 
+/* Telegram-style corner brackets: crisp white L's, no continuous border. */
+.ve-corner {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  pointer-events: none;
+}
+
+.ve-corner::before,
+.ve-corner::after {
+  content: "";
+  position: absolute;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.45);
+}
+
+.ve-corner::before {
+  width: 100%;
+  height: 4px;
+}
+
+.ve-corner::after {
+  width: 4px;
+  height: 100%;
+}
+
+.ve-corner-nw { top: 0; left: 0; }
+.ve-corner-nw::before { top: 0; left: 0; }
+.ve-corner-nw::after { top: 0; left: 0; }
+
+.ve-corner-ne { top: 0; right: 0; }
+.ve-corner-ne::before { top: 0; right: 0; }
+.ve-corner-ne::after { top: 0; right: 0; }
+
+.ve-corner-sw { bottom: 0; left: 0; }
+.ve-corner-sw::before { bottom: 0; left: 0; }
+.ve-corner-sw::after { bottom: 0; left: 0; }
+
+.ve-corner-se { bottom: 0; right: 0; }
+.ve-corner-se::before { bottom: 0; right: 0; }
+.ve-corner-se::after { bottom: 0; right: 0; }
+
+/* Invisible, generous hit areas for dragging — the brackets are the visuals. */
 .ve-handle {
   position: absolute;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: none;
   background: transparent;
   touch-action: none;
 }
 
-.ve-handle::after {
-  content: "";
-  position: absolute;
-  inset: 11px;
-  border-radius: 9999px;
-  background: #fff;
-}
-
-.ve-handle-nw { left: -14px; top: -14px; cursor: nwse-resize; }
-.ve-handle-n { left: 50%; top: -14px; transform: translateX(-50%); cursor: ns-resize; }
-.ve-handle-ne { right: -14px; top: -14px; cursor: nesw-resize; }
-.ve-handle-e { right: -14px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
-.ve-handle-se { right: -14px; bottom: -14px; cursor: nwse-resize; }
-.ve-handle-s { left: 50%; bottom: -14px; transform: translateX(-50%); cursor: ns-resize; }
-.ve-handle-sw { left: -14px; bottom: -14px; cursor: nesw-resize; }
-.ve-handle-w { left: -14px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.ve-handle-nw { left: -16px; top: -16px; cursor: nwse-resize; }
+.ve-handle-n { left: 50%; top: -16px; transform: translateX(-50%); cursor: ns-resize; }
+.ve-handle-ne { right: -16px; top: -16px; cursor: nesw-resize; }
+.ve-handle-e { right: -16px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.ve-handle-se { right: -16px; bottom: -16px; cursor: nwse-resize; }
+.ve-handle-s { left: 50%; bottom: -16px; transform: translateX(-50%); cursor: ns-resize; }
+.ve-handle-sw { left: -16px; bottom: -16px; cursor: nesw-resize; }
+.ve-handle-w { left: -16px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
 
 .ve-play {
   position: absolute;
@@ -147,12 +182,21 @@
 
 .ve-film {
   position: relative;
-  height: 58px;
-  border-radius: 8px;
-  overflow: hidden;
+  height: 62px;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-radius: 10px;
   background: #17171a;
   touch-action: none;
   cursor: pointer;
+}
+
+/* Frames, dim and selection are clipped to the rounded strip; the playhead
+   lives outside so its knob can float above the strip. */
+.ve-film-clip {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
 .ve-film-frames {
@@ -178,7 +222,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.58);
+  background: rgba(0, 0, 0, 0.55);
   pointer-events: none;
   z-index: 1;
 }
@@ -188,73 +232,79 @@
   top: 0;
   bottom: 0;
   border: 2px solid #fff;
-  border-radius: 6px;
+  border-radius: 8px;
   box-sizing: border-box;
   pointer-events: none;
   z-index: 2;
 }
 
+/* Rounded white grip bars sitting flush inside the selection edges. */
 .ve-film-handle {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 18px;
+  width: 22px;
   padding: 0;
   border: none;
   background: transparent;
   cursor: ew-resize;
   touch-action: none;
   pointer-events: auto;
-  z-index: 4;
+  z-index: 6;
 }
 
 .ve-film-handle::after {
   content: "";
   position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 50%;
-  width: 5px;
-  transform: translateX(-50%);
-  border-radius: 3px;
+  top: 4px;
+  bottom: 4px;
+  width: 8px;
+  border-radius: 4px;
   background: #fff;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.45);
 }
 
-.ve-film-handle-start { left: 0; transform: translateX(-50%); }
-.ve-film-handle-end { right: 0; transform: translateX(50%); }
+.ve-film-handle-start { left: 0; }
+.ve-film-handle-start::after { left: 0; }
+
+.ve-film-handle-end { right: 0; }
+.ve-film-handle-end::after { right: 0; }
 
 .ve-film-playhead {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 20px;
+  top: -4px;
+  bottom: -4px;
+  width: 22px;
   transform: translateX(-50%);
   cursor: ew-resize;
   touch-action: none;
   pointer-events: auto;
-  z-index: 3;
+  z-index: 5;
 }
 
 .ve-film-playhead::before {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 5px;
+  bottom: 5px;
   left: 50%;
   width: 2px;
   transform: translateX(-50%);
+  border-radius: 2px;
   background: #fff;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
 }
 
 .ve-film-playhead-dot {
   position: absolute;
-  top: 3px;
+  top: -3px;
   left: 50%;
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   border-radius: 9999px;
   background: #fff;
   transform: translateX(-50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
 .ve-times {
