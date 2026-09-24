@@ -394,6 +394,7 @@ const Profile = () => {
       avatarVisible={canViewSection(privateHideAvatar)}
       avatarUrl={avatarUrl}
       avatarUploading={editing.avatarUploading}
+      avatarUploadPercent={editing.avatarUploadPercent}
       isAvatarDragging={editing.isAvatarDragging}
       avatarDragHandlers={editing.avatarDragHandlers}
       newDisplayName={editing.newDisplayName}

@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AdminBadge } from "@/components/AdminBadge";
 import { FriendButton } from "@/components/FriendButton";
+import { AvatarUploadProgress } from "@/components/AvatarUploadProgress";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { OnlineStatus } from "@/components/OnlineStatus";
-import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserAvatar } from "@/components/UserAvatar";
 import { parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import type { ProfileBackgroundVariant } from "@/utils/profileBackground";
@@ -26,6 +26,8 @@ export interface ProfileHeaderProps {
   avatarVisible: boolean;
   avatarUrl: string | null;
   avatarUploading: boolean;
+  /** Avatar upload progress, 0..100 (drives the ring loader). */
+  avatarUploadPercent: number;
   isAvatarDragging: boolean;
   avatarDragHandlers: AvatarDragHandlers;
   /** Display-name editing field (shown next to the emoji picker in edit mode). */
@@ -56,6 +58,7 @@ export function ProfileHeader({
   avatarVisible,
   avatarUrl,
   avatarUploading,
+  avatarUploadPercent,
   isAvatarDragging,
   avatarDragHandlers,
   newDisplayName,
@@ -92,14 +95,9 @@ export function ProfileHeader({
               }`}
               onClick={onAvatarClick}
             >
-              {avatarUploading ? (
-                <div className="w-full h-full flex items-center justify-center">
-                  <PentagramLoader size="sm" />
-                </div>
-              ) : (
-                <UserAvatar src={avatarUrl} alt="Avatar" className="w-full h-full" />
-              )}
+              <UserAvatar src={avatarUrl} userId={profile.id} alt="Avatar" className="w-full h-full" />
             </div>
+            {avatarUploading && <AvatarUploadProgress percent={avatarUploadPercent} />}
             {isOwnProfile && isEditing && (
               <label className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary rounded-full flex items-center justify-center cursor-pointer hover:bg-primary/80 transition-colors">
                 <Camera className="w-4 h-4 text-primary-foreground" />

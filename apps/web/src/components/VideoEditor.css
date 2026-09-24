@@ -267,11 +267,19 @@
   border: 2px solid #fff;
   border-radius: 2px;
   box-sizing: border-box;
-  pointer-events: none;
+  /* The selected fragment itself is a drag surface: pressing anywhere inside
+     slides the whole window instead of moving the playhead. */
+  pointer-events: auto;
+  cursor: grab;
   z-index: 2;
 }
 
-/* Rounded white grip bars sitting flush inside the selection edges. */
+.ve-film-selection:active {
+  cursor: grabbing;
+}
+
+/* Trim handles: tall white pills that sit just *outside* the selection edges
+   (Telegram-style) so they never cover the chosen frames. */
 .ve-film-handle {
   position: absolute;
   top: 0;
@@ -289,19 +297,29 @@
 .ve-film-handle::after {
   content: "";
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  width: 8px;
-  border-radius: 2px;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  border-radius: 4px;
   background: #fff;
-  box-shadow: 0 0 3px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
-.ve-film-handle-start { left: 0; }
-.ve-film-handle-start::after { left: 0; }
+/* The start grip hangs to the left of the selection's edge, its outer side
+   rounded and its inner side flush with the selection border … */
+.ve-film-handle-start {
+  transform: translateX(-100%);
+}
+.ve-film-handle-start::after {
+  right: 0;
+  border-radius: 4px 0 0 4px;
+}
 
-.ve-film-handle-end { right: 0; }
-.ve-film-handle-end::after { right: 0; }
+/* … and the end grip to the right of it, mirrored. */
+.ve-film-handle-end::after {
+  left: 0;
+  border-radius: 0 4px 4px 0;
+}
 
 .ve-film-playhead {
   position: absolute;

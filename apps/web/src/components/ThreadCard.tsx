@@ -239,6 +239,7 @@ const ThreadCard = ({
         <div className="flex items-start gap-3 mb-3">
           <UserAvatar
             src={thread.profiles?.avatar_url}
+            userId={thread.user_id}
             alt={thread.profiles?.username || "Пользователь"}
             className="w-10 h-10"
             fallback={

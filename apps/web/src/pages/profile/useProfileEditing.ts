@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
@@ -7,7 +7,11 @@ import { apiErrorMessage } from "@/utils/apiErrors";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { openVideoEditor } from "@/stores/videoEditorStore";
+import { isLocalAvatarUrl, useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import type { AvatarDragHandlers, AvatarHistoryItem, Profile } from "./types";
+
+/** How long the completed ring lingers before the loader is removed (ms). */
+const AVATAR_RING_DONE_MS = 450;
 
 export interface UseProfileEditingParams {
   userId: string | undefined;
@@ -44,6 +48,8 @@ export interface UseProfileEditingResult {
   // Avatar / background / dialog state
   cropImage: string | null;
   avatarUploading: boolean;
+  /** Avatar upload progress, 0..100 (drives the ring loader). */
+  avatarUploadPercent: number;
   backgroundUploading: boolean;
   showUsernameDialog: boolean;
   isAvatarDragging: boolean;
@@ -91,8 +97,39 @@ export function useProfileEditing({
   const [confirmUsername, setConfirmUsername] = useState("");
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarUploadPercent, setAvatarUploadPercent] = useState(0);
   const [backgroundUploading, setBackgroundUploading] = useState(false);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
+  const avatarRingTimer = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (avatarRingTimer.current != null) window.clearTimeout(avatarRingTimer.current);
+  }, []);
+
+  // Show the freshly picked avatar everywhere at once; the previous in-memory
+  // preview (if any) is revoked so blobs do not pile up over the session.
+  const showLocalAvatar = useCallback((ownerId: string, url: string, isAnimated: boolean) => {
+    const store = useAvatarOverrideStore.getState();
+    const previousUrl = store.overrides[ownerId]?.url;
+    if (previousUrl && isLocalAvatarUrl(previousUrl) && previousUrl !== url) {
+      URL.revokeObjectURL(previousUrl);
+    }
+    store.setAvatarOverride(ownerId, { url, animated: isAnimated });
+  }, []);
+
+  const clearLocalAvatar = useCallback((ownerId: string) => {
+    const store = useAvatarOverrideStore.getState();
+    const previousUrl = store.overrides[ownerId]?.url;
+    if (previousUrl && isLocalAvatarUrl(previousUrl)) URL.revokeObjectURL(previousUrl);
+    store.clearAvatarOverride(ownerId);
+  }, []);
+
+  // Hand the loader a completed ring for a beat, then take it down.
+  const finishAvatarUpload = useCallback(() => {
+    setAvatarUploadPercent(100);
+    if (avatarRingTimer.current != null) window.clearTimeout(avatarRingTimer.current);
+    avatarRingTimer.current = window.setTimeout(() => setAvatarUploading(false), AVATAR_RING_DONE_MS);
+  }, []);
 
   const startEditing = useCallback(() => {
     if (!profile) return;
@@ -124,6 +161,11 @@ export function useProfileEditing({
     if (!edit) return; // cancelled → leave the current avatar alone
 
     setAvatarUploading(true);
+    setAvatarUploadPercent(0);
+    // Preview the picked clip right away (best effort — the server still
+    // transcodes the final trim/crop). AnimatedVideo plays it muted in a loop.
+    const previewUrl = URL.createObjectURL(file);
+    showLocalAvatar(userId, previewUrl, true);
     try {
       const fileName = `${userId}/avatar_${Date.now()}.mp4`;
       const uploaded = await uploadFile(
@@ -132,8 +174,8 @@ export function useProfileEditing({
         file,
         undefined,
         false,
-        undefined,
-        undefined,
+        (percent) => setAvatarUploadPercent(Math.min(99, percent)),
+        () => setAvatarUploadPercent(99),
         { video_edit: JSON.stringify(edit) },
       );
 
@@ -144,23 +186,27 @@ export function useProfileEditing({
         body: JSON.stringify({ avatar_url: uploaded.path, avatar_animated: true }),
       });
       if (!updateRes.ok) {
+        clearLocalAvatar(userId);
         setAvatarUploading(false);
         console.error("Update error:", await updateRes.text());
         toast.error(t("profile.updateError"));
         return;
       }
 
+      // Point the override at the stored key so the blob can be released.
+      showLocalAvatar(userId, uploaded.path, true);
       onAvatarUrlChange(uploaded.path);
-      setAvatarUploading(false);
+      finishAvatarUpload();
       toast.success(t("profile.avatarUpdated"));
       dispatchProfileCacheInvalidate();
       await loadAvatarHistory();
     } catch (error) {
+      clearLocalAvatar(userId);
       setAvatarUploading(false);
       toast.error(t("profile.imageProcessError"));
       console.error(error);
     }
-  }, [userId, t, onAvatarUrlChange, loadAvatarHistory]);
+  }, [userId, t, onAvatarUrlChange, loadAvatarHistory, showLocalAvatar, clearLocalAvatar, finishAvatarUpload]);
 
   const handleAvatarFile = useCallback((file: File) => {
     if (!file || !userId) return;
@@ -194,6 +240,7 @@ export function useProfileEditing({
     // Show loader immediately and close crop dialog
     setCropImage(null);
     setAvatarUploading(true);
+    setAvatarUploadPercent(0);
 
     try {
       if (!croppedImage) {
@@ -206,10 +253,22 @@ export function useProfileEditing({
       // is needed for an image already in memory.
       const blob = croppedImage;
 
+      // The cropped blob is exactly the final avatar — show it everywhere now.
+      const previewUrl = URL.createObjectURL(blob);
+      showLocalAvatar(userId, previewUrl, false);
+
       const croppedFile = new File([blob], 'avatar.png', { type: 'image/png' });
       const fileName = `${userId}/avatar_${Date.now()}.png`;
 
-      const uploaded = await uploadFile('post-images', fileName, croppedFile);
+      const uploaded = await uploadFile(
+        'post-images',
+        fileName,
+        croppedFile,
+        undefined,
+        true,
+        (percent) => setAvatarUploadPercent(Math.min(99, percent)),
+        () => setAvatarUploadPercent(99),
+      );
 
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -221,14 +280,17 @@ export function useProfileEditing({
       });
 
       if (!updateRes.ok) {
+        clearLocalAvatar(userId);
         setAvatarUploading(false);
         console.error('Update error:', await updateRes.text());
         toast.error(t("profile.updateError"));
         return;
       }
 
+      // Point the override at the stored key so the blob can be released.
+      showLocalAvatar(userId, uploaded.path, false);
       onAvatarUrlChange(uploaded.path);
-      setAvatarUploading(false);
+      finishAvatarUpload();
       toast.success(t("profile.avatarUpdated"));
       // Header/profile caches hold the old avatar_url — reset them now.
       dispatchProfileCacheInvalidate();
@@ -236,11 +298,12 @@ export function useProfileEditing({
       // Reload avatar history
       await loadAvatarHistory();
     } catch (error) {
+      clearLocalAvatar(userId);
       setAvatarUploading(false);
       toast.error(t("profile.imageProcessError"));
       console.error(error);
     }
-  }, [userId, t, onAvatarUrlChange, loadAvatarHistory]);
+  }, [userId, t, onAvatarUrlChange, loadAvatarHistory, showLocalAvatar, clearLocalAvatar, finishAvatarUpload]);
 
   // ── Background + auto-theme ────────────────────────────────────────────────
   const handleBackgroundUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -493,6 +556,7 @@ export function useProfileEditing({
     confirmUsername,
     cropImage,
     avatarUploading,
+    avatarUploadPercent,
     backgroundUploading,
     showUsernameDialog,
     isAvatarDragging,

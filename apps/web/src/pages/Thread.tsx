@@ -338,6 +338,7 @@ const Thread = () => {
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <UserAvatar
                   src={authorAvatar}
+                  userId={thread.user_id}
                   alt={authorName}
                   className="w-10 h-10 border border-border/70 shrink-0"
                   fallback={

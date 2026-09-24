@@ -505,6 +505,7 @@ const en: LocaleResources = {
     updated: "Profile updated",
     updateError: "Failed to update profile",
     avatarUpdated: "Avatar updated",
+    uploadingAvatar: "Uploading avatar",
     imageProcessError: "Failed to process image",
     avatarDeleted: "Avatar removed",
     avatarDeleteError: "Failed to remove avatar",

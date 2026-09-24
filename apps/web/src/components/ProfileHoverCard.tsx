@@ -246,7 +246,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
           <div className="p-4">
           <div className="flex items-start gap-3">
             {/* Avatar */}
-            <UserAvatar src={avatarUrl} alt="Avatar" className="w-12 h-12" />
+            <UserAvatar src={avatarUrl} userId={userId} alt="Avatar" className="w-12 h-12" />
 
             {/* User Info */}
             <div className="flex-1 min-w-0">
