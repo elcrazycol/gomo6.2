@@ -7,6 +7,12 @@ import {
   rememberAttachmentAspectRatio,
   fallbackAttachmentAspectRatio,
 } from "@/utils/attachmentRatioCache";
+import {
+  cacheAttachmentUrl,
+  getCachedAttachmentUrl,
+  releaseAttachmentUrl,
+  retainAttachmentUrl,
+} from "./attachmentBlobCache";
 import type { Attachment } from "./types";
 
 // ─── Shared media helpers ───────────────────────────────────────────────────
@@ -82,14 +88,25 @@ export function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedK
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    let createdUrl: string | null = null;
     const controller = new AbortController();
     if (!enabled) {
       setObjectUrl(null);
       return () => controller.abort();
     }
 
+    // A cached URL survives re-mounts: instant re-scroll, one decrypt.
+    const cached = getCachedAttachmentUrl(requestedKey);
+    if (cached) {
+      retainAttachmentUrl(requestedKey);
+      setObjectUrl(cached);
+      return () => {
+        releaseAttachmentUrl(requestedKey);
+        controller.abort();
+      };
+    }
+
+    let cancelled = false;
+    let retained = false;
     const sourceUrl = storageUrl("uploads", requestedKey);
     const token = apiClient.getToken();
     if (!sourceUrl || (!token && !apiClient.getCSRFToken())) {
@@ -114,12 +131,15 @@ export function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedK
           if (blob.type.startsWith("image/")) {
             await decodeImageWithTimeout(candidateUrl);
           }
-          if (cancelled) {
-            URL.revokeObjectURL(candidateUrl);
-            return;
+          // The cache owns the URL from here (revoked on eviction, not on
+          // unmount). Cache even if the component already unmounted, so the
+          // next mount is instant.
+          cacheAttachmentUrl(requestedKey, candidateUrl);
+          if (!cancelled) {
+            retainAttachmentUrl(requestedKey);
+            retained = true;
+            setObjectUrl(candidateUrl);
           }
-          createdUrl = candidateUrl;
-          setObjectUrl(candidateUrl);
           return;
         } catch (error) {
           if (candidateUrl) URL.revokeObjectURL(candidateUrl);
@@ -138,7 +158,7 @@ export function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedK
     return () => {
       cancelled = true;
       controller.abort();
-      if (createdUrl) URL.revokeObjectURL(createdUrl);
+      if (retained) releaseAttachmentUrl(requestedKey);
     };
   }, [attachment.url, requestedKey, enabled]);
 

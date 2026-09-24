@@ -2,6 +2,7 @@
 // Provides api.auth compatibility layer backed by Go backend
 import { apiClient, getDeviceToken } from './client';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { clearAttachmentBlobCache } from '@/components/messenger/attachmentBlobCache';
 
 // Shape returned by the compat layer's error object. `code`/`params` are the
 // structured error data the backend emits for client-rendered messages.
@@ -49,6 +50,9 @@ export const apiAuth = {
   },
   signOut: async () => {
     useNotificationStore.getState().cleanup();
+    // Drop cached private-media object URLs so a shared device cannot replay
+    // them after the session ends.
+    clearAttachmentBlobCache();
     await apiClient.logout();
     return { error: null };
   },
