@@ -145,6 +145,16 @@ export function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedK
   return objectUrl;
 }
 
+/** A soundless short clip the server flagged as animated (GIF-like). */
+export function isAnimatedAttachment(attachment: Attachment): boolean {
+  if (attachment.type !== "video" || !attachment.meta) return false;
+  try {
+    return (JSON.parse(attachment.meta) as { animated?: unknown }).animated === true;
+  } catch {
+    return false;
+  }
+}
+
 export function getAttachmentAspectRatio(attachment: Attachment): number {
   const parsed = parseImageMeta(attachment);
   if (parsed.width && parsed.height && parsed.width > 0 && parsed.height > 0) {
