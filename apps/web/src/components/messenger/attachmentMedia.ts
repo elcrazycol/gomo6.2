@@ -8,8 +8,8 @@ import {
   fallbackAttachmentAspectRatio,
 } from "@/utils/attachmentRatioCache";
 import {
-  cacheAttachmentUrl,
   getCachedAttachmentUrl,
+  getOrLoadAttachmentUrl,
   releaseAttachmentUrl,
   retainAttachmentUrl,
 } from "./attachmentBlobCache";
@@ -84,14 +84,54 @@ const decodeImageWithTimeout = async (url: string, timeoutMs = 5000): Promise<vo
  * so the CSS blur-up transition begins only with a renderable preview, and the
  * object URL is revoked on unmount / re-run.
  */
+/**
+ * Fetch an authenticated attachment and hand the object URL to the LRU cache.
+ * Shared by concurrent callers through `getOrLoadAttachmentUrl`, so the
+ * at-rest decryption runs once per key.
+ */
+async function loadAttachmentBlob(
+  key: string,
+  signal: AbortSignal,
+): Promise<{ url: string; bytes: number } | null> {
+  const sourceUrl = storageUrl("uploads", key);
+  const token = apiClient.getToken();
+  if (!sourceUrl || (!token && !apiClient.getCSRFToken())) return null;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let candidateUrl: string | null = null;
+    try {
+      const response = await fetch(sourceUrl, {
+        credentials: "include",
+        signal,
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!response.ok) throw new Error(`Attachment request failed: ${response.status}`);
+      const blob = await response.blob();
+      candidateUrl = URL.createObjectURL(blob);
+
+      if (blob.type.startsWith("image/")) {
+        await decodeImageWithTimeout(candidateUrl);
+      }
+      return { url: candidateUrl, bytes: blob.size };
+    } catch (error) {
+      if (candidateUrl) URL.revokeObjectURL(candidateUrl);
+      lastError = error;
+      if (signal.aborted || attempt === 2) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  if (!signal.aborted) console.debug("Attachment preview failed after retries", lastError);
+  return null;
+}
+
 export function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedKey = attachment.url, enabled = true): string | null {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
     if (!enabled) {
       setObjectUrl(null);
-      return () => controller.abort();
+      return;
     }
 
     // A cached URL survives re-mounts: instant re-scroll, one decrypt.
@@ -99,66 +139,24 @@ export function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedK
     if (cached) {
       retainAttachmentUrl(requestedKey);
       setObjectUrl(cached);
-      return () => {
-        releaseAttachmentUrl(requestedKey);
-        controller.abort();
-      };
+      return () => releaseAttachmentUrl(requestedKey);
     }
 
-    let cancelled = false;
-    let retained = false;
-    const sourceUrl = storageUrl("uploads", requestedKey);
-    const token = apiClient.getToken();
-    if (!sourceUrl || (!token && !apiClient.getCSRFToken())) {
-      setObjectUrl(null);
-      return () => controller.abort();
-    }
+    let active = true;
+    const { promise, release } = getOrLoadAttachmentUrl(requestedKey, (signal) =>
+      loadAttachmentBlob(requestedKey, signal),
+    );
+    promise
+      .then((url) => {
+        if (active) setObjectUrl(url);
+      })
+      .catch(() => {
+        if (active) setObjectUrl(null);
+      });
 
-    const load = async () => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        let candidateUrl: string | null = null;
-        try {
-          const response = await fetch(sourceUrl, {
-            credentials: "include",
-            signal: controller.signal,
-            headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          });
-          if (!response.ok) throw new Error(`Attachment request failed: ${response.status}`);
-          const blob = await response.blob();
-          candidateUrl = URL.createObjectURL(blob);
-
-          if (blob.type.startsWith("image/")) {
-            await decodeImageWithTimeout(candidateUrl);
-          }
-          // The cache owns the URL from here (revoked on eviction, not on
-          // unmount). Cache even if the component already unmounted, so the
-          // next mount is instant.
-          cacheAttachmentUrl(requestedKey, candidateUrl);
-          if (!cancelled) {
-            retainAttachmentUrl(requestedKey);
-            retained = true;
-            setObjectUrl(candidateUrl);
-          }
-          return;
-        } catch (error) {
-          if (candidateUrl) URL.revokeObjectURL(candidateUrl);
-          lastError = error;
-          if (controller.signal.aborted || attempt === 2) break;
-          await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
-        }
-      }
-      if (!cancelled && !controller.signal.aborted) {
-        setObjectUrl(null);
-        console.debug("Attachment preview failed after retries", lastError);
-      }
-    };
-
-    void load();
     return () => {
-      cancelled = true;
-      controller.abort();
-      if (retained) releaseAttachmentUrl(requestedKey);
+      active = false;
+      release();
     };
   }, [attachment.url, requestedKey, enabled]);
 
