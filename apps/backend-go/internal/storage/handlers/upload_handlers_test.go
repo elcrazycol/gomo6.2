@@ -617,6 +617,20 @@ func TestServeObject_MediaIsImmutable(t *testing.T) {
 	}
 }
 
+func TestServeObject_EmojiPackIconIsNotImmutable(t *testing.T) {
+	h, f := setupStorageHandlerWithS3(t, nil)
+	f.put("emojis", "user-1/pack/_icon.png", []byte("png-bytes"), "image/png")
+
+	c, w := newStoragePathContext(http.MethodGet, "/storage/v1/object/emojis/user-1/pack/_icon.png",
+		map[string]string{"bucket": "emojis", "key": "user-1/pack/_icon.png"}, nil)
+
+	h.ServeObject(c)
+
+	if cc := w.Header().Get("Cache-Control"); strings.Contains(cc, "immutable") {
+		t.Errorf("emoji pack icons are overwritten in place and must not be immutable, got %q", cc)
+	}
+}
+
 func TestServeObject_CuratedAssetsAreNotImmutable(t *testing.T) {
 	h, f := setupStorageHandlerWithS3(t, nil)
 	f.put("gift-layers", "gifts/1/base.png", []byte("png-bytes"), "image/png")

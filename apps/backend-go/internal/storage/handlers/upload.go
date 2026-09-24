@@ -444,13 +444,18 @@ func isPreviewKey(key string) bool {
 }
 
 // isImmutableMediaKey reports whether a public object is safe to cache forever:
-// an image/video under a unique upload key. Admin-managed buckets are excluded
-// because their objects (e.g. gifts/<id>/base.png) are replaced in place.
+// an image/video under a unique upload key. Admin-managed buckets and emoji
+// pack icons are excluded because their objects are replaced in place (the
+// icon key is a stable `<user>/<slug>/_icon.<ext>`).
 func isImmutableMediaKey(bucket, key string) bool {
 	if isAdminManagedBucket(bucket) {
 		return false
 	}
-	switch strings.ToLower(filepath.Ext(key)) {
+	lower := strings.ToLower(key)
+	if strings.Contains(lower, "/_icon.") {
+		return false
+	}
+	switch filepath.Ext(lower) {
 	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov", ".m4v":
 		return true
 	default:
