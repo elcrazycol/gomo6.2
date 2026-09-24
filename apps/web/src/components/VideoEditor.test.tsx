@@ -202,6 +202,84 @@ describe("VideoEditor", () => {
     expect(edit?.end).toBe(10);
   });
 
+  it("slides the whole selection when dragging inside it", async () => {
+    const { baseElement, onApply } = renderEditor();
+    const video = loadVideo(baseElement, 640, 360, 10);
+    await screen.findByLabelText("Готово");
+
+    const film = baseElement.querySelector(".ve-film") as HTMLElement;
+    const endHandle = baseElement.querySelector(".ve-film-handle-end") as HTMLElement;
+    // First narrow the selection to [0, 6] (end handle from 100% → 60%).
+    fireEvent.pointerDown(endHandle, { pointerId: 1, clientX: 400, clientY: 30 });
+    fireEvent.pointerMove(film, { pointerId: 1, clientX: 240, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+
+    const selection = baseElement.querySelector(".ve-film-selection") as HTMLElement;
+    // Grab the fragment at t=2 and drag to t=4 → the window slides to [2, 8].
+    fireEvent.pointerDown(selection, { pointerId: 1, clientX: 80, clientY: 30 });
+    fireEvent.pointerMove(film, { pointerId: 1, clientX: 160, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+
+    // The playhead stays put — only the fragment moved.
+    expect(video.currentTime).toBe(0);
+
+    fireEvent.click(screen.getByLabelText("Готово"));
+    const edit = onApply.mock.calls.at(-1)?.[0];
+    expect(edit?.start).toBeCloseTo(2, 1);
+    expect(edit?.end).toBeCloseTo(8, 1);
+  });
+
+  it("keeps the selected fragment at least 0.8s long", async () => {
+    const { baseElement, onApply } = renderEditor();
+    loadVideo(baseElement, 640, 360, 10);
+    await screen.findByLabelText("Готово");
+
+    const film = baseElement.querySelector(".ve-film") as HTMLElement;
+    const endHandle = baseElement.querySelector(".ve-film-handle-end") as HTMLElement;
+    // Narrow the selection to [0, 6].
+    fireEvent.pointerDown(endHandle, { pointerId: 1, clientX: 400, clientY: 30 });
+    fireEvent.pointerMove(film, { pointerId: 1, clientX: 240, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+
+    const startHandle = baseElement.querySelector(".ve-film-handle-start") as HTMLElement;
+    // Try to drag the start handle all the way to the end (t=10).
+    fireEvent.pointerDown(startHandle, { pointerId: 1, clientX: 0, clientY: 30 });
+    fireEvent.pointerMove(film, { pointerId: 1, clientX: 400, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+
+    fireEvent.click(screen.getByLabelText("Готово"));
+    const edit = onApply.mock.calls.at(-1)?.[0];
+    expect(edit?.start).toBeCloseTo(5.2, 1);
+    expect(edit?.end).toBeCloseTo(6, 1);
+  });
+
+  it("keeps the playhead inside the selected fragment", async () => {
+    const { baseElement } = renderEditor();
+    const video = loadVideo(baseElement, 640, 360, 10);
+    await screen.findByLabelText("Готово");
+
+    const film = baseElement.querySelector(".ve-film") as HTMLElement;
+    // Narrow the selection to [3, 6].
+    const startHandle = baseElement.querySelector(".ve-film-handle-start") as HTMLElement;
+    fireEvent.pointerDown(startHandle, { pointerId: 1, clientX: 0, clientY: 30 });
+    fireEvent.pointerMove(film, { pointerId: 1, clientX: 120, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+    const endHandle = baseElement.querySelector(".ve-film-handle-end") as HTMLElement;
+    fireEvent.pointerDown(endHandle, { pointerId: 1, clientX: 400, clientY: 30 });
+    fireEvent.pointerMove(film, { pointerId: 1, clientX: 240, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+
+    // Tapping left of the selection pins the playhead to its start.
+    fireEvent.pointerDown(film, { pointerId: 1, clientX: 0, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+    expect(video.currentTime).toBeCloseTo(3, 1);
+
+    // Tapping right of the selection pins it to the end.
+    fireEvent.pointerDown(film, { pointerId: 1, clientX: 400, clientY: 30 });
+    fireEvent.pointerUp(film, { pointerId: 1 });
+    expect(video.currentTime).toBeCloseTo(6, 1);
+  });
+
   it("moves the playhead and starts playback from it", async () => {
     const { baseElement } = renderEditor();
     const video = loadVideo(baseElement, 640, 360, 10);

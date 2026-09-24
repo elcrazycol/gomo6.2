@@ -40,8 +40,8 @@ export type VideoEditorProps = {
 
 /** Trim shorter than this (seconds) is treated as "no trim". */
 const TRIM_EPSILON = 0.05;
-/** Smallest gap between the trim handles. */
-const MIN_TRIM = 0.1;
+/** Smallest length of the selected fragment. */
+const MIN_TRIM = 0.8;
 /** Number of filmstrip thumbnails. */
 const FILMSTRIP_FRAMES = 8;
 /** Animated avatars may not be longer than this. */
@@ -77,11 +77,15 @@ type CropGesture = {
 };
 
 type FilmGesture = {
-  kind: "start" | "end" | "playhead";
+  kind: "start" | "end" | "playhead" | "move";
   left: number;
   width: number;
   /** Playhead dragged by its knob (above the strip): pick a poster frame. */
   poster: boolean;
+  /** Selection captured when a "move" gesture begins. */
+  selection?: [number, number];
+  /** Pointer time captured when a "move" gesture begins. */
+  grabTime?: number;
 };
 
 export function VideoEditor({ src, fileName, onApply, onCancel, mode = "default" }: VideoEditorProps) {
@@ -288,16 +292,27 @@ export function VideoEditor({ src, fileName, onApply, onCancel, mode = "default"
     const time = fraction * duration;
     const [start, end] = trimRef.current;
     const maxLength = isAvatar ? AVATAR_MAX_SECONDS : Infinity;
+    // The selection may never collapse below MIN_TRIM; on a clip shorter than
+    // that the whole clip is the smallest possible selection.
+    const minGap = Math.min(MIN_TRIM, duration);
     if (gesture.kind === "start") {
-      let next = clamp(Math.min(time, end - MIN_TRIM), 0, duration);
+      let next = clamp(Math.min(time, end - minGap), 0, duration);
       if (end - next > maxLength) next = end - maxLength;
       setTrim([Math.max(0, next), end]);
     } else if (gesture.kind === "end") {
-      let next = clamp(Math.max(time, start + MIN_TRIM), 0, duration);
+      let next = clamp(Math.max(time, start + minGap), 0, duration);
       if (next - start > maxLength) next = start + maxLength;
       setTrim([start, Math.min(duration, next)]);
+    } else if (gesture.kind === "move") {
+      // Slide the whole selection: keep its length, follow the pointer delta.
+      const [selStart, selEnd] = gesture.selection ?? trimRef.current;
+      const length = selEnd - selStart;
+      const grabTime = gesture.grabTime ?? selStart;
+      const next = clamp(selStart + (time - grabTime), 0, Math.max(0, duration - length));
+      setTrim([next, next + length]);
     } else {
-      const t = clamp(time, 0, duration);
+      // The playhead may only move inside the selected fragment.
+      const t = clamp(time, start, end);
       const video = videoRef.current;
       if (video) video.currentTime = t;
       setCurrent(t);
@@ -312,11 +327,26 @@ export function VideoEditor({ src, fileName, onApply, onCancel, mode = "default"
     const rect = el.getBoundingClientRect();
     const target = event.target as HTMLElement;
     const role = target.dataset.role;
-    const kind: FilmGesture["kind"] = role === "start" ? "start" : role === "end" ? "end" : "playhead";
+    const kind: FilmGesture["kind"] =
+      role === "start"
+        ? "start"
+        : role === "end"
+          ? "end"
+          : role === "selection"
+            ? "move"
+            : "playhead";
     // Only the *knob* (the circle above the strip) picks a poster frame.
     // Dragging the line or the strip just scrubs and leaves the poster alone.
     const poster = kind === "playhead" && !!target.closest(".ve-film-playhead-dot");
-    filmGestureRef.current = { kind, left: rect.left, width: rect.width, poster };
+    const gesture: FilmGesture = { kind, left: rect.left, width: rect.width, poster };
+    if (kind === "move") {
+      // Remember where inside the selection the pointer landed so the fragment
+      // follows the pointer without jumping.
+      const fraction = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+      gesture.grabTime = fraction * duration;
+      gesture.selection = [trimRef.current[0], trimRef.current[1]];
+    }
+    filmGestureRef.current = gesture;
     el.setPointerCapture?.(event.pointerId);
     // Scrubbing/trimming should not fight live playback.
     videoRef.current?.pause();
@@ -516,24 +546,30 @@ export function VideoEditor({ src, fileName, onApply, onCancel, mode = "default"
 
             <div
               className="ve-film-selection"
+              data-role="selection"
               style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
-            >
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-hidden="true"
-                data-role="start"
-                className="ve-film-handle ve-film-handle-start"
-              />
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-hidden="true"
-                data-role="end"
-                className="ve-film-handle ve-film-handle-end"
-              />
-            </div>
+            />
           </div>
+
+          {/* Trim handles are drawn as tall white pills sitting *outside* the
+              selection (Telegram-style), so they never cover the chosen frames.
+              Pressing the pill trims; pressing inside the selection slides it. */}
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            data-role="start"
+            className="ve-film-handle ve-film-handle-start"
+            style={{ left: `${startPct}%` }}
+          />
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            data-role="end"
+            className="ve-film-handle ve-film-handle-end"
+            style={{ left: `${endPct}%` }}
+          />
 
           <div
             className={`ve-film-playhead ${scrubbing ? "is-active" : ""}`}
