@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isAnimatedAvatarUrl } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,12 +129,16 @@ export function AvatarGalleryDialog({
 
   const items = useMemo<LightboxItem[]>(
     () =>
-      avatars.map((avatar, i) => ({
-        id: avatar.id,
-        url: avatar.avatar_url,
-        type: "image",
-        name: `avatar-${i + 1}.png`,
-      })),
+      avatars.map((avatar, i) => {
+        const animated = avatar.is_animated === true || isAnimatedAvatarUrl(avatar.avatar_url);
+        return {
+          id: avatar.id,
+          url: avatar.avatar_url,
+          type: animated ? "video" : "image",
+          name: animated ? `avatar-${i + 1}.mp4` : `avatar-${i + 1}.png`,
+          ...(animated ? { animated: true, poster: `${avatar.avatar_url}.poster.jpg` } : {}),
+        };
+      }),
     [avatars],
   );
 

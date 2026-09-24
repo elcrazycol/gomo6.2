@@ -138,7 +138,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 // @Router       /profiles [get]
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
-		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.bio, u.bio_json, u.garma, u.post_count,
+		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
 		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,
 		       COALESCE(pc.background_url, '') AS background_url,
@@ -249,7 +249,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		var themeTokensJSON sql.NullString
 		err := rows.Scan(
 			&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
-			&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
+			&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 			&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 			&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 			&profile.IsRemote, &profile.IsAnonymous,
@@ -375,7 +375,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	}
 
 	query := `
-		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.bio, u.bio_json, u.garma, u.post_count,
+		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
 		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,	       COALESCE(pc.background_url, '') AS background_url,
 	       COALESCE(pc.background_variant, 'banner') AS background_variant,
@@ -392,7 +392,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	var themeTokensJSON sql.NullString
 	err := h.db.QueryRow(query, id).Scan(
 		&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
-		&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
+		&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 		&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 		&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 		&profile.IsRemote, &profile.IsAnonymous,
@@ -527,6 +527,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 
 	var updates struct {
 		AvatarURL       *string          `json:"avatar_url"`
+		AvatarAnimated  *bool            `json:"avatar_animated"`
 		Bio             *string          `json:"bio"`
 		BioJSON         *json.RawMessage `json:"bio_json"`
 		DisplayName     *string          `json:"display_name"`
@@ -548,6 +549,12 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	if updates.AvatarURL != nil {
 		query += ", avatar_url = $" + strconv.Itoa(argIndex)
 		args = append(args, *updates.AvatarURL)
+		argIndex++
+	}
+
+	if updates.AvatarAnimated != nil {
+		query += ", avatar_animated = $" + strconv.Itoa(argIndex)
+		args = append(args, *updates.AvatarAnimated)
 		argIndex++
 	}
 

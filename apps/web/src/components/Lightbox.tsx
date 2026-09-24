@@ -28,6 +28,8 @@ export type LightboxItem = {
   /** JSON metadata: width/height/preview_key/lqip for images. */
   meta?: string | null;
   poster?: string;
+  /** Animated (soundless) clip: autoplay, loop, muted, no controls. */
+  animated?: boolean;
 };
 
 export type LightboxProps = {
@@ -206,7 +208,17 @@ function LightboxSlide({ item, bucket, index, active, enabled, zoom, pan, onZoom
         ) : <span className="msg-attachment-loading-shimmer" aria-label="Загрузка оригинала" />
       ) : (
         url ? (
-          <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={url} controls autoPlay playsInline className="msg-lightbox-media" />
+          <video
+            ref={mediaRef as React.RefObject<HTMLVideoElement>}
+            src={url}
+            poster={item.poster}
+            controls={!item.animated}
+            muted={item.animated}
+            loop={item.animated}
+            autoPlay
+            playsInline
+            className="msg-lightbox-media"
+          />
         ) : <span className="msg-attachment-loading-shimmer" aria-label="Загрузка видео" />
       )}
     </div>
@@ -215,7 +227,8 @@ function LightboxSlide({ item, bucket, index, active, enabled, zoom, pan, onZoom
 
 function LightboxThumbnail({ item, bucket, index, active, onSelect }: { item: LightboxItem; bucket: string; index: number; active: boolean; onSelect: (index: number) => void }) {
   const meta = parseImageMeta(toAttachment(item));
-  const previewKey = meta.preview_key || item.url;
+  // A video thumbnail renders its poster (an <img> cannot show a video URL).
+  const previewKey = item.type === "video" && item.poster ? item.poster : meta.preview_key || item.url;
   const url = useLightboxItemUrl(item, bucket, previewKey, true);
   const ref = useRef<HTMLButtonElement | null>(null);
 

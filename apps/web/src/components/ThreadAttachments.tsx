@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { MediaPlayer } from "@/components/MediaPlayer";
+import { AnimatedVideo } from "@/components/AnimatedVideo";
 import { AudioAttachment } from "@/components/AudioAttachment";
 import type { AttachmentMeta } from "@/types/forum";
 
@@ -112,6 +113,27 @@ export const renderAttachments = (
           );
         }
         if (att.type === "video") {
+          // Animated (soundless short) clips autoplay and loop like GIFs.
+          if (att.animated) {
+            return (
+              <div key={idx} className="flex justify-start pb-3">
+                <div className="w-full max-w-xl sm:max-w-2xl">
+                  <AnimatedVideo
+                    src={storageUrl("content", att.url) || att.url}
+                    poster={att.poster}
+                    aspectRatio={
+                      att.width && att.height
+                        ? att.width / att.height
+                        : att.meta?.width && att.meta?.height
+                          ? att.meta.width / att.meta.height
+                          : undefined
+                    }
+                    ariaLabel={att.name}
+                  />
+                </div>
+              </div>
+            );
+          }
           return (
             <div key={idx} className="flex justify-start pb-3">
               <MediaPlayer

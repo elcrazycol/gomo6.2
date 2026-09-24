@@ -46,6 +46,13 @@ type imageVariantResponse struct {
 type videoVariantResponse struct {
 	PosterKey   string `json:"poster_key"`
 	ContentType string `json:"content_type"`
+	// Animated marks a soundless clip (the editor's "GIF" mode) so clients can
+	// treat it like an animated image.
+	Animated bool `json:"animated,omitempty"`
+	// Width/Height let clients reserve the layout box up-front so the feed
+	// does not jump while the clip loads.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 }
 
 type StorageHandler struct {
@@ -237,6 +244,9 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	bucket := strings.TrimSpace(c.PostForm("bucket"))
 	key := strings.TrimSpace(c.PostForm("key"))
+	// Read the optional editor params up front, alongside bucket/key, so they
+	// are captured before readUploadFile consumes the multipart body.
+	videoEditRaw := c.PostForm("video_edit")
 
 	if bucket == "" || key == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
@@ -322,7 +332,14 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	var videoVariants *videoVariantResponse
 	var poster []byte
 	if isVideoKey(key) {
-		generatedVideo, videoErr := media.GenerateVideoVariants(c.Request.Context(), data, filepath.Ext(key))
+		// Optional trim/crop from the client video editor. Absent field keeps
+		// the legacy "store as-is" behavior; a malformed one is a client error.
+		videoEdit, editErr := media.ParseVideoEdit(videoEditRaw)
+		if editErr != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrVideoProcessing, "Failed to process video", map[string]string{"reason": editErr.Error()}))
+			return
+		}
+		generatedVideo, videoErr := media.GenerateVideoVariants(c.Request.Context(), data, filepath.Ext(key), videoEdit)
 		if videoErr != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrVideoProcessing, "Failed to process video", map[string]string{"reason": videoErr.Error()}))
 			return
@@ -333,7 +350,15 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		data = generatedVideo.Video
 		poster = generatedVideo.Poster
 		contentType = "video/mp4"
-		videoVariants = &videoVariantResponse{PosterKey: key + ".poster.jpg", ContentType: "video/mp4"}
+		videoVariants = &videoVariantResponse{
+			PosterKey:   key + ".poster.jpg",
+			ContentType: "video/mp4",
+			// Derived from the finished file (soundless + short, or a converted
+			// .gif), never from the client's edit flag.
+			Animated: generatedVideo.IsAnimated(),
+			Width:    generatedVideo.Width,
+			Height:   generatedVideo.Height,
+		}
 	}
 
 	// Encrypt messenger attachments at rest.
@@ -416,6 +441,26 @@ func isImageBucket(bucket string) bool {
 
 func isPreviewKey(key string) bool {
 	return strings.HasSuffix(strings.ToLower(key), ".preview.jpg")
+}
+
+// isImmutableMediaKey reports whether a public object is safe to cache forever:
+// an image/video under a unique upload key. Admin-managed buckets and emoji
+// pack icons are excluded because their objects are replaced in place (the
+// icon key is a stable `<user>/<slug>/_icon.<ext>`).
+func isImmutableMediaKey(bucket, key string) bool {
+	if isAdminManagedBucket(bucket) {
+		return false
+	}
+	lower := strings.ToLower(key)
+	if strings.Contains(lower, "/_icon.") {
+		return false
+	}
+	switch filepath.Ext(lower) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm", ".mov", ".m4v":
+		return true
+	default:
+		return false
+	}
 }
 
 func attachmentKeyForLookup(key string) string {
@@ -680,7 +725,10 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 		} else {
 			c.Header("Cache-Control", "private, no-store")
 		}
-	} else if isPreviewKey(key) {
+	} else if isPreviewKey(key) || isImmutableMediaKey(bucket, key) {
+		// User uploads are content-addressed by a unique key, so they never
+		// change and can be cached forever. Admin-curated buckets are excluded
+		// because those objects are replaced in place.
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		c.Header("Cache-Control", "public, max-age=3600")

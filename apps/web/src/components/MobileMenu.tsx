@@ -4,7 +4,8 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, User, Settings, Hammer, LogOut, Users, Droplets } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
+import { Menu, Settings, Hammer, LogOut, Users, Droplets } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
@@ -149,13 +150,11 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               <div className="p-4 bg-card border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
                 <div className="flex items-start gap-3">
                   {/* Avatar */}
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    {avatarUrl ? (
-                      <img src={avatarUrl} alt={username || t('common.user')} className="w-full h-full object-cover" />
-                    ) : (
-                    <User className="w-6 h-6 text-muted-foreground" />
-                    )}
-                  </div>
+                  <UserAvatar
+                    src={avatarUrl}
+                    alt={username || t('common.user')}
+                    className="w-12 h-12 flex-shrink-0"
+                  />
 
                   {/* User info */}
                   <div className="flex-1 min-w-0">

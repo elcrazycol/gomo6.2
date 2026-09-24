@@ -573,11 +573,11 @@ func TestGetAvatarHistory_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"}).
 			AddRow(false, true, true, true, true, true, true, true))
 
-	mock.ExpectQuery(`(?s).*SELECT id, avatar_url, uploaded_at, is_current.*FROM avatar_history.*WHERE user_id = \$1.*ORDER BY uploaded_at DESC`).
+	mock.ExpectQuery(`(?s).*SELECT id, avatar_url, uploaded_at, is_current, is_animated.*FROM avatar_history.*WHERE user_id = \$1.*ORDER BY uploaded_at DESC`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "avatar_url", "uploaded_at", "is_current"}).
-			AddRow("a1", "https://example.com/avatar1.jpg", time.Now(), true).
-			AddRow("a2", "https://example.com/avatar2.jpg", time.Now().Add(-24*time.Hour), false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "avatar_url", "uploaded_at", "is_current", "is_animated"}).
+			AddRow("a1", "https://example.com/avatar1.mp4", time.Now(), true, true).
+			AddRow("a2", "https://example.com/avatar2.jpg", time.Now().Add(-24*time.Hour), false, false))
 
 	c, w := testutil.NewRPCPostContext(map[string]string{"user_uuid": userID}, nil)
 	h.GetAvatarHistory(c)

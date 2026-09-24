@@ -98,11 +98,11 @@ export type UploadedImageVariants = {
 export type UploadFileResult = {
   path: string;
   variants?: UploadedImageVariants;
-  video?: { poster_key: string; content_type: string };
+  video?: { poster_key: string; content_type: string; animated?: boolean; width?: number; height?: number };
 };
 
 type UploadBody = {
-  data?: { key?: string; variants?: UploadedImageVariants; video?: { poster_key: string; content_type: string } };
+  data?: { key?: string; variants?: UploadedImageVariants; video?: { poster_key: string; content_type: string; animated?: boolean; width?: number; height?: number } };
   error?: string;
   code?: string;
   params?: unknown;
@@ -176,6 +176,7 @@ export const uploadFile = async (
   prepareImage = true,
   onProgress?: (percent: number) => void,
   onUploadComplete?: () => void,
+  extraFields?: Record<string, string>,
 ): Promise<UploadFileResult> => {
   const safeBucket = bucket.trim();
   let safeKey = key.replace(/^\/+/, "");
@@ -202,6 +203,11 @@ export const uploadFile = async (
   formData.append("file", uploadSource);
   formData.append("bucket", safeBucket);
   formData.append("key", safeKey);
+  // Extra multipart fields (e.g. the video editor's `video_edit` JSON). Kept
+  // last so the file/bucket/key contract stays unchanged for existing callers.
+  for (const [name, value] of Object.entries(extraFields ?? {})) {
+    if (value != null) formData.append(name, value);
+  }
 
   // Browser sessions authenticate with HttpOnly cookies; explicit tokens are
   // retained only for non-browser/API clients.

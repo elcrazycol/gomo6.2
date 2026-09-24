@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Gift, Link2, MessageCircle, NotebookPen, Search, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
-import { storageUrl } from "@/utils/storage";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
 import { formatConversationDate, formatPresence, getInitials } from "./utils";
@@ -62,9 +62,10 @@ const ConversationCard = memo(function ConversationCard({
           {conversation.is_group ? (
             <span>{conversation.group_name ? conversation.group_name.slice(0, 2).toUpperCase() : "ГР"}</span>
           ) : conversation.other_avatar_url ? (
-            <img
-              src={storageUrl("post-images", conversation.other_avatar_url) || undefined}
+            <UserAvatar
+              src={conversation.other_avatar_url}
               alt={conversation.other_username || ""}
+              className="w-full h-full"
             />
           ) : (
             <span>{getInitials(conversation.other_username || "")}</span>

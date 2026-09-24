@@ -23,16 +23,16 @@ func TestGetProfiles_Success_NoFilter(t *testing.T) {
 	c, w := newGETContext("/api/v1/profiles", nil)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
-	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, false, nil, nil,
 		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, "banner", false, nil,
-	).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
+	).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, false, nil, nil,
 		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, "banner", false, nil,
-	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, nil, nil,
+	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, false, nil, nil,
 		50, 5, 1, 0, 0, 0, 0, 0, false, nil, time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -62,13 +62,13 @@ func TestGetProfiles_Success_IDFilter(t *testing.T) {
 	})
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("550e8400-e29b-41d4-a716-446655440000", "testuser", "testuser", nil, "test@example.com",
-		"localhost:8080", nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		"localhost:8080", nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -92,7 +92,7 @@ func TestGetProfiles_Success_IDInFilter(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id IN \(\$1,\$2\).*ORDER BY created_at DESC.*LIMIT \$3 OFFSET \$4`).
 		WithArgs("u1", "u2", 50, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
+			"id", "username", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 			"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 			"is_online", "last_seen_at",
 			"created_at", "is_remote", "is_anonymous",
@@ -114,13 +114,13 @@ func TestGetProfiles_Success_UsernameFilter(t *testing.T) {
 	})
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -162,13 +162,13 @@ func TestGetProfile_Success(t *testing.T) {
 	// Only the SELECT query is expected.
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -281,13 +281,13 @@ func TestUpdateProfile_InvalidatesAuthorContentCache(t *testing.T) {
 
 	// GetProfile tail call.
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -368,13 +368,13 @@ func TestUpdateProfile_NoAuthorContent_NothingToInvalidate(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
 
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -413,13 +413,13 @@ func TestGetProfile_EmailHiddenFromAnonymous(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -452,13 +452,13 @@ func TestGetProfile_OtherUserSeesNoEmail(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "u2"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080",
-		nil, nil, nil, 50, 5, 1, 0, 0, 0, 0, 0, false,
+		nil, false, nil, nil, 50, 5, 1, 0, 0, 0, 0, 0, false,
 		nil, time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -488,13 +488,13 @@ func TestGetProfile_OwnerSeesEmail(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -524,13 +524,13 @@ func TestGetProfile_ViewsReceivedCountReturned(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -560,13 +560,13 @@ func TestGetProfile_ViewsReceivedCountStrippedForNonFriendOnPrivate(t *testing.T
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -610,14 +610,14 @@ func TestGetProfiles_EmailsHiddenFromAnonymous(t *testing.T) {
 	c, w := newGETContext("/api/v1/profiles", nil)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
-	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, false, nil, nil,
 		100, 10, 2, 3, 7, 25, 5, 777, true, time.Now(), time.Now(), false, false, nil, "banner", false, nil,
-	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, nil, nil,
+	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, false, nil, nil,
 		50, 5, 1, 0, 0, 0, 0, 0, false, nil, time.Now(), false, false, nil, "banner", false, nil,
 	)
 
@@ -659,13 +659,13 @@ func TestGetProfile_ReturnsSanitizedBackgroundURL(t *testing.T) {
 
 	// The row carries a valid storage key in background_url.
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, "u1/background_1.webp", "banner", false, nil,
 	)
 
@@ -696,13 +696,13 @@ func TestGetProfile_StripsMaliciousBackgroundURL(t *testing.T) {
 
 	// A forged row with an absolute URL must never reach the client.
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, "https://evil.example/tracker.png", "banner", false, nil,
 	)
 
@@ -744,13 +744,13 @@ func TestUpdateProfile_Success_UpdateBio(t *testing.T) {
 
 	// GetProfile is called at the end — id "u1" is not a UUID, so RecomputeUserProfileStats won't fire
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, "Updated bio!", nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -818,13 +818,13 @@ func TestUpdateProfile_Success_UpdateAvatar(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		&avatarURL, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		&avatarURL, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -879,14 +879,14 @@ func TestUpdateProfile_Success_SetNicknameEmoji(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow(
 		"u1", "testuser", "testuser", "11111111-1111-1111-1111-111111111111", "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
@@ -924,14 +924,14 @@ func TestUpdateProfile_Success_ClearNicknameEmoji(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
 		"is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 		"background_url", "background_variant", "theme_enabled", "theme_tokens",
 	}).AddRow(
 		"u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
-		nil, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
+		nil, false, nil, nil, 100, 10, 2, 3, 7, 25, 5, 777, true,
 		time.Now(), time.Now(), false, false, nil, "banner", false, nil,
 	)
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).

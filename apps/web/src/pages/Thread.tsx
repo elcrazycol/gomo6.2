@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useThread, useThreadSubscription } from "@/hooks/queries";
@@ -335,17 +336,16 @@ const Thread = () => {
             {/* Header */}
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 flex-1 items-start gap-3">
-                {authorAvatar ? (
-                  <img
-                    src={authorAvatar}
-                    alt={authorName}
-                    className="w-10 h-10 rounded-full border border-border/70 bg-muted object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary shrink-0">
-                    {authorName.charAt(0).toUpperCase()}
-                  </div>
-                )}
+                <UserAvatar
+                  src={authorAvatar}
+                  alt={authorName}
+                  className="w-10 h-10 border border-border/70 shrink-0"
+                  fallback={
+                    <span className="flex h-full w-full items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-sm font-bold text-primary">
+                      {authorName.charAt(0).toUpperCase()}
+                    </span>
+                  }
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <UserBadge

@@ -1,4 +1,5 @@
 import type { Attachment, ConversationView, GroupMember, MessageView, ReceiptRow } from "@/components/messenger/types";
+import type { VideoEdit } from "@/components/videoEditor/types";
 import { apiClient } from "@/integrations/api/client";
 import { uploadFile } from "@/utils/storage";
 
@@ -199,14 +200,26 @@ export const messengerApi = {
   async uploadFile(
     file: File,
     onProgress?: (percent: number) => void,
+    videoEdit?: VideoEdit | null,
   ): Promise<{
     path: string;
     variants?: { preview_key: string; lqip: string; thumb_hash?: string; width: number; height: number; content_type: string };
+    video?: { poster_key: string; content_type: string; animated?: boolean; width?: number; height?: number };
   }> {
-    const ext = file.name.split(".").pop() || "bin";
+    // GIFs are converted to silent mp4 server-side; route them via an mp4 key.
+    const ext = file.type === "image/gif" ? "mp4" : file.name.split(".").pop() || "bin";
     const profile = await this.getMyProfile();
     const key = `${profile.id}/messenger/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    return uploadFile("uploads", key, file, undefined, false, onProgress);
+    return uploadFile(
+      "uploads",
+      key,
+      file,
+      undefined,
+      false,
+      onProgress,
+      undefined,
+      videoEdit ? { video_edit: JSON.stringify(videoEdit) } : undefined,
+    );
   },
 
   // ── Group chats ──────────────────────────────────────────────────────

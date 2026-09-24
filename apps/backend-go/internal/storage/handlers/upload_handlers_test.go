@@ -603,6 +603,48 @@ func TestServeObject_Success_PublicBucket(t *testing.T) {
 	}
 }
 
+func TestServeObject_MediaIsImmutable(t *testing.T) {
+	h, f := setupStorageHandlerWithS3(t, nil)
+	f.put("content", "user-1/clip.mp4", []byte("mp4-bytes"), "video/mp4")
+
+	c, w := newStoragePathContext(http.MethodGet, "/storage/v1/object/content/user-1/clip.mp4",
+		map[string]string{"bucket": "content", "key": "user-1/clip.mp4"}, nil)
+
+	h.ServeObject(c)
+
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Errorf("expected immutable cache-control for media, got %q", cc)
+	}
+}
+
+func TestServeObject_EmojiPackIconIsNotImmutable(t *testing.T) {
+	h, f := setupStorageHandlerWithS3(t, nil)
+	f.put("emojis", "user-1/pack/_icon.png", []byte("png-bytes"), "image/png")
+
+	c, w := newStoragePathContext(http.MethodGet, "/storage/v1/object/emojis/user-1/pack/_icon.png",
+		map[string]string{"bucket": "emojis", "key": "user-1/pack/_icon.png"}, nil)
+
+	h.ServeObject(c)
+
+	if cc := w.Header().Get("Cache-Control"); strings.Contains(cc, "immutable") {
+		t.Errorf("emoji pack icons are overwritten in place and must not be immutable, got %q", cc)
+	}
+}
+
+func TestServeObject_CuratedAssetsAreNotImmutable(t *testing.T) {
+	h, f := setupStorageHandlerWithS3(t, nil)
+	f.put("gift-layers", "gifts/1/base.png", []byte("png-bytes"), "image/png")
+
+	c, w := newStoragePathContext(http.MethodGet, "/storage/v1/object/gift-layers/gifts/1/base.png",
+		map[string]string{"bucket": "gift-layers", "key": "gifts/1/base.png"}, nil)
+
+	h.ServeObject(c)
+
+	if cc := w.Header().Get("Cache-Control"); strings.Contains(cc, "immutable") {
+		t.Errorf("curated assets must not be immutable, got %q", cc)
+	}
+}
+
 func TestServeObject_RangeRequest_PartialContent(t *testing.T) {
 	h, f := setupStorageHandlerWithS3(t, nil)
 	f.put("content", "user-1/video.webm", []byte("0123456789"), "video/webm")

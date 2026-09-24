@@ -3,11 +3,13 @@ import { Play } from "lucide-react";
 import type { Attachment } from "./types";
 import {
   getAttachmentAspectRatio,
+  isAnimatedAttachment,
   parseImageMeta,
   rememberMeasuredAttachmentRatio,
   thumbHashToPlaceholderDataUrl,
   useAuthenticatedAttachmentUrl,
 } from "./attachmentMedia";
+import { AnimatedVideo } from "@/components/AnimatedVideo";
 
 export type MessageMediaMosaicProps = {
   attachments: Attachment[];
@@ -43,6 +45,7 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
   };
 
   const isVideo = attachment.type === "video";
+  const animated = isAnimatedAttachment(attachment);
 
   return (
     <button
@@ -54,14 +57,24 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
     >
       {placeholder && <img className="msg-attachment-lqip" src={placeholder} alt="" aria-hidden="true" />}
       {url && (isVideo ? (
-        <video
-          className="msg-media-mosaic-image msg-attachment-preview"
-          src={url}
-          muted
-          playsInline
-          preload="metadata"
-          onLoadedMetadata={() => setIsLoaded(true)}
-        />
+        animated ? (
+          <AnimatedVideo
+            className="msg-media-mosaic-image msg-attachment-preview"
+            src={url}
+            interactive={false}
+            ariaLabel={attachment.name}
+            onReady={() => setIsLoaded(true)}
+          />
+        ) : (
+          <video
+            className="msg-media-mosaic-image msg-attachment-preview"
+            src={url}
+            muted
+            playsInline
+            preload="metadata"
+            onLoadedMetadata={() => setIsLoaded(true)}
+          />
+        )
       ) : (
         <img
           className="msg-media-mosaic-image msg-attachment-preview"
@@ -74,7 +87,7 @@ function MosaicTile({ attachment, index, onOpen }: { attachment: Attachment; ind
       ))}
       {!url && placeholder && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
       {!url && !placeholder && <span className="msg-attachment-legacy-placeholder" aria-hidden="true">Открыть фото</span>}
-      {isVideo && (
+      {isVideo && !animated && (
         <span className="msg-media-mosaic-video" aria-hidden="true"><Play size={22} fill="currentColor" /></span>
       )}
     </button>

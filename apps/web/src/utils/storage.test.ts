@@ -177,6 +177,20 @@ describe("uploadFile", () => {
     await uploadFile("content", "/leading/key.jpg", file);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
+
+  it("appends extra multipart fields such as video_edit", async () => {
+    mockFetch.mockResolvedValue({ ok: true });
+    const file = new File(["v"], "clip.mp4", { type: "video/mp4" });
+    const edit = JSON.stringify({ start: 1, end: 2 });
+
+    await uploadFile("content", "u/clip.mp4", file, undefined, false, undefined, undefined, {
+      video_edit: edit,
+    });
+
+    const body = mockFetch.mock.calls[0][1].body as FormData;
+    expect(body.get("video_edit")).toBe(edit);
+    expect(body.get("bucket")).toBe("content");
+  });
 });
 
 describe("removeFile", () => {

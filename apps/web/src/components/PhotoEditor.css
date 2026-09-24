@@ -14,6 +14,17 @@
   -webkit-user-select: none;
 }
 
+/* Keep the editor chrome to a comfortable column instead of stretching the
+   bars across a wide desktop viewport (the stage still fits the photo). */
+.pe-topbar,
+.pe-settings,
+.pe-toolbar {
+  width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
 /* ── Top bar ── */
 
 .pe-topbar {

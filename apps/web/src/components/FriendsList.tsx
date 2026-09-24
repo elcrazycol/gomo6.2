@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useFriendsStore, type Friend } from "@/stores/friendsStore";
-import { storageUrl } from "@/utils/storage";
-import { User } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { useRealtimeOnlineStatus, type UserStatus } from "@/hooks/useRealtimeStatus";
@@ -22,17 +21,7 @@ const FriendItem = ({ friend, liveStatus }: { friend: Friend; liveStatus?: UserS
     >
       {/* Avatar */}
       <div className="relative">
-        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden">
-          {friend.avatar_url ? (
-            <img
-              src={storageUrl("post-images", friend.avatar_url) || friend.avatar_url}
-              alt={friend.username}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <User className="w-5 h-5 text-muted-foreground" />
-          )}
-        </div>
+        <UserAvatar src={friend.avatar_url} alt={friend.username} className="w-10 h-10" />
         {/* Online indicator */}
         {isOnline && (
           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />

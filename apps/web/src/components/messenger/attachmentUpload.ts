@@ -1,9 +1,13 @@
 // ─── Attachment upload helpers (shared by the paperclip button and drag&drop) ──
 import type { Attachment } from "./types";
+import type { VideoEdit } from "@/components/videoEditor/types";
 import { messengerApi } from "@/services/messengerApi";
 import { prepareMessengerImage } from "@/lib/imageProcessing";
+import { openVideoEditor } from "@/stores/videoEditorStore";
 
 function detectAttachmentType(file: File): Attachment["type"] {
+  // GIFs are transcoded to silent mp4 server-side, so they take the video path.
+  if (file.type === "image/gif") return "video";
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
@@ -36,15 +40,24 @@ export async function uploadFilesAsAttachments(
     const file = files[index];
     try {
       const type = detectAttachmentType(file);
+      const isGif = file.type === "image/gif";
       const prepared = type === "image" ? await prepareMessengerImage(file) : null;
       const uploadSource = prepared?.file ?? file;
-      const uploaded = await messengerApi.uploadFile(uploadSource, (percent) => {
-        onProgress?.({
-          index,
-          name: file.name,
-          percent: Math.min(95, Math.max(2, percent)),
-        });
-      });
+      // Videos get the trim/crop editor before upload (not GIFs — already short
+      // loops); the server applies the picked edit during transcoding.
+      const videoEdit: VideoEdit | null =
+        type === "video" && !isGif ? await openVideoEditor(uploadSource) : null;
+      const uploaded = await messengerApi.uploadFile(
+        uploadSource,
+        (percent) => {
+          onProgress?.({
+            index,
+            name: file.name,
+            percent: Math.min(95, Math.max(2, percent)),
+          });
+        },
+        videoEdit,
+      );
       onProgress?.({ index, name: file.name, percent: 100 });
       if (type === "image" && !uploaded.variants) {
         throw new Error("Сервер не вернул preview для изображения");
@@ -64,13 +77,29 @@ export async function uploadFilesAsAttachments(
             stored_size: uploadSource.size,
           }
         : null;
+      // Soundless clip (editor "GIF" mode): keep the flag so renderers can
+      // autoplay/loop it without a player, plus the dimensions so the feed
+      // reserves the box.
+      const videoMeta =
+        type === "video" && uploaded.video
+          ? {
+              ...(uploaded.video.animated ? { animated: true } : {}),
+              ...(uploaded.video.width ? { width: uploaded.video.width } : {}),
+              ...(uploaded.video.height ? { height: uploaded.video.height } : {}),
+            }
+          : null;
+      const hasVideoMeta = videoMeta && Object.keys(videoMeta).length > 0;
       attachments.push({
         url: uploaded.path,
         type,
         name: file.name,
         size: uploadSource.size,
         mime: uploadSource.type || file.type || "application/octet-stream",
-        ...(imageMeta ? { meta: JSON.stringify(imageMeta) } : {}),
+        ...(imageMeta
+          ? { meta: JSON.stringify(imageMeta) }
+          : hasVideoMeta
+            ? { meta: JSON.stringify(videoMeta) }
+            : {}),
       });
     } catch (err) {
       console.error("Upload failed:", err);

@@ -6,11 +6,13 @@ import { storageUrl, giftImageUrl } from "@/utils/storage";
 import {
   getAttachmentAspectRatio,
   getAttachmentDisplayStyle,
+  isAnimatedAttachment,
   parseImageMeta,
   rememberMeasuredAttachmentRatio,
   thumbHashToPlaceholderDataUrl,
   useAuthenticatedAttachmentUrl,
 } from "./attachmentMedia";
+import { AnimatedVideo } from "@/components/AnimatedVideo";
 import { MessengerLightbox } from "./MessengerLightbox";
 import { MessageMediaMosaic } from "./MessageMediaMosaic";
 import { chunkAttachments } from "./attachmentAlbum";
@@ -161,6 +163,7 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
     [aspectRatio, fitToViewport],
   );
   const isVisual = attachment.type === "image" || attachment.type === "video";
+  const animated = isAnimatedAttachment(attachment);
 
   useEffect(() => {
     const observer = meta.preview_key && typeof IntersectionObserver !== "undefined"
@@ -209,6 +212,16 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
             {!url && placeholder && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
             {!url && !placeholder && <span className="msg-attachment-legacy-placeholder" aria-hidden="true">Открыть фото</span>}
           </button>
+        ) : animated ? (
+          url && (
+            <AnimatedVideo
+              src={url}
+              aspectRatio={aspectRatio}
+              ariaLabel={attachment.name}
+              onOpen={() => setLightboxOpen(true)}
+              onReady={() => setIsPreviewReady(true)}
+            />
+          )
         ) : (
           url && <video src={url} controls preload="metadata" onLoadedMetadata={(event) => { setIsPreviewReady(true); handleVideoMetadata(event); }} style={{ objectFit: "contain" }} />
         )}

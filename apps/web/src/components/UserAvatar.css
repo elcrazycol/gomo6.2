@@ -1,0 +1,29 @@
+/* The one user-avatar surface: a sized, clipped box that hosts either an <img>
+   or an autoplaying AnimatedVideo. Size/shape come from the caller's classes. */
+
+.user-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.user-avatar--round {
+  border-radius: 9999px;
+}
+
+.user-avatar-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-avatar-icon {
+  width: 55%;
+  height: 55%;
+}

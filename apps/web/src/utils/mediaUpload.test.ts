@@ -10,13 +10,14 @@ if (typeof URL.createObjectURL !== "function") {
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-const { mockAuth, mockUploadFile, mockStorageUrl, mockPrepareMessengerImage, mockToast, mockParseBlob } = vi.hoisted(() => ({
+const { mockAuth, mockUploadFile, mockStorageUrl, mockPrepareMessengerImage, mockToast, mockParseBlob, mockOpenVideoEditor } = vi.hoisted(() => ({
   mockAuth: { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn() },
   mockUploadFile: vi.fn(),
   mockStorageUrl: vi.fn<[bucket: string, key: string], string | undefined>(() => undefined),
   mockPrepareMessengerImage: vi.fn(),
   mockToast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), loading: vi.fn(), dismiss: vi.fn() },
   mockParseBlob: vi.fn(),
+  mockOpenVideoEditor: vi.fn(),
 }));
 
 vi.mock("@/integrations/api/compat", () => ({ api: { from: vi.fn(), rpc: vi.fn(), auth: mockAuth } }));
@@ -24,6 +25,7 @@ vi.mock("@/utils/storage", () => ({ storageUrl: mockStorageUrl, uploadFile: mock
 vi.mock("@/lib/imageProcessing", () => ({ prepareMessengerImage: mockPrepareMessengerImage }));
 vi.mock("sonner", () => ({ toast: mockToast }));
 vi.mock("music-metadata", () => ({ parseBlob: mockParseBlob }));
+vi.mock("@/stores/videoEditorStore", () => ({ openVideoEditor: mockOpenVideoEditor }));
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -50,6 +52,9 @@ describe("uploadAttachments", () => {
       error: null,
     });
     mockUploadFile.mockResolvedValue({ path: "user-1/photo.webp", variants });
+    // No editor host in unit tests → videos upload untouched unless a test
+    // explicitly opts into an edit.
+    mockOpenVideoEditor.mockResolvedValue(null);
     mockPrepareMessengerImage.mockImplementation(async (file: File) => ({
       file,
       width: 800,
@@ -110,6 +115,8 @@ describe("uploadAttachments", () => {
       expect.any(Function),
       // Images have no server-side processing phase, so no onUploadComplete.
       undefined,
+      // No video edit for images.
+      undefined,
     );
   });
 
@@ -136,6 +143,7 @@ describe("uploadAttachments", () => {
       "token-abc",
       false,
       expect.any(Function),
+      undefined,
       undefined,
     );
   });
@@ -187,7 +195,84 @@ describe("uploadAttachments", () => {
       expect.any(Function),
       // Videos get an onUploadComplete callback for the processing phase.
       expect.any(Function),
+      // No edit picked → no video_edit field.
+      undefined,
     );
+  });
+
+  it("passes the picked video edit to the server", async () => {
+    const edit = { start: 1, end: 2, crop: { x: 0.1, y: 0.1, w: 0.5, h: 0.5 } };
+    mockOpenVideoEditor.mockResolvedValue(edit);
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({
+      path: key,
+      video: { poster_key: `${key}.poster.jpg`, content_type: "video/mp4" },
+    }));
+
+    await uploadAttachments([makeFile("clip.mp4", "video/mp4")]);
+
+    expect(mockOpenVideoEditor).toHaveBeenCalledTimes(1);
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      "content",
+      expect.stringMatching(/\.mp4$/),
+      expect.any(File),
+      "token-abc",
+      false,
+      expect.any(Function),
+      expect.any(Function),
+      { video_edit: JSON.stringify(edit) },
+    );
+  });
+
+  it("flags a soundless clip as animated", async () => {
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({
+      path: key,
+      video: { poster_key: `${key}.poster.jpg`, content_type: "video/mp4", animated: true },
+    }));
+
+    const results = await uploadAttachments([makeFile("clip.mp4", "video/mp4")]);
+
+    expect(results[0].type).toBe("video");
+    expect(results[0].animated).toBe(true);
+  });
+
+  it("routes a GIF through the video pipeline (server converts to mp4)", async () => {
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({
+      path: key,
+      video: { poster_key: `${key}.poster.jpg`, content_type: "video/mp4", animated: true },
+    }));
+
+    const results = await uploadAttachments([makeFile("anim.gif", "image/gif")]);
+
+    expect(results[0].type).toBe("video");
+    expect(results[0].mime).toBe("video/mp4");
+    expect(results[0].animated).toBe(true);
+    // No editor for a GIF, and no lossy browser-side image prep.
+    expect(mockOpenVideoEditor).not.toHaveBeenCalled();
+    expect(mockPrepareMessengerImage).not.toHaveBeenCalled();
+    // The key must end in .mp4 so the backend runs the video pipeline.
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      "content",
+      expect.stringMatching(/\.mp4$/),
+      expect.any(File),
+      "token-abc",
+      false,
+      expect.any(Function),
+      expect.any(Function),
+      undefined,
+    );
+  });
+
+  it("skips the editor when editVideo is disabled", async () => {
+    mockUploadFile.mockImplementation(async (_bucket: string, key: string) => ({
+      path: key,
+      video: { poster_key: `${key}.poster.jpg`, content_type: "video/mp4" },
+    }));
+
+    await uploadAttachments([makeFile("clip.mp4", "video/mp4")], "content", undefined, {
+      editVideo: false,
+    });
+
+    expect(mockOpenVideoEditor).not.toHaveBeenCalled();
   });
 
   it("rejects oversized videos before transcoding", async () => {

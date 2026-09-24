@@ -2,6 +2,8 @@ import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { prepareMessengerImage } from "@/lib/imageProcessing";
+import { openVideoEditor } from "@/stores/videoEditorStore";
+import type { VideoEdit } from "@/components/videoEditor/types";
 import { toast } from "sonner";
 import * as mm from 'music-metadata';
 
@@ -14,6 +16,9 @@ export interface AttachmentMeta {
   name: string;
   size: number;
   poster?: string; // preview for videos
+  animated?: boolean; // soundless short clip ("GIF") that autoplays and loops
+  width?: number; // video dimensions, to reserve the layout box
+  height?: number;
   title?: string; // audio track title
   artist?: string; // audio artist name
   album?: string; // audio album name
@@ -164,6 +169,9 @@ const extractAudioMetadata = async (file: File): Promise<{
 };
 
 const inferType = (file: File): AttachmentType => {
+  // Animated GIFs are transcoded to silent mp4 server-side (like Telegram), so
+  // they ride the video pipeline and render as animated clips.
+  if (file.type === "image/gif") return "video";
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
@@ -190,6 +198,7 @@ export const uploadAttachments = async (
   files: File[],
   bucket: string = "content",
   onProgress?: (progress: AttachmentUploadProgress) => void,
+  options?: { editVideo?: boolean },
 ): Promise<AttachmentMeta[]> => {
   const { data: { session } } = await api.auth.getSession();
   if (!session?.user) throw new Error("Нужно войти для загрузки");
@@ -200,8 +209,11 @@ export const uploadAttachments = async (
   for (let index = 0; index < files.length; index += 1) {
     const original = files[index];
     const type = inferType(original);
+    // A real .gif: no editor, and the key is mp4 so the server converts it.
+    const isGif = original.type === "image/gif";
     let file: File = original;
     let poster: string | undefined;
+    let videoEdit: VideoEdit | null = null;
     let audioMetadata: Awaited<ReturnType<typeof extractAudioMetadata>> | undefined;
 
     // Показываем прогресс для больших файлов
@@ -217,6 +229,13 @@ export const uploadAttachments = async (
       } else if (type === "video") {
         if (original.size > MAX_FILE_SIZE) {
           throw new Error("Видео больше 50MB — выберите файл поменьше");
+        }
+        // Offer the trim/crop editor before the bytes leave the device (not for
+        // GIFs — they are already short loops). The server bakes the picked
+        // edit during the transcode; a null result (skipped, cancelled, or no
+        // host mounted) uploads the clip as-is.
+        if (!isGif && options?.editVideo !== false) {
+          videoEdit = await openVideoEditor(original);
         }
       } else if (type === "audio") {
         // Audio files: upload original without browser-side transcoding.
@@ -249,7 +268,9 @@ export const uploadAttachments = async (
       // }
     }
 
-    const ext = file.name.split(".").pop() || "bin";
+    // A .gif upload keeps an mp4 key so the backend runs the video pipeline
+    // (ffmpeg converts it to a silent, streamable clip).
+    const ext = isGif ? "mp4" : file.name.split(".").pop() || "bin";
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
     // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access).
@@ -279,6 +300,7 @@ export const uploadAttachments = async (
             onProgress?.({ index, name: original.name, percent: 100, phase: "processing" });
           }
         : undefined,
+      videoEdit ? { video_edit: JSON.stringify(videoEdit) } : undefined,
     );
     onProgress?.({ index, name: original.name, percent: 100, phase: "done" });
     if (type === "image" && !uploaded.variants) {
@@ -305,6 +327,13 @@ export const uploadAttachments = async (
       poster: uploaded.video?.poster_key
         ? (bucket === "content" ? uploaded.video.poster_key : storageUrl(bucket, uploaded.video.poster_key) || uploaded.video.poster_key)
         : poster,
+      // Soundless clip (editor "GIF" mode): keep the flag so renderers can
+      // autoplay/loop it without a player, plus the dimensions so the feed
+      // reserves the box and does not jump while the clip loads.
+      ...(uploaded.video?.animated ? { animated: true } : {}),
+      ...(uploaded.video?.width && uploaded.video?.height
+        ? { width: uploaded.video.width, height: uploaded.video.height }
+        : {}),
       ...(type === "image" && uploaded.variants ? {
         meta: {
           preview_key: storedPreview,

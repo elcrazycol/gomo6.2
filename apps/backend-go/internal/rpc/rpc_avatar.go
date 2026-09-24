@@ -79,7 +79,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 	}
 
 	rows, err := h.db.Query(`
-		SELECT id, avatar_url, uploaded_at, is_current
+		SELECT id, avatar_url, uploaded_at, is_current, is_animated
 		FROM avatar_history
 		WHERE user_id = $1
 		ORDER BY uploaded_at DESC
@@ -94,9 +94,9 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 	for rows.Next() {
 		var id, avatarURL string
 		var uploadedAt time.Time
-		var isCurrent bool
+		var isCurrent, isAnimated bool
 
-		if err := rows.Scan(&id, &avatarURL, &uploadedAt, &isCurrent); err != nil {
+		if err := rows.Scan(&id, &avatarURL, &uploadedAt, &isCurrent, &isAnimated); err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
 		}
@@ -106,6 +106,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 			"avatar_url":  avatarURL,
 			"uploaded_at": uploadedAt.UTC().Format(time.RFC3339Nano),
 			"is_current":  isCurrent,
+			"is_animated": isAnimated,
 		})
 	}
 

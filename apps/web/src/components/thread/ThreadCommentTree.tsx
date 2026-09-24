@@ -21,7 +21,8 @@ import {
 } from "@/utils/contentConverter";
 import { smoothScrollToElement } from "@/utils/smoothScroll";
 import { parseAttachments } from "@/components/ThreadAttachments";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
@@ -254,12 +255,16 @@ const ThreadPostNode = ({
               className="relative z-10 mt-0.5 shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
-              <Avatar className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
-                <AvatarImage src={avatarUrl || undefined} alt={authorLabel} />
-                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                  {authorLabel.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar
+                src={avatarUrl}
+                alt={authorLabel}
+                className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 shadow-sm`}
+                fallback={
+                  <span className="flex h-full w-full items-center justify-center bg-primary/10 text-xs font-semibold text-primary">
+                    {authorLabel.charAt(0).toUpperCase()}
+                  </span>
+                }
+              />
             </Link>
           )}
 
