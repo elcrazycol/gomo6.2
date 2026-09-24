@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { MediaPlayer } from "@/components/MediaPlayer";
+import { AnimatedVideo } from "@/components/AnimatedVideo";
 import { AudioAttachment } from "@/components/AudioAttachment";
 import type { AttachmentMeta } from "@/types/forum";
 import type { LightboxItem } from "@/components/Lightbox";
@@ -169,6 +170,23 @@ export const WallAttachments = ({
         }
 
         if (attachment.type === "video") {
+          // Animated (soundless short) clips autoplay and loop like GIFs.
+          if (attachment.animated) {
+            return (
+              <div key={`${galleryKey}-${index}`} className="w-full max-w-3xl">
+                <AnimatedVideo
+                  src={resolveUrl(attachment.url) ?? attachment.url}
+                  poster={resolveUrl(attachment.poster) ?? undefined}
+                  aspectRatio={
+                    attachment.meta?.width && attachment.meta?.height
+                      ? attachment.meta.width / attachment.meta.height
+                      : undefined
+                  }
+                  ariaLabel={attachment.name}
+                />
+              </div>
+            );
+          }
           return (
             <MediaPlayer
               key={`${galleryKey}-${index}`}
