@@ -591,14 +591,22 @@ const Profile = () => {
           onSave={editing.handleUsernameChange}
         />
 
-        {/* Floating "Написать на стене" button — always on screen (fixed
-            bottom-right), so a post can be created from any profile tab. */}
+        {/* Floating "Написать на стене" button — always on screen so a post can
+            be created from any profile tab. Anchored to the right edge of the
+            posts column (max-w-2xl, 672px, p-4) instead of the viewport edge;
+            on narrow screens it falls back to a normal corner FAB. */}
         {canPostOnWall && (
           <Button
             variant="default"
             size="icon"
             onClick={handleWallCreateClick}
-            className="fixed bottom-24 right-6 z-40 h-12 w-12 rounded-2xl shadow-lg"
+            className="fixed z-40 h-12 w-12 rounded-2xl shadow-lg"
+            style={{
+              // `right` is the distance from the viewport's right edge, so a
+              // LARGER constant moves the button further right.
+              right: "max(1rem, calc(50vw - 388px))",
+              bottom: "calc(1.5rem + env(safe-area-inset-bottom))",
+            }}
             title={wallCreateOpen ? "Скрыть форму" : "Написать на стене"}
           >
             <Plus className={`h-5 w-5 transition-transform duration-300 ease-out ${wallCreateOpen ? "rotate-45" : "rotate-0"}`} />
