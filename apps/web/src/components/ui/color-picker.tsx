@@ -197,15 +197,22 @@ export const ColorPicker = ({
         </div>
       )}
 
-      <Input
-        value={hexDraft}
-        onChange={(event) => {
-          setHexDraft(event.target.value);
-          if (/^#?[0-9a-f]{6}$/i.test(event.target.value.trim())) emit(hexToHsv(event.target.value));
-        }}
-        placeholder="#000000"
-        className="h-9 font-mono"
-      />
+      <div className="flex items-center gap-2">
+        <Input
+          value={hexDraft}
+          onChange={(event) => {
+            setHexDraft(event.target.value);
+            if (/^#?[0-9a-f]{6}$/i.test(event.target.value.trim())) emit(hexToHsv(event.target.value));
+          }}
+          placeholder="#000000"
+          className="h-9 min-w-0 flex-1 font-mono"
+        />
+        <span
+          className="h-9 w-9 shrink-0 rounded-[3px] border border-border/60"
+          style={{ backgroundColor: current }}
+          title={current}
+        />
+      </div>
     </div>
   );
 };
