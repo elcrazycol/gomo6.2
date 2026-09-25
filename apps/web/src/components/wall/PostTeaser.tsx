@@ -20,7 +20,8 @@ export const PostTeaser = ({ contentJson, onOpenPost }: { contentJson: unknown; 
   const { attachments } = useMediaView();
   const teaser = useMemo(() => buildPostTeaser(contentJson, 3), [contentJson]);
   const cover = useMemo(() => getDocCover(contentJson), [contentJson]);
-  const coverId = cover?.id ?? null;
+  // "Снизу": in a long post show the cover as one photo instead of three.
+  const coverHeroId = cover?.placements.includes("bottom") ? cover.id : null;
 
   const textRef = useRef<HTMLDivElement | null>(null);
   const [textOverflow, setTextOverflow] = useState(false);
@@ -63,9 +64,9 @@ export const PostTeaser = ({ contentJson, onOpenPost }: { contentJson: unknown; 
         </div>
       )}
 
-      {coverId ? (
+      {coverHeroId ? (
         <>
-          <PostCover attachmentId={coverId} className="mt-3" aspectClassName="aspect-[3/1]" />
+          <PostCover attachmentId={coverHeroId} className="mt-3" aspectClassName="aspect-[3/1]" />
           {extra > 0 && <div className="-mt-1 text-xs text-muted-foreground">ещё {extra} медиа</div>}
         </>
       ) : (

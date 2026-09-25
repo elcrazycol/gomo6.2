@@ -173,7 +173,7 @@ export const FeedWallPostCard = ({
             onImageClick,
           }}
         >
-        {!teaserMode && coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+        {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
         {teaserMode ? (
           <PostTeaser contentJson={post.content_json} onOpenPost={handleOpenPost} />
         ) : (
@@ -202,9 +202,6 @@ export const FeedWallPostCard = ({
               />
             )}
           </>
-        )}
-        {!teaserMode && coverId?.placements.includes("bottom") && (
-          <PostCover attachmentId={coverId.id} className="mt-3" />
         )}
         </MediaAttachmentsProvider>
 

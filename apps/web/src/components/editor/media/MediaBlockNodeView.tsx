@@ -397,7 +397,7 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
                 </label>
               ))}
               <p className="text-[11px] leading-4 text-muted-foreground">
-                Отметьте, где показывать фото. Обложка одна на пост.
+                Сверху — обложка-баннер. Снизу — в длинном посте одно фото вместо трёх. На месте — фото остаётся в тексте.
               </p>
             </PopoverContent>
           </Popover>

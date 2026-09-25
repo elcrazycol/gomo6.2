@@ -450,7 +450,7 @@ export const WallPostCard = ({
           }}
         >
         <div>
-          {!teaserMode && coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+          {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
           {teaserMode ? (
             <PostTeaser contentJson={post.content_json} onOpenPost={openPost} />
           ) : (
@@ -481,10 +481,6 @@ export const WallPostCard = ({
                 onImageClick={onImageClick}
               />
             </div>
-          )}
-
-          {!teaserMode && coverId?.placements.includes("bottom") && (
-            <PostCover attachmentId={coverId.id} className="mt-3" />
           )}
         </div>
         </MediaAttachmentsProvider>
