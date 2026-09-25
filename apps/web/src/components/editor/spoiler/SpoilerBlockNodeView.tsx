@@ -48,7 +48,7 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
           aria-expanded={open}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => setOpen((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-foreground/5"
         >
           {open ? (
             <EyeOff className="h-4 w-4 shrink-0 text-muted-foreground" />

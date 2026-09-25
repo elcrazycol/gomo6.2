@@ -19,7 +19,7 @@ const glassActiveClass =
 
 /** Plain glass ghost button (no ink blob): used for the composer header. */
 export const glassGhostButtonClass =
-  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground ring-1 ring-inset ring-transparent transition-colors hover:bg-primary/10 hover:text-foreground hover:ring-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export const inkButtonClass = (active = false, size: "sm" | "md" = "md") =>
   `relative z-10 inline-flex ${size === "sm" ? "h-8 w-8" : "h-9 w-9"} shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 ${

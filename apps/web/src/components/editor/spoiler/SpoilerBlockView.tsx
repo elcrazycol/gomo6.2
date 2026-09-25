@@ -22,7 +22,7 @@ export const SpoilerBlockView = ({ label, children }: { label: unknown; children
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-foreground/5"
       >
         {open ? (
           <EyeOff className="h-4 w-4 shrink-0 text-muted-foreground" />

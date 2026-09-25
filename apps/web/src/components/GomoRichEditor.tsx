@@ -256,7 +256,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
               >
                 <Trash2 className="h-4 w-4" />
               </button>
-              <button type="button" onClick={handleApplyColor} className="rounded px-4 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10">
+              <button type="button" onClick={handleApplyColor} className="rounded px-4 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-foreground/5">
                 OK
               </button>
             </div>
