@@ -13,9 +13,17 @@ export const INK_ATTR = "data-ink";
  * feedback), rounded, focus-ringed, marked with data-ink. `active` renders the
  * filled primary pill used by the formatting toolbar.
  */
+/** Active state: frosted glass with a primary tint, not a hard fill. */
+const glassActiveClass =
+  "bg-gradient-to-b from-primary/25 to-primary/5 text-primary ring-1 ring-inset ring-primary/30 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.22)]";
+
+/** Plain glass ghost button (no ink blob): used for the composer header. */
+export const glassGhostButtonClass =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground ring-1 ring-inset ring-transparent transition-colors hover:bg-primary/10 hover:text-foreground hover:ring-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
 export const inkButtonClass = (active = false, size: "sm" | "md" = "md") =>
   `relative z-10 inline-flex ${size === "sm" ? "h-8 w-8" : "h-9 w-9"} shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 ${
-    active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+    active ? glassActiveClass : "text-muted-foreground hover:text-foreground"
   }`;
 
 export const InkButton = ({

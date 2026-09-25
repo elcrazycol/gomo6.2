@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
-import { InkBar, InkButton } from "@/components/ui/ink-bar";
+import { InkBar, InkButton, glassGhostButtonClass } from "@/components/ui/ink-bar";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -611,23 +611,31 @@ export const CreateWallPostInline = ({
         )}
 
         {/* Header */}
-        <InkBar blobClassName="h-9 w-9" className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2 py-2">
-          <InkButton onClick={close} aria-label="Закрыть" title="Закрыть" className="active:scale-95">
+        <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2 py-2">
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Закрыть"
+            title="Закрыть"
+            className={`${glassGhostButtonClass} active:scale-95`}
+          >
             <X className="h-5 w-5" />
-          </InkButton>
+          </button>
           <div className="min-w-0 flex-1 truncate px-1 text-center">
             <span className="text-sm font-semibold">{isEditing ? "Редактирование записи" : "Новая запись на стене"}</span>
             {!isEditing && restoredDraft && (
               <span className="ml-2 whitespace-nowrap text-[11px] text-muted-foreground/70">черновик</span>
             )}
           </div>
-          <InkButton
+          <button
+            type="button"
             title={fullscreen ? "Свернуть" : "На весь экран"}
             onClick={() => setFullscreen((prev) => !prev)}
+            className={glassGhostButtonClass}
           >
             {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-          </InkButton>
-        </InkBar>
+          </button>
+        </div>
 
         {/* Editor — media blocks are edited in place */}
         <div
