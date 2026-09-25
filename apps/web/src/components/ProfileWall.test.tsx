@@ -156,6 +156,11 @@ vi.mock("@/utils/smoothScroll", () => ({
   COMMENTS_TARGET_FRACTION: 0.35,
 }));
 
+const mockPauseAllInlineMedia = vi.fn();
+vi.mock("@/utils/mediaPlayback", () => ({
+  pauseAllInlineMedia: (...args: any[]) => mockPauseAllInlineMedia(...args),
+}));
+
 // ─── Query Builder Mocks ─────────────────────────────────────────────────────
 
 /**
@@ -1784,12 +1789,15 @@ describe("ProfileWall", () => {
     await waitFor(() => expect(screen.getByAltText("pic.jpg")).toBeInTheDocument());
 
     mockNavigate.mockClear();
+    mockPauseAllInlineMedia.mockClear();
     // A photo opens the lightbox, never the post page.
     await userEvent.click(screen.getByAltText("pic.jpg"));
     expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockPauseAllInlineMedia).not.toHaveBeenCalled();
 
-    // The header (nickname row) opens the post.
+    // The header (nickname row) opens the post and stops any inline clip first.
     await userEvent.click(screen.getByTestId("user-badge"));
+    expect(mockPauseAllInlineMedia).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith(
       "/profile/profile-user-1/wall/post-open",
       expect.objectContaining({ state: expect.objectContaining({ backgroundLocation: expect.anything() }) }),

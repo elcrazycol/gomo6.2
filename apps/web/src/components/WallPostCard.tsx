@@ -40,6 +40,7 @@ import {
 } from "@/utils/wallNormalizers";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
+import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 
@@ -317,6 +318,9 @@ export const WallPostCard = ({
     // open the post page.
     if (commentsRef.current?.contains(event.target as Node)) return;
     if (isInteractiveTarget(event.target, event.currentTarget)) return;
+    // The post opens as an overlay over this card; stop any inline clip that is
+    // playing underneath so it does not keep running behind the post page.
+    pauseAllInlineMedia();
     // backgroundLocation keeps the profile mounted underneath so the post opens
     // as a draggable overlay over it instead of replacing the page.
     navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });

@@ -341,6 +341,7 @@ export const VideoPlayer = ({ sources, poster, className = "", title, canFullscr
       <div className="relative flex h-full w-full items-center justify-center">
         <video
           ref={videoRef}
+          data-video-player="true"
           className={`block bg-black object-contain ${isFullscreen ? "h-full w-full" : "mx-auto h-auto max-h-[70vh] w-auto max-w-full"}`}
           playsInline
           muted={autoPlay && !openMode}
