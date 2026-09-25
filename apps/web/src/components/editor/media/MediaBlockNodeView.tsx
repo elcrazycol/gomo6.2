@@ -83,22 +83,52 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
   };
 
   // ── Drag (pointer) ────────────────────────────────────────────────────────
+  const startDragAt = (pos: number, clientX: number, clientY: number) => {
+    selectNode();
+    startMediaDrag({
+      editor,
+      sourcePos: pos,
+      clientX,
+      clientY,
+      onStart: () => setDragging(true),
+      onEnd: () => setDragging(false),
+    });
+  };
+
   const beginDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    // Touch: a plain swipe must keep scrolling the page, so the drag only
+    // starts after a long-press (and is cancelled if the finger moves first).
+    if (event.pointerType === "touch") {
+      const pos = getPos();
+      if (typeof pos !== "number") return;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const timer = window.setTimeout(() => {
+        cleanup();
+        startDragAt(pos, startX, startY);
+      }, 250);
+      function cleanup() {
+        window.clearTimeout(timer);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", cleanup);
+        window.removeEventListener("pointercancel", cleanup);
+      }
+      function onMove(moveEvent: PointerEvent) {
+        if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 12) cleanup();
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", cleanup);
+      window.addEventListener("pointercancel", cleanup);
+      return;
+    }
+
     if (event.button !== 0) return;
     const pos = getPos();
     if (typeof pos !== "number") return;
     // Suppress the browser's native drag / text selection: we drive it ourselves.
     event.preventDefault();
     event.stopPropagation();
-    selectNode();
-    startMediaDrag({
-      editor,
-      sourcePos: pos,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      onStart: () => setDragging(true),
-      onEnd: () => setDragging(false),
-    });
+    startDragAt(pos, event.clientX, event.clientY);
   };
 
   const handleReplaceFile = async (file: File | undefined) => {
@@ -143,11 +173,11 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
       <div
         onPointerDown={beginDrag}
         onDragStart={(event) => event.preventDefault()}
-        className={
+        className={`select-none [-webkit-touch-callout:none] ${
           dragging
             ? "cursor-grabbing [&_*]:cursor-grabbing"
             : "cursor-grab [&_button]:cursor-grab [&_img]:cursor-grab [&_video]:cursor-grab"
-        }
+        }`}
       >
         <MediaBlockContent attrs={attrs} editable />
       </div>
