@@ -2,7 +2,7 @@
 // hovered/focused child marked with `data-ink`. Wrap a row of buttons; the
 // blob never intercepts pointer events.
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 
 /** Mark a child so the ink blob glides under it. */
@@ -26,14 +26,12 @@ export const inkButtonClass = (active = false, size: "sm" | "md" = "md") =>
     active ? glassActiveClass : "text-muted-foreground hover:text-foreground"
   }`;
 
-export const InkButton = ({
-  active = false,
-  size = "md",
-  className = "",
-  children,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; size?: "sm" | "md" }) => (
+export const InkButton = forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; size?: "sm" | "md" }
+>(({ active = false, size = "md", className = "", children, ...props }, ref) => (
   <button
+    ref={ref}
     type="button"
     aria-pressed={props["aria-pressed"] ?? (active || undefined)}
     {...{ [INK_ATTR]: true }}
@@ -42,7 +40,8 @@ export const InkButton = ({
   >
     {children}
   </button>
-);
+));
+InkButton.displayName = "InkButton";
 
 export const InkBar = ({
   children,

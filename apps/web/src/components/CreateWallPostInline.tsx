@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InkBar, InkButton, glassGhostButtonClass } from "@/components/ui/ink-bar";
 import { Input } from "@/components/ui/input";
 import {
@@ -720,9 +721,42 @@ export const CreateWallPostInline = ({
               <Smile className="h-5 w-5" />
             </InkButton>
           </EmojiPicker>
-          <InkButton title="Ссылка-карточка" onClick={() => setLinkDialogOpen(true)}>
-            <Link2 className="h-5 w-5" />
-          </InkButton>
+          <Popover
+            open={linkDialogOpen}
+            onOpenChange={(open) => {
+              if (!linkLoading) setLinkDialogOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <InkButton title="Ссылка-карточка" onMouseDown={(event) => event.preventDefault()}>
+                <Link2 className="h-5 w-5" />
+              </InkButton>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" className="w-80 space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">Ссылка-карточка</div>
+              <Input
+                autoFocus
+                value={linkUrl}
+                onChange={(event) => setLinkUrl(event.target.value)}
+                placeholder="https://…"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleCreateLinkCard();
+                  }
+                }}
+              />
+              <p className="text-[11px] text-muted-foreground">Вставьте ссылку — покажем предпросмотр.</p>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
+                  Отмена
+                </Button>
+                <Button type="button" size="sm" onClick={() => void handleCreateLinkCard()} disabled={linkLoading || !linkUrl.trim()}>
+                  {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
           <span className="ml-1 text-[11px] text-muted-foreground">
             {mediaCount > 0 ? `${mediaCount}/${MAX_MEDIA_NODES}` : null}
           </span>
@@ -767,35 +801,6 @@ export const CreateWallPostInline = ({
           onEditImage={handleEditImage}
         />
       )}
-
-      <Dialog open={linkDialogOpen} onOpenChange={(open) => { if (!linkLoading) setLinkDialogOpen(open); }}>
-        <DialogContent className="z-[70] max-w-md border-border/70 bg-background">
-          <DialogHeader>
-            <DialogTitle>Ссылка-карточка</DialogTitle>
-            <DialogDescription>Вставьте ссылку — покажем предпросмотр.</DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={linkUrl}
-            onChange={(event) => setLinkUrl(event.target.value)}
-            placeholder="https://…"
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void handleCreateLinkCard();
-              }
-            }}
-          />
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={() => void handleCreateLinkCard()} disabled={linkLoading || !linkUrl.trim()}>
-              {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={spoilerDialogOpen} onOpenChange={setSpoilerDialogOpen}>
         <DialogContent className="z-[70] max-w-md border-border/70 bg-background">

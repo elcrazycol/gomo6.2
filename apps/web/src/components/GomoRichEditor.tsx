@@ -13,13 +13,7 @@ import Color from "@tiptap/extension-color";
 import { Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EMPTY_EDITOR_STATE, normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
 import { SpoilerMark } from "@/components/emoji/SpoilerMark";
 import { HashtagMark } from "@/components/emoji/HashtagMark";
@@ -146,12 +140,6 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     chain.run();
   };
 
-  const openLinkDialog = () => {
-    const current = (editor.getAttributes("link") as { href?: string })?.href ?? "";
-    setLinkDraft(current);
-    setIsLinkDialogOpen(true);
-  };
-
   const applyLink = () => {
     const trimmed = linkDraft.trim();
     if (trimmed.length === 0) {
@@ -187,16 +175,6 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     applyColor(normalized);
   };
 
-  const openColorDialog = () => {
-    setColorDraft(randomHexColor());
-    setIsColorDialogOpen(true);
-  };
-
-  const openSizeDialog = () => {
-    setSizeDraft("18");
-    setIsSizeDialogOpen(true);
-  };
-
   const applySize = (px?: number) => {
     const raw = px !== undefined ? String(px) : sizeDraft;
     const clean = raw.replace(/[^\d.]/g, "");
@@ -206,11 +184,10 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     setIsSizeDialogOpen(false);
   };
 
+  // Floating glass capsule: centered, grouped, with a live character count and
+  // an "ink" blob that springs under the hovered/focused button.
   return (
-    <>
-      {/* Floating glass capsule: centered, grouped, with a live character count
-          and an "ink" blob that springs under the hovered/focused button. */}
-      <InkBar
+    <InkBar
         blobClassName="h-8 w-8"
         className={`sticky top-2 z-20 mx-auto flex w-fit max-w-full items-center gap-0.5 overflow-x-auto scrollbar-hide rounded-full border border-border/60 bg-background/70 p-1 shadow-lg shadow-black/5 backdrop-blur-md animate-in fade-in-0 slide-in-from-top-1 duration-300 motion-reduce:animate-none ${className}`}
       >
@@ -222,140 +199,138 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
         </div>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
         <div className="flex items-center gap-0.5">
-          <ToolButton active={active.link} title="Ссылка" onClick={openLinkDialog}><Link2 className="h-4 w-4" /></ToolButton>
-        </div>
-        <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
-        <div className="flex items-center gap-0.5">
-          <ToolButton title="Цвет текста" onClick={openColorDialog}><Palette className="h-4 w-4" /></ToolButton>
-          <ToolButton title="Размер шрифта" onClick={openSizeDialog}><Type className="h-4 w-4" /></ToolButton>
+          <Popover
+            open={isLinkDialogOpen}
+            onOpenChange={(open) => {
+              if (open) setLinkDraft((editor.getAttributes("link") as { href?: string })?.href ?? "");
+              setIsLinkDialogOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <InkButton size="sm" active={active.link} title="Ссылка" onMouseDown={(event) => event.preventDefault()}>
+                <Link2 className="h-4 w-4" />
+              </InkButton>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-72 space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">Ссылка</div>
+              <Input
+                autoFocus
+                value={linkDraft}
+                onChange={(event) => setLinkDraft(event.target.value)}
+                placeholder="https://…"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    applyLink();
+                  }
+                }}
+              />
+              <p className="text-[11px] text-muted-foreground">Пусто — убрать ссылку.</p>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setIsLinkDialogOpen(false)}>Отмена</Button>
+                <Button type="button" size="sm" onClick={applyLink}>Применить</Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={isColorDialogOpen}
+            onOpenChange={(open) => {
+              if (open) setColorDraft(randomHexColor());
+              setIsColorDialogOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <InkButton size="sm" title="Цвет текста" onMouseDown={(event) => event.preventDefault()}>
+                <Palette className="h-4 w-4" />
+              </InkButton>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-72 space-y-3">
+              <div className="text-xs font-medium text-muted-foreground">Цвет текста</div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => colorInputRef.current?.click()}
+                  className="h-9 w-9 shrink-0 rounded-md border border-border/70"
+                  style={{ backgroundColor: normalizeHexColor(colorDraft) || "transparent" }}
+                  title="Открыть палитру"
+                  aria-label="Выбрать цвет"
+                />
+                <Input
+                  value={colorDraft}
+                  onChange={(event) => setColorDraft(event.target.value)}
+                  placeholder={randomHexColor()}
+                  className="min-w-0 flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 p-0"
+                  onClick={() => setColorDraft(randomHexColor())}
+                  title="Случайный цвет"
+                >
+                  <Dice3 className="h-4 w-4" />
+                </Button>
+              </div>
+              <input
+                ref={colorInputRef}
+                type="color"
+                value={normalizeHexColor(colorDraft) || "#ff5500"}
+                onChange={(event) => setColorDraft(event.target.value)}
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => applyColor("")}>
+                  <X className="mr-1.5 h-3.5 w-3.5" /> Снять
+                </Button>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setIsColorDialogOpen(false)}>Отмена</Button>
+                  <Button type="button" size="sm" onClick={handleApplyColor}>Применить</Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Popover
+            open={isSizeDialogOpen}
+            onOpenChange={(open) => {
+              if (open) setSizeDraft("18");
+              setIsSizeDialogOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <InkButton size="sm" title="Размер шрифта" onMouseDown={(event) => event.preventDefault()}>
+                <Type className="h-4 w-4" />
+              </InkButton>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-64 space-y-3">
+              <div className="text-xs font-medium text-muted-foreground">Размер шрифта</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[13, 16, 18, 20, 24].map((px) => (
+                  <Button key={px} type="button" variant="outline" size="sm" onClick={() => applySize(px)}>{px}</Button>
+                ))}
+              </div>
+              <Input
+                value={sizeDraft}
+                onChange={(event) => setSizeDraft(event.target.value)}
+                placeholder="Размер в px"
+              />
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setIsSizeDialogOpen(false)}>Отмена</Button>
+                <Button type="button" size="sm" onClick={() => applySize()}>Применить</Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+
           <ToolButton active={active.spoiler} title="Спойлер (размытие)" onClick={toggleBlur}><Eye className="h-4 w-4" /></ToolButton>
         </div>
         <span className="mx-1 hidden shrink-0 px-1 font-mono text-[11px] tabular-nums text-muted-foreground sm:inline">
           {active.limit ? `${active.characters}/${active.limit}` : active.characters}
         </span>
       </InkBar>
-
-      <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
-          <DialogHeader>
-            <DialogTitle>Цвет текста</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => colorInputRef.current?.click()}
-                className="h-10 w-10 shrink-0 rounded-lg border border-border/70"
-                style={{ backgroundColor: normalizeHexColor(colorDraft) || "transparent" }}
-                title="Открыть палитру"
-                aria-label="Выбрать цвет"
-              />
-              <Input
-                value={colorDraft}
-                onChange={(event) => setColorDraft(event.target.value)}
-                placeholder={randomHexColor()}
-                className="min-w-0 flex-[0_1_10rem]"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 p-0"
-                onClick={() => setColorDraft(randomHexColor())}
-                title="Случайный цвет"
-              >
-                <Dice3 className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <input
-              ref={colorInputRef}
-              type="color"
-              value={normalizeHexColor(colorDraft) || "#ff5500"}
-              onChange={(event) => setColorDraft(event.target.value)}
-              className="sr-only"
-              tabIndex={-1}
-              aria-hidden="true"
-            />
-          </div>
-
-          <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => applyColor("")}>
-                <X className="mr-2 h-4 w-4" />
-                Снять цвет
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setIsColorDialogOpen(false)}>
-                Отмена
-              </Button>
-            </div>
-            <Button type="button" onClick={handleApplyColor}>
-              Применить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
-          <DialogHeader>
-            <DialogTitle>Ссылка</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              value={linkDraft}
-              onChange={(event) => setLinkDraft(event.target.value)}
-              placeholder="https://…"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") applyLink();
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Оставьте поле пустым, чтобы убрать ссылку.
-            </p>
-          </div>
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setIsLinkDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={applyLink}>
-              Применить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isSizeDialogOpen} onOpenChange={setIsSizeDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
-          <DialogHeader>
-            <DialogTitle>Размер шрифта</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {[13, 16, 18, 20, 24].map((px) => (
-                <Button key={px} type="button" variant="outline" size="sm" onClick={() => applySize(px)}>
-                  {px}px
-                </Button>
-              ))}
-            </div>
-            <Input
-              value={sizeDraft}
-              onChange={(event) => setSizeDraft(event.target.value)}
-              placeholder="Размер в px"
-            />
-          </div>
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setIsSizeDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={() => applySize()}>
-              Применить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
   );
 };
 
@@ -623,7 +598,12 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     let popupConsumesEnter = false;
     const captureKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Enter") {
-        popupConsumesEnter = isSlashPopupActive() || isMentionPopupActive();
+        // Belt and suspenders: the module flag can go stale across an HMR
+        // module instance, so also check that the slash popup is in the DOM.
+        popupConsumesEnter =
+          isSlashPopupActive() ||
+          isMentionPopupActive() ||
+          document.querySelector("[data-slash-item]") !== null;
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
