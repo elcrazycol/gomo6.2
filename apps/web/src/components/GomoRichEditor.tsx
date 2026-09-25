@@ -582,17 +582,33 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 
   useEffect(() => {
     if (!editor) return;
+    const el = editorContainerRef.current;
+    if (!el) return;
+    // The slash/mention popup clears its "active" flag when it consumes Enter,
+    // and ProseMirror handles the keydown before this bubble listener runs — so
+    // snapshot the popup state in the capture phase (which runs first) and use
+    // it when deciding whether to submit. Without this, Enter with the slash
+    // menu open published the post instead of selecting the item.
+    let popupConsumesEnter = false;
+    const captureKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        popupConsumesEnter = isSlashPopupActive() || isMentionPopupActive();
+      }
+    };
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Don't submit while the @-mention popup is open — Enter there picks a user.
-      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768 && !isMentionPopupActive() && !isSlashPopupActive()) {
+      // Don't submit while the @-mention/slash popup is open — Enter there
+      // selects a user/item.
+      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768 && !popupConsumesEnter) {
         event.preventDefault();
         onSubmit?.();
       }
     };
-    const el = editorContainerRef.current;
-    if (!el) return;
+    el.addEventListener("keydown", captureKeyDown, true);
     el.addEventListener("keydown", handleKeyDown);
-    return () => el.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      el.removeEventListener("keydown", captureKeyDown, true);
+      el.removeEventListener("keydown", handleKeyDown);
+    };
   }, [editor, onSubmit]);
 
   // Cancel Safari scroll-to-reveal on tap. The global handleAppShellScroll in

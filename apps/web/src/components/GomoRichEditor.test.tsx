@@ -25,6 +25,13 @@ vi.mock("@/contexts/EmojiDataContext", () => ({
   }),
 }));
 
+// Drive the slash-popup flag deterministically (Enter must not submit while the
+// slash menu is open — it selects the highlighted item instead).
+let mockSlashPopupActive = false;
+vi.mock("@/components/editor/slash/slashCommands", () => ({
+  isSlashPopupActive: () => mockSlashPopupActive,
+}));
+
 afterEach(() => {
   window.requestAnimationFrame = origRAF;
   window.cancelAnimationFrame = origCAF;
@@ -197,6 +204,35 @@ describe("GomoRichEditor font-swap caret realignment", () => {
     } finally {
       getSelectionSpy.mockRestore();
       restore();
+    }
+  });
+});
+
+describe("GomoRichEditor Enter-to-submit", () => {
+  it("submits on Enter when no popup is open", () => {
+    stubRAF();
+    const onSubmit = vi.fn();
+    const { container } = render(<GomoRichEditor onChange={vi.fn()} onSubmit={onSubmit} />);
+    const editable = container.querySelector("[contenteditable]") as HTMLElement;
+
+    editable.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not submit when the slash menu is open", () => {
+    stubRAF();
+    mockSlashPopupActive = true;
+    try {
+      const onSubmit = vi.fn();
+      const { container } = render(<GomoRichEditor onChange={vi.fn()} onSubmit={onSubmit} />);
+      const editable = container.querySelector("[contenteditable]") as HTMLElement;
+
+      editable.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+      expect(onSubmit).not.toHaveBeenCalled();
+    } finally {
+      mockSlashPopupActive = false;
     }
   });
 });
