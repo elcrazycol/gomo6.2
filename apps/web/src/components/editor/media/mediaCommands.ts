@@ -155,6 +155,103 @@ export const moveMediaNode = (editor: Editor, pos: number, direction: MoveDirect
   return true;
 };
 
+export type MergeSide = "before" | "after";
+
+/**
+ * Merge the media node at `sourcePos` into the media node at `targetPos`.
+ *
+ * - target already in a mediaGroup → the source is inserted next to it;
+ * - target standalone → a new gallery is created (replacing the target's
+ *   paragraph when that paragraph held only the target).
+ *
+ * `side` is which half of the target the pointer was over (dragging to the
+ * left half puts the source before the target).
+ */
+export const mergeMediaTransaction = (
+  state: EditorState,
+  sourcePos: number,
+  targetPos: number,
+  side: MergeSide,
+): Transaction | null => {
+  const sourceNode = state.doc.nodeAt(sourcePos);
+  if (!sourceNode || sourceNode.type.name !== MEDIA_BLOCK_NODE) return null;
+  const sourceEnd = sourcePos + sourceNode.nodeSize;
+  if (targetPos >= sourcePos && targetPos <= sourceEnd) return null;
+  const targetType = state.doc.nodeAt(targetPos)?.type.name;
+  if (targetType !== MEDIA_BLOCK_NODE) return null;
+  const groupType = state.schema.nodes[MEDIA_GROUP_NODE];
+  if (!groupType) return null;
+
+  const tr = state.tr.delete(sourcePos, sourceEnd);
+  const tPos = targetPos > sourceEnd ? targetPos - sourceNode.nodeSize : targetPos;
+  const $target = tr.doc.resolve(tPos);
+  const parent = $target.parent;
+
+  if (parent.type.name === MEDIA_GROUP_NODE) {
+    const insertIndex = Math.max(0, Math.min($target.index() + (side === "after" ? 1 : 0), parent.childCount));
+    let childPos = $target.start();
+    for (let i = 0; i < insertIndex; i += 1) childPos += parent.child(i).nodeSize;
+    tr.insert(childPos, sourceNode);
+    return tr;
+  }
+
+  const targetNode = tr.doc.nodeAt(tPos);
+  if (!targetNode) return null;
+  const first = side === "after" ? targetNode : sourceNode;
+  const second = side === "after" ? sourceNode : targetNode;
+  const group = groupType.create({ layout: "grid" }, [first, second]);
+
+  const blockDepth = $target.depth;
+  const blockStart = $target.before(blockDepth);
+  const blockEnd = $target.after(blockDepth);
+  const blockNode = tr.doc.nodeAt(blockStart);
+  const paragraphOnlyMedia = blockNode?.type.name === "paragraph" && blockNode.childCount === 1;
+
+  if (paragraphOnlyMedia) {
+    tr.replaceWith(blockStart, blockEnd, group);
+  } else {
+    tr.delete(tPos, tPos + targetNode.nodeSize);
+    const endNow = blockStart + (blockNode ? blockNode.nodeSize - targetNode.nodeSize : 0);
+    tr.insert(endNow, group);
+  }
+  return tr;
+};
+
+export const mergeMedia = (
+  editor: Editor,
+  sourcePos: number,
+  targetPos: number,
+  side: MergeSide,
+): boolean => {
+  const tr = mergeMediaTransaction(editor.state, sourcePos, targetPos, side);
+  if (!tr) return false;
+  editor.view.dispatch(tr);
+  editor.view.focus();
+  return true;
+};
+
+/**
+ * Dissolve a mediaGroup, leaving its media in a normal paragraph (natural
+ * inline flow) so they are no longer constrained by a gallery layout.
+ */
+export const ungroupTransaction = (state: EditorState, groupPos: number): Transaction | null => {
+  const groupNode = state.doc.nodeAt(groupPos);
+  if (!groupNode || groupNode.type.name !== MEDIA_GROUP_NODE) return null;
+  const paragraphType = state.schema.nodes.paragraph;
+  if (!paragraphType) return null;
+  const children: PMNode[] = [];
+  groupNode.forEach((child) => children.push(child));
+  const paragraph = paragraphType.create(null, children);
+  return state.tr.replaceWith(groupPos, groupPos + groupNode.nodeSize, paragraph);
+};
+
+export const ungroupMediaGroup = (editor: Editor, groupPos: number): boolean => {
+  const tr = ungroupTransaction(editor.state, groupPos);
+  if (!tr) return false;
+  editor.view.dispatch(tr);
+  return true;
+};
+
 export const replaceUploadPlaceholder = (
   editor: Editor,
   uploadId: string,

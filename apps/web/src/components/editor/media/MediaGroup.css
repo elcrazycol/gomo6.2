@@ -51,3 +51,10 @@
     columns: 3;
   }
 }
+
+/* Highlight of the media the dragged one will merge into. */
+.media-merge-target {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 3px;
+  border-radius: 6px;
+}

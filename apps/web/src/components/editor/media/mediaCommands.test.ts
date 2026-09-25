@@ -6,20 +6,23 @@ import { Text } from "@tiptap/extension-text";
 import { EditorState } from "@tiptap/pm/state";
 
 import { MediaBlockNode } from "./MediaBlockNode";
+import { MediaGroupNode } from "./MediaGroupNode";
 import { UploadPlaceholderNode } from "./UploadPlaceholderNode";
 import {
   blockInsertPos,
   findNodePos,
+  mergeMediaTransaction,
   moveNodeToPos,
   moveTransaction,
   removePlaceholderTransaction,
   replacePlaceholderTransaction,
   resolveDropPosition,
+  ungroupTransaction,
   updatePlaceholderTransaction,
 } from "./mediaCommands";
 import { DEFAULT_MEDIA_BLOCK_ATTRS, MEDIA_BLOCK_NODE } from "./mediaSchema";
 
-const schema = getSchema([Document, Paragraph, Text, MediaBlockNode, UploadPlaceholderNode]);
+const schema = getSchema([Document, Paragraph, Text, MediaBlockNode, MediaGroupNode, UploadPlaceholderNode]);
 
 type JSONNode = Record<string, unknown>;
 const text = (value: string): JSONNode => ({ type: "text", text: value });
@@ -44,6 +47,31 @@ const snapshot = (state: EditorState): string[][] => {
 };
 
 const mediaAttrs = (attachmentId: string) => ({ ...DEFAULT_MEDIA_BLOCK_ATTRS, attachmentId });
+
+const group = (...items: JSONNode[]): JSONNode => ({
+  type: "mediaGroup",
+  attrs: { layout: "grid" },
+  content: items,
+});
+
+/** Readable structure including media inside groups. */
+const structure = (state: EditorState): string[] => {
+  const out: string[] = [];
+  state.doc.forEach((block) => {
+    if (block.type.name === "mediaGroup") {
+      const ids: string[] = [];
+      block.forEach((child) => ids.push(String(child.attrs.attachmentId)));
+      out.push(`group:[${ids.join(",")}]`);
+      return;
+    }
+    const inline: string[] = [];
+    block.forEach((node) => {
+      inline.push(node.type.name === MEDIA_BLOCK_NODE ? `media:${node.attrs.attachmentId}` : node.type.name);
+    });
+    out.push(`p:[${inline.join(",")}]`);
+  });
+  return out;
+};
 
 describe("mediaCommands", () => {
   it("finds an inline media node by attachment id", () => {
@@ -165,5 +193,43 @@ describe("mediaCommands", () => {
   it("computes a block-level insert position after the current block", () => {
     const state = makeState([paragraphWith(text("привет"))]);
     expect(blockInsertPos(state)).toBe(state.doc.child(0).nodeSize);
+  });
+
+  it("merges a standalone media into a new gallery", () => {
+    const state = makeState([paragraphWith(media("m1")), paragraphWith(media("m2"))]);
+    const source = findNodePos(state.doc, MEDIA_BLOCK_NODE, (n) => n.attrs.attachmentId === "m1") as number;
+    const target = findNodePos(state.doc, MEDIA_BLOCK_NODE, (n) => n.attrs.attachmentId === "m2") as number;
+    const tr = mergeMediaTransaction(state, source, target, "after");
+    expect(tr).not.toBeNull();
+    expect(structure(state.apply(tr!))).toEqual(["p:[]", "group:[m2,m1]"]);
+  });
+
+  it("merges into an existing gallery next to the target", () => {
+    const state = makeState([paragraphWith(media("m1")), group(media("m2"), media("m3"))]);
+    const source = findNodePos(state.doc, MEDIA_BLOCK_NODE, (n) => n.attrs.attachmentId === "m1") as number;
+    const target = findNodePos(state.doc, MEDIA_BLOCK_NODE, (n) => n.attrs.attachmentId === "m2") as number;
+    const tr = mergeMediaTransaction(state, source, target, "after");
+    expect(structure(state.apply(tr!))).toEqual(["p:[]", "group:[m2,m1,m3]"]);
+  });
+
+  it("inserts before the target when dropped on its left half", () => {
+    const state = makeState([paragraphWith(media("m1")), group(media("m2"))]);
+    const source = findNodePos(state.doc, MEDIA_BLOCK_NODE, (n) => n.attrs.attachmentId === "m1") as number;
+    const target = findNodePos(state.doc, MEDIA_BLOCK_NODE, (n) => n.attrs.attachmentId === "m2") as number;
+    const tr = mergeMediaTransaction(state, source, target, "before");
+    expect(structure(state.apply(tr!))).toEqual(["p:[]", "group:[m1,m2]"]);
+  });
+
+  it("refuses to merge a media onto itself", () => {
+    const state = makeState([paragraphWith(media("m1"))]);
+    const source = findNodePos(state.doc, MEDIA_BLOCK_NODE) as number;
+    expect(mergeMediaTransaction(state, source, source, "after")).toBeNull();
+  });
+
+  it("ungroups a gallery back into inline media", () => {
+    const state = makeState([group(media("m1"), media("m2"))]);
+    const tr = ungroupTransaction(state, 0);
+    expect(tr).not.toBeNull();
+    expect(structure(state.apply(tr!))).toEqual(["p:[media:m1,media:m2]"]);
   });
 });

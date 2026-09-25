@@ -4,9 +4,13 @@
 // its own drag cursor) and keeps a translucent "ghost" of the element. This
 // implementation uses pointer events instead: the body cursor becomes a
 // grabbing hand, a custom caret shows the drop position, and there is no ghost.
+//
+// When the pointer is over (or near) another media node, the drop merges the
+// dragged media into a gallery with that node instead of moving it.
 
 import type { Editor } from "@tiptap/core";
-import { moveNodeToPos, resolveDropPosition } from "./mediaCommands";
+import { MEDIA_BLOCK_NODE } from "./mediaSchema";
+import { mergeMediaTransaction, moveNodeToPos, resolveDropPosition, type MergeSide } from "./mediaCommands";
 
 export interface StartMediaDragOptions {
   editor: Editor;
@@ -26,6 +30,12 @@ const CARET_STYLE = [
   "pointer-events:none",
 ].join(";");
 
+interface MergeTarget {
+  pos: number;
+  side: MergeSide;
+  el: HTMLElement;
+}
+
 /** Begin dragging the media node at `sourcePos`. Resolves the drop on pointerup. */
 export const startMediaDrag = ({
   editor,
@@ -40,14 +50,48 @@ export const startMediaDrag = ({
 
   let targetPos: number | null = null;
   let caret: HTMLDivElement | null = null;
+  let mergeTarget: MergeTarget | null = null;
+
+  const clearMerge = () => {
+    if (mergeTarget) {
+      mergeTarget.el.classList.remove("media-merge-target");
+      mergeTarget = null;
+    }
+  };
+
+  const hideCaret = () => {
+    if (caret) caret.style.display = "none";
+  };
+
+  /** A media node under/near the pointer (other than the source), if any. */
+  const findMergeTarget = (x: number, y: number): MergeTarget | null => {
+    clearMerge();
+    let result: MergeTarget | null = null;
+    view.state.doc.descendants((node, pos) => {
+      if (result) return false;
+      if (node.type.name !== MEDIA_BLOCK_NODE || pos === sourcePos) return true;
+      const el = view.nodeDOM(pos) as HTMLElement | null;
+      if (!el || typeof el.getBoundingClientRect !== "function") return true;
+      const rect = el.getBoundingClientRect();
+      const pad = 14;
+      if (x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad) {
+        result = { pos, side: x < rect.left + rect.width / 2 ? "before" : "after", el };
+        return false;
+      }
+      return true;
+    });
+    if (result) {
+      result.el.classList.add("media-merge-target");
+      mergeTarget = result;
+    }
+    return result;
+  };
 
   /**
-   * Position inside the empty line under the pointer, if any.
-   *
-   * Determined by geometry over the document blocks (`nodeDOM` + their rects),
-   * NOT by `posAtCoords`: that depends on X, so a pointer anywhere but the very
-   * start of an empty line used to resolve past it. This matches the block at
-   * the pointer's Y regardless of X.
+   * Position inside the empty line under the pointer, if any. Determined by
+   * geometry over the document blocks (nodeDOM + their rects), NOT posAtCoords:
+   * that depends on X, so a pointer anywhere but the very start of an empty
+   * line used to resolve past it.
    */
   const emptyLinePosAt = (_x: number, y: number): number | null => {
     const doc = view.state.doc;
@@ -70,7 +114,6 @@ export const startMediaDrag = ({
           strictAny = true;
           if (isEmpty) strictEmpty = pos + 1;
         } else if (isEmpty) {
-          // Empty lines can have a near-zero hit box; remember the closest one.
           const distance = y < rect.top ? rect.top - y : y - rect.bottom;
           if (distance < nearDist) {
             nearDist = distance;
@@ -82,12 +125,16 @@ export const startMediaDrag = ({
     }
 
     if (strictEmpty !== null) return strictEmpty;
-    // Pointer is in a gap / on a zero-height empty line and nothing contains it.
     if (!strictAny && nearEmpty !== null && nearDist <= 12) return nearEmpty;
     return null;
   };
 
   const placeCaret = (clientXValue: number, clientYValue: number) => {
+    // Media under the pointer wins: the drop merges into a gallery.
+    if (findMergeTarget(clientXValue, clientYValue)) {
+      hideCaret();
+      return;
+    }
     const emptyLinePos = emptyLinePosAt(clientXValue, clientYValue);
     if (emptyLinePos !== null) {
       targetPos = emptyLinePos;
@@ -96,15 +143,11 @@ export const startMediaDrag = ({
       if (coords) targetPos = coords.pos;
     }
     if (targetPos === null) return;
-    // Anchor the caret at the resolved position. resolveDropPosition prefers an
-    // adjacent empty line, so hovering one no longer draws the caret below it.
     const resolved = resolveDropPosition(view.state.doc, targetPos);
     const caretPos = resolved ? resolved.pos : targetPos;
     try {
       const rect = view.coordsAtPos(caretPos);
       let { top, bottom, left } = rect;
-      // Empty line: pin the caret to that block's own rect so it can never be
-      // drawn on a different line (the earlier "a couple lines lower" bug).
       const $c = view.state.doc.resolve(caretPos);
       if ($c.parent.inlineContent && $c.parent.content.size === 0) {
         const blockDom = view.nodeDOM($c.before($c.depth)) as HTMLElement | null;
@@ -128,7 +171,7 @@ export const startMediaDrag = ({
       caret.style.top = `${top}px`;
       caret.style.height = `${Math.max(8, bottom - top)}px`;
     } catch {
-      if (caret) caret.style.display = "none";
+      hideCaret();
     }
   };
 
@@ -137,6 +180,7 @@ export const startMediaDrag = ({
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onCancel);
     document.removeEventListener("mousedown", blockMouseDown, true);
+    clearMerge();
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
     if (caret) {
@@ -156,12 +200,20 @@ export const startMediaDrag = ({
     placeCaret(event.clientX, event.clientY);
   }
   function onUp() {
+    const merge = mergeTarget ? { pos: mergeTarget.pos, side: mergeTarget.side } : null;
     const target = targetPos;
     const destroyed = editor.isDestroyed;
     cleanup();
-    if (destroyed || target === null) return;
-    const tr = moveNodeToPos(view.state, sourcePos, target);
-    if (tr) view.dispatch(tr);
+    if (destroyed) return;
+    if (merge) {
+      const tr = mergeMediaTransaction(view.state, sourcePos, merge.pos, merge.side);
+      if (tr) view.dispatch(tr);
+      return;
+    }
+    if (target !== null) {
+      const tr = moveNodeToPos(view.state, sourcePos, target);
+      if (tr) view.dispatch(tr);
+    }
   }
   function onCancel() {
     cleanup();

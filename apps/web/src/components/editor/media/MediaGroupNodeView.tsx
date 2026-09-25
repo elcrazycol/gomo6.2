@@ -3,9 +3,10 @@
 // children render through NodeViewContent, so each media keeps its own toolbar.
 
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { Columns3, GalleryHorizontalEnd, Grid3x3, LayoutGrid, Trash2 } from "lucide-react";
+import { Columns3, GalleryHorizontalEnd, Grid3x3, LayoutGrid, LayoutList, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ungroupMediaGroup } from "./mediaCommands";
 import { mediaGroupLayoutClass } from "./mediaLayout";
 import { toMediaGroupAttrs, type MediaGroupLayout } from "./mediaSchema";
 
@@ -16,11 +17,16 @@ const LAYOUTS: Array<{ value: MediaGroupLayout; label: string; Icon: typeof Layo
   { value: "carousel", label: "Карусель", Icon: GalleryHorizontalEnd },
 ];
 
-export const MediaGroupNodeView = ({ node, updateAttributes, deleteNode, selected }: NodeViewProps) => {
+export const MediaGroupNodeView = ({ node, editor, getPos, updateAttributes, deleteNode, selected }: NodeViewProps) => {
   const attrs = toMediaGroupAttrs(node.attrs);
   const toolbarVisibility = selected
     ? "opacity-100"
     : "pointer-events-none opacity-0 group-hover/gallery:pointer-events-auto group-hover/gallery:opacity-100";
+
+  const handleUngroup = () => {
+    const pos = getPos();
+    if (typeof pos === "number") ungroupMediaGroup(editor, pos);
+  };
 
   return (
     <NodeViewWrapper
@@ -54,6 +60,17 @@ export const MediaGroupNodeView = ({ node, updateAttributes, deleteNode, selecte
           </Button>
         ))}
         <span className="mx-0.5 h-4 w-px bg-border" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title="Разгруппировать"
+          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={handleUngroup}
+        >
+          <LayoutList className="h-4 w-4" />
+        </Button>
         <Button
           type="button"
           variant="ghost"
