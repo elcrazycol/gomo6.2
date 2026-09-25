@@ -1,5 +1,6 @@
-/* Gallery layouts for a mediaGroup. Children are the media nodes (figures in
-   the read view, node-view wrappers in the editor), targeted with `> *`. */
+/* Gallery layouts for a mediaGroup. Media children are targeted by their
+   `data-media-block` attribute (they may be direct children, or nested under a
+   display:contents content element in the editor). */
 
 .media-group {
   margin: 0.5rem 0;
@@ -17,8 +18,8 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.media-group--grid > *,
-.media-group--grid3 > * {
+.media-group--grid [data-media-block],
+.media-group--grid3 [data-media-block] {
   width: 100% !important;
   margin: 0 !important;
 }
@@ -27,7 +28,7 @@
   columns: 2;
   column-gap: 4px;
 }
-.media-group--mosaic > * {
+.media-group--mosaic [data-media-block] {
   display: block !important;
   width: 100% !important;
   margin: 0 0 4px 0 !important;
@@ -40,7 +41,7 @@
   overflow-x: auto;
   padding-bottom: 4px;
 }
-.media-group--carousel > * {
+.media-group--carousel [data-media-block] {
   width: 75% !important;
   flex: 0 0 auto;
   margin: 0 !important;

@@ -33,9 +33,12 @@ export const MediaGroupNodeView = ({ node, editor, getPos, updateAttributes, del
       as="div"
       data-media-group="true"
       data-selected={selected ? "true" : "false"}
-      className="group/gallery relative my-2"
+      className={`${mediaGroupLayoutClass(attrs.layout)} group/gallery relative`}
     >
-      <NodeViewContent as="div" className={mediaGroupLayoutClass(attrs.layout)} />
+      {/* display:contents so the media children are laid out as direct
+          children of the layout container — the editor then matches the read
+          view exactly (layout class + media children). */}
+      <NodeViewContent className="contents" />
 
       <div
         data-media-toolbar="true"
