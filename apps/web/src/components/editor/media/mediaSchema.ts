@@ -40,7 +40,7 @@ export type MediaGroupLayout = (typeof MEDIA_GROUP_LAYOUTS)[number];
 export interface MediaGroupAttrs {
   layout: MediaGroupLayout;
 }
-export const DEFAULT_MEDIA_GROUP_ATTRS: MediaGroupAttrs = { layout: "grid" };
+export const DEFAULT_MEDIA_GROUP_ATTRS: MediaGroupAttrs = { layout: "smart" };
 
 /** Orientation bucket used by the "smart" collage layout. */
 export type MediaShape = "wide" | "tall" | "square";

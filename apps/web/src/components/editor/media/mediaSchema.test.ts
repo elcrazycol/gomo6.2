@@ -154,8 +154,8 @@ describe("mediaSchema", () => {
   it("coerces a media group layout", () => {
     expect(toMediaGroupAttrs({ layout: "carousel" })).toEqual({ layout: "carousel" });
     expect(toMediaGroupAttrs({ layout: "smart" })).toEqual({ layout: "smart" });
-    expect(toMediaGroupAttrs({ layout: "bogus" })).toEqual({ layout: "grid" });
-    expect(toMediaGroupAttrs(null)).toEqual({ layout: "grid" });
+    expect(toMediaGroupAttrs({ layout: "bogus" })).toEqual({ layout: "smart" });
+    expect(toMediaGroupAttrs(null)).toEqual({ layout: "smart" });
   });
 
   it("buckets aspect ratios into smart-collage shapes", () => {

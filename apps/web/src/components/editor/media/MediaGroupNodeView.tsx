@@ -11,11 +11,11 @@ import { mediaGroupLayoutClass } from "./mediaLayout";
 import { toMediaGroupAttrs, type MediaGroupLayout } from "./mediaSchema";
 
 const LAYOUTS: Array<{ value: MediaGroupLayout; label: string; Icon: typeof LayoutGrid }> = [
+  { value: "smart", label: "Умная мозаика", Icon: LayoutDashboard },
   { value: "grid", label: "Сетка 2", Icon: LayoutGrid },
   { value: "grid3", label: "Сетка 3", Icon: Grid3x3 },
   { value: "mosaic", label: "Мозаика", Icon: Columns3 },
   { value: "carousel", label: "Карусель", Icon: GalleryHorizontalEnd },
-  { value: "smart", label: "Умная мозаика", Icon: LayoutDashboard },
 ];
 
 export const MediaGroupNodeView = ({ node, editor, getPos, updateAttributes, deleteNode, selected }: NodeViewProps) => {

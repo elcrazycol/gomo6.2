@@ -11,6 +11,7 @@ import { Fragment, type Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 
 import {
+  DEFAULT_MEDIA_GROUP_ATTRS,
   MEDIA_BLOCK_NODE,
   MEDIA_GROUP_NODE,
   UPLOAD_PLACEHOLDER_NODE,
@@ -199,7 +200,7 @@ export const mergeMediaTransaction = (
   if (!targetNode) return null;
   const first = side === "after" ? targetNode : sourceNode;
   const second = side === "after" ? sourceNode : targetNode;
-  const group = groupType.create({ layout: "grid" }, [first, second]);
+  const group = groupType.create({ ...DEFAULT_MEDIA_GROUP_ATTRS }, [first, second]);
 
   const blockDepth = $target.depth;
   const blockStart = $target.before(blockDepth);
@@ -316,7 +317,7 @@ export const insertMediaGroupWithPlaceholders = (
     type: UPLOAD_PLACEHOLDER_NODE,
     attrs: { uploadId: placeholder.uploadId, kind: placeholder.kind, name: placeholder.name, percent: 0, phase: "upload", error: null },
   }));
-  editor.chain().insertContentAt(pos, { type: MEDIA_GROUP_NODE, attrs: { layout: "grid" }, content }).run();
+  editor.chain().insertContentAt(pos, { type: MEDIA_GROUP_NODE, attrs: { ...DEFAULT_MEDIA_GROUP_ATTRS }, content }).run();
 };
 
 /** Insert a ready inline media node at the given position (or the caret). */
