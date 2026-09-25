@@ -19,7 +19,8 @@ const showMoreButtonClass =
 export const PostTeaser = ({ contentJson, onOpenPost }: { contentJson: unknown; onOpenPost: () => void }) => {
   const { attachments } = useMediaView();
   const teaser = useMemo(() => buildPostTeaser(contentJson, 3), [contentJson]);
-  const coverId = useMemo(() => getDocCover(contentJson), [contentJson]);
+  const cover = useMemo(() => getDocCover(contentJson), [contentJson]);
+  const coverId = cover?.id ?? null;
 
   const textRef = useRef<HTMLDivElement | null>(null);
   const [textOverflow, setTextOverflow] = useState(false);

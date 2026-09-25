@@ -206,24 +206,46 @@ export const collectMediaAttachmentIds = (contentJson: unknown): string[] => {
 /** Hard cap on inline media per post (server validates the same number in P2). */
 export const MAX_MEDIA_NODES = 15;
 
+/** Where a post cover is displayed. Multi-select; `inline` keeps the photo in
+    the text, `top`/`bottom` add banners. */
+export const COVER_PLACEMENTS = ["top", "bottom", "inline"] as const;
+export type CoverPlacement = (typeof COVER_PLACEMENTS)[number];
+
+export interface DocCover {
+  id: string;
+  placements: CoverPlacement[];
+}
+
+const isCoverPlacement = (value: unknown): value is CoverPlacement =>
+  COVER_PLACEMENTS.includes(value as CoverPlacement);
+
 /**
- * The post's chosen cover attachment id (a doc-level `cover` attribute), or
- * null. The cover is presentation only: it must reference an attachment that a
+ * The post's chosen cover (a doc-level `cover` attachment id + `coverPlacements`
+ * list), or null. One cover per post; it must reference an attachment a
  * mediaBlock already uses, so it never needs its own pool entry.
  */
-export const getDocCover = (contentJson: unknown): string | null => {
+export const getDocCover = (contentJson: unknown): DocCover | null => {
   const doc = parseDocument(contentJson);
   if (!isRecord(doc)) return null;
-  const cover = doc.cover;
-  return typeof cover === "string" && cover ? cover : null;
+  const id = doc.cover;
+  if (typeof id !== "string" || !id) return null;
+  const raw = Array.isArray(doc.coverPlacements) ? doc.coverPlacements : null;
+  // Legacy docs (id only) keep the photo in the text and show a top banner.
+  const placements = raw ? raw.filter(isCoverPlacement) : (["top", "inline"] as CoverPlacement[]);
+  return { id, placements: placements.length > 0 ? placements : ["top"] };
 };
 
 /** A copy of the document with the cover set (or removed when null). */
-export const withDocCover = (doc: unknown, coverId: string | null): unknown => {
+export const withDocCover = (doc: unknown, cover: DocCover | null): unknown => {
   if (!isRecord(doc)) return doc;
   const next: Record<string, unknown> = { ...doc };
-  if (coverId) next.cover = coverId;
-  else delete next.cover;
+  if (cover) {
+    next.cover = cover.id;
+    next.coverPlacements = cover.placements;
+  } else {
+    delete next.cover;
+    delete next.coverPlacements;
+  }
   return next;
 };
 

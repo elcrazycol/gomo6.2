@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
@@ -32,7 +33,20 @@ import { mediaFigureLayout } from "./mediaLayout";
 import { useMediaView } from "./mediaViewContext";
 import { useMediaEditor } from "./mediaEditorContext";
 import { startMediaDrag } from "./mediaDrag";
-import { mediaShape, naturalWidthPercent, toMediaBlockAttrs, type MediaAlign } from "./mediaSchema";
+import {
+  COVER_PLACEMENTS,
+  mediaShape,
+  naturalWidthPercent,
+  toMediaBlockAttrs,
+  type CoverPlacement,
+  type MediaAlign,
+} from "./mediaSchema";
+
+const COVER_PLACEMENT_LABELS: Record<CoverPlacement, string> = {
+  top: "Сверху",
+  bottom: "Снизу",
+  inline: "На месте (в тексте)",
+};
 
 const PLACEMENT_OPTIONS: Array<{ value: MediaAlign; label: string; Icon: typeof AlignLeft }> = [
   { value: "inline", label: "В строке", Icon: Pilcrow },
@@ -54,11 +68,21 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
   const [placementOpen, setPlacementOpen] = useState(false);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
 
   const attachment = attachments.find((att) => att.id === attrs.attachmentId) ?? null;
   const layout = mediaFigureLayout(attrs.align, attrs.width);
   const isCover = Boolean(editorContext?.setCover) && editorContext?.coverId === attrs.attachmentId;
   const canSetCover = Boolean(editorContext?.setCover) && attachment?.type === "image";
+  const coverPlacements = isCover ? (editorContext?.coverPlacements ?? []) : [];
+
+  const toggleCoverPlacement = (placement: CoverPlacement, checked: boolean) => {
+    const next = checked
+      ? Array.from(new Set([...coverPlacements, placement]))
+      : coverPlacements.filter((item) => item !== placement);
+    if (next.length === 0) editorContext?.setCover?.(null, []);
+    else editorContext?.setCover?.(attrs.attachmentId, next);
+  };
 
   const selectNode = () => {
     const pos = getPos();
@@ -189,31 +213,6 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
         <span className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-background/85 px-2 py-1 text-[11px] text-muted-foreground">
           <ImageIcon className="h-3 w-3" /> Нет файла
         </span>
-      )}
-
-      {/* Cover chip — top-left corner so it never touches the bottom toolbar.
-          Always visible once chosen; on hover/selection otherwise. */}
-      {canSetCover && (
-        <button
-          type="button"
-          title={isCover ? "Убрать обложку" : "Сделать обложкой"}
-          aria-pressed={isCover}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={(event) => {
-            event.stopPropagation();
-            editorContext?.setCover?.(isCover ? null : attrs.attachmentId);
-          }}
-          className={`absolute left-2 top-2 z-30 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium shadow-sm transition-opacity ${
-            isCover
-              ? "border-primary/40 bg-primary/90 text-primary-foreground opacity-100"
-              : `border-border/70 bg-background/90 text-muted-foreground ${
-                  selected ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                }`
-          }`}
-        >
-          <Star className={`h-3.5 w-3.5 ${isCover ? "fill-current" : ""}`} />
-          {isCover && <span>Обложка</span>}
-        </button>
       )}
 
       {/* Toolbar — pinned to the bottom INSIDE the media box, horizontally
@@ -363,6 +362,45 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
           >
             <Pencil className="h-4 w-4" />
           </Button>
+        )}
+
+        {canSetCover && (
+          <Popover open={coverOpen} onOpenChange={setCoverOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title="Обложка поста"
+                aria-pressed={isCover}
+                className={`${toolbarButtonClass} ${isCover ? "text-primary" : ""}`}
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                <Star className={`h-4 w-4 ${isCover ? "fill-current" : ""}`} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="start"
+              className="w-60 space-y-2 p-3"
+              style={{ zIndex: 70 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="text-xs font-medium text-muted-foreground">Обложка поста</div>
+              {COVER_PLACEMENTS.map((placement) => (
+                <label key={placement} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={coverPlacements.includes(placement)}
+                    onCheckedChange={(checked) => toggleCoverPlacement(placement, checked === true)}
+                  />
+                  {COVER_PLACEMENT_LABELS[placement]}
+                </label>
+              ))}
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Отметьте, где показывать фото. Обложка одна на пост.
+              </p>
+            </PopoverContent>
+          </Popover>
         )}
 
         <span className="mx-0.5 h-4 w-px bg-border" />

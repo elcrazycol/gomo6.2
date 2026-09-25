@@ -101,7 +101,9 @@ export const MediaBlockView = ({ attrs, editable = false }: { attrs: MediaBlockA
  * is served by the legacy bottom gallery instead.
  */
 export const MediaBlockRenderer = ({ attrs }: { attrs: MediaBlockAttrs }) => {
-  const { inlineMedia } = useMediaView();
+  const { inlineMedia, hiddenMediaIds } = useMediaView();
   if (!inlineMedia) return null;
+  // A cover whose "inline" placement is off is shown only as a banner.
+  if (hiddenMediaIds?.has(attrs.attachmentId)) return null;
   return <MediaBlockView attrs={attrs} />;
 };

@@ -65,6 +65,10 @@ export const FeedWallPostCard = ({
   const viewTrackingRef = usePostViewTracking(post.id);
   const postPath = getWallPostPath(post.user_id, post.id);
   const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
   // Long, media-heavy posts are teased on the feed; the full post opens on its
   // own page.
   const teaserMode = needsPostTeaser(post.content_json, post.content);
@@ -165,10 +169,11 @@ export const FeedWallPostCard = ({
             attachments,
             inlineMedia,
             galleryKey: `feed-${post.id}`,
+            hiddenMediaIds,
             onImageClick,
           }}
         >
-        {coverId && <PostCover attachmentId={coverId} />}
+        {!teaserMode && coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
         {teaserMode ? (
           <PostTeaser contentJson={post.content_json} onOpenPost={handleOpenPost} />
         ) : (
@@ -197,6 +202,9 @@ export const FeedWallPostCard = ({
               />
             )}
           </>
+        )}
+        {!teaserMode && coverId?.placements.includes("bottom") && (
+          <PostCover attachmentId={coverId.id} className="mt-3" />
         )}
         </MediaAttachmentsProvider>
 

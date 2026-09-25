@@ -96,6 +96,10 @@ export const WallPostCard = ({
   const hasMediaNodes = useMemo(() => docHasMediaNodes(post.content_json), [post.content_json]);
   const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
   const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
   // Media-only posts have no plain text but still need their content rendered.
   const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   // Reports the post as viewed once the card becomes visible in the viewport
@@ -440,12 +444,13 @@ export const WallPostCard = ({
             attachments,
             inlineMedia,
             galleryKey: post.id,
+            hiddenMediaIds,
             onImageClick,
             autoPlayVideo: autoplayVideo,
           }}
         >
         <div>
-          {coverId && <PostCover attachmentId={coverId} />}
+          {!teaserMode && coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
           {teaserMode ? (
             <PostTeaser contentJson={post.content_json} onOpenPost={openPost} />
           ) : (
@@ -476,6 +481,10 @@ export const WallPostCard = ({
                 onImageClick={onImageClick}
               />
             </div>
+          )}
+
+          {!teaserMode && coverId?.placements.includes("bottom") && (
+            <PostCover attachmentId={coverId.id} className="mt-3" />
           )}
         </div>
         </MediaAttachmentsProvider>
