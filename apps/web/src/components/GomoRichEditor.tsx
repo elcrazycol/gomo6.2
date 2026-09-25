@@ -10,7 +10,7 @@ import Link from "@tiptap/extension-link";
 import Mention from "@tiptap/extension-mention";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
-import { AtSign, Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon, X } from "lucide-react";
+import { Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -172,16 +172,6 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     editor.chain().focus().toggleSpoiler().run();
   };
 
-  // Insert "@" at the caret and let the suggestion plugin pick it up (it
-  // re-runs findSuggestionMatch on every transaction). If the cursor sits
-  // mid-word, a leading space is inserted first so the popup always opens.
-  const insertMention = () => {
-    const { from } = editor.state.selection;
-    const charBefore = editor.state.doc.textBetween(Math.max(0, from - 1), from);
-    const needsSpace = charBefore.length > 0 && !/\s/.test(charBefore);
-    editor.chain().focus().insertContent(needsSpace ? " @" : "@").run();
-  };
-
   const applyColor = (nextColor: string) => {
     if (!nextColor) {
       editor.chain().focus().unsetColor().run();
@@ -233,7 +223,6 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
         <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
         <div className="flex items-center gap-0.5">
           <ToolButton active={active.link} title="Ссылка" onClick={openLinkDialog}><Link2 className="h-4 w-4" /></ToolButton>
-          <ToolButton title="Упомянуть пользователя" onClick={insertMention}><AtSign className="h-4 w-4" /></ToolButton>
         </div>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
         <div className="flex items-center gap-0.5">

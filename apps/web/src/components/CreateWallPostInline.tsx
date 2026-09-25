@@ -611,32 +611,23 @@ export const CreateWallPostInline = ({
         )}
 
         {/* Header */}
-        <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2 py-2">
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Закрыть"
-            className="rounded-full p-2 text-muted-foreground transition hover:bg-muted/70 hover:text-foreground active:scale-95"
-          >
+        <InkBar blobClassName="h-9 w-9" className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2 py-2">
+          <InkButton onClick={close} aria-label="Закрыть" title="Закрыть" className="active:scale-95">
             <X className="h-5 w-5" />
-          </button>
+          </InkButton>
           <div className="min-w-0 flex-1 truncate px-1 text-center">
             <span className="text-sm font-semibold">{isEditing ? "Редактирование записи" : "Новая запись на стене"}</span>
             {!isEditing && restoredDraft && (
               <span className="ml-2 whitespace-nowrap text-[11px] text-muted-foreground/70">черновик</span>
             )}
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-muted-foreground"
+          <InkButton
             title={fullscreen ? "Свернуть" : "На весь экран"}
             onClick={() => setFullscreen((prev) => !prev)}
           >
             {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-          </Button>
-        </div>
+          </InkButton>
+        </InkBar>
 
         {/* Editor — media blocks are edited in place */}
         <div
@@ -696,16 +687,6 @@ export const CreateWallPostInline = ({
           blobClassName="h-9 w-9"
           className="flex shrink-0 items-center gap-0.5 border-t border-border/60 py-1.5 pl-2 pr-2 md:pr-7"
         >
-          <EmojiPicker
-            onEmojiSelect={(data) => {
-              editorRef.current?.focus();
-              editorRef.current?.insertEmoji(data);
-            }}
-          >
-            <InkButton title="Эмодзи">
-              <Smile className="h-5 w-5" />
-            </InkButton>
-          </EmojiPicker>
           <InkButton
             title="Добавить медиа"
             disabled={isSubmitting || atLimit}
@@ -721,6 +702,16 @@ export const CreateWallPostInline = ({
             data-testid="inline-media-file-input"
             onChange={handleFiles}
           />
+          <EmojiPicker
+            onEmojiSelect={(data) => {
+              editorRef.current?.focus();
+              editorRef.current?.insertEmoji(data);
+            }}
+          >
+            <InkButton title="Эмодзи">
+              <Smile className="h-5 w-5" />
+            </InkButton>
+          </EmojiPicker>
           <InkButton title="Ссылка-карточка" onClick={() => setLinkDialogOpen(true)}>
             <Link2 className="h-5 w-5" />
           </InkButton>
