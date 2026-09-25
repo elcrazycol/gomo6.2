@@ -732,7 +732,7 @@ export const CreateWallPostInline = ({
                 <Link2 className="h-5 w-5" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-80 space-y-2">
+            <PopoverContent side="top" align="start" className="z-[80] w-80 space-y-2">
               <div className="text-xs font-medium text-muted-foreground">Ссылка-карточка</div>
               <Input
                 autoFocus

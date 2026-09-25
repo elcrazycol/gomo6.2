@@ -211,7 +211,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 <Link2 className="h-4 w-4" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="w-72 space-y-2">
+            <PopoverContent side="bottom" align="center" className="z-[80] w-72 space-y-2">
               <div className="text-xs font-medium text-muted-foreground">Ссылка</div>
               <Input
                 autoFocus
@@ -245,7 +245,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 <Palette className="h-4 w-4" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="w-72 space-y-3">
+            <PopoverContent side="bottom" align="center" className="z-[80] w-72 space-y-3">
               <div className="text-xs font-medium text-muted-foreground">Цвет текста</div>
               <div className="flex items-center gap-2">
                 <button
@@ -306,7 +306,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 <Type className="h-4 w-4" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="w-64 space-y-3">
+            <PopoverContent side="bottom" align="center" className="z-[80] w-64 space-y-3">
               <div className="text-xs font-medium text-muted-foreground">Размер шрифта</div>
               <div className="flex flex-wrap gap-1.5">
                 {[13, 16, 18, 20, 24].map((px) => (
