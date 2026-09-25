@@ -45,14 +45,25 @@
 .media-group--carousel {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 75%;
-  gap: 4px;
+  /* Cap the frame width so fullscreen does not blow the photos up. */
+  grid-auto-columns: min(75%, 440px);
+  gap: 6px;
   overflow-x: auto;
   padding-bottom: 4px;
+  scroll-snap-type: x proximity;
 }
 .media-group--carousel [data-media-block] {
   width: 100% !important;
   margin: 0 !important;
+  scroll-snap-align: start;
+}
+
+/* ProseMirror inserts a separator image / trailing break between inline atoms;
+   inside a gallery they are phantom grid items (extra columns and endless
+   horizontal scroll), so drop them. */
+.media-group .ProseMirror-separator,
+.media-group .ProseMirror-trailingBreak {
+  display: none !important;
 }
 @media (min-width: 640px) {
   .media-group--mosaic {
