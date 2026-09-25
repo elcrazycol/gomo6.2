@@ -1,16 +1,7 @@
-/* Spoiler block: collapsed content is blurred and inert until revealed. Shared
-   by the read renderer and the editor NodeView. */
+/* Spoiler block. The reveal wrapper animates height via CSS grid rows
+   (0fr → 1fr) in the component; the body only needs a minimum height while
+   revealed so an empty spoiler still has a drop target in the editor. */
 
-.spoiler-block__body--hidden {
-  filter: blur(7px);
-  -webkit-filter: blur(7px);
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-  opacity: 0.85;
-}
-
-/* Editing inside a revealed spoiler is normal; the wrapper only groups it. */
 .spoiler-block__content {
   min-height: 1.5rem;
 }

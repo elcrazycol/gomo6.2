@@ -103,11 +103,11 @@ describe("ProseMirrorRenderer", () => {
 
     expect(container.querySelector("[data-spoiler-block]")).toBeInTheDocument();
     expect(screen.getByText("Спойлер к серии")).toBeInTheDocument();
-    expect(container.querySelector(".spoiler-block__body")?.className).toContain("spoiler-block__body--hidden");
+    expect(container.querySelector("[data-spoiler-reveal]")?.className).toContain("grid-rows-[0fr]");
 
     fireEvent.click(screen.getByRole("button"));
 
-    expect(container.querySelector(".spoiler-block__body")?.className).not.toContain("spoiler-block__body--hidden");
+    expect(container.querySelector("[data-spoiler-reveal]")?.className).toContain("grid-rows-[1fr]");
   });
 
   const mediaAttachment: MediaAttachment = {

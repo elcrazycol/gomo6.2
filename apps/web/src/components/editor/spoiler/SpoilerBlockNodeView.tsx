@@ -60,7 +60,7 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
             {open ? "Скрыть" : "Показать"}
           </span>
           <ChevronDown
-            className={`ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+            className={`ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out ${open ? "rotate-180" : ""}`}
           />
         </button>
 
@@ -115,8 +115,20 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
         </Button>
       </div>
 
-      <div className={`spoiler-block__body px-3 pb-3 pt-1${open ? "" : " spoiler-block__body--hidden"}`}>
-        <NodeViewContent className="spoiler-block__content" />
+      {/* Same height animation as the read view (grid rows 0fr → 1fr). */}
+      <div
+        data-spoiler-reveal="true"
+        className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div
+          className={`min-h-0 overflow-hidden transition-[opacity,transform,visibility] duration-300 ease-out motion-reduce:transition-none ${
+            open ? "visible translate-y-0 opacity-100" : "invisible -translate-y-1 opacity-0"
+          }`}
+        >
+          <NodeViewContent className="spoiler-block__content px-3 pb-3 pt-1" />
+        </div>
       </div>
     </NodeViewWrapper>
   );
