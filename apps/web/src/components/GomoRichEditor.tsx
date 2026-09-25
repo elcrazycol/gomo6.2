@@ -1,4 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
 import type { Editor, Extensions } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
@@ -84,34 +85,43 @@ const normalizeHexColor = (value: string) => {
 };
 
 const toolbarButtonClass = (active: boolean) =>
-  `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
+  `relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
     active
       ? "bg-primary text-primary-foreground shadow-sm"
-      : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+      : "text-muted-foreground hover:text-foreground"
   }`;
 
 const ToolButton = ({
   active = false,
   title,
   onClick,
+  onHover,
   children,
 }: {
   active?: boolean;
   title: string;
   onClick: () => void;
+  /** Report this button's element so the ink blob can glide under it. */
+  onHover?: (element: HTMLButtonElement | null) => void;
   children: React.ReactNode;
-}) => (
-  <button
-    type="button"
-    title={title}
-    aria-pressed={active}
-    onMouseDown={(event) => event.preventDefault()}
-    onClick={onClick}
-    className={toolbarButtonClass(active)}
-  >
-    {children}
-  </button>
-);
+}) => {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      title={title}
+      aria-pressed={active}
+      onMouseDown={(event) => event.preventDefault()}
+      onMouseEnter={() => onHover?.(ref.current)}
+      onFocus={() => onHover?.(ref.current)}
+      onClick={onClick}
+      className={toolbarButtonClass(active)}
+    >
+      {children}
+    </button>
+  );
+};
 
 export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?: string }) => {
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
@@ -140,6 +150,13 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
       };
     },
   });
+
+  const reduceMotion = useReducedMotion();
+  const [ink, setInk] = useState<{ x: number; visible: boolean }>({ x: 0, visible: false });
+  const moveInk = useCallback((element: HTMLButtonElement | null) => {
+    if (!element) return;
+    setInk({ x: element.offsetLeft, visible: true });
+  }, []);
 
   const toggleTextFormat = (format: "bold" | "italic" | "underline" | "strikethrough") => {
     const chain = editor.chain().focus();
@@ -224,26 +241,35 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
 
   return (
     <>
-      {/* Floating glass capsule: centered, grouped, with a live character count. */}
+      {/* Floating glass capsule: centered, grouped, with a live character count
+          and an "ink" blob that springs under the hovered/focused button. */}
       <div
+        onMouseLeave={() => setInk((prev) => ({ ...prev, visible: false }))}
         className={`sticky top-2 z-20 mx-auto flex w-fit max-w-full items-center gap-0.5 overflow-x-auto scrollbar-hide rounded-full border border-border/60 bg-background/70 p-1 shadow-lg shadow-black/5 backdrop-blur-md animate-in fade-in-0 slide-in-from-top-1 duration-300 motion-reduce:animate-none ${className}`}
       >
+        <motion.span
+          aria-hidden="true"
+          initial={false}
+          animate={{ x: ink.x, y: "-50%", opacity: ink.visible ? 1 : 0, scale: ink.visible ? 1 : 0.55 }}
+          transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 34, mass: 0.7 }}
+          className="pointer-events-none absolute left-0 top-1/2 z-0 h-8 w-8 rounded-full bg-primary/30 blur-[7px]"
+        />
         <div className="flex items-center gap-0.5">
-          <ToolButton active={active.bold} title="Жирный" onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></ToolButton>
-          <ToolButton active={active.italic} title="Курсив" onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></ToolButton>
-          <ToolButton active={active.underline} title="Подчёркнутый" onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></ToolButton>
-          <ToolButton active={active.strike} title="Зачёркнутый" onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></ToolButton>
+          <ToolButton active={active.bold} title="Жирный" onHover={moveInk} onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></ToolButton>
+          <ToolButton active={active.italic} title="Курсив" onHover={moveInk} onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></ToolButton>
+          <ToolButton active={active.underline} title="Подчёркнутый" onHover={moveInk} onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></ToolButton>
+          <ToolButton active={active.strike} title="Зачёркнутый" onHover={moveInk} onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></ToolButton>
         </div>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
         <div className="flex items-center gap-0.5">
-          <ToolButton active={active.link} title="Ссылка" onClick={openLinkDialog}><Link2 className="h-4 w-4" /></ToolButton>
-          <ToolButton title="Упомянуть пользователя" onClick={insertMention}><AtSign className="h-4 w-4" /></ToolButton>
+          <ToolButton active={active.link} title="Ссылка" onHover={moveInk} onClick={openLinkDialog}><Link2 className="h-4 w-4" /></ToolButton>
+          <ToolButton title="Упомянуть пользователя" onHover={moveInk} onClick={insertMention}><AtSign className="h-4 w-4" /></ToolButton>
         </div>
         <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
         <div className="flex items-center gap-0.5">
-          <ToolButton title="Цвет текста" onClick={openColorDialog}><Palette className="h-4 w-4" /></ToolButton>
-          <ToolButton title="Размер шрифта" onClick={openSizeDialog}><Type className="h-4 w-4" /></ToolButton>
-          <ToolButton active={active.spoiler} title="Спойлер (размытие)" onClick={toggleBlur}><Eye className="h-4 w-4" /></ToolButton>
+          <ToolButton title="Цвет текста" onHover={moveInk} onClick={openColorDialog}><Palette className="h-4 w-4" /></ToolButton>
+          <ToolButton title="Размер шрифта" onHover={moveInk} onClick={openSizeDialog}><Type className="h-4 w-4" /></ToolButton>
+          <ToolButton active={active.spoiler} title="Спойлер (размытие)" onHover={moveInk} onClick={toggleBlur}><Eye className="h-4 w-4" /></ToolButton>
         </div>
         <span className="mx-1 hidden shrink-0 px-1 font-mono text-[11px] tabular-nums text-muted-foreground sm:inline">
           {active.limit ? `${active.characters}/${active.limit}` : active.characters}
