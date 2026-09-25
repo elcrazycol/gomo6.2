@@ -58,7 +58,7 @@ export const SlashCommandList = forwardRef<SlashCommandListHandle, SlashCommandL
     );
 
     return (
-      <div className="w-[calc(100vw-20px)] overflow-hidden rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 duration-100 motion-reduce:animate-none sm:w-80">
+      <div data-slash-menu="true" className="w-[calc(100vw-20px)] overflow-hidden rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 duration-100 motion-reduce:animate-none sm:w-80">
         <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
           <span className="text-xs font-medium text-muted-foreground">Вставить блок</span>
           {query && <span className="font-mono text-xs text-muted-foreground/80">/{query}</span>}

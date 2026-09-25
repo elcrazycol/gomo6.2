@@ -557,32 +557,32 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     if (!el) return;
     // The slash/mention popup clears its "active" flag when it consumes Enter,
     // and ProseMirror handles the keydown before this bubble listener runs — so
-    // snapshot the popup state in the capture phase (which runs first) and use
-    // it when deciding whether to submit. Without this, Enter with the slash
-    // menu open published the post instead of selecting the item.
+    // snapshot whether a popup is open in the capture phase (which runs first).
+    // We check both the module flag and the popup's DOM marker: the flag can go
+    // stale across an HMR module instance, and an empty result state has no
+    // items to look for. Capture runs on the document so it always fires, even
+    // when focus sits in a popup portal outside the editor container.
     let popupConsumesEnter = false;
     const captureKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Enter") {
-        // Belt and suspenders: the module flag can go stale across an HMR
-        // module instance, so also check that the slash popup is in the DOM.
-        popupConsumesEnter =
-          isSlashPopupActive() ||
-          isMentionPopupActive() ||
-          document.querySelector("[data-slash-item]") !== null;
-      }
+      if (event.key !== "Enter") return;
+      popupConsumesEnter =
+        isSlashPopupActive() ||
+        isMentionPopupActive() ||
+        document.querySelector("[data-slash-menu]") !== null ||
+        document.querySelector("[data-mention-menu]") !== null;
     };
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.shiftKey || window.innerWidth < 768) return;
       // Don't submit while the @-mention/slash popup is open — Enter there
       // selects a user/item.
-      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768 && !popupConsumesEnter) {
-        event.preventDefault();
-        onSubmit?.();
-      }
+      if (popupConsumesEnter) return;
+      event.preventDefault();
+      onSubmit?.();
     };
-    el.addEventListener("keydown", captureKeyDown, true);
+    document.addEventListener("keydown", captureKeyDown, true);
     el.addEventListener("keydown", handleKeyDown);
     return () => {
-      el.removeEventListener("keydown", captureKeyDown, true);
+      document.removeEventListener("keydown", captureKeyDown, true);
       el.removeEventListener("keydown", handleKeyDown);
     };
   }, [editor, onSubmit]);
