@@ -153,6 +153,7 @@ describe("mediaSchema", () => {
 
   it("coerces a media group layout", () => {
     expect(toMediaGroupAttrs({ layout: "carousel" })).toEqual({ layout: "carousel" });
+    expect(toMediaGroupAttrs({ layout: "compare" })).toEqual({ layout: "compare" });
     expect(toMediaGroupAttrs({ layout: "smart" })).toEqual({ layout: "smart" });
     expect(toMediaGroupAttrs({ layout: "bogus" })).toEqual({ layout: "smart" });
     expect(toMediaGroupAttrs(null)).toEqual({ layout: "smart" });

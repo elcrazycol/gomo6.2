@@ -144,4 +144,37 @@ describe("ProseMirrorRenderer", () => {
     expect(container.querySelector("[data-media-group]")).toBeInTheDocument();
     expect(screen.getAllByTestId("wall-attachments")).toHaveLength(2);
   });
+
+  it("renders a compare gallery as a before/after slider for two photos", () => {
+    const { container } = renderWithMedia([
+      {
+        type: "mediaGroup",
+        attrs: { layout: "compare" },
+        content: [
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image", aspect: 1.5 } },
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image", aspect: 1.5 } },
+        ],
+      },
+    ]);
+    expect(container.querySelector(".media-group--compare")).toBeInTheDocument();
+    expect(container.querySelector("[data-compare-handle]")).toBeInTheDocument();
+    expect(screen.getByText("До")).toBeInTheDocument();
+    expect(screen.getByText("После")).toBeInTheDocument();
+  });
+
+  it("falls back to a grid when compare does not have exactly two photos", () => {
+    const { container } = renderWithMedia([
+      {
+        type: "mediaGroup",
+        attrs: { layout: "compare" },
+        content: [
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image" } },
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image" } },
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image" } },
+        ],
+      },
+    ]);
+    expect(container.querySelector(".media-group--grid")).toBeInTheDocument();
+    expect(container.querySelector("[data-compare-handle]")).not.toBeInTheDocument();
+  });
 });

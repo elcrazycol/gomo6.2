@@ -2,19 +2,30 @@
 // mosaic / carousel) and a delete action, floating over the group. The media
 // children render through NodeViewContent, so each media keeps its own toolbar.
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { GalleryHorizontalEnd, Grid3x3, LayoutDashboard, LayoutGrid, LayoutList, Rows3, Trash2 } from "lucide-react";
+import {
+  GalleryHorizontalEnd,
+  GitCompareArrows,
+  Grid3x3,
+  LayoutDashboard,
+  LayoutGrid,
+  LayoutList,
+  Rows3,
+  Trash2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ungroupMediaGroup } from "./mediaCommands";
 import { computeJustifiedSizes } from "./justifiedLayout";
+import { CompareHandle } from "./CompareSlider";
 import { mediaGroupLayoutClass } from "./mediaLayout";
 import { toMediaGroupAttrs, type MediaGroupLayout } from "./mediaSchema";
 
 const LAYOUTS: Array<{ value: MediaGroupLayout; label: string; Icon: typeof LayoutGrid }> = [
   { value: "smart", label: "Умная мозаика", Icon: LayoutDashboard },
   { value: "justified", label: "Ровные ряды", Icon: Rows3 },
+  { value: "compare", label: "До/После", Icon: GitCompareArrows },
   { value: "grid", label: "Сетка 2", Icon: LayoutGrid },
   { value: "grid3", label: "Сетка 3", Icon: Grid3x3 },
   { value: "carousel", label: "Карусель", Icon: GalleryHorizontalEnd },
@@ -33,6 +44,32 @@ export const MediaGroupNodeView = ({ node, editor, getPos, updateAttributes, del
     const pos = getPos();
     if (typeof pos === "number") ungroupMediaGroup(editor, pos);
   };
+
+  // "Compare" needs exactly two photos; anything else falls back to a grid so
+  // the gallery stays usable (and editable) instead of showing a broken slider.
+  const mediaChildren: Array<{ kind: string; aspect: number | null }> = [];
+  node.content.forEach((child) => {
+    const childAttrs = child.attrs as Record<string, unknown>;
+    const aspect = Number(childAttrs?.aspect);
+    mediaChildren.push({
+      kind: typeof childAttrs?.kind === "string" ? childAttrs.kind : "image",
+      aspect: Number.isFinite(aspect) && aspect > 0 ? aspect : null,
+    });
+  });
+  const isCompare = attrs.layout === "compare";
+  const compareReady =
+    isCompare && mediaChildren.length === 2 && mediaChildren.every((item) => item.kind === "image");
+  const contentLayout: MediaGroupLayout = isCompare && !compareReady ? "grid" : attrs.layout;
+  const [comparePosition, setComparePosition] = useState(50);
+  const getCompareContainer = useCallback(
+    () => groupRef.current?.querySelector<HTMLElement>(".media-group--compare") ?? null,
+    [],
+  );
+  const wrapperStyle: CSSProperties | undefined = compareReady
+    ? ({ "--compare-pos": `${comparePosition}%` } as CSSProperties)
+    : undefined;
+  const contentStyle: CSSProperties | undefined =
+    compareReady && mediaChildren[0]?.aspect ? { aspectRatio: String(mediaChildren[0].aspect) } : undefined;
 
   // "Justified" layout sizes each media imperatively so rows have equal height
   // and media are not cropped (the read view uses JustifiedGallery instead).
@@ -96,8 +133,23 @@ export const MediaGroupNodeView = ({ node, editor, getPos, updateAttributes, del
       data-media-group="true"
       data-selected={selected ? "true" : "false"}
       className="group/gallery relative"
+      style={wrapperStyle}
     >
-      <NodeViewContent as="div" className={mediaGroupLayoutClass(attrs.layout)} />
+      <NodeViewContent as="div" className={mediaGroupLayoutClass(contentLayout)} style={contentStyle} />
+
+      {compareReady && (
+        <CompareHandle
+          position={comparePosition}
+          onPositionChange={setComparePosition}
+          getContainer={getCompareContainer}
+        />
+      )}
+
+      {isCompare && !compareReady && (
+        <span className="pointer-events-none absolute left-2 top-2 z-30 inline-flex items-center gap-1 rounded-full bg-background/90 px-2 py-1 text-[11px] text-muted-foreground shadow-sm">
+          <GitCompareArrows className="h-3 w-3" /> Для «До/После» нужно 2 фото
+        </span>
+      )}
 
       <div
         data-media-toolbar="true"

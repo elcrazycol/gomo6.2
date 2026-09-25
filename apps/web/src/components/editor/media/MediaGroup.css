@@ -158,6 +158,120 @@
   aspect-ratio: auto !important;
   height: 100% !important;
 }
+/* "Compare" layout: a before/after slider for exactly two photos. The first
+   photo is the base ("до"), the second is clipped to the right of the handle
+   ("после"). Handles both the read view (direct <figure> children) and the
+   editor (tiptap .react-renderer wrappers); :nth-of-type ignores the phantom
+   separator <img>/<br> ProseMirror injects between inline atoms. */
+.media-compare-wrap {
+  position: relative;
+}
+.media-group--compare {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.4);
+  aspect-ratio: 16 / 10;
+  touch-action: pan-y;
+  user-select: none;
+}
+/* Read view: the media are direct children. Editor: they are spans inside the
+   display:contents content wrapper, so target both. */
+.media-group--compare > [data-media-block],
+.media-group--compare .react-renderer {
+  position: absolute;
+  inset: 0;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  max-width: none !important;
+}
+.media-group--compare .react-renderer > [data-media-block] {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+}
+/* The second photo ("после") is clipped to the right of the handle. */
+.media-group--compare > [data-media-block]:nth-of-type(2),
+.media-group--compare .react-renderer:nth-of-type(2) {
+  clip-path: inset(0 0 0 var(--compare-pos, 50%));
+}
+.media-group--compare [data-media-block] > div:not([data-media-toolbar]),
+.media-group--compare [data-media-content],
+.media-group--compare [data-media-content] * {
+  height: 100% !important;
+}
+.media-group--compare [data-media-block] img,
+.media-group--compare [data-media-block] video {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  display: block;
+}
+.media-group--compare [data-media-block] button,
+.media-group--compare [data-media-block] figure {
+  aspect-ratio: auto !important;
+  height: 100% !important;
+  width: 100% !important;
+  max-height: none !important;
+}
+
+/* The divider line + grip and the corner labels. */
+.media-compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+  cursor: ew-resize;
+  z-index: 20;
+  touch-action: none;
+  outline: none;
+}
+.media-compare-handle:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--primary));
+}
+.media-compare-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+.media-compare-label {
+  position: absolute;
+  bottom: 8px;
+  z-index: 15;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.media-compare-label--before {
+  left: 8px;
+}
+.media-compare-label--after {
+  right: 8px;
+}
+
 @media (min-width: 640px) {
   .media-group--mosaic {
     columns: 3;

@@ -100,6 +100,7 @@ describe("mediaGroupLayoutClass", () => {
   it("maps each layout to a media-group class", () => {
     expect(mediaGroupLayoutClass("grid")).toBe("media-group media-group--grid");
     expect(mediaGroupLayoutClass("carousel")).toContain("media-group--carousel");
+    expect(mediaGroupLayoutClass("compare")).toContain("media-group--compare");
     expect(mediaGroupLayoutClass("mosaic")).toContain("media-group--mosaic");
   });
 });

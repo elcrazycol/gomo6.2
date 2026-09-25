@@ -4,6 +4,7 @@ import { CensorBlur } from "@/components/CensorBlur";
 import { MentionLink } from "@/components/MentionLink";
 import { MediaBlockRenderer } from "@/components/editor/media/MediaBlockView";
 import { JustifiedGallery } from "@/components/editor/media/JustifiedGallery";
+import { CompareGallery } from "@/components/editor/media/CompareSlider";
 import { mediaGroupLayoutClass } from "@/components/editor/media/mediaLayout";
 import { isZeroWidthText, toMediaBlockAttrs, toMediaGroupAttrs } from "@/components/editor/media/mediaSchema";
 import { LinkCardView } from "@/components/editor/link/LinkCardView";
@@ -147,8 +148,8 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
       return <MediaBlockRenderer key={key} attrs={toMediaBlockAttrs(node.attrs)} />;
     case "mediaGroup": {
       const groupAttrs = toMediaGroupAttrs(node.attrs);
+      const items = node.content || [];
       if (groupAttrs.layout === "justified") {
-        const items = node.content || [];
         const aspects = items.map((child) => {
           const aspect = Number(child.attrs?.aspect);
           return Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
@@ -161,8 +162,24 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
           />
         );
       }
+      // "Compare" is a before/after slider for exactly two photos; anything
+      // else falls back to a plain grid so the post never shows a broken frame.
+      if (groupAttrs.layout === "compare") {
+        const twoImages =
+          items.length === 2 && items.every((child) => (child.attrs?.kind ?? "image") === "image");
+        if (twoImages) {
+          const aspect = Number(items[0].attrs?.aspect);
+          return (
+            <CompareGallery key={key} aspectRatio={Number.isFinite(aspect) && aspect > 0 ? aspect : null}>
+              {children}
+            </CompareGallery>
+          );
+        }
+      }
+      const layoutClass =
+        groupAttrs.layout === "compare" ? mediaGroupLayoutClass("grid") : mediaGroupLayoutClass(groupAttrs.layout);
       return (
-        <div key={key} data-media-group="true" className={mediaGroupLayoutClass(groupAttrs.layout)}>
+        <div key={key} data-media-group="true" className={layoutClass}>
           {children}
         </div>
       );
