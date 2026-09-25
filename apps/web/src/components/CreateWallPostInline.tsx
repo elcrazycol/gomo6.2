@@ -421,7 +421,7 @@ export const CreateWallPostInline = ({
         className={`fixed inset-x-0 top-0 bottom-0 flex w-full flex-col overflow-hidden bg-background transition-transform duration-300 md:static md:border md:border-border/60 md:bg-card md:shadow-2xl ${
           fullscreen
             ? "md:h-[100dvh] md:max-h-none md:max-w-none md:rounded-none"
-            : "md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-t-none md:rounded-bl-none md:rounded-br-lg"
+            : "md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-t-none md:rounded-bl-none md:rounded-br-2xl"
         } ${closing ? "translate-y-full md:translate-y-0 md:opacity-0" : "translate-y-0 md:opacity-100"}`}
       >
         {isDragging && (
