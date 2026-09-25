@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { ProseMirrorRenderer } from "./ProseMirrorRenderer";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
@@ -90,6 +90,24 @@ describe("ProseMirrorRenderer", () => {
     expect(link).toBeInTheDocument();
     expect(link?.getAttribute("rel")).toContain("noopener");
     expect(link?.textContent).toContain("Example");
+  });
+
+  it("renders a spoiler block collapsed and reveals it on click", () => {
+    const { container } = renderDoc([
+      {
+        type: "spoilerBlock",
+        attrs: { label: "Спойлер к серии" },
+        content: [{ type: "paragraph", content: [{ type: "text", text: "секрет" }] }],
+      },
+    ]);
+
+    expect(container.querySelector("[data-spoiler-block]")).toBeInTheDocument();
+    expect(screen.getByText("Спойлер к серии")).toBeInTheDocument();
+    expect(container.querySelector(".spoiler-block__body")?.className).toContain("spoiler-block__body--hidden");
+
+    fireEvent.click(screen.getByRole("button"));
+
+    expect(container.querySelector(".spoiler-block__body")?.className).not.toContain("spoiler-block__body--hidden");
   });
 
   const mediaAttachment: MediaAttachment = {

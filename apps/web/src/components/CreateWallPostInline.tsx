@@ -34,6 +34,7 @@ import { normalizeAttachments, type WallPost } from "@/utils/wallNormalizers";
 import { mediaExtensions } from "@/components/editor/media/mediaExtensions";
 import { createSlashCommand } from "@/components/editor/slash/slashCommands";
 import { insertLinkCard } from "@/components/editor/link/linkCommands";
+import { insertSpoilerBlock } from "@/components/editor/spoiler/spoilerCommands";
 import { isCardableUrl, linkHost } from "@/components/editor/link/linkCardSchema";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
 import { MediaEditorProvider } from "@/components/editor/media/mediaEditorContext";
@@ -153,15 +154,19 @@ export const CreateWallPostInline = ({
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
+  // Spoiler-block dialog state (label text shown on the collapsed block).
+  const [spoilerDialogOpen, setSpoilerDialogOpen] = useState(false);
+  const [spoilerLabelDraft, setSpoilerLabelDraft] = useState("");
   // Editor extension pack: media nodes + the slash command menu (its media
-  // action opens the composer's hidden file input, the link action opens the
-  // link-card dialog).
+  // action opens the composer's hidden file input, the link/spoiler actions
+  // open their dialogs).
   const editorExtensions = useMemo(
     () => [
       ...mediaExtensions,
       createSlashCommand({
         requestMedia: () => fileInputRef.current?.click(),
         requestLinkCard: () => setLinkDialogOpen(true),
+        requestSpoiler: () => setSpoilerDialogOpen(true),
       }),
     ],
     [],
@@ -400,6 +405,15 @@ export const CreateWallPostInline = ({
       setLinkDialogOpen(false);
       setLinkUrl("");
     }
+  };
+
+  // ── Spoiler block ─────────────────────────────────────────────────────────
+  const handleCreateSpoiler = () => {
+    const editor = editorRef.current?.getEditor();
+    if (!editor) return;
+    insertSpoilerBlock(editor, spoilerLabelDraft);
+    setSpoilerDialogOpen(false);
+    setSpoilerLabelDraft("");
   };
 
   // ── Composer resize (desktop, bottom-right corner) ───────────────────────
@@ -741,6 +755,37 @@ export const CreateWallPostInline = ({
             </Button>
             <Button type="button" onClick={() => void handleCreateLinkCard()} disabled={linkLoading || !linkUrl.trim()}>
               {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={spoilerDialogOpen} onOpenChange={setSpoilerDialogOpen}>
+        <DialogContent className="z-[70] max-w-md border-border/70 bg-background">
+          <DialogHeader>
+            <DialogTitle>Спойлер</DialogTitle>
+            <DialogDescription>
+              Введите текст на спойлере — его увидят до того, как раскроют блок.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={spoilerLabelDraft}
+            onChange={(event) => setSpoilerLabelDraft(event.target.value)}
+            placeholder="Спойлер"
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                handleCreateSpoiler();
+              }
+            }}
+          />
+          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
+            <Button type="button" variant="outline" onClick={() => setSpoilerDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={handleCreateSpoiler}>
+              Добавить
             </Button>
           </DialogFooter>
         </DialogContent>

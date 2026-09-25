@@ -10,7 +10,7 @@ import { PluginKey } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import { Suggestion } from "@tiptap/suggestion";
 import type { SuggestionKeyDownProps, SuggestionOptions } from "@tiptap/suggestion";
-import { Image as ImageIcon, LayoutDashboard, Link2, Minus } from "lucide-react";
+import { Image as ImageIcon, EyeOff, LayoutDashboard, Link2, Minus } from "lucide-react";
 
 import { SlashCommandList, type SlashCommandListHandle } from "./SlashCommandList";
 
@@ -19,6 +19,8 @@ export interface SlashActions {
   requestMedia: () => void;
   /** Open the link-card dialog (URL → preview). */
   requestLinkCard: () => void;
+  /** Open the spoiler dialog (label → spoiler block). */
+  requestSpoiler: () => void;
 }
 
 interface Range {
@@ -77,6 +79,17 @@ export const slashItems: SlashItem[] = [
     run: ({ editor, range, actions }) => {
       editor.chain().focus().deleteRange(range).run();
       actions.requestLinkCard();
+    },
+  },
+  {
+    key: "spoiler",
+    title: "Спойлер",
+    hint: "Блок «нажми, чтобы показать»",
+    keywords: ["спойлер", "spoiler", "скрыть", "hide", "reveal"],
+    Icon: EyeOff,
+    run: ({ editor, range, actions }) => {
+      editor.chain().focus().deleteRange(range).run();
+      actions.requestSpoiler();
     },
   },
 ];

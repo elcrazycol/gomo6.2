@@ -39,6 +39,7 @@ var allowedNodeTypes = map[string]bool{
 	"mediaGroup":     true,
 	"horizontalRule": true,
 	"linkCard":       true,
+	"spoilerBlock":   true,
 }
 
 var allowedMarkTypes = map[string]bool{
@@ -154,6 +155,8 @@ func walkDocument(node map[string]interface{}, depth int, count *int, problems *
 		validateMediaNode(node, problems)
 	case "linkCard":
 		validateLinkCardNode(node, problems)
+	case "spoilerBlock":
+		validateSpoilerBlockNode(node, problems)
 	}
 	content, ok := node["content"].([]interface{})
 	if !ok {
@@ -243,6 +246,19 @@ func validateLinkCardNode(node map[string]interface{}, problems *[]string) {
 		if value, ok := attrs[key].(string); ok && utf8RuneLen(value) > maxCaptionRunes {
 			*problems = append(*problems, "linkCard "+key+" is too long")
 		}
+	}
+}
+
+// validateSpoilerBlockNode checks a spoiler block's label length. The block may
+// hold any allowed block content (text, media, galleries), which the generic
+// walk already validates.
+func validateSpoilerBlockNode(node map[string]interface{}, problems *[]string) {
+	attrs, _ := node["attrs"].(map[string]interface{})
+	if attrs == nil {
+		return
+	}
+	if value, ok := attrs["label"].(string); ok && utf8RuneLen(value) > maxCaptionRunes {
+		*problems = append(*problems, "spoilerBlock label is too long")
 	}
 }
 
@@ -426,6 +442,21 @@ func documentPlainText(node map[string]interface{}) string {
 			}
 		}
 		return " "
+	case "spoilerBlock":
+		var spoiler strings.Builder
+		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
+			if label, ok := attrs["label"].(string); ok && strings.TrimSpace(label) != "" {
+				spoiler.WriteString(strings.TrimSpace(label))
+				spoiler.WriteString("\n")
+			}
+		}
+		content, _ := node["content"].([]interface{})
+		for _, child := range content {
+			if childMap, ok := child.(map[string]interface{}); ok {
+				spoiler.WriteString(documentPlainText(childMap))
+			}
+		}
+		return spoiler.String()
 	}
 	var builder strings.Builder
 	content, _ := node["content"].([]interface{})

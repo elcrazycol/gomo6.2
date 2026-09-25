@@ -9,6 +9,7 @@ import { mediaGroupLayoutClass } from "@/components/editor/media/mediaLayout";
 import { isZeroWidthText, toMediaBlockAttrs, toMediaGroupAttrs } from "@/components/editor/media/mediaSchema";
 import { LinkCardView } from "@/components/editor/link/LinkCardView";
 import { toLinkCardAttrs } from "@/components/editor/link/linkCardSchema";
+import { SpoilerBlockView } from "@/components/editor/spoiler/SpoilerBlockView";
 
 interface ProsemirrorNode {
   type: string;
@@ -191,6 +192,12 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
       return <hr key={key} className="my-3 border-0 border-t border-border/60" />;
     case "linkCard":
       return <LinkCardView key={key} attrs={toLinkCardAttrs(node.attrs)} />;
+    case "spoilerBlock":
+      return (
+        <SpoilerBlockView key={key} label={node.attrs?.label}>
+          {children}
+        </SpoilerBlockView>
+      );
     default:
       return <React.Fragment key={key}>{children}</React.Fragment>;
   }

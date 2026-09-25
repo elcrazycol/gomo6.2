@@ -91,6 +91,57 @@ func TestValidatePostDocumentRejectsBadMediaAttrs(t *testing.T) {
 	}
 }
 
+func TestValidatePostDocumentSpoilerBlock(t *testing.T) {
+	valid := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{
+				"type":  "spoilerBlock",
+				"attrs": map[string]interface{}{"label": "Спойлер к серии"},
+				"content": []interface{}{
+					paragraph(wallText("секрет", nil)),
+					mediaBlock("att_1", nil),
+				},
+			},
+		},
+	}
+	if problems := ValidatePostDocument(valid); len(problems) != 0 {
+		t.Fatalf("expected no problems, got %v", problems)
+	}
+
+	long := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{
+				"type":    "spoilerBlock",
+				"attrs":   map[string]interface{}{"label": strings.Repeat("a", maxCaptionRunes+1)},
+				"content": []interface{}{paragraph(wallText("x", nil))},
+			},
+		},
+	}
+	problems := strings.Join(ValidatePostDocument(long), "; ")
+	if !strings.Contains(problems, "spoilerBlock label is too long") {
+		t.Fatalf("expected label problem, got %q", problems)
+	}
+}
+
+func TestDocumentPlainTextSpoilerBlock(t *testing.T) {
+	doc := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{
+				"type":    "spoilerBlock",
+				"attrs":   map[string]interface{}{"label": "Спойлер"},
+				"content": []interface{}{paragraph(wallText("секрет", nil))},
+			},
+		},
+	}
+	text := documentPlainText(doc)
+	if !strings.Contains(text, "Спойлер") || !strings.Contains(text, "секрет") {
+		t.Fatalf("expected label and hidden content in plain text, got %q", text)
+	}
+}
+
 func TestValidateAttachmentRefsAndOwnership(t *testing.T) {
 	doc := map[string]interface{}{
 		"type":    "doc",

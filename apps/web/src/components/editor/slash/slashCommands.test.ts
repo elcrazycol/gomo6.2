@@ -14,6 +14,7 @@ describe("filterSlashItems", () => {
     expect(filterSlashItems("GALLERY").map((item) => item.key)).toEqual(["gallery"]);
     expect(filterSlashItems("видео").map((item) => item.key)).toEqual(["media"]);
     expect(filterSlashItems("ссылка").map((item) => item.key)).toEqual(["link"]);
+    expect(filterSlashItems("спойлер").map((item) => item.key)).toEqual(["spoiler"]);
   });
 
   it("returns nothing for an unknown query", () => {

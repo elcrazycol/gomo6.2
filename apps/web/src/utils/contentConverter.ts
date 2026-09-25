@@ -338,6 +338,11 @@ export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => 
     }
     const children = (node.content as Record<string, unknown>[] || []).map(walk).join("");
     if (node.type === "paragraph") return children + "\n";
+    if (node.type === "spoilerBlock") {
+      const attrs = (node.attrs as Record<string, unknown>) || {};
+      const label = typeof attrs.label === "string" ? attrs.label.trim() : "";
+      return (label ? `${label}\n` : "") + children;
+    }
     return children;
   };
 

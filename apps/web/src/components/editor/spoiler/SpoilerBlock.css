@@ -1,0 +1,16 @@
+/* Spoiler block: collapsed content is blurred and inert until revealed. Shared
+   by the read renderer and the editor NodeView. */
+
+.spoiler-block__body--hidden {
+  filter: blur(7px);
+  -webkit-filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  opacity: 0.85;
+}
+
+/* Editing inside a revealed spoiler is normal; the wrapper only groups it. */
+.spoiler-block__content {
+  min-height: 1.5rem;
+}
