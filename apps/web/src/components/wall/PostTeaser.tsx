@@ -23,7 +23,7 @@ const tileSrc = (attachment: MediaAttachment | null): string | null => {
 };
 
 const showMoreButtonClass =
-  "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/95 px-4 py-1.5 text-sm font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent";
+  "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground";
 
 export const PostTeaser = ({ contentJson, onOpenPost }: { contentJson: unknown; onOpenPost: () => void }) => {
   const { attachments } = useMediaView();
