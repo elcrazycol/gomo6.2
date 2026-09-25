@@ -10,6 +10,11 @@ import * as mm from 'music-metadata';
 export type AttachmentType = "image" | "video" | "audio" | "file";
 
 export interface AttachmentMeta {
+  /**
+   * Stable id referenced by inline media nodes (mediaBlock.attrs.attachmentId).
+   * Optional for legacy rows; ensureAttachmentIds() derives one from the path.
+   */
+  id?: string;
   url: string;
   type: AttachmentType;
   mime: string;

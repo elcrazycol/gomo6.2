@@ -217,10 +217,25 @@ describe("isInteractiveTarget", () => {
 });
 
 describe("normalizeAttachments", () => {
-  it("returns attachments array when present", () => {
+  it("returns attachments array when present, filling a stable id", () => {
     const attachments = [{ url: "file.pdf", type: "file" as const, mime: "application/pdf", name: "doc", size: 100 }];
     const post = makePost({ attachments });
-    expect(normalizeAttachments(post)).toEqual(attachments);
+    const result = normalizeAttachments(post);
+    expect(result).toHaveLength(1);
+    // Original fields preserved…
+    expect(result[0]).toMatchObject(attachments[0]);
+    // …plus a derived id so inline media nodes can reference the attachment.
+    expect(result[0].id).toMatch(/^att_[0-9a-f]{8}$/);
+    // Deterministic: the same attachment resolves to the same id every call.
+    expect(normalizeAttachments(post)[0].id).toBe(result[0].id);
+  });
+
+  it("preserves an id already stored on the attachment", () => {
+    const attachments = [
+      { id: "att_custom", url: "file.pdf", type: "file" as const, mime: "application/pdf", name: "doc", size: 100 },
+    ];
+    const post = makePost({ attachments });
+    expect(normalizeAttachments(post)[0].id).toBe("att_custom");
   });
 
   it("creates image attachment from image_url when no attachments", () => {

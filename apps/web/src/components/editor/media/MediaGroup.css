@@ -1,0 +1,141 @@
+/* Gallery layouts for a mediaGroup. Media children are targeted by their
+   `data-media-block` attribute (they may be direct children, or nested under a
+   display:contents content element in the editor). */
+
+.media-group {
+  margin: 0.5rem 0;
+}
+
+/* tiptap React NodeViews wrap the content children in an extra element; flatten
+   it so the media are laid out by the gallery container itself (grid/flex/columns
+   see them as direct children), matching the read view. */
+.media-group [data-node-view-content-react] {
+  display: contents;
+}
+
+.media-group--grid,
+.media-group--grid3 {
+  display: grid;
+  gap: 4px;
+}
+.media-group--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.media-group--grid3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.media-group--grid [data-media-block],
+.media-group--grid3 [data-media-block] {
+  width: 100% !important;
+  margin: 0 !important;
+}
+
+.media-group--mosaic {
+  columns: 2;
+  column-gap: 4px;
+}
+.media-group--mosaic [data-media-block] {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 0 4px 0 !important;
+  break-inside: avoid;
+}
+
+.media-group--carousel {
+  display: grid;
+  grid-auto-flow: column;
+  /* Cap the frame width so fullscreen does not blow the photos up. */
+  grid-auto-columns: min(75%, 440px);
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+}
+.media-group--carousel [data-media-block] {
+  width: 100% !important;
+  margin: 0 !important;
+  scroll-snap-align: start;
+}
+
+/* ProseMirror inserts a separator image / trailing break between inline atoms;
+   inside a gallery they are phantom grid items (extra columns and endless
+   horizontal scroll), so drop them. */
+.media-group .ProseMirror-separator,
+.media-group .ProseMirror-trailingBreak {
+  display: none !important;
+}
+
+/* "Smart" collage: each media is bucketed by orientation (data-shape) and a
+   dense grid packs them (wide → full width, tall → left column, squares fill
+   the rest). Images are cropped to fill their cell (collage). */
+.media-group--smart {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: clamp(64px, 11vw, 120px);
+  grid-auto-flow: dense;
+  gap: 4px;
+}
+.media-group--smart [data-media-block] {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+}
+/* Height chain only through the media content — NOT the floating toolbar
+   (a sibling inside the media node), which used to stretch. */
+.media-group--smart [data-media-block] > div:not([data-media-toolbar]),
+.media-group--smart [data-media-content],
+.media-group--smart [data-media-content] * {
+  height: 100% !important;
+}
+/* The grid item is the media node itself in the read view, but tiptap's
+   .react-renderer wrapper in the editor — target both. */
+.media-group--smart .react-renderer {
+  width: 100%;
+  height: 100%;
+}
+.media-group--smart [data-media-block][data-shape="wide"],
+.media-group--smart .react-renderer:has([data-shape="wide"]) {
+  grid-column: span 4;
+  grid-row: span 2;
+}
+.media-group--smart [data-media-block][data-shape="tall"],
+.media-group--smart .react-renderer:has([data-shape="tall"]) {
+  grid-column: span 1;
+  grid-row: span 3;
+}
+.media-group--smart [data-media-block][data-shape="square"],
+.media-group--smart .react-renderer:has([data-shape="square"]) {
+  grid-column: span 2;
+  grid-row: span 2;
+}
+.media-group--smart [data-media-block] img,
+.media-group--smart [data-media-block] video {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  object-fit: cover !important;
+}
+.media-group--smart [data-media-block] button,
+.media-group--smart [data-media-block] figure {
+  aspect-ratio: auto !important;
+  height: 100% !important;
+}
+@media (min-width: 640px) {
+  .media-group--mosaic {
+    columns: 3;
+  }
+}
+
+/* Highlight of the media the dragged one will merge into. */
+.media-merge-target {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* While dragging a media, hide every media toolbar (source + targets). */
+body.media-dragging [data-media-toolbar] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

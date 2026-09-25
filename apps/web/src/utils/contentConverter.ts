@@ -1,3 +1,5 @@
+import { normalizeMediaNodesInDoc } from "@/components/editor/media/mediaSchema";
+
 export const EMPTY_EDITOR_STATE = {
   type: "doc" as const,
   content: [{ type: "paragraph" as const, content: [{ type: "text" as const, text: "\u200b" }] }],
@@ -247,7 +249,8 @@ export const normalizeContent = (contentJson: unknown, legacyContent?: string | 
     if (isEmptyProsemirror(contentJson) && hasLegacyContent) {
       return legacyContentToProsemirrorJson(legacyContent);
     }
-    return contentJson as ProsemirrorNode;
+    // Media nodes are inline; wrap any legacy top-level media in a paragraph.
+    return normalizeMediaNodesInDoc(contentJson) as ProsemirrorNode;
   }
 
   if (typeof contentJson === "string") {
@@ -259,7 +262,7 @@ export const normalizeContent = (contentJson: unknown, legacyContent?: string | 
           if (isEmptyProsemirror(parsed) && hasLegacyContent) {
             return legacyContentToProsemirrorJson(legacyContent);
           }
-          return parsed;
+          return normalizeMediaNodesInDoc(parsed) as ProsemirrorNode;
         }
       } catch {
         // not JSON
@@ -293,6 +296,23 @@ export const stripTrailingEmptyParagraphs = (json: unknown): unknown => {
   return { ...doc, content: content.slice(0, end) };
 };
 
+/**
+ * Remove empty paragraphs at BOTH ends of the document. Media inserted after
+ * an Enter leaves a blank paragraph at the top/bottom that renders as an empty
+ * line in the post; trimming it on save keeps the stored document clean.
+ */
+export const stripEdgeEmptyParagraphs = (json: unknown): unknown => {
+  if (!isProsemirrorJson(json)) return json;
+  const doc = json as { content?: Record<string, unknown>[] };
+  const content = doc.content || [];
+  let start = 0;
+  let end = content.length;
+  while (start < end && isEmptyProsemirrorNode(content[start])) start++;
+  while (end > start && isEmptyProsemirrorNode(content[end - 1])) end--;
+  if (start === 0 && end === content.length) return json;
+  return { ...doc, content: content.slice(start, end) };
+};
+
 export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => {
   if (!json || typeof json !== "object") return fallback;
 
@@ -303,6 +323,10 @@ export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => 
     // representation one UTF-16 code unit so character limits do not count
     // the database UUID or expose the old [e:...] transport marker.
     if (node.type === "customEmoji") return "\uFFFC";
+    // Media blocks are inline atoms: they carry no text, so they add nothing
+    // to the derived plain text (the file info lives in the attachment pool).
+    if (node.type === "mediaBlock" || node.type === "uploadPlaceholder") return "";
+    if (node.type === "horizontalRule") return "\n";
     if (node.type === "mention") {
       const attrs = (node.attrs as Record<string, unknown>) || {};
       return "@" + ((attrs.label as string) || (attrs.id as string) || "");

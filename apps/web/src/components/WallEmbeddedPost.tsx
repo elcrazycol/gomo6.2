@@ -7,6 +7,9 @@ import { Repeat2 } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import { normalizeAttachments, isInteractiveTarget, getWallPostPath } from "@/utils/wallNormalizers";
 import type { WallPost } from "@/utils/wallNormalizers";
 import type { LightboxItem } from "@/components/Lightbox";
@@ -31,6 +34,9 @@ export const EmbeddedWallPost = ({
   const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const attachments = normalizeAttachments(post);
+  const hasMediaNodes = docHasMediaNodes(post.content_json);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   const handleOpenPost = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (isInteractiveTarget(event.target, event.currentTarget)) return;
     navigate(getWallPostPath(post.user_id, post.id), { state: { wallPost: post } });
@@ -68,7 +74,15 @@ export const EmbeddedWallPost = ({
         </span>
       </div>
 
-      {post.content?.trim() && (
+      <MediaAttachmentsProvider
+        value={{
+          attachments,
+          inlineMedia,
+          galleryKey: `embedded-${post.id}`,
+          onImageClick,
+        }}
+      >
+      {hasContent && (
         <div className="break-words text-sm leading-6 sm:text-[15px]">
           <ProcessedContent
             content={(post.content as string | null) ?? ""}
@@ -80,7 +94,7 @@ export const EmbeddedWallPost = ({
         </div>
       )}
 
-      {attachments.length > 0 && (
+      {attachments.length > 0 && !inlineMedia && (
         <div className="mt-3">
           <WallAttachments
             attachments={attachments}
@@ -89,6 +103,7 @@ export const EmbeddedWallPost = ({
           />
         </div>
       )}
+      </MediaAttachmentsProvider>
     </div>
   );
 };
