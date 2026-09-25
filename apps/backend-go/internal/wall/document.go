@@ -29,14 +29,15 @@ const (
 )
 
 var allowedNodeTypes = map[string]bool{
-	"doc":         true,
-	"paragraph":   true,
-	"text":        true,
-	"hardBreak":   true,
-	"customEmoji": true,
-	"mention":     true,
-	"mediaBlock":  true,
-	"mediaGroup":  true,
+	"doc":            true,
+	"paragraph":      true,
+	"text":           true,
+	"hardBreak":      true,
+	"customEmoji":    true,
+	"mention":        true,
+	"mediaBlock":     true,
+	"mediaGroup":     true,
+	"horizontalRule": true,
 }
 
 var allowedMarkTypes = map[string]bool{

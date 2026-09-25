@@ -22,6 +22,7 @@ import { EMPTY_EDITOR_STATE, normalizeContent, prosemirrorToPlainText, stripEdge
 import { normalizeAttachments, type WallPost } from "@/utils/wallNormalizers";
 
 import { mediaExtensions } from "@/components/editor/media/mediaExtensions";
+import { createSlashCommand } from "@/components/editor/slash/slashCommands";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
 import { MediaEditorProvider } from "@/components/editor/media/mediaEditorContext";
 import {
@@ -136,6 +137,12 @@ export const CreateWallPostInline = ({
   const [isDragging, setIsDragging] = useState(false);
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number; startInEditMode: boolean } | null>(null);
   const [publishButtonStyle] = useState(getPublishButtonStyle);
+  // Editor extension pack: media nodes + the slash command menu (its media
+  // action opens the composer's hidden file input).
+  const editorExtensions = useMemo(
+    () => [...mediaExtensions, createSlashCommand({ requestMedia: () => fileInputRef.current?.click() })],
+    [],
+  );
   // Resized composer size (desktop only). null = default (auto) size.
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const minSizeRef = useRef<{ w: number; h: number } | null>(null);
@@ -534,7 +541,7 @@ export const CreateWallPostInline = ({
                 maxLength={MAX_WALL_POST_LENGTH}
                 contentJson={contentJson}
                 legacyContent={editingPost?.content ?? ""}
-                extraExtensions={mediaExtensions}
+                extraExtensions={editorExtensions}
                 enableMediaDrop
                 onFilesDropped={(files, pos) => uploadFiles(files, pos)}
                 onFilesPasted={(files, pos) => uploadFiles(files, pos)}

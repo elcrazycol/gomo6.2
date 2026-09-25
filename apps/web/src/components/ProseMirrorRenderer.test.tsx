@@ -74,6 +74,11 @@ describe("ProseMirrorRenderer", () => {
     expect(blocks[0]).toHaveTextContent("ку");
   });
 
+  it("renders a horizontal rule", () => {
+    const { container } = renderDoc([{ type: "horizontalRule" }]);
+    expect(container.querySelector("hr")).toBeInTheDocument();
+  });
+
   const mediaAttachment: MediaAttachment = {
     id: "att_1",
     url: "u",

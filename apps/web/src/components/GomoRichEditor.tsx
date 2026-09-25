@@ -29,6 +29,7 @@ import { CustomTabExtension } from "@/components/CustomTabExtension";
 import { CustomEmojiNode } from "@/components/emoji/CustomEmojiNode";
 import { useEmojiData } from "@/contexts/EmojiDataContext";
 import { createCustomEmojiSuggestionExtension } from "@/components/editor/customEmojiSuggestions";
+import { isSlashPopupActive } from "@/components/editor/slash/slashCommands";
 
 interface GomoRichEditorProps {
   contentJson?: unknown;
@@ -583,7 +584,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     if (!editor) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't submit while the @-mention popup is open — Enter there picks a user.
-      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768 && !isMentionPopupActive()) {
+      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768 && !isMentionPopupActive() && !isSlashPopupActive()) {
         event.preventDefault();
         onSubmit?.();
       }

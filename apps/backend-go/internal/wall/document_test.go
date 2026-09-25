@@ -39,6 +39,7 @@ func TestValidatePostDocumentAcceptsValidDocument(t *testing.T) {
 		"content": []interface{}{
 			paragraph(wallText("привет", nil)),
 			mediaBlock("att_1", nil),
+			map[string]interface{}{"type": "horizontalRule"},
 		},
 	}
 	if problems := ValidatePostDocument(doc); len(problems) != 0 {

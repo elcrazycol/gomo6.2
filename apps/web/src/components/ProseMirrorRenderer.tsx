@@ -151,6 +151,8 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
     case "uploadPlaceholder":
       // Transient editor-only node: never persisted, nothing to render.
       return null;
+    case "horizontalRule":
+      return <hr key={key} className="my-3 border-0 border-t border-border/60" />;
     default:
       return <React.Fragment key={key}>{children}</React.Fragment>;
   }
