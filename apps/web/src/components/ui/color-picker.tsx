@@ -9,12 +9,13 @@ import { Input } from "@/components/ui/input";
 type HSV = { h: number; s: number; v: number };
 type Mode = "palette" | "spectrum";
 
-// Vivid palette — only two darks as neutrals, no wall of whites/greys.
+// A curated 7 hues × 4 tones grid (Tailwind ramps): a rainbow per row,
+// light → dark per column. No neutral wall.
 const SWATCHES = [
-  "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#10b981",
-  "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
-  "#d946ef", "#ec4899", "#f43f5e", "#dc2626", "#b45309", "#0f172a", "#334155",
-  "#fecaca", "#fed7aa", "#fde68a", "#bbf7d0", "#bfdbfe", "#e9d5ff", "#fbcfe8",
+  "#fecaca", "#fed7aa", "#fde68a", "#bbf7d0", "#99f6e4", "#bfdbfe", "#ddd6fe",
+  "#f87171", "#fb923c", "#facc15", "#4ade80", "#2dd4bf", "#60a5fa", "#a78bfa",
+  "#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#0d9488", "#2563eb", "#7c3aed",
+  "#991b1b", "#9a3412", "#854d0e", "#166534", "#115e59", "#1e40af", "#5b21b6",
 ];
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));

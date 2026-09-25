@@ -10,7 +10,7 @@ import Link from "@tiptap/extension-link";
 import Mention from "@tiptap/extension-mention";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
-import { Bold, Check, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon } from "lucide-react";
+import { Bold, Check, Eye, Italic, Link2, Palette, Strikethrough, Trash2, Type, UnderlineIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverPanel, PopoverTrigger } from "@/components/ui/popover";
 import { ColorPicker } from "@/components/ui/color-picker";
@@ -245,9 +245,17 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
           </PopoverTrigger>
           <PopoverPanel side="bottom" align="center" className="z-[80] w-[300px]">
             <div className="p-3">
-              <ColorPicker value={colorDraft} onChange={setColorDraft} onClear={() => applyColor("")} />
+              <ColorPicker value={colorDraft} onChange={setColorDraft} />
             </div>
-            <div className="flex justify-end border-t border-border/60 p-2">
+            <div className="flex items-center justify-between border-t border-border/60 px-2 py-1.5">
+              <button
+                type="button"
+                onClick={() => applyColor("")}
+                title="Убрать цвет"
+                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
               <button type="button" onClick={handleApplyColor} className="rounded px-4 py-1.5 text-sm font-medium text-primary hover:bg-primary/10">
                 OK
               </button>
