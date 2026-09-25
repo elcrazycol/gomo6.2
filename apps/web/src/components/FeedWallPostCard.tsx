@@ -19,6 +19,7 @@ import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
 
 import { safeDate } from "@/utils/safeDate";
+import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 import {
   type WallPost,
@@ -67,18 +68,13 @@ export const FeedWallPostCard = ({
   const [shareOpen, setShareOpen] = useState(false);
 
   const handleOpenPost = useCallback(() => {
+    // The post opens as an overlay over the feed; stop any inline clip that is
+    // playing underneath so it does not keep running behind the post page.
+    pauseAllInlineMedia();
     // Carry the already rendered card to the post page (removes the skeleton
     // flash) and keep the feed mounted underneath via backgroundLocation so the
     // post opens as a draggable overlay over it.
     navigate(postPath, { state: { wallPost: post, backgroundLocation: location } });
-  }, [navigate, post, postPath, location]);
-
-  // X-style: tapping a wall video opens the post page and autoplays the clip
-  // there instead of playing it inline on the feed.
-  const handleVideoOpen = useCallback(() => {
-    navigate(postPath, {
-      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true },
-    });
   }, [navigate, post, postPath, location]);
 
   const handleLikeToggle = async () => {
@@ -163,7 +159,6 @@ export const FeedWallPostCard = ({
             inlineMedia,
             galleryKey: `feed-${post.id}`,
             onImageClick,
-            onVideoOpen: handleVideoOpen,
           }}
         >
         {hasContent && (
@@ -187,7 +182,6 @@ export const FeedWallPostCard = ({
             attachments={attachments}
             galleryKey={`feed-${post.id}`}
             onImageClick={onImageClick}
-            onVideoOpen={handleVideoOpen}
           />
         )}
         </MediaAttachmentsProvider>

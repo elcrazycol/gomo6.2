@@ -68,6 +68,11 @@ vi.mock("@/components/share/ShareSheet", () => ({
   ShareSheet: () => null,
 }));
 
+const mockPauseAllInlineMedia = vi.fn();
+vi.mock("@/utils/mediaPlayback", () => ({
+  pauseAllInlineMedia: (...args: any[]) => mockPauseAllInlineMedia(...args),
+}));
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function createMockPost(overrides: any = {}) {
@@ -123,6 +128,8 @@ describe("FeedWallPostCard", () => {
 
     fireEvent.click(container.querySelector('[role="button"]')!);
 
+    // Any inline clip playing under the overlay is stopped first.
+    expect(mockPauseAllInlineMedia).toHaveBeenCalledTimes(1);
     const [path, options] = mockNavigateFn.mock.calls[0];
     expect(path).toBe("/profile/wall-owner/wall/post-1");
     expect(options.state.wallPost?.id).toBe("post-1");
@@ -130,29 +137,26 @@ describe("FeedWallPostCard", () => {
     expect(options.state.autoplayVideo).toBeUndefined();
   });
 
-  it("wires the video-open callback to WallAttachments for posts with video", async () => {
+  it("renders wall videos inline (no open-mode)", async () => {
     renderCard(createMockPost({
       attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
     }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "false");
     });
   });
 
-  it("tapping a wall video opens the post page with an autoplay flag", async () => {
+  it("tapping a wall video does not open the post page", async () => {
     renderCard(createMockPost({
       attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
     }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "false");
     });
     fireEvent.click(screen.getByTestId("wall-attachments"));
 
-    expect(mockNavigateFn).toHaveBeenCalledWith(
-      "/profile/wall-owner/wall/post-1",
-      expect.objectContaining({ state: expect.objectContaining({ autoplayVideo: true }) }),
-    );
+    expect(mockNavigateFn).not.toHaveBeenCalled();
   });
 });
