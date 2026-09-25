@@ -37,7 +37,7 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
       as="div"
       data-spoiler-block="true"
       data-open={open ? "true" : "false"}
-      className={`spoiler-block group/spoiler my-2 overflow-hidden rounded-xl border bg-card/60 ${
+      className={`spoiler-block group/spoiler my-2 overflow-hidden rounded-xl border bg-card/60 transition-shadow duration-200 ease-out hover:shadow-sm ${
         selected ? "border-primary/60" : "border-border/70"
       }`}
     >
