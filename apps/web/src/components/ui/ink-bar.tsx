@@ -8,6 +8,23 @@ import { motion, useReducedMotion } from "framer-motion";
 /** Mark a child so the ink blob glides under it. */
 export const INK_ATTR = "data-ink";
 
+/**
+ * Icon button for an InkBar: no flat hover tint (the blob is the hover
+ * feedback), rounded, focus-ringed, marked with data-ink.
+ */
+export const inkButtonClass =
+  "relative z-10 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50";
+
+export const InkButton = ({
+  className = "",
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+  <button type="button" {...{ [INK_ATTR]: true }} className={`${inkButtonClass} ${className}`} {...props}>
+    {children}
+  </button>
+);
+
 export const InkBar = ({
   children,
   className = "",

@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
-import { InkBar, INK_ATTR } from "@/components/ui/ink-bar";
+import { InkBar, InkButton } from "@/components/ui/ink-bar";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -702,22 +702,17 @@ export const CreateWallPostInline = ({
               editorRef.current?.insertEmoji(data);
             }}
           >
-            <Button {...{ [INK_ATTR]: true }} type="button" variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" title="Эмодзи">
+            <InkButton title="Эмодзи">
               <Smile className="h-5 w-5" />
-            </Button>
+            </InkButton>
           </EmojiPicker>
-          <Button
-            {...{ [INK_ATTR]: true }}
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-muted-foreground"
+          <InkButton
             title="Добавить медиа"
             disabled={isSubmitting || atLimit}
             onClick={() => fileInputRef.current?.click()}
           >
             {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Paperclip className="h-5 w-5" />}
-          </Button>
+          </InkButton>
           <input
             ref={fileInputRef}
             type="file"
@@ -726,17 +721,9 @@ export const CreateWallPostInline = ({
             data-testid="inline-media-file-input"
             onChange={handleFiles}
           />
-          <Button
-            {...{ [INK_ATTR]: true }}
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-muted-foreground"
-            title="Ссылка-карточка"
-            onClick={() => setLinkDialogOpen(true)}
-          >
+          <InkButton title="Ссылка-карточка" onClick={() => setLinkDialogOpen(true)}>
             <Link2 className="h-5 w-5" />
-          </Button>
+          </InkButton>
           <span className="ml-1 text-[11px] text-muted-foreground">
             {mediaCount > 0 ? `${mediaCount}/${MAX_MEDIA_NODES}` : null}
           </span>
