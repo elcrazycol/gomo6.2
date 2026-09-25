@@ -327,6 +327,11 @@ export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => 
     // to the derived plain text (the file info lives in the attachment pool).
     if (node.type === "mediaBlock" || node.type === "uploadPlaceholder") return "";
     if (node.type === "horizontalRule") return "\n";
+    if (node.type === "linkCard") {
+      const attrs = (node.attrs as Record<string, unknown>) || {};
+      const url = typeof attrs.url === "string" ? attrs.url : "";
+      return url ? ` ${url} ` : "";
+    }
     if (node.type === "mention") {
       const attrs = (node.attrs as Record<string, unknown>) || {};
       return "@" + ((attrs.label as string) || (attrs.id as string) || "");

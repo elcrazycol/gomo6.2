@@ -10,13 +10,15 @@ import { PluginKey } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import { Suggestion } from "@tiptap/suggestion";
 import type { SuggestionKeyDownProps, SuggestionOptions } from "@tiptap/suggestion";
-import { Image as ImageIcon, LayoutDashboard, Minus } from "lucide-react";
+import { Image as ImageIcon, LayoutDashboard, Link2, Minus } from "lucide-react";
 
 import { SlashCommandList, type SlashCommandListHandle } from "./SlashCommandList";
 
 export interface SlashActions {
   /** Open the composer's file picker (multiple files → gallery). */
   requestMedia: () => void;
+  /** Open the link-card dialog (URL → preview). */
+  requestLinkCard: () => void;
 }
 
 interface Range {
@@ -64,6 +66,17 @@ export const slashItems: SlashItem[] = [
     Icon: Minus,
     run: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).setHorizontalRule().run();
+    },
+  },
+  {
+    key: "link",
+    title: "Ссылка-карточка",
+    hint: "Карточка с предпросмотром",
+    keywords: ["ссылка", "link", "card", "карточка", "url"],
+    Icon: Link2,
+    run: ({ editor, range, actions }) => {
+      editor.chain().focus().deleteRange(range).run();
+      actions.requestLinkCard();
     },
   },
 ];

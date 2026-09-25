@@ -6,14 +6,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
+import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { PublishButton } from "@/components/PublishButton";
 import { getPublishButtonStyle } from "@/lib/publishButtonStyle";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
-import { Expand, Loader2, Minimize2, Paperclip, Smile, X } from "lucide-react";
+import { Expand, Link2, Loader2, Minimize2, Paperclip, Smile, X } from "lucide-react";
 
 import { uploadAttachments, uploadEditedDataUrl } from "@/utils/mediaUpload";
 import type { AttachmentMeta } from "@/utils/mediaUpload";
@@ -23,6 +33,8 @@ import { normalizeAttachments, type WallPost } from "@/utils/wallNormalizers";
 
 import { mediaExtensions } from "@/components/editor/media/mediaExtensions";
 import { createSlashCommand } from "@/components/editor/slash/slashCommands";
+import { insertLinkCard } from "@/components/editor/link/linkCommands";
+import { isCardableUrl, linkHost } from "@/components/editor/link/linkCardSchema";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
 import { MediaEditorProvider } from "@/components/editor/media/mediaEditorContext";
 import {
@@ -137,10 +149,21 @@ export const CreateWallPostInline = ({
   const [isDragging, setIsDragging] = useState(false);
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number; startInEditMode: boolean } | null>(null);
   const [publishButtonStyle] = useState(getPublishButtonStyle);
+  // Link-card dialog state.
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkLoading, setLinkLoading] = useState(false);
   // Editor extension pack: media nodes + the slash command menu (its media
-  // action opens the composer's hidden file input).
+  // action opens the composer's hidden file input, the link action opens the
+  // link-card dialog).
   const editorExtensions = useMemo(
-    () => [...mediaExtensions, createSlashCommand({ requestMedia: () => fileInputRef.current?.click() })],
+    () => [
+      ...mediaExtensions,
+      createSlashCommand({
+        requestMedia: () => fileInputRef.current?.click(),
+        requestLinkCard: () => setLinkDialogOpen(true),
+      }),
+    ],
     [],
   );
   // Resized composer size (desktop only). null = default (auto) size.
@@ -337,6 +360,45 @@ export const CreateWallPostInline = ({
       setAttachments((prev) => prev.map((att) => (att.id === target.id ? { ...uploaded, id: target.id } : att)));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить фото");
+    }
+  };
+
+  // ── Link card ─────────────────────────────────────────────────────────────
+  const handleCreateLinkCard = async () => {
+    const editor = editorRef.current?.getEditor();
+    const raw = linkUrl.trim();
+    if (!editor || !raw) return;
+    if (!isCardableUrl(raw)) {
+      toast.error("Вставьте ссылку, начинающуюся с http(s)://");
+      return;
+    }
+    setLinkLoading(true);
+    try {
+      type LinkPreviewData = { url?: string; title?: string; description?: string; image?: string; site_name?: string };
+      const response = await apiClient.rawRequest<{ data?: LinkPreviewData }>("/api/v1/link-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: raw }),
+      });
+      const payload = Array.isArray(response) ? response[0] : response;
+      const data = payload?.data ?? {};
+      insertLinkCard(editor, {
+        url: data.url || raw,
+        title: data.title || raw,
+        description: data.description || "",
+        image: data.image || null,
+        siteName: data.site_name || linkHost(raw),
+      });
+      toast.success("Карточка добавлена");
+    } catch (error) {
+      console.error("link preview failed", error);
+      // Fallback: keep a plain link so the user is not left with nothing.
+      insertLinkCard(editor, { url: raw, title: raw, description: "", image: null, siteName: linkHost(raw) });
+      toast.message("Предпросмотр недоступен — добавили обычную ссылку");
+    } finally {
+      setLinkLoading(false);
+      setLinkDialogOpen(false);
+      setLinkUrl("");
     }
   };
 
@@ -600,6 +662,16 @@ export const CreateWallPostInline = ({
             data-testid="inline-media-file-input"
             onChange={handleFiles}
           />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground"
+            title="Ссылка-карточка"
+            onClick={() => setLinkDialogOpen(true)}
+          >
+            <Link2 className="h-5 w-5" />
+          </Button>
           <span className="ml-1 text-[11px] text-muted-foreground">
             {mediaCount > 0 ? `${mediaCount}/${MAX_MEDIA_NODES}` : null}
           </span>
@@ -644,6 +716,35 @@ export const CreateWallPostInline = ({
           onEditImage={handleEditImage}
         />
       )}
+
+      <Dialog open={linkDialogOpen} onOpenChange={(open) => { if (!linkLoading) setLinkDialogOpen(open); }}>
+        <DialogContent className="z-[70] max-w-md border-border/70 bg-background">
+          <DialogHeader>
+            <DialogTitle>Ссылка-карточка</DialogTitle>
+            <DialogDescription>Вставьте ссылку — покажем предпросмотр.</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={linkUrl}
+            onChange={(event) => setLinkUrl(event.target.value)}
+            placeholder="https://…"
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleCreateLinkCard();
+              }
+            }}
+          />
+          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
+            <Button type="button" variant="outline" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => void handleCreateLinkCard()} disabled={linkLoading || !linkUrl.trim()}>
+              {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>,
     document.body,
   );

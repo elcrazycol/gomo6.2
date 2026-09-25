@@ -89,6 +89,7 @@ var expectedRoutes = []string{
 
 	// Public REST
 	"GET /api/v1/search",
+	"POST /api/v1/link-preview",
 	"GET /api/v1/feed",
 	"GET /api/v1/profiles",
 	"GET /api/v1/profiles/:id",

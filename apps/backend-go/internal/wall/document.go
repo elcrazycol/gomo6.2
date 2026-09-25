@@ -38,6 +38,7 @@ var allowedNodeTypes = map[string]bool{
 	"mediaBlock":     true,
 	"mediaGroup":     true,
 	"horizontalRule": true,
+	"linkCard":       true,
 }
 
 var allowedMarkTypes = map[string]bool{
@@ -151,6 +152,8 @@ func walkDocument(node map[string]interface{}, depth int, count *int, problems *
 		validateMarks(node, problems)
 	case "mediaBlock":
 		validateMediaNode(node, problems)
+	case "linkCard":
+		validateLinkCardNode(node, problems)
 	}
 	content, ok := node["content"].([]interface{})
 	if !ok {
@@ -221,7 +224,29 @@ func validateMediaNode(node map[string]interface{}, problems *[]string) {
 	}
 }
 
-// CollectAttachmentRefs returns the attachmentId of every mediaBlock in order.
+// validateLinkCardNode checks a link card's URL and text fields.
+func validateLinkCardNode(node map[string]interface{}, problems *[]string) {
+	attrs, _ := node["attrs"].(map[string]interface{})
+	if attrs == nil {
+		*problems = append(*problems, "linkCard without attributes")
+		return
+	}
+	rawURL, _ := attrs["url"].(string)
+	lower := strings.ToLower(strings.TrimSpace(rawURL))
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		*problems = append(*problems, "linkCard with an unsafe url")
+	}
+	if image, ok := attrs["image"].(string); ok && image != "" && !safeHref(image) {
+		*problems = append(*problems, "linkCard with an unsafe image url")
+	}
+	for _, key := range []string{"title", "description", "siteName"} {
+		if value, ok := attrs[key].(string); ok && utf8RuneLen(value) > maxCaptionRunes {
+			*problems = append(*problems, "linkCard "+key+" is too long")
+		}
+	}
+}
+
+// collectAttachmentRefs returns the attachmentId of every mediaBlock in order.
 func CollectAttachmentRefs(node map[string]interface{}) []string {
 	var refs []string
 	var walk func(map[string]interface{})
@@ -394,6 +419,13 @@ func documentPlainText(node map[string]interface{}) string {
 		return ""
 	case "mediaBlock", "mediaGroup", "uploadPlaceholder":
 		return ""
+	case "linkCard":
+		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
+			if url, ok := attrs["url"].(string); ok && url != "" {
+				return " " + url + " "
+			}
+		}
+		return " "
 	}
 	var builder strings.Builder
 	content, _ := node["content"].([]interface{})

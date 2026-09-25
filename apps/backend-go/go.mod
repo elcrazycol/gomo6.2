@@ -26,6 +26,7 @@ require (
 	go.n16f.net/thumbhash v1.1.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/image v0.45.0
+	golang.org/x/net v0.57.0
 )
 
 require (
@@ -81,7 +82,6 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/arch v0.3.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect

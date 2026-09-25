@@ -79,6 +79,19 @@ describe("ProseMirrorRenderer", () => {
     expect(container.querySelector("hr")).toBeInTheDocument();
   });
 
+  it("renders a link card as an external link", () => {
+    const { container } = renderDoc([
+      {
+        type: "linkCard",
+        attrs: { url: "https://example.com", title: "Example", description: "Desc", image: null, siteName: "example.com" },
+      },
+    ]);
+    const link = container.querySelector("a[href='https://example.com']");
+    expect(link).toBeInTheDocument();
+    expect(link?.getAttribute("rel")).toContain("noopener");
+    expect(link?.textContent).toContain("Example");
+  });
+
   const mediaAttachment: MediaAttachment = {
     id: "att_1",
     url: "u",

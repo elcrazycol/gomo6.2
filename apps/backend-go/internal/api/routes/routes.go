@@ -19,6 +19,7 @@ import (
 	"github.com/gomo6/backend/internal/drops"
 	"github.com/gomo6/backend/internal/gifts"
 	"github.com/gomo6/backend/internal/gomosubchat"
+	"github.com/gomo6/backend/internal/linkpreview"
 	"github.com/gomo6/backend/internal/messenger"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/moderation"
@@ -342,6 +343,19 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// budget only burns on distinct searches.
 		searchRateLimiter := middleware.NewAuthRateLimiterWithPrefix("search", redis, 120, time.Minute)
 		rest.GET("/search", middleware.IPRateLimitMiddleware(searchRateLimiter), searchHandler.Search)
+
+		// Link preview (OpenGraph) for link cards. Authenticated + CSRF + its own
+		// IP budget: fetching arbitrary URLs is an SSRF surface, so it is never
+		// anonymous and stays tightly rate-limited. The fetcher blocks private
+		// addresses at dial time.
+		linkPreviewHandler := handlers.NewLinkPreviewHandler(linkpreview.New(redis))
+		linkPreviewLimiter := middleware.NewAuthRateLimiterWithPrefix("linkpreview", redis, ogEnvLimit("LINK_PREVIEW_RATE_LIMIT_PER_MIN", 30), time.Minute)
+		rest.POST("/link-preview",
+			middleware.AuthCacheMiddleware(authService, redis),
+			middleware.ValidateCSRFMiddleware(),
+			middleware.IPRateLimitMiddleware(linkPreviewLimiter),
+			linkPreviewHandler.Get,
+		)
 
 		// Unified personalized feed (threads + wall posts, scored per viewer).
 		// Rides the optional-auth + data-cache middleware above, so personalized
