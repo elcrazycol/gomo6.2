@@ -7,6 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { wsService } from "@/services/websocket";
 
 import { CreateWallPost } from "@/components/CreateWallPost";
+import { CreateWallPostInline } from "@/components/CreateWallPostInline";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import { WallPostCard } from "@/components/WallPostCard";
 import {
   type WallPost,
@@ -177,6 +179,10 @@ export const ProfileWall = ({
     () => posts.find((post) => post.id === editingPost),
     [editingPost, posts]
   );
+
+  // New inline-media composer behind the feature flag; the legacy composer
+  // stays as the fallback (kill-switch).
+  const WallComposer = isFeatureEnabled("wallInlineMedia") ? CreateWallPostInline : CreateWallPost;
 
   // Reset wall state when the owner changes: /profile/A → /profile/B keeps
   // the same mounted instance, and the loadPosts merge would otherwise keep
@@ -653,7 +659,7 @@ export const ProfileWall = ({
     <>
       <div className="space-y-4">
         {canPost && !standalone && !focusedPostId && showCreateForm && currentUserId && (
-          <CreateWallPost
+          <WallComposer
             profileUserId={profileUserId}
             currentUserId={currentUserId}
             onPostCreated={handlePostCreatedWithTimestamp}
@@ -722,7 +728,7 @@ export const ProfileWall = ({
 
       {/* Edit an existing post through the same overlay composer. */}
       {activeEditingPost && currentUserId && (
-        <CreateWallPost
+        <WallComposer
           profileUserId={profileUserId}
           currentUserId={currentUserId}
           editingPost={activeEditingPost}

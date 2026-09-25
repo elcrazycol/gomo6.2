@@ -1,6 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
-import type { Editor } from "@tiptap/core";
+import type { Editor, Extensions } from "@tiptap/core";
+import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
@@ -47,6 +48,14 @@ interface GomoRichEditorProps {
   toolbarClassName?: string;
   /** Focus the editor as soon as it is ready. */
   autoFocus?: boolean;
+  /** Extra tiptap extensions appended to the default set (e.g. media nodes). */
+  extraExtensions?: Extensions;
+  /** Enable the ProseMirror dropcursor and hand dropped files to onFilesDropped. */
+  enableMediaDrop?: boolean;
+  /** Files dropped into the editor; `pos` is the drop position (null = unknown). */
+  onFilesDropped?: (files: File[], pos: number | null) => void;
+  /** Files pasted into the editor; `pos` is the paste position (null = unknown). */
+  onFilesPasted?: (files: File[], pos: number | null) => void;
   onChange: (value: { json: unknown; text: string }) => void;
   onSubmit?: () => void;
 }
@@ -195,7 +204,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
       </div>
 
       <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background">
+        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
           <DialogHeader>
             <DialogTitle>Цвет текста</DialogTitle>
           </DialogHeader>
@@ -257,7 +266,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
       </Dialog>
 
       <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background">
+        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
           <DialogHeader>
             <DialogTitle>Ссылка</DialogTitle>
           </DialogHeader>
@@ -286,7 +295,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
       </Dialog>
 
       <Dialog open={isSizeDialogOpen} onOpenChange={setIsSizeDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background">
+        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
           <DialogHeader>
             <DialogTitle>Размер шрифта</DialogTitle>
           </DialogHeader>
@@ -329,6 +338,10 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   showToolbar = true,
   toolbarClassName,
   autoFocus = false,
+  extraExtensions,
+  enableMediaDrop = false,
+  onFilesDropped,
+  onFilesPasted,
   onChange,
   onSubmit,
 }, ref) => {
@@ -336,6 +349,12 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   const { customEmojiList } = useEmojiData();
   const customEmojiListRef = useRef(customEmojiList);
   customEmojiListRef.current = customEmojiList;
+  // Keep the latest file handlers reachable from editorProps, which is only
+  // read when the editor is created — a stale closure would break drop/paste.
+  const onFilesDroppedRef = useRef(onFilesDropped);
+  onFilesDroppedRef.current = onFilesDropped;
+  const onFilesPastedRef = useRef(onFilesPasted);
+  onFilesPastedRef.current = onFilesPasted;
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
   // Start "handled" at the current key: useEditor already applies the initial
   // content at creation, so we only need to reset when resetKey changes.
@@ -354,7 +373,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         codeBlock: false,
         code: false,
         horizontalRule: false,
-        dropcursor: false,
+        dropcursor: enableMediaDrop ? { color: "hsl(var(--primary))", width: 2 } : false,
         link: false,
         underline: false,
       }),
@@ -383,8 +402,9 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       CustomTabExtension,
       CustomEmojiNode,
       createCustomEmojiSuggestionExtension(() => customEmojiListRef.current),
+      ...(extraExtensions ?? []),
     ],
-    [placeholder, maxLength]
+    [placeholder, maxLength, enableMediaDrop, extraExtensions]
   );
 
   const handleChange = useCallback(
@@ -403,6 +423,21 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       attributes: {
         class: `${minHeightClassName} ${maxHeightClassName ? `${maxHeightClassName} ` : ""}relative z-10 outline-none bg-transparent text-sm sm:text-base`,
         spellcheck: "true",
+      },
+      handleDrop: (view: EditorView, event: DragEvent) => {
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (files.length === 0 || !onFilesDroppedRef.current) return false;
+        event.preventDefault();
+        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? null;
+        onFilesDroppedRef.current(files, pos);
+        return true;
+      },
+      handlePaste: (view: EditorView, event: ClipboardEvent) => {
+        const files = Array.from(event.clipboardData?.files ?? []);
+        if (files.length === 0 || !onFilesPastedRef.current) return false;
+        event.preventDefault();
+        onFilesPastedRef.current(files, view.state.selection.from);
+        return true;
       },
     },
     onUpdate: ({ editor: e }) => {
