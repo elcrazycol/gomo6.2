@@ -11,7 +11,7 @@ import { ImageOff } from "lucide-react";
 
 import { WallAttachments } from "@/components/WallAttachments";
 import { useMediaView } from "./mediaViewContext";
-import { safeHref, type MediaBlockAttrs } from "./mediaSchema";
+import { mediaShape, safeHref, type MediaBlockAttrs } from "./mediaSchema";
 import { mediaFigureLayout } from "./mediaLayout";
 
 /** The media itself, without any width/align wrapper. */
@@ -84,6 +84,7 @@ export const MediaBlockView = ({ attrs, editable = false }: { attrs: MediaBlockA
   return (
     <figure
       data-media-block="true"
+      data-shape={mediaShape(attrs.aspect)}
       data-editable={editable ? "true" : "false"}
       data-align={attrs.align}
       className={layout.className}

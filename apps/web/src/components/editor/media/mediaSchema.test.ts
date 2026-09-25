@@ -10,6 +10,7 @@ import {
   hasUploadPlaceholders,
   makeUploadId,
   mediaBlockAttrsFromAttachment,
+  mediaShape,
   naturalWidthPercent,
   normalizeMediaNodesInDoc,
   safeHref,
@@ -152,8 +153,17 @@ describe("mediaSchema", () => {
 
   it("coerces a media group layout", () => {
     expect(toMediaGroupAttrs({ layout: "carousel" })).toEqual({ layout: "carousel" });
+    expect(toMediaGroupAttrs({ layout: "smart" })).toEqual({ layout: "smart" });
     expect(toMediaGroupAttrs({ layout: "bogus" })).toEqual({ layout: "grid" });
     expect(toMediaGroupAttrs(null)).toEqual({ layout: "grid" });
+  });
+
+  it("buckets aspect ratios into smart-collage shapes", () => {
+    expect(mediaShape(1.8)).toBe("wide");
+    expect(mediaShape(1)).toBe("square");
+    expect(mediaShape(0.6)).toBe("tall");
+    expect(mediaShape(null)).toBe("square");
+    expect(mediaShape(0)).toBe("square");
   });
 
   it("generates unique upload ids", () => {

@@ -31,7 +31,7 @@ import { mediaFigureLayout } from "./mediaLayout";
 import { useMediaView } from "./mediaViewContext";
 import { useMediaEditor } from "./mediaEditorContext";
 import { startMediaDrag } from "./mediaDrag";
-import { naturalWidthPercent, toMediaBlockAttrs, type MediaAlign } from "./mediaSchema";
+import { mediaShape, naturalWidthPercent, toMediaBlockAttrs, type MediaAlign } from "./mediaSchema";
 
 const PLACEMENT_OPTIONS: Array<{ value: MediaAlign; label: string; Icon: typeof AlignLeft }> = [
   { value: "inline", label: "В строке", Icon: Pilcrow },
@@ -129,6 +129,7 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
       as="div"
       ref={rootRef}
       data-media-block="true"
+      data-shape={mediaShape(attrs.aspect)}
       data-selected={selected ? "true" : "false"}
       data-align={attrs.align}
       contentEditable={false}

@@ -3,7 +3,7 @@
 // children render through NodeViewContent, so each media keeps its own toolbar.
 
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { Columns3, GalleryHorizontalEnd, Grid3x3, LayoutGrid, LayoutList, Trash2 } from "lucide-react";
+import { Columns3, GalleryHorizontalEnd, Grid3x3, LayoutDashboard, LayoutGrid, LayoutList, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ungroupMediaGroup } from "./mediaCommands";
@@ -15,6 +15,7 @@ const LAYOUTS: Array<{ value: MediaGroupLayout; label: string; Icon: typeof Layo
   { value: "grid3", label: "Сетка 3", Icon: Grid3x3 },
   { value: "mosaic", label: "Мозаика", Icon: Columns3 },
   { value: "carousel", label: "Карусель", Icon: GalleryHorizontalEnd },
+  { value: "smart", label: "Умная мозаика", Icon: LayoutDashboard },
 ];
 
 export const MediaGroupNodeView = ({ node, editor, getPos, updateAttributes, deleteNode, selected }: NodeViewProps) => {

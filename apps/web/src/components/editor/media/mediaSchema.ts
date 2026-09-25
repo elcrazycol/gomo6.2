@@ -35,12 +35,21 @@ export const MEDIA_GROUP_NODE = "mediaGroup";
 export const UPLOAD_PLACEHOLDER_NODE = "uploadPlaceholder";
 
 /** Gallery layouts available for a mediaGroup. */
-export const MEDIA_GROUP_LAYOUTS = ["grid", "grid3", "mosaic", "carousel"] as const;
+export const MEDIA_GROUP_LAYOUTS = ["grid", "grid3", "mosaic", "carousel", "smart"] as const;
 export type MediaGroupLayout = (typeof MEDIA_GROUP_LAYOUTS)[number];
 export interface MediaGroupAttrs {
   layout: MediaGroupLayout;
 }
 export const DEFAULT_MEDIA_GROUP_ATTRS: MediaGroupAttrs = { layout: "grid" };
+
+/** Orientation bucket used by the "smart" collage layout. */
+export type MediaShape = "wide" | "tall" | "square";
+export const mediaShape = (aspect: number | null): MediaShape => {
+  if (aspect === null || !Number.isFinite(aspect) || aspect <= 0) return "square";
+  if (aspect >= 1.4) return "wide";
+  if (aspect <= 0.75) return "tall";
+  return "square";
+};
 
 export const toMediaGroupAttrs = (raw: unknown): MediaGroupAttrs => {
   const src = isRecord(raw) ? raw : {};
