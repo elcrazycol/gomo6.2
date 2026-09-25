@@ -105,20 +105,21 @@ func attachmentsSlice(value interface{}) []interface{} {
 }
 
 // ValidatePostDocument returns a list of problems with the document. Empty
-// means the document is valid. It never mutates the input.
+// means the document is valid. It never mutates the input. A non-doc
+// content_json (legacy/opaque) is treated as valid and skipped — there is
+// nothing to validate and no media references to smuggle.
 func ValidatePostDocument(doc map[string]interface{}) []string {
 	var problems []string
 	if doc == nil {
+		return nil
+	}
+	if nodeType, _ := doc["type"].(string); nodeType != "doc" {
 		return nil
 	}
 	if raw, err := json.Marshal(doc); err != nil {
 		return []string{"content_json is not serializable"}
 	} else if len(raw) > maxDocumentBytes {
 		problems = append(problems, fmt.Sprintf("content_json is too large (%d bytes)", len(raw)))
-	}
-	if nodeType, _ := doc["type"].(string); nodeType != "doc" {
-		problems = append(problems, "content_json root must be a doc node")
-		return problems
 	}
 	if version, ok := doc["schema_version"]; ok {
 		number, isNumber := toFloat(version)
@@ -220,8 +221,8 @@ func validateMediaNode(node map[string]interface{}, problems *[]string) {
 	}
 }
 
-// collectAttachmentRefs returns the attachmentId of every mediaBlock in order.
-func collectAttachmentRefs(node map[string]interface{}) []string {
+// CollectAttachmentRefs returns the attachmentId of every mediaBlock in order.
+func CollectAttachmentRefs(node map[string]interface{}) []string {
 	var refs []string
 	var walk func(map[string]interface{})
 	walk = func(current map[string]interface{}) {
@@ -243,50 +244,74 @@ func collectAttachmentRefs(node map[string]interface{}) []string {
 	return refs
 }
 
-// ValidateAttachmentRefs checks that every referenced attachmentId exists in
-// the pool and every pool entry has a usable id/url.
+// referencedAttachmentIDs returns the set of ids the document actually uses.
+func referencedAttachmentIDs(doc map[string]interface{}) map[string]bool {
+	refs := CollectAttachmentRefs(doc)
+	if len(refs) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		set[ref] = true
+	}
+	return set
+}
+
+// ValidateAttachmentRefs checks that every attachmentId referenced by the
+// document exists in the pool with a url. Legacy pools that the document does
+// not reference (no ids at all) are ignored — only referenced entries matter.
 func ValidateAttachmentRefs(doc map[string]interface{}, attachments []interface{}) []string {
+	refs := referencedAttachmentIDs(doc)
+	if refs == nil {
+		return nil
+	}
 	var problems []string
-	pool := map[string]bool{}
-	for index, raw := range attachments {
+	pool := map[string]map[string]interface{}{}
+	for _, raw := range attachments {
 		attachment, ok := raw.(map[string]interface{})
 		if !ok {
-			problems = append(problems, fmt.Sprintf("attachment %d is invalid", index))
 			continue
 		}
 		id, _ := attachment["id"].(string)
-		if strings.TrimSpace(id) == "" {
-			problems = append(problems, fmt.Sprintf("attachment %d has no id", index))
+		if id == "" {
 			continue
 		}
-		if pool[id] {
-			problems = append(problems, fmt.Sprintf("attachment %d has a duplicate id", index))
-		}
-		pool[id] = true
-		if url, _ := attachment["url"].(string); strings.TrimSpace(url) == "" {
-			problems = append(problems, fmt.Sprintf("attachment %d has no url", index))
-		}
+		pool[id] = attachment
 	}
-	for _, ref := range collectAttachmentRefs(doc) {
-		if !pool[ref] {
+	for ref := range refs {
+		entry, ok := pool[ref]
+		if !ok {
 			problems = append(problems, "mediaBlock references an attachment that is not in the pool")
+			continue
+		}
+		if url, _ := entry["url"].(string); strings.TrimSpace(url) == "" {
+			problems = append(problems, "referenced attachment has no url")
 		}
 	}
 	return problems
 }
 
-// ValidateAttachmentsOwnership checks that every attachment belongs to the
-// post author: the storage path for the private wall bucket is
-// /storage/v1/object/wall/<authorID>/<key>.
-func ValidateAttachmentsOwnership(attachments []interface{}, authorID string) []string {
+// ValidateAttachmentsOwnership checks that every attachment the document
+// references belongs to the post author: the storage path for the private wall
+// bucket is /storage/v1/object/wall/<authorID>/<key>. Unreferenced legacy
+// attachments are not checked.
+func ValidateAttachmentsOwnership(doc map[string]interface{}, attachments []interface{}, authorID string) []string {
 	if authorID == "" {
+		return nil
+	}
+	refs := referencedAttachmentIDs(doc)
+	if refs == nil {
 		return nil
 	}
 	needle := "/wall/" + authorID + "/"
 	var problems []string
-	for index, raw := range attachments {
+	for _, raw := range attachments {
 		attachment, ok := raw.(map[string]interface{})
 		if !ok {
+			continue
+		}
+		id, _ := attachment["id"].(string)
+		if id == "" || !refs[id] {
 			continue
 		}
 		url, _ := attachment["url"].(string)
@@ -294,7 +319,7 @@ func ValidateAttachmentsOwnership(attachments []interface{}, authorID string) []
 			continue
 		}
 		if !strings.Contains(url, needle) {
-			problems = append(problems, fmt.Sprintf("attachment %d is not owned by the author", index))
+			problems = append(problems, fmt.Sprintf("attachment %s is not owned by the author", id))
 		}
 	}
 	return problems
@@ -315,7 +340,7 @@ func DerivePostFields(
 		title = textutil.TruncateRunes(text, maxTitleRunes)
 	}
 
-	refs := collectAttachmentRefs(doc)
+	refs := CollectAttachmentRefs(doc)
 	if len(refs) == 0 {
 		return content, title, nil, nil
 	}

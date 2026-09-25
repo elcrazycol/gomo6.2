@@ -55,7 +55,7 @@ func (s *Service) preparePostDocument(c *gin.Context, method string, data map[st
 
 	problems := ValidatePostDocument(doc)
 	problems = append(problems, ValidateAttachmentRefs(doc, attachments)...)
-	problems = append(problems, ValidateAttachmentsOwnership(attachments, authorID)...)
+	problems = append(problems, ValidateAttachmentsOwnership(doc, attachments, authorID)...)
 
 	if len(problems) > 0 {
 		if mode == "enforce" {

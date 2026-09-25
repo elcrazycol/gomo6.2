@@ -105,7 +105,7 @@ func TestValidateAttachmentRefsAndOwnership(t *testing.T) {
 		t.Fatalf("expected refs to be valid, got %v", refProblems)
 	}
 
-	ownership := ValidateAttachmentsOwnership(pool, authorID)
+	ownership := ValidateAttachmentsOwnership(doc, pool, authorID)
 	if len(ownership) != 1 {
 		t.Fatalf("expected exactly one ownership problem, got %v", ownership)
 	}
@@ -114,6 +114,18 @@ func TestValidateAttachmentRefsAndOwnership(t *testing.T) {
 	missing := ValidateAttachmentRefs(doc, pool[:1])
 	if len(missing) == 0 {
 		t.Fatal("expected a missing-reference problem")
+	}
+
+	// Legacy pools the document does not reference are ignored entirely.
+	legacyPool := []interface{}{
+		map[string]interface{}{"url": "/storage/v1/object/wall/" + authorID + "/old.jpg", "type": "image"},
+	}
+	legacyDoc := map[string]interface{}{"type": "doc", "content": []interface{}{paragraph(wallText("hi", nil))}}
+	if problems := ValidateAttachmentRefs(legacyDoc, legacyPool); len(problems) != 0 {
+		t.Fatalf("expected legacy pool to be ignored, got %v", problems)
+	}
+	if problems := ValidateAttachmentsOwnership(legacyDoc, legacyPool, authorID); len(problems) != 0 {
+		t.Fatalf("expected legacy ownership to be ignored, got %v", problems)
 	}
 }
 

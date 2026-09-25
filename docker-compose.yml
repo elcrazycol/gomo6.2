@@ -211,6 +211,10 @@ services:
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
       GARAGE_S3_USE_SSL: false
+      # Wall post document validation: off | log (default) | enforce.
+      # log-only validates and logs problems; enforce also rejects invalid
+      # documents and derives content/title/image_url/attachments server-side.
+      WALL_DOC_VALIDATION: ${WALL_DOC_VALIDATION:-log}
     depends_on:
       postgres:
         condition: service_healthy
