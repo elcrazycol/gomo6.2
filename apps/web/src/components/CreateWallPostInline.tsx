@@ -748,14 +748,14 @@ export const CreateWallPostInline = ({
                   }}
                 />
               </div>
-              <div className="border-t border-border/60 p-2">
+              <div className="flex justify-end border-t border-border/60 px-1.5 py-1">
                 <button
                   type="button"
                   onClick={() => void handleCreateLinkCard()}
                   disabled={linkLoading || !linkUrl.trim()}
-                  className="flex w-full items-center justify-center rounded px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
+                  className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 >
-                  {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
+                  {linkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Добавить"}
                 </button>
               </div>
             </PopoverPanel>

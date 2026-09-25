@@ -223,8 +223,8 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 }}
               />
             </div>
-            <div className="border-t border-border/60 p-2">
-              <button type="button" onClick={applyLink} className="w-full rounded px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10">
+            <div className="flex justify-end border-t border-border/60 px-1.5 py-1">
+              <button type="button" onClick={applyLink} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground">
                 Вставить
               </button>
             </div>

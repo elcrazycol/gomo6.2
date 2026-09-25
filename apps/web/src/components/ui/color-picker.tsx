@@ -1,18 +1,20 @@
-// Minimal HSV colour picker: a preset swatch grid, a saturation/value square,
-// a hue slider and a hex field. No animations.
+// Minimal colour picker: a palette/spectrum switch, a saturation/value square,
+// a hue slider, a random button and a hex field. No animations.
 
 import { useEffect, useRef, useState } from "react";
-import { Ban } from "lucide-react";
+import { Ban, Shuffle } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 
 type HSV = { h: number; s: number; v: number };
+type Mode = "palette" | "spectrum";
 
+// Vivid palette — only two darks as neutrals, no wall of whites/greys.
 const SWATCHES = [
-  "#6cc24a", "#3fbf9f", "#4aa3e0", "#3f6fd8", "#7a5cd8", "#64748b", "#cbd5e1",
-  "#4caf50", "#2f9e8f", "#2f7fd8", "#2f4fb0", "#5b3fb0", "#334155", "#0b0f17",
-  "#f6d743", "#f39c12", "#e74c3c", "#c0392b", "#a8a29e", "#e5e7eb", "#ffffff",
-  "#fde68a", "#fb923c", "#f87171", "#b91c1c", "#78716c", "#d6d3d1", "#f8fafc",
+  "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e", "#10b981",
+  "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7",
+  "#d946ef", "#ec4899", "#f43f5e", "#dc2626", "#b45309", "#0f172a", "#334155",
+  "#fecaca", "#fed7aa", "#fde68a", "#bbf7d0", "#bfdbfe", "#e9d5ff", "#fbcfe8",
 ];
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -57,6 +59,11 @@ export const hsvToHex = ({ h, s, v }: HSV): string => {
   return `#${to255(r)}${to255(g)}${to255(b)}`;
 };
 
+const randomHex = () => `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
+
+const tabClass = (active: boolean) =>
+  `rounded px-2 py-1 text-xs ${active ? "text-primary" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"}`;
+
 export const ColorPicker = ({
   value,
   onChange,
@@ -69,6 +76,7 @@ export const ColorPicker = ({
 }) => {
   const [hsv, setHsv] = useState<HSV>(() => hexToHsv(value));
   const [hexDraft, setHexDraft] = useState(value);
+  const [mode, setMode] = useState<Mode>("palette");
   const svRef = useRef<HTMLDivElement | null>(null);
   const hueRef = useRef<HTMLDivElement | null>(null);
 
@@ -118,55 +126,76 @@ export const ColorPicker = ({
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-7 gap-1.5">
-        {SWATCHES.map((swatch) => (
-          <button
-            key={swatch}
-            type="button"
-            title={swatch}
-            onClick={() => emit(hexToHsv(swatch))}
-            className={`h-6 rounded-[3px] ${current === swatch.toLowerCase() ? "ring-2 ring-foreground/40" : ""}`}
-            style={{ backgroundColor: swatch }}
-          />
-        ))}
-        {onClear && (
-          <button
-            type="button"
-            title="Без цвета"
-            onClick={onClear}
-            className="flex h-6 items-center justify-center rounded-[3px] text-muted-foreground hover:bg-foreground/5"
-          >
-            <Ban className="h-3.5 w-3.5" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-0.5">
+          <button type="button" onClick={() => setMode("palette")} className={tabClass(mode === "palette")}>
+            Палитра
           </button>
-        )}
+          <button type="button" onClick={() => setMode("spectrum")} className={tabClass(mode === "spectrum")}>
+            Спектр
+          </button>
+        </div>
+        <button
+          type="button"
+          title="Случайный цвет"
+          onClick={() => emit(hexToHsv(randomHex()))}
+          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+        >
+          <Shuffle className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <div className="flex gap-3">
-        <div
-          ref={svRef}
-          {...dragProps(readSv)}
-          className="relative h-40 flex-1 cursor-crosshair rounded-[3px]"
-          style={{ backgroundColor: `hsl(${hsv.h} 100% 50%)` }}
-        >
-          <div className="absolute inset-0 rounded-[3px]" style={{ background: "linear-gradient(to right, #fff, transparent)" }} />
-          <div className="absolute inset-0 rounded-[3px]" style={{ background: "linear-gradient(to top, #000, transparent)" }} />
-          <span
-            className="absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
-            style={{ left: `${hsv.s}%`, top: `${100 - hsv.v}%` }}
-          />
+      {mode === "palette" ? (
+        <div className="grid grid-cols-7 gap-1.5">
+          {SWATCHES.map((swatch) => (
+            <button
+              key={swatch}
+              type="button"
+              title={swatch}
+              onClick={() => emit(hexToHsv(swatch))}
+              className={`h-6 rounded-[3px] ${current === swatch.toLowerCase() ? "ring-2 ring-foreground/40" : ""}`}
+              style={{ backgroundColor: swatch }}
+            />
+          ))}
+          {onClear && (
+            <button
+              type="button"
+              title="Без цвета"
+              onClick={onClear}
+              className="flex h-6 items-center justify-center rounded-[3px] text-muted-foreground hover:bg-foreground/5"
+            >
+              <Ban className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
-        <div
-          ref={hueRef}
-          {...dragProps(readHue)}
-          className="relative h-40 w-3.5 cursor-ns-resize rounded-[3px]"
-          style={{ background: "linear-gradient(to bottom, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" }}
-        >
-          <span
-            className="absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
-            style={{ top: `${(hsv.h / 360) * 100}%` }}
-          />
+      ) : (
+        <div className="flex gap-3">
+          <div
+            ref={svRef}
+            {...dragProps(readSv)}
+            className="relative h-40 flex-1 cursor-crosshair rounded-[3px]"
+            style={{ backgroundColor: `hsl(${hsv.h} 100% 50%)` }}
+          >
+            <div className="absolute inset-0 rounded-[3px]" style={{ background: "linear-gradient(to right, #fff, transparent)" }} />
+            <div className="absolute inset-0 rounded-[3px]" style={{ background: "linear-gradient(to top, #000, transparent)" }} />
+            <span
+              className="absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
+              style={{ left: `${hsv.s}%`, top: `${100 - hsv.v}%` }}
+            />
+          </div>
+          <div
+            ref={hueRef}
+            {...dragProps(readHue)}
+            className="relative h-40 w-3.5 cursor-ns-resize rounded-[3px]"
+            style={{ background: "linear-gradient(to bottom, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" }}
+          >
+            <span
+              className="absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
+              style={{ top: `${(hsv.h / 360) * 100}%` }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <Input
         value={hexDraft}
