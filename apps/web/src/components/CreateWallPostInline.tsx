@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverPanel, PopoverTrigger } from "@/components/ui/popover";
 import { InkBar, InkButton, glassGhostButtonClass } from "@/components/ui/ink-bar";
 import { Input } from "@/components/ui/input";
 import {
@@ -732,9 +732,8 @@ export const CreateWallPostInline = ({
                 <Link2 className="h-5 w-5" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="z-[80] w-80 !p-0">
-              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Ссылка-карточка</div>
-              <div className="space-y-2 px-3 py-3">
+            <PopoverPanel side="top" align="start" className="z-[80] w-80">
+              <div className="px-3 py-3">
                 <Input
                   autoFocus
                   className="h-9"
@@ -748,17 +747,18 @@ export const CreateWallPostInline = ({
                     }
                   }}
                 />
-                <p className="text-[11px] leading-4 text-muted-foreground">Вставьте ссылку — покажем предпросмотр.</p>
               </div>
-              <div className="flex justify-end gap-2 border-t border-border/60 px-3 py-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
-                  Отмена
-                </Button>
-                <Button type="button" size="sm" onClick={() => void handleCreateLinkCard()} disabled={linkLoading || !linkUrl.trim()}>
+              <div className="border-t border-border/60 p-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCreateLinkCard()}
+                  disabled={linkLoading || !linkUrl.trim()}
+                  className="flex w-full items-center justify-center rounded px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
+                >
                   {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
-                </Button>
+                </button>
               </div>
-            </PopoverContent>
+            </PopoverPanel>
           </Popover>
           <span className="ml-1 text-[11px] text-muted-foreground">
             {mediaCount > 0 ? `${mediaCount}/${MAX_MEDIA_NODES}` : null}

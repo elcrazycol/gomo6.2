@@ -10,10 +10,10 @@ import Link from "@tiptap/extension-link";
 import Mention from "@tiptap/extension-mention";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
-import { Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Bold, Check, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverPanel, PopoverTrigger } from "@/components/ui/popover";
+import { ColorPicker } from "@/components/ui/color-picker";
 import { EMPTY_EDITOR_STATE, normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
 import { SpoilerMark } from "@/components/emoji/SpoilerMark";
 import { HashtagMark } from "@/components/emoji/HashtagMark";
@@ -68,15 +68,14 @@ export interface GomoRichEditorHandle {
   getEditor: () => Editor | null;
 }
 
-const randomHexColor = () =>
-  `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
-
 const normalizeHexColor = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "";
   const prefixed = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
   return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(prefixed) ? prefixed : null;
 };
+
+const FONT_SIZES = Array.from({ length: 17 }, (_, index) => 10 + index);
 
 const ToolButton = ({
   active = false,
@@ -104,11 +103,9 @@ const ToolButton = ({
 export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?: string }) => {
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const [colorDraft, setColorDraft] = useState("#ff5500");
-  const colorInputRef = useRef<HTMLInputElement>(null);
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState("");
   const [isSizeDialogOpen, setIsSizeDialogOpen] = useState(false);
-  const [sizeDraft, setSizeDraft] = useState("18");
 
   // Re-render the toolbar when the selection/marks change so toggle buttons
   // can show their active state (editor.isActive at the caret).
@@ -125,6 +122,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
         spoiler: e.isActive("spoiler"),
         characters: (e.storage.characterCount as { characters?: () => number } | undefined)?.characters?.() ?? 0,
         limit: (charExtension?.options as { limit?: number | null } | undefined)?.limit ?? null,
+        fontSize: (e.getAttributes("textStyle") as { fontSize?: string } | undefined)?.fontSize ?? null,
       };
     },
   });
@@ -175,12 +173,8 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     applyColor(normalized);
   };
 
-  const applySize = (px?: number) => {
-    const raw = px !== undefined ? String(px) : sizeDraft;
-    const clean = raw.replace(/[^\d.]/g, "");
-    if (clean) {
-      editor.chain().focus().setMark("textStyle", { fontSize: `${clean}px` }).run();
-    }
+  const applySize = (px: number) => {
+    editor.chain().focus().setMark("textStyle", { fontSize: `${px}px` }).run();
     setIsSizeDialogOpen(false);
   };
 
@@ -188,157 +182,112 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
   // an "ink" blob that springs under the hovered/focused button.
   return (
     <InkBar
-        blobClassName="h-8 w-8"
-        className={`sticky top-2 z-20 mx-auto flex w-fit max-w-full items-center gap-0.5 overflow-x-auto scrollbar-hide rounded-full border border-border/60 bg-background/70 p-1 shadow-lg shadow-black/5 backdrop-blur-md animate-in fade-in-0 slide-in-from-top-1 duration-300 motion-reduce:animate-none ${className}`}
-      >
-        <div className="flex items-center gap-0.5">
-          <ToolButton active={active.bold} title="Жирный" onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></ToolButton>
-          <ToolButton active={active.italic} title="Курсив" onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></ToolButton>
-          <ToolButton active={active.underline} title="Подчёркнутый" onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></ToolButton>
-          <ToolButton active={active.strike} title="Зачёркнутый" onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></ToolButton>
-        </div>
-        <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
-        <div className="flex items-center gap-0.5">
-          <Popover
-            open={isLinkDialogOpen}
-            onOpenChange={(open) => {
-              if (open) setLinkDraft((editor.getAttributes("link") as { href?: string })?.href ?? "");
-              setIsLinkDialogOpen(open);
-            }}
-          >
-            <PopoverTrigger asChild>
-              <InkButton size="sm" active={active.link} title="Ссылка" onMouseDown={(event) => event.preventDefault()}>
-                <Link2 className="h-4 w-4" />
-              </InkButton>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="z-[80] w-72 !p-0">
-              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Ссылка</div>
-              <div className="space-y-2 px-3 py-3">
-                <Input
-                  autoFocus
-                  className="h-9"
-                  value={linkDraft}
-                  onChange={(event) => setLinkDraft(event.target.value)}
-                  placeholder="https://…"
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      applyLink();
-                    }
-                  }}
-                />
-                <p className="text-[11px] leading-4 text-muted-foreground">Пусто — убрать ссылку.</p>
-              </div>
-              <div className="flex justify-end gap-2 border-t border-border/60 px-3 py-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setIsLinkDialogOpen(false)}>Отмена</Button>
-                <Button type="button" size="sm" onClick={applyLink}>Применить</Button>
-              </div>
-            </PopoverContent>
-          </Popover>
+      blobClassName="h-8 w-8"
+      className={`sticky top-2 z-20 mx-auto flex w-fit max-w-full items-center gap-0.5 overflow-x-auto scrollbar-hide rounded-full border border-border/60 bg-background/70 p-1 shadow-lg shadow-black/5 backdrop-blur-md ${className}`}
+    >
+      <div className="flex items-center gap-0.5">
+        <ToolButton active={active.bold} title="Жирный" onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></ToolButton>
+        <ToolButton active={active.italic} title="Курсив" onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></ToolButton>
+        <ToolButton active={active.underline} title="Подчёркнутый" onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></ToolButton>
+        <ToolButton active={active.strike} title="Зачёркнутый" onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></ToolButton>
+      </div>
 
-          <Popover
-            open={isColorDialogOpen}
-            onOpenChange={(open) => {
-              if (open) setColorDraft(randomHexColor());
-              setIsColorDialogOpen(open);
-            }}
-          >
-            <PopoverTrigger asChild>
-              <InkButton size="sm" title="Цвет текста" onMouseDown={(event) => event.preventDefault()}>
-                <Palette className="h-4 w-4" />
-              </InkButton>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="z-[80] w-72 !p-0">
-              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Цвет текста</div>
-              <div className="space-y-3 px-3 py-3">
-                <div className="flex items-center gap-2">
+      <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
+
+      <div className="flex items-center gap-0.5">
+        <Popover
+          open={isLinkDialogOpen}
+          onOpenChange={(open) => {
+            if (open) setLinkDraft((editor.getAttributes("link") as { href?: string })?.href ?? "");
+            setIsLinkDialogOpen(open);
+          }}
+        >
+          <PopoverTrigger asChild>
+            <InkButton size="sm" active={active.link} title="Ссылка" onMouseDown={(event) => event.preventDefault()}>
+              <Link2 className="h-4 w-4" />
+            </InkButton>
+          </PopoverTrigger>
+          <PopoverPanel side="bottom" align="center" className="z-[80] w-72">
+            <div className="px-3 py-3">
+              <Input
+                autoFocus
+                className="h-9"
+                value={linkDraft}
+                onChange={(event) => setLinkDraft(event.target.value)}
+                placeholder="https://…"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    applyLink();
+                  }
+                }}
+              />
+            </div>
+            <div className="border-t border-border/60 p-2">
+              <button type="button" onClick={applyLink} className="w-full rounded px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10">
+                Вставить
+              </button>
+            </div>
+          </PopoverPanel>
+        </Popover>
+
+        <Popover
+          open={isColorDialogOpen}
+          onOpenChange={(open) => {
+            if (open) setColorDraft((editor.getAttributes("textStyle") as { color?: string } | undefined)?.color ?? "#ffffff");
+            setIsColorDialogOpen(open);
+          }}
+        >
+          <PopoverTrigger asChild>
+            <InkButton size="sm" title="Цвет текста" onMouseDown={(event) => event.preventDefault()}>
+              <Palette className="h-4 w-4" />
+            </InkButton>
+          </PopoverTrigger>
+          <PopoverPanel side="bottom" align="center" className="z-[80] w-[300px]">
+            <div className="p-3">
+              <ColorPicker value={colorDraft} onChange={setColorDraft} onClear={() => applyColor("")} />
+            </div>
+            <div className="flex justify-end border-t border-border/60 p-2">
+              <button type="button" onClick={handleApplyColor} className="rounded px-4 py-1.5 text-sm font-medium text-primary hover:bg-primary/10">
+                OK
+              </button>
+            </div>
+          </PopoverPanel>
+        </Popover>
+
+        <Popover open={isSizeDialogOpen} onOpenChange={setIsSizeDialogOpen}>
+          <PopoverTrigger asChild>
+            <InkButton size="sm" title="Размер шрифта" onMouseDown={(event) => event.preventDefault()}>
+              <Type className="h-4 w-4" />
+            </InkButton>
+          </PopoverTrigger>
+          <PopoverPanel side="bottom" align="center" className="z-[80] w-24">
+            <div className="max-h-64 overflow-y-auto py-1">
+              {FONT_SIZES.map((px) => {
+                const selected = active.fontSize === `${px}px`;
+                return (
                   <button
+                    key={px}
                     type="button"
-                    onClick={() => colorInputRef.current?.click()}
-                    className="h-9 w-9 shrink-0 rounded-md border border-border/70"
-                    style={{ backgroundColor: normalizeHexColor(colorDraft) || "transparent" }}
-                    title="Открыть палитру"
-                    aria-label="Выбрать цвет"
-                  />
-                  <Input
-                    value={colorDraft}
-                    onChange={(event) => setColorDraft(event.target.value)}
-                    placeholder={randomHexColor()}
-                    className="h-9 min-w-0 flex-1 font-mono"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-9 w-9 shrink-0 p-0"
-                    onClick={() => setColorDraft(randomHexColor())}
-                    title="Случайный цвет"
+                    onClick={() => applySize(px)}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-foreground/5 ${selected ? "text-primary" : "text-foreground/90"}`}
                   >
-                    <Dice3 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <input
-                  ref={colorInputRef}
-                  type="color"
-                  value={normalizeHexColor(colorDraft) || "#ff5500"}
-                  onChange={(event) => setColorDraft(event.target.value)}
-                  className="sr-only"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-2 border-t border-border/60 px-3 py-2">
-                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => applyColor("")}>
-                  <X className="mr-1.5 h-3.5 w-3.5" /> Снять
-                </Button>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setIsColorDialogOpen(false)}>Отмена</Button>
-                  <Button type="button" size="sm" onClick={handleApplyColor}>Применить</Button>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
+                    <span>{px}</span>
+                    {selected && <Check className="h-3.5 w-3.5" />}
+                  </button>
+                );
+              })}
+            </div>
+          </PopoverPanel>
+        </Popover>
 
-          <Popover
-            open={isSizeDialogOpen}
-            onOpenChange={(open) => {
-              if (open) setSizeDraft("18");
-              setIsSizeDialogOpen(open);
-            }}
-          >
-            <PopoverTrigger asChild>
-              <InkButton size="sm" title="Размер шрифта" onMouseDown={(event) => event.preventDefault()}>
-                <Type className="h-4 w-4" />
-              </InkButton>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="z-[80] w-64 !p-0">
-              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Размер шрифта</div>
-              <div className="space-y-3 px-3 py-3">
-                <div className="flex flex-wrap gap-1.5">
-                  {[13, 16, 18, 20, 24].map((px) => (
-                    <Button key={px} type="button" variant="outline" size="sm" className="h-8 min-w-9 px-2" onClick={() => applySize(px)}>{px}</Button>
-                  ))}
-                </div>
-                <Input
-                  className="h-9"
-                  value={sizeDraft}
-                  onChange={(event) => setSizeDraft(event.target.value)}
-                  placeholder="Своё значение, px"
-                />
-              </div>
-              <div className="flex justify-end gap-2 border-t border-border/60 px-3 py-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setIsSizeDialogOpen(false)}>Отмена</Button>
-                <Button type="button" size="sm" onClick={() => applySize()}>Применить</Button>
-              </div>
-            </PopoverContent>
-          </Popover>
+        <ToolButton active={active.spoiler} title="Спойлер (размытие)" onClick={toggleBlur}><Eye className="h-4 w-4" /></ToolButton>
+      </div>
 
-          <ToolButton active={active.spoiler} title="Спойлер (размытие)" onClick={toggleBlur}><Eye className="h-4 w-4" /></ToolButton>
-        </div>
-        <span className="mx-1 hidden shrink-0 px-1 font-mono text-[11px] tabular-nums text-muted-foreground sm:inline">
-          {active.limit ? `${active.characters}/${active.limit}` : active.characters}
-        </span>
-      </InkBar>
+      <span className="mx-1 hidden shrink-0 px-1 font-mono text-[11px] tabular-nums text-muted-foreground sm:inline">
+        {active.limit ? `${active.characters}/${active.limit}` : active.characters}
+      </span>
+    </InkBar>
   );
 };
 
