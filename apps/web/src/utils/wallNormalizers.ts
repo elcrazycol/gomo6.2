@@ -1,5 +1,6 @@
 import { prosemirrorToPlainText } from "@/utils/contentConverter";
 import type { AttachmentMeta } from "@/types/forum";
+import { ensureAttachmentIds, type MediaAttachment } from "@/components/editor/media/mediaSchema";
 
 export interface WallPost {
   id: string;
@@ -147,18 +148,20 @@ export const isInteractiveTarget = (target: EventTarget | null, currentTarget?: 
   return true;
 };
 
-export const normalizeAttachments = (post: WallPost): AttachmentMeta[] => {
+export const normalizeAttachments = (post: WallPost): MediaAttachment[] => {
   if (Array.isArray(post.attachments) && post.attachments.length > 0) {
-    return post.attachments;
+    // Legacy rows have no id; derive a stable one so a media node can reference
+    // the same attachment across the read renderer and the editor.
+    return ensureAttachmentIds(post.attachments);
   }
   if (post.image_url) {
-    return [{
+    return ensureAttachmentIds([{
       url: post.image_url,
       type: "image",
       mime: "image/*",
       name: "wall-image",
       size: 0,
-    }];
+    }]);
   }
   return [];
 };

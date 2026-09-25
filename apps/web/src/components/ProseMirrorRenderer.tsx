@@ -2,6 +2,8 @@ import React from "react";
 import { EmojiInline } from "@/components/EmojiInline";
 import { CensorBlur } from "@/components/CensorBlur";
 import { MentionLink } from "@/components/MentionLink";
+import { MediaBlockRenderer } from "@/components/editor/media/MediaBlockView";
+import { isZeroWidthText, toMediaBlockAttrs } from "@/components/editor/media/mediaSchema";
 
 interface ProsemirrorNode {
   type: string;
@@ -13,6 +15,9 @@ interface ProsemirrorNode {
 
 const renderInline = (node: ProsemirrorNode, key: string): React.ReactNode => {
   if (node.type !== "text" || !node.text) return null;
+  // Zero-width placeholders (the empty-editor sentinel) render as nothing so
+  // they do not add a text line's leading around media.
+  if (isZeroWidthText(node.text)) return null;
 
   let element: React.ReactNode = node.text;
 
@@ -105,19 +110,48 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
 
   switch (node.type) {
     case "doc": {
-      // Drop trailing empty paragraphs (e.g. created by pressing Enter to
-      // submit) so replies never show a stray blank line at the end.
+      // Drop leading AND trailing empty paragraphs: media inserted after an
+      // Enter leaves a blank line that renders as a whole empty row above or
+      // below the post (the "one line gap").
       const nodes = node.content || [];
+      let start = 0;
       let end = nodes.length;
-      while (end > 0 && isEmptyParagraph(nodes[end - 1])) end--;
-      return <>{nodes.slice(0, end).map((child, index) => renderNode(child, `${key}-${index}`))}</>;
+      while (start < end && isEmptyParagraph(nodes[start])) start++;
+      while (end > start && isEmptyParagraph(nodes[end - 1])) end--;
+      return <>{nodes.slice(start, end).map((child, index) => renderNode(child, `${key}-${index}`))}</>;
     }
-    case "paragraph":
+    case "paragraph": {
+      // A paragraph that is nothing but media should not add the text line's
+      // leading: an inline-block image taller than the line box otherwise gets
+      // an extra gap above and below it.
+      const content = node.content || [];
+      const mediaOnly =
+        content.length > 0 &&
+        content.every(
+          (child) =>
+            child.type === "mediaBlock" ||
+            child.type === "mediaGroup" ||
+            (child.type === "text" && isZeroWidthText(child.text)),
+        );
       return (
-        <div key={key} className="mb-2">
+        <div key={key} className={mediaOnly ? "leading-none" : "mb-2"}>
           {children.length > 0 ? children : <br />}
         </div>
       );
+    }
+    case "mediaBlock":
+      return <MediaBlockRenderer key={key} attrs={toMediaBlockAttrs(node.attrs)} />;
+    case "mediaGroup":
+      // Galleries are a P3 feature; render the children in a simple grid so a
+      // group is never lost even before the layouts land.
+      return (
+        <div key={key} data-media-group="true" className="my-3 grid gap-2 sm:grid-cols-2">
+          {children}
+        </div>
+      );
+    case "uploadPlaceholder":
+      // Transient editor-only node: never persisted, nothing to render.
+      return null;
     default:
       return <React.Fragment key={key}>{children}</React.Fragment>;
   }

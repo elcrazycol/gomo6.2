@@ -11,6 +11,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
@@ -51,6 +54,9 @@ export const FeedWallPostCard = ({
   const location = useLocation();
   const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(post.content_json), [post.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   // Reports the post as viewed once the card becomes visible in the viewport.
   const viewTrackingRef = usePostViewTracking(post.id);
   const postPath = getWallPostPath(post.user_id, post.id);
@@ -151,7 +157,16 @@ export const FeedWallPostCard = ({
           </div>
         </div>
 
-        {post.content?.trim() && (
+        <MediaAttachmentsProvider
+          value={{
+            attachments,
+            inlineMedia,
+            galleryKey: `feed-${post.id}`,
+            onImageClick,
+            onVideoOpen: handleVideoOpen,
+          }}
+        >
+        {hasContent && (
           <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
             <ProcessedContent
               content={(post.content as string) || ""}
@@ -167,7 +182,7 @@ export const FeedWallPostCard = ({
           </div>
         )}
 
-        {attachments.length > 0 && (
+        {attachments.length > 0 && !inlineMedia && (
           <WallAttachments
             attachments={attachments}
             galleryKey={`feed-${post.id}`}
@@ -175,6 +190,7 @@ export const FeedWallPostCard = ({
             onVideoOpen={handleVideoOpen}
           />
         )}
+        </MediaAttachmentsProvider>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
           <ActionButton

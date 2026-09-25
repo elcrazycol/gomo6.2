@@ -29,6 +29,9 @@ import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
 import { WallAttachments } from "@/components/WallAttachments";
 import { EmbeddedWallPost } from "@/components/WallEmbeddedPost";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { LightboxItem } from "@/components/Lightbox";
 import { WallCommentTree } from "@/components/wall/WallCommentTree";
 import {
@@ -84,6 +87,12 @@ export const WallPostCard = ({
   const dateLocale = useDateLocale();
   const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
+  // Inline media is the new presentation; when the document has no media nodes
+  // (every legacy post) the attachments fall back to the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(post.content_json), [post.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  // Media-only posts have no plain text but still need their content rendered.
+  const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   // Reports the post as viewed once the card becomes visible in the viewport
   // (server dedupes per unique visitor — see usePostViewTracking).
   const viewTrackingRef = usePostViewTracking(post.id);
@@ -407,19 +416,29 @@ export const WallPostCard = ({
           )}
         </div>
 
+        <MediaAttachmentsProvider
+          value={{
+            attachments,
+            inlineMedia,
+            galleryKey: post.id,
+            onImageClick,
+            onVideoOpen: postHref ? handleVideoOpen : undefined,
+            autoPlayVideo: autoplayVideo,
+          }}
+        >
         <div
           className={`${postHref && !isEditing ? "cursor-pointer" : ""}`}
           onClick={handleOpenPost}
           role={postHref && !isEditing ? "button" : undefined}
           tabIndex={postHref && !isEditing ? 0 : undefined}
         >
-          {post.content?.trim() && (
+          {hasContent && (
             <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
               <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
             </div>
           )}
 
-          {attachments.length > 0 && (
+          {attachments.length > 0 && !inlineMedia && (
             <WallAttachments
               attachments={attachments}
               galleryKey={post.id}
@@ -440,6 +459,7 @@ export const WallPostCard = ({
             </div>
           )}
         </div>
+        </MediaAttachmentsProvider>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
           <ActionButton icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
