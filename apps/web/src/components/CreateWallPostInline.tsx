@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
+import { InkBar, INK_ATTR } from "@/components/ui/ink-bar";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -691,18 +692,22 @@ export const CreateWallPostInline = ({
         </div>
 
         {/* Toolbar */}
-        <div className="flex shrink-0 items-center gap-0.5 border-t border-border/60 py-1.5 pl-2 pr-2 md:pr-7">
+        <InkBar
+          blobClassName="h-9 w-9"
+          className="flex shrink-0 items-center gap-0.5 border-t border-border/60 py-1.5 pl-2 pr-2 md:pr-7"
+        >
           <EmojiPicker
             onEmojiSelect={(data) => {
               editorRef.current?.focus();
               editorRef.current?.insertEmoji(data);
             }}
           >
-            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" title="Эмодзи">
+            <Button {...{ [INK_ATTR]: true }} type="button" variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" title="Эмодзи">
               <Smile className="h-5 w-5" />
             </Button>
           </EmojiPicker>
           <Button
+            {...{ [INK_ATTR]: true }}
             type="button"
             variant="ghost"
             size="icon"
@@ -722,6 +727,7 @@ export const CreateWallPostInline = ({
             onChange={handleFiles}
           />
           <Button
+            {...{ [INK_ATTR]: true }}
             type="button"
             variant="ghost"
             size="icon"
@@ -742,7 +748,7 @@ export const CreateWallPostInline = ({
             onClick={handleSubmit}
             label={isEditing ? "Сохранить" : "Опубликовать"}
           />
-        </div>
+        </InkBar>
 
         {/* Desktop resize handle (bottom-right): drag to resize the composer.
             The default size is the minimum. */}
