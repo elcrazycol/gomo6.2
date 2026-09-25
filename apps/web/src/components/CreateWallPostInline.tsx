@@ -7,18 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
-import { Button } from "@/components/ui/button";
 import { Popover, PopoverPanel, PopoverTrigger } from "@/components/ui/popover";
 import { InkBar, InkButton, glassGhostButtonClass } from "@/components/ui/ink-bar";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
@@ -806,62 +798,63 @@ export const CreateWallPostInline = ({
       )}
 
       <Dialog open={spoilerDialogOpen} onOpenChange={setSpoilerDialogOpen}>
-        <DialogContent className="z-[70] max-w-md border-border/70 bg-background">
-          <DialogHeader>
-            <DialogTitle>Спойлер</DialogTitle>
-            <DialogDescription>
-              Введите текст на спойлере — его увидят до того, как раскроют блок.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={spoilerLabelDraft}
-            onChange={(event) => setSpoilerLabelDraft(event.target.value)}
-            placeholder="Спойлер"
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                handleCreateSpoiler();
-              }
-            }}
-          />
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setSpoilerDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={handleCreateSpoiler}>
+        <DialogContent className="z-[70] w-[calc(100vw-2rem)] max-w-sm !gap-0 !p-0 border-border/60 bg-background">
+          <div className="border-b border-border/60 px-4 py-3 pr-10 text-sm font-medium">Спойлер</div>
+          <div className="px-4 py-4">
+            <Input
+              autoFocus
+              className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
+              value={spoilerLabelDraft}
+              onChange={(event) => setSpoilerLabelDraft(event.target.value)}
+              placeholder="Текст на спойлере"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateSpoiler();
+                }
+              }}
+            />
+          </div>
+          <div className="flex justify-end border-t border-border/60 px-2 py-1.5">
+            <button
+              type="button"
+              onClick={handleCreateSpoiler}
+              className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            >
               Добавить
-            </Button>
-          </DialogFooter>
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
 
       <Dialog open={youtubeDialogOpen} onOpenChange={setYoutubeDialogOpen}>
-        <DialogContent className="z-[70] max-w-md border-border/70 bg-background">
-          <DialogHeader>
-            <DialogTitle>YouTube</DialogTitle>
-            <DialogDescription>Вставьте ссылку на видео — встроим плеер.</DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={youtubeUrl}
-            onChange={(event) => setYoutubeUrl(event.target.value)}
-            placeholder="https://youtu.be/…"
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                handleCreateYouTube();
-              }
-            }}
-          />
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setYoutubeDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={handleCreateYouTube} disabled={!youtubeUrl.trim()}>
+        <DialogContent className="z-[70] w-[calc(100vw-2rem)] max-w-sm !gap-0 !p-0 border-border/60 bg-background">
+          <div className="border-b border-border/60 px-4 py-3 pr-10 text-sm font-medium">YouTube</div>
+          <div className="px-4 py-4">
+            <Input
+              autoFocus
+              className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
+              value={youtubeUrl}
+              onChange={(event) => setYoutubeUrl(event.target.value)}
+              placeholder="https://youtu.be/…"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateYouTube();
+                }
+              }}
+            />
+          </div>
+          <div className="flex justify-end border-t border-border/60 px-2 py-1.5">
+            <button
+              type="button"
+              onClick={handleCreateYouTube}
+              disabled={!youtubeUrl.trim()}
+              className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            >
               Добавить
-            </Button>
-          </DialogFooter>
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>,
