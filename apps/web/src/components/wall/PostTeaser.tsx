@@ -31,9 +31,9 @@ export const PostTeaser = ({ contentJson, onOpenPost }: { contentJson: unknown; 
   return (
     <div className="post-teaser">
       {hasText && teaser.textDoc && (
-        <div className="relative max-h-28 overflow-hidden">
+        <div className="relative max-h-56 overflow-hidden">
           <ProseMirrorRenderer json={teaser.textDoc as unknown as Parameters<typeof ProseMirrorRenderer>[0]["json"]} />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent" />
         </div>
       )}
 
