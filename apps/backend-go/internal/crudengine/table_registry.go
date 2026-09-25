@@ -518,6 +518,20 @@ var genericTables = []TableMeta{
 		ReadWildcard: true,
 		Writes:       fullWrites(),
 		WriteGroup:   GenericWrite,
+		// Mass-assignment allow-list: is_pinned/pinned_order are managed by the
+		// toggle_wall_post_pin RPC and must not be client-writable. user_id is
+		// needed so a post can target another user's wall (OwnWallPost forces
+		// author_id afterwards and validates the wall privacy). repost_of_post_id
+		// is required by the repost flow.
+		WritableColumns: map[string]bool{
+			"user_id":           true,
+			"content":           true,
+			"content_json":      true,
+			"title":             true,
+			"image_url":         true,
+			"attachments":       true,
+			"repost_of_post_id": true,
+		},
 		// OwnWallPost: the author is always the caller; the wall owner may be
 		// another user, but only when their privacy settings allow it and the
 		// caller may view the wall (enforcePostOwnership / enforceWallTargetPrivacy).
