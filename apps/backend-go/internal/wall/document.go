@@ -3,6 +3,7 @@ package wall
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/gomo6/backend/internal/textutil"
@@ -39,7 +40,11 @@ var allowedNodeTypes = map[string]bool{
 	"mediaGroup":     true,
 	"horizontalRule": true,
 	"linkCard":       true,
+	"spoilerBlock":   true,
+	"youtubeEmbed":   true,
 }
+
+var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
 var allowedMarkTypes = map[string]bool{
 	"bold":      true,
@@ -154,6 +159,10 @@ func walkDocument(node map[string]interface{}, depth int, count *int, problems *
 		validateMediaNode(node, problems)
 	case "linkCard":
 		validateLinkCardNode(node, problems)
+	case "spoilerBlock":
+		validateSpoilerBlockNode(node, problems)
+	case "youtubeEmbed":
+		validateYouTubeEmbedNode(node, problems)
 	}
 	content, ok := node["content"].([]interface{})
 	if !ok {
@@ -243,6 +252,32 @@ func validateLinkCardNode(node map[string]interface{}, problems *[]string) {
 		if value, ok := attrs[key].(string); ok && utf8RuneLen(value) > maxCaptionRunes {
 			*problems = append(*problems, "linkCard "+key+" is too long")
 		}
+	}
+}
+
+// validateSpoilerBlockNode checks a spoiler block's label length. The block may
+// hold any allowed block content (text, media, galleries), which the generic
+// walk already validates.
+func validateSpoilerBlockNode(node map[string]interface{}, problems *[]string) {
+	attrs, _ := node["attrs"].(map[string]interface{})
+	if attrs == nil {
+		return
+	}
+	if value, ok := attrs["label"].(string); ok && utf8RuneLen(value) > maxCaptionRunes {
+		*problems = append(*problems, "spoilerBlock label is too long")
+	}
+}
+
+// validateYouTubeEmbedNode checks that a YouTube embed carries a valid id.
+func validateYouTubeEmbedNode(node map[string]interface{}, problems *[]string) {
+	attrs, _ := node["attrs"].(map[string]interface{})
+	if attrs == nil {
+		*problems = append(*problems, "youtubeEmbed without attributes")
+		return
+	}
+	videoID, _ := attrs["videoId"].(string)
+	if !youtubeIDPattern.MatchString(videoID) {
+		*problems = append(*problems, "youtubeEmbed with an invalid videoId")
 	}
 }
 
@@ -374,6 +409,9 @@ func DerivePostFields(
 		refSet[ref] = true
 	}
 	used = []interface{}{}
+	coverID, _ := doc["cover"].(string)
+	var firstImageURL *string
+	var coverImageURL *string
 	for _, raw := range attachments {
 		attachment, ok := raw.(map[string]interface{})
 		if !ok {
@@ -384,14 +422,24 @@ func DerivePostFields(
 			continue
 		}
 		used = append(used, attachment)
-		if imageURL == nil {
-			if kind, _ := attachment["type"].(string); kind == "image" {
-				if url, _ := attachment["url"].(string); url != "" {
-					value := url
-					imageURL = &value
+		if kind, _ := attachment["type"].(string); kind == "image" {
+			if url, _ := attachment["url"].(string); url != "" {
+				value := url
+				if firstImageURL == nil {
+					firstImageURL = &value
+				}
+				if coverID != "" && id == coverID {
+					coverImageURL = &value
 				}
 			}
 		}
+	}
+	// The chosen cover wins over the first image so share previews (image_url)
+	// show the cover.
+	if coverImageURL != nil {
+		imageURL = coverImageURL
+	} else {
+		imageURL = firstImageURL
 	}
 	return content, title, imageURL, used
 }
@@ -423,6 +471,28 @@ func documentPlainText(node map[string]interface{}) string {
 		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
 			if url, ok := attrs["url"].(string); ok && url != "" {
 				return " " + url + " "
+			}
+		}
+		return " "
+	case "spoilerBlock":
+		var spoiler strings.Builder
+		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
+			if label, ok := attrs["label"].(string); ok && strings.TrimSpace(label) != "" {
+				spoiler.WriteString(strings.TrimSpace(label))
+				spoiler.WriteString("\n")
+			}
+		}
+		content, _ := node["content"].([]interface{})
+		for _, child := range content {
+			if childMap, ok := child.(map[string]interface{}); ok {
+				spoiler.WriteString(documentPlainText(childMap))
+			}
+		}
+		return spoiler.String()
+	case "youtubeEmbed":
+		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
+			if id, ok := attrs["videoId"].(string); ok && id != "" {
+				return " https://youtu.be/" + id + " "
 			}
 		}
 		return " "

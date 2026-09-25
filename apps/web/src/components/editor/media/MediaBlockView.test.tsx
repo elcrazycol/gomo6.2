@@ -24,7 +24,7 @@ const attachment = (id: string): MediaAttachment => ({
 
 const renderBlock = (
   attrs: Partial<typeof DEFAULT_MEDIA_BLOCK_ATTRS> = {},
-  opts: { inlineMedia?: boolean; attachments?: MediaAttachment[] } = {},
+  opts: { inlineMedia?: boolean; attachments?: MediaAttachment[]; hiddenMediaIds?: ReadonlySet<string> } = {},
 ) =>
   render(
     <MediaAttachmentsProvider
@@ -32,6 +32,7 @@ const renderBlock = (
         attachments: opts.attachments ?? [attachment("att_1")],
         inlineMedia: opts.inlineMedia ?? true,
         galleryKey: "g",
+        hiddenMediaIds: opts.hiddenMediaIds,
       }}
     >
       <MediaBlockRenderer attrs={{ ...DEFAULT_MEDIA_BLOCK_ATTRS, attachmentId: "att_1", ...attrs }} />
@@ -43,6 +44,12 @@ describe("MediaBlockRenderer", () => {
     renderBlock();
     expect(screen.getByTestId("wall-attachments")).toHaveTextContent("att_1");
     expect(screen.getByText("att_1")).toBeInTheDocument();
+  });
+
+  it("hides a media block listed in hiddenMediaIds (cover with no inline placement)", () => {
+    const { container } = renderBlock({}, { hiddenMediaIds: new Set(["att_1"]) });
+    expect(container.querySelector("[data-media-block]")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("wall-attachments")).not.toBeInTheDocument();
   });
 
   it("renders a caption under the media", () => {
@@ -100,6 +107,7 @@ describe("mediaGroupLayoutClass", () => {
   it("maps each layout to a media-group class", () => {
     expect(mediaGroupLayoutClass("grid")).toBe("media-group media-group--grid");
     expect(mediaGroupLayoutClass("carousel")).toContain("media-group--carousel");
+    expect(mediaGroupLayoutClass("compare")).toContain("media-group--compare");
     expect(mediaGroupLayoutClass("mosaic")).toContain("media-group--mosaic");
   });
 });

@@ -16,6 +16,7 @@ import { ShareSheet } from "@/components/share/ShareSheet";
 import { renderTags } from "@/components/ThreadCard";
 import { parseAttachments } from "@/components/ThreadAttachments";
 import { safeDate } from "@/utils/safeDate";
+import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
 import { isInteractiveTarget } from "@/utils/wallNormalizers";
 import type { AttachmentMeta } from "@/types/forum";
 import type { LightboxItem } from "@/components/Lightbox";
@@ -134,13 +135,9 @@ export const FeedThreadCard = ({
   }, [thread.id, initialLikesCount, initialUserLiked]);
 
   const handleOpenThread = useCallback(() => {
+    // Stop any inline clip playing on the feed before leaving for the thread.
+    pauseAllInlineMedia();
     navigate(threadPath);
-  }, [navigate, threadPath]);
-
-  // X-style: tapping a thread video opens the thread page and autoplays the
-  // clip there instead of playing it inline on the feed.
-  const handleVideoOpen = useCallback(() => {
-    navigate(threadPath, { state: { autoplayVideo: true } });
   }, [navigate, threadPath]);
 
   const handleLikeToggle = async () => {
@@ -253,7 +250,6 @@ export const FeedThreadCard = ({
             attachments={attachments}
             galleryKey={`feed-thread-${thread.id}`}
             onImageClick={onImageClick}
-            onVideoOpen={handleVideoOpen}
           />
         )}
 

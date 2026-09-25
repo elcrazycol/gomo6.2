@@ -91,6 +91,92 @@ func TestValidatePostDocumentRejectsBadMediaAttrs(t *testing.T) {
 	}
 }
 
+func TestValidatePostDocumentSpoilerBlock(t *testing.T) {
+	valid := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{
+				"type":  "spoilerBlock",
+				"attrs": map[string]interface{}{"label": "Спойлер к серии"},
+				"content": []interface{}{
+					paragraph(wallText("секрет", nil)),
+					mediaBlock("att_1", nil),
+				},
+			},
+		},
+	}
+	if problems := ValidatePostDocument(valid); len(problems) != 0 {
+		t.Fatalf("expected no problems, got %v", problems)
+	}
+
+	long := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{
+				"type":    "spoilerBlock",
+				"attrs":   map[string]interface{}{"label": strings.Repeat("a", maxCaptionRunes+1)},
+				"content": []interface{}{paragraph(wallText("x", nil))},
+			},
+		},
+	}
+	problems := strings.Join(ValidatePostDocument(long), "; ")
+	if !strings.Contains(problems, "spoilerBlock label is too long") {
+		t.Fatalf("expected label problem, got %q", problems)
+	}
+}
+
+func TestDocumentPlainTextSpoilerBlock(t *testing.T) {
+	doc := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{
+				"type":    "spoilerBlock",
+				"attrs":   map[string]interface{}{"label": "Спойлер"},
+				"content": []interface{}{paragraph(wallText("секрет", nil))},
+			},
+		},
+	}
+	text := documentPlainText(doc)
+	if !strings.Contains(text, "Спойлер") || !strings.Contains(text, "секрет") {
+		t.Fatalf("expected label and hidden content in plain text, got %q", text)
+	}
+}
+
+func TestValidatePostDocumentYouTubeEmbed(t *testing.T) {
+	valid := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{"type": "youtubeEmbed", "attrs": map[string]interface{}{"videoId": "dQw4w9WgXcQ"}},
+		},
+	}
+	if problems := ValidatePostDocument(valid); len(problems) != 0 {
+		t.Fatalf("expected no problems, got %v", problems)
+	}
+
+	invalid := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{"type": "youtubeEmbed", "attrs": map[string]interface{}{"videoId": "javascript:alert(1)"}},
+		},
+	}
+	problems := strings.Join(ValidatePostDocument(invalid), "; ")
+	if !strings.Contains(problems, "invalid videoId") {
+		t.Fatalf("expected videoId problem, got %q", problems)
+	}
+}
+
+func TestDocumentPlainTextYouTubeEmbed(t *testing.T) {
+	doc := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{"type": "youtubeEmbed", "attrs": map[string]interface{}{"videoId": "dQw4w9WgXcQ"}},
+		},
+	}
+	if text := documentPlainText(doc); !strings.Contains(text, "youtu.be/dQw4w9WgXcQ") {
+		t.Fatalf("expected youtu.be url in plain text, got %q", text)
+	}
+}
+
 func TestValidateAttachmentRefsAndOwnership(t *testing.T) {
 	doc := map[string]interface{}{
 		"type":    "doc",
@@ -155,6 +241,25 @@ func TestDerivePostFields(t *testing.T) {
 	}
 	if len(used) != 2 {
 		t.Fatalf("expected 2 used attachments, got %d", len(used))
+	}
+}
+
+func TestDerivePostFieldsPrefersCover(t *testing.T) {
+	doc := map[string]interface{}{
+		"type":  "doc",
+		"cover": "att_2",
+		"content": []interface{}{
+			mediaBlock("att_1", nil),
+			mediaBlock("att_2", nil),
+		},
+	}
+	pool := []interface{}{
+		attachment("att_1", "image", wallURL("first.png")),
+		attachment("att_2", "image", wallURL("cover.png")),
+	}
+	_, _, imageURL, _ := DerivePostFields(doc, pool)
+	if imageURL == nil || *imageURL != wallURL("cover.png") {
+		t.Fatalf("expected the cover to win image_url, got %v", imageURL)
 	}
 }
 

@@ -332,12 +332,22 @@ export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => 
       const url = typeof attrs.url === "string" ? attrs.url : "";
       return url ? ` ${url} ` : "";
     }
+    if (node.type === "youtubeEmbed") {
+      const attrs = (node.attrs as Record<string, unknown>) || {};
+      const id = typeof attrs.videoId === "string" ? attrs.videoId : "";
+      return id ? ` https://youtu.be/${id} ` : "";
+    }
     if (node.type === "mention") {
       const attrs = (node.attrs as Record<string, unknown>) || {};
       return "@" + ((attrs.label as string) || (attrs.id as string) || "");
     }
     const children = (node.content as Record<string, unknown>[] || []).map(walk).join("");
     if (node.type === "paragraph") return children + "\n";
+    if (node.type === "spoilerBlock") {
+      const attrs = (node.attrs as Record<string, unknown>) || {};
+      const label = typeof attrs.label === "string" ? attrs.label.trim() : "";
+      return (label ? `${label}\n` : "") + children;
+    }
     return children;
   };
 

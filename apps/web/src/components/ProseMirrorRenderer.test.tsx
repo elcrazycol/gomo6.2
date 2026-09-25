@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { ProseMirrorRenderer } from "./ProseMirrorRenderer";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
@@ -92,6 +92,30 @@ describe("ProseMirrorRenderer", () => {
     expect(link?.textContent).toContain("Example");
   });
 
+  it("renders a youtube embed facade", () => {
+    const { container } = renderDoc([{ type: "youtubeEmbed", attrs: { videoId: "dQw4w9WgXcQ" } }]);
+    expect(container.querySelector("[data-youtube-embed]")).toBeInTheDocument();
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("i.ytimg.com/vi/dQw4w9WgXcQ");
+  });
+
+  it("renders a spoiler block collapsed and reveals it on click", () => {
+    const { container } = renderDoc([
+      {
+        type: "spoilerBlock",
+        attrs: { label: "Спойлер к серии" },
+        content: [{ type: "paragraph", content: [{ type: "text", text: "секрет" }] }],
+      },
+    ]);
+
+    expect(container.querySelector("[data-spoiler-block]")).toBeInTheDocument();
+    expect(screen.getByText("Спойлер к серии")).toBeInTheDocument();
+    expect(container.querySelector("[data-spoiler-reveal]")?.className).toContain("grid-rows-[0fr]");
+
+    fireEvent.click(screen.getByRole("button"));
+
+    expect(container.querySelector("[data-spoiler-reveal]")?.className).toContain("grid-rows-[1fr]");
+  });
+
   const mediaAttachment: MediaAttachment = {
     id: "att_1",
     url: "u",
@@ -143,5 +167,38 @@ describe("ProseMirrorRenderer", () => {
     ]);
     expect(container.querySelector("[data-media-group]")).toBeInTheDocument();
     expect(screen.getAllByTestId("wall-attachments")).toHaveLength(2);
+  });
+
+  it("renders a compare gallery as a before/after slider for two photos", () => {
+    const { container } = renderWithMedia([
+      {
+        type: "mediaGroup",
+        attrs: { layout: "compare" },
+        content: [
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image", aspect: 1.5 } },
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image", aspect: 1.5 } },
+        ],
+      },
+    ]);
+    expect(container.querySelector(".media-group--compare")).toBeInTheDocument();
+    expect(container.querySelector("[data-compare-handle]")).toBeInTheDocument();
+    expect(screen.getByText("До")).toBeInTheDocument();
+    expect(screen.getByText("После")).toBeInTheDocument();
+  });
+
+  it("falls back to a grid when compare does not have exactly two photos", () => {
+    const { container } = renderWithMedia([
+      {
+        type: "mediaGroup",
+        attrs: { layout: "compare" },
+        content: [
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image" } },
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image" } },
+          { type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image" } },
+        ],
+      },
+    ]);
+    expect(container.querySelector(".media-group--grid")).toBeInTheDocument();
+    expect(container.querySelector("[data-compare-handle]")).not.toBeInTheDocument();
   });
 });

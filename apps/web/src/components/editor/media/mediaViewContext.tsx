@@ -20,6 +20,11 @@ export interface MediaViewContextValue {
   inlineMedia: boolean;
   /** Namespace for lightbox gallery keys. */
   galleryKey: string;
+  /**
+   * Attachment ids that must not render inline (e.g. a cover whose "inline"
+   * placement is off — it shows only as a top/bottom banner).
+   */
+  hiddenMediaIds?: ReadonlySet<string>;
   onImageClick?: (items: LightboxItem[], index: number) => void;
   onVideoOpen?: () => void;
   /** Open a specific attachment in the viewer (used by the editor to resolve

@@ -72,6 +72,11 @@ vi.mock("@/components/AudioAttachment", () => ({
   AudioAttachment: () => null,
 }));
 
+const mockPauseAllInlineMedia = vi.fn();
+vi.mock("@/utils/mediaPlayback", () => ({
+  pauseAllInlineMedia: (...args: any[]) => mockPauseAllInlineMedia(...args),
+}));
+
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigateFn,
   Link: ({ children, to, onClick }: any) => (
@@ -211,31 +216,29 @@ describe("FeedThreadCard", () => {
     expect(screen.queryByTestId("wall-attachments")).not.toBeInTheDocument();
   });
 
-  // ─── Video open mechanic ──────────────────────────────────────────────────
+  // ─── Video playback ───────────────────────────────────────────────────────
 
-  it("wires the video-open callback to WallAttachments for threads with video", async () => {
+  it("renders thread videos inline (no open-mode)", async () => {
     renderCard(createMockThread({
       attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
     }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "false");
     });
   });
 
-  it("tapping a thread video opens the thread page with an autoplay flag", async () => {
+  it("tapping a thread video does not open the thread page", async () => {
     renderCard(createMockThread({
       attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
     }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "false");
     });
     fireEvent.click(screen.getByTestId("wall-attachments"));
 
-    expect(mockNavigateFn).toHaveBeenCalledWith("/test-board/thread/thread-1", {
-      state: { autoplayVideo: true },
-    });
+    expect(mockNavigateFn).not.toHaveBeenCalled();
   });
 
   // ─── Likes ──────────────────────────────────────────────────────────────────
@@ -283,6 +286,8 @@ describe("FeedThreadCard", () => {
 
     await userEvent.click(screen.getByText("Test Thread Title"));
 
+    // Any inline clip playing on the feed is stopped before leaving.
+    expect(mockPauseAllInlineMedia).toHaveBeenCalledTimes(1);
     expect(mockNavigateFn).toHaveBeenCalledWith("/test-board/thread/thread-1");
   });
 

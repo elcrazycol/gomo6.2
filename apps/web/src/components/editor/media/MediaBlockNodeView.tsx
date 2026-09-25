@@ -18,11 +18,13 @@ import {
   Pencil,
   Pilcrow,
   Replace,
+  Star,
   Trash2,
   Type,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
@@ -31,7 +33,20 @@ import { mediaFigureLayout } from "./mediaLayout";
 import { useMediaView } from "./mediaViewContext";
 import { useMediaEditor } from "./mediaEditorContext";
 import { startMediaDrag } from "./mediaDrag";
-import { mediaShape, naturalWidthPercent, toMediaBlockAttrs, type MediaAlign } from "./mediaSchema";
+import {
+  COVER_PLACEMENTS,
+  mediaShape,
+  naturalWidthPercent,
+  toMediaBlockAttrs,
+  type CoverPlacement,
+  type MediaAlign,
+} from "./mediaSchema";
+
+const COVER_PLACEMENT_LABELS: Record<CoverPlacement, string> = {
+  top: "Сверху",
+  bottom: "Снизу",
+  inline: "На месте (в тексте)",
+};
 
 const PLACEMENT_OPTIONS: Array<{ value: MediaAlign; label: string; Icon: typeof AlignLeft }> = [
   { value: "inline", label: "В строке", Icon: Pilcrow },
@@ -53,9 +68,21 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
   const [placementOpen, setPlacementOpen] = useState(false);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
 
   const attachment = attachments.find((att) => att.id === attrs.attachmentId) ?? null;
   const layout = mediaFigureLayout(attrs.align, attrs.width);
+  const isCover = Boolean(editorContext?.setCover) && editorContext?.coverId === attrs.attachmentId;
+  const canSetCover = Boolean(editorContext?.setCover) && attachment?.type === "image";
+  const coverPlacements = isCover ? (editorContext?.coverPlacements ?? []) : [];
+
+  const toggleCoverPlacement = (placement: CoverPlacement, checked: boolean) => {
+    const next = checked
+      ? Array.from(new Set([...coverPlacements, placement]))
+      : coverPlacements.filter((item) => item !== placement);
+    if (next.length === 0) editorContext?.setCover?.(null, []);
+    else editorContext?.setCover?.(attrs.attachmentId, next);
+  };
 
   const selectNode = () => {
     const pos = getPos();
@@ -335,6 +362,45 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
           >
             <Pencil className="h-4 w-4" />
           </Button>
+        )}
+
+        {canSetCover && (
+          <Popover open={coverOpen} onOpenChange={setCoverOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title="Обложка поста"
+                aria-pressed={isCover}
+                className={`${toolbarButtonClass} ${isCover ? "text-primary" : ""}`}
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                <Star className={`h-4 w-4 ${isCover ? "fill-current" : ""}`} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="start"
+              className="w-60 space-y-2 p-3"
+              style={{ zIndex: 70 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="text-xs font-medium text-muted-foreground">Обложка поста</div>
+              {COVER_PLACEMENTS.map((placement) => (
+                <label key={placement} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={coverPlacements.includes(placement)}
+                    onCheckedChange={(checked) => toggleCoverPlacement(placement, checked === true)}
+                  />
+                  {COVER_PLACEMENT_LABELS[placement]}
+                </label>
+              ))}
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Сверху — обложка-баннер. Снизу — в длинном посте одно фото вместо трёх. На месте — фото остаётся в тексте.
+              </p>
+            </PopoverContent>
+          </Popover>
         )}
 
         <span className="mx-0.5 h-4 w-px bg-border" />

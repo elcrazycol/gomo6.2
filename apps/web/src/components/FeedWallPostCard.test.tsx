@@ -48,6 +48,10 @@ vi.mock("@/components/ProcessedContent", () => ({
   ),
 }));
 
+vi.mock("@/components/ProseMirrorRenderer", () => ({
+  ProseMirrorRenderer: ({ json }: any) => <div data-testid="teaser-text">{(json?.content ?? []).length}</div>,
+}));
+
 vi.mock("@/components/WallAttachments", () => ({
   WallAttachments: ({ attachments, onVideoOpen }: any) => (
     <div
@@ -66,6 +70,11 @@ vi.mock("@/components/WallAttachments", () => ({
 
 vi.mock("@/components/share/ShareSheet", () => ({
   ShareSheet: () => null,
+}));
+
+const mockPauseAllInlineMedia = vi.fn();
+vi.mock("@/utils/mediaPlayback", () => ({
+  pauseAllInlineMedia: (...args: any[]) => mockPauseAllInlineMedia(...args),
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -123,6 +132,8 @@ describe("FeedWallPostCard", () => {
 
     fireEvent.click(container.querySelector('[role="button"]')!);
 
+    // Any inline clip playing under the overlay is stopped first.
+    expect(mockPauseAllInlineMedia).toHaveBeenCalledTimes(1);
     const [path, options] = mockNavigateFn.mock.calls[0];
     expect(path).toBe("/profile/wall-owner/wall/post-1");
     expect(options.state.wallPost?.id).toBe("post-1");
@@ -130,29 +141,85 @@ describe("FeedWallPostCard", () => {
     expect(options.state.autoplayVideo).toBeUndefined();
   });
 
-  it("wires the video-open callback to WallAttachments for posts with video", async () => {
+  it("renders wall videos inline (no open-mode)", async () => {
     renderCard(createMockPost({
       attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
     }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "false");
     });
   });
 
-  it("tapping a wall video opens the post page with an autoplay flag", async () => {
+  it("tapping a wall video does not open the post page", async () => {
     renderCard(createMockPost({
       attachments: [{ url: "clip.mp4", type: "video", mime: "video/mp4", name: "clip", size: 5000 }],
     }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "true");
+      expect(screen.getByTestId("wall-attachments")).toHaveAttribute("data-on-video-open", "false");
     });
     fireEvent.click(screen.getByTestId("wall-attachments"));
 
-    expect(mockNavigateFn).toHaveBeenCalledWith(
-      "/profile/wall-owner/wall/post-1",
-      expect.objectContaining({ state: expect.objectContaining({ autoplayVideo: true }) }),
-    );
+    expect(mockNavigateFn).not.toHaveBeenCalled();
+  });
+
+  it("teases long media-heavy posts and opens the post from the button", async () => {
+    const attachments = [1, 2, 3, 4].map((n) => ({
+      id: `att_${n}`,
+      url: `a${n}.jpg`,
+      type: "image",
+      mime: "image/jpeg",
+      name: `a${n}`,
+      size: 1,
+    }));
+    renderCard(createMockPost({
+      content: "Много контента",
+      attachments,
+      content_json: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Много контента" }] },
+          {
+            type: "mediaGroup",
+            content: attachments.map((att) => ({
+              type: "mediaBlock",
+              attrs: { attachmentId: att.id, kind: "image", width: 100, align: "inline", aspect: 1 },
+            })),
+          },
+        ],
+      },
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Показать больше")).toBeInTheDocument();
+    });
+    // Only the first three media are shown; the fourth is behind the "+1" badge.
+    expect(screen.getByText("+1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Показать больше"));
+    expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner/wall/post-1", expect.anything());
+  });
+
+  it("renders the post cover banner when a cover is set", async () => {
+    const { container } = renderCard(createMockPost({
+      content: "With cover",
+      attachments: [{ id: "att_1", url: "cover.jpg", type: "image", mime: "image/jpeg", name: "cover", size: 1 }],
+      content_json: {
+        type: "doc",
+        cover: "att_1",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "With cover" }] },
+          {
+            type: "mediaGroup",
+            content: [{ type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image", width: 100, align: "inline", aspect: 1 } }],
+          },
+        ],
+      },
+    }));
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-post-cover]")).toBeInTheDocument();
+    });
   });
 });

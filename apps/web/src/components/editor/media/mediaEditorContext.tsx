@@ -3,7 +3,7 @@
 // the read path (the read views never need them).
 
 import { createContext, useContext, type ReactNode } from "react";
-import type { MediaAttachment } from "./mediaSchema";
+import type { CoverPlacement, MediaAttachment } from "./mediaSchema";
 
 export interface MediaEditorContextValue {
   /** Upload a new file and swap it in for the attachment behind a node. */
@@ -12,6 +12,12 @@ export interface MediaEditorContextValue {
   toggleFullscreen?: () => void;
   /** False when the post already holds MAX_MEDIA_NODES. */
   canAddMore: boolean;
+  /** The post's current cover attachment id, or null. */
+  coverId?: string | null;
+  /** Where the current cover is displayed. */
+  coverPlacements?: CoverPlacement[];
+  /** Set the post cover (id + placements), or clear it with (null, []). */
+  setCover?: (attachmentId: string | null, placements: CoverPlacement[]) => void;
 }
 
 const MediaEditorContext = createContext<MediaEditorContextValue | null>(null);

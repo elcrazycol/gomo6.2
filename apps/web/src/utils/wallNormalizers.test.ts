@@ -214,6 +214,25 @@ describe("isInteractiveTarget", () => {
     div.setAttribute("role", "button");
     expect(isInteractiveTarget(div)).toBe(true);
   });
+
+  it("returns true for media elements (photos/videos never open the post)", () => {
+    const img = document.createElement("img");
+    expect(isInteractiveTarget(img)).toBe(true);
+    const video = document.createElement("video");
+    expect(isInteractiveTarget(video)).toBe(true);
+
+    const block = document.createElement("figure");
+    block.setAttribute("data-media-block", "true");
+    const caption = document.createElement("figcaption");
+    block.appendChild(caption);
+    expect(isInteractiveTarget(caption)).toBe(true);
+
+    const group = document.createElement("div");
+    group.setAttribute("data-media-group", "true");
+    const gap = document.createElement("div");
+    group.appendChild(gap);
+    expect(isInteractiveTarget(gap)).toBe(true);
+  });
 });
 
 describe("normalizeAttachments", () => {

@@ -30,16 +30,20 @@ import { PostViewCount } from "@/components/PostViewCount";
 import { WallAttachments } from "@/components/WallAttachments";
 import { EmbeddedWallPost } from "@/components/WallEmbeddedPost";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
-import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
+import { docHasMediaNodes, getDocCover } from "@/components/editor/media/mediaSchema";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { LightboxItem } from "@/components/Lightbox";
 import { WallCommentTree } from "@/components/wall/WallCommentTree";
+import { PostTeaser } from "@/components/wall/PostTeaser";
+import { PostCover } from "@/components/wall/PostCover";
 import {
   type WallPost,
   normalizeAttachments, isInteractiveTarget, getWallPostPath,
 } from "@/utils/wallNormalizers";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
+import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
+import { needsPostTeaser } from "@/utils/postTeaser";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 
@@ -91,6 +95,11 @@ export const WallPostCard = ({
   // (every legacy post) the attachments fall back to the bottom gallery.
   const hasMediaNodes = useMemo(() => docHasMediaNodes(post.content_json), [post.content_json]);
   const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
   // Media-only posts have no plain text but still need their content rendered.
   const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   // Reports the post as viewed once the card becomes visible in the viewport
@@ -311,21 +320,30 @@ export const WallPostCard = ({
     }
   };
 
-  const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!postHref || isEditing || isInteractiveTarget(event.target, event.currentTarget)) return;
+  // Open the full post page (overlay). Shared by the card tap and the teaser's
+  // "Показать полностью" button.
+  const openPost = useCallback(() => {
+    if (!postHref || isEditing) return;
+    // The post opens as an overlay over this card; stop any inline clip that is
+    // playing underneath so it does not keep running behind the post page.
+    pauseAllInlineMedia();
     // backgroundLocation keeps the profile mounted underneath so the post opens
     // as a draggable overlay over it instead of replacing the page.
     navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
+  }, [postHref, isEditing, navigate, post, location]);
+
+  const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!postHref || isEditing) return;
+    // Clicks inside the comments section keep their own behaviour and must not
+    // open the post page.
+    if (commentsRef.current?.contains(event.target as Node)) return;
+    if (isInteractiveTarget(event.target, event.currentTarget)) return;
+    openPost();
   };
 
-  // X-style: tapping a wall video opens the post page and autoplays the clip
-  // there instead of playing it inline on the wall.
-  const handleVideoOpen = useCallback(() => {
-    if (!postHref || isEditing) return;
-    navigate(postHref, {
-      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true },
-    });
-  }, [postHref, isEditing, navigate, post, location]);
+  // Long, media-heavy posts are shown as a teaser on the wall; the full post
+  // lives on its own page (with comments).
+  const teaserMode = !standalone && Boolean(postHref) && needsPostTeaser(post.content_json, post.content);
 
   return (
     <>
@@ -337,7 +355,12 @@ export const WallPostCard = ({
         post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "bg-background"
       }`}
     >
-      <CardContent className="space-y-4 p-3 sm:p-4">
+      <CardContent
+        className={`space-y-4 p-3 sm:p-4${postHref && !isEditing ? " cursor-pointer" : ""}`}
+        onClick={handleOpenPost}
+        role={postHref && !isEditing ? "button" : undefined}
+        tabIndex={postHref && !isEditing ? 0 : undefined}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             <div className="min-w-0 flex-1">
@@ -421,31 +444,32 @@ export const WallPostCard = ({
             attachments,
             inlineMedia,
             galleryKey: post.id,
+            hiddenMediaIds,
             onImageClick,
-            onVideoOpen: postHref ? handleVideoOpen : undefined,
             autoPlayVideo: autoplayVideo,
           }}
         >
-        <div
-          className={`${postHref && !isEditing ? "cursor-pointer" : ""}`}
-          onClick={handleOpenPost}
-          role={postHref && !isEditing ? "button" : undefined}
-          tabIndex={postHref && !isEditing ? 0 : undefined}
-        >
-          {hasContent && (
-            <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-              <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
-            </div>
-          )}
+        <div>
+          {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+          {teaserMode ? (
+            <PostTeaser contentJson={post.content_json} onOpenPost={openPost} />
+          ) : (
+            <>
+              {hasContent && (
+                <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                  <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
+                </div>
+              )}
 
-          {attachments.length > 0 && !inlineMedia && (
-            <WallAttachments
-              attachments={attachments}
-              galleryKey={post.id}
-              onImageClick={onImageClick}
-              onVideoOpen={postHref ? handleVideoOpen : undefined}
-              autoPlayVideo={autoplayVideo}
-            />
+              {attachments.length > 0 && !inlineMedia && (
+                <WallAttachments
+                  attachments={attachments}
+                  galleryKey={post.id}
+                  onImageClick={onImageClick}
+                  autoPlayVideo={autoplayVideo}
+                />
+              )}
+            </>
           )}
 
           {post.original_post && (

@@ -12,13 +12,17 @@ import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
-import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
+import { docHasMediaNodes, getDocCover } from "@/components/editor/media/mediaSchema";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { PostViewCount } from "@/components/PostViewCount";
 
 import { safeDate } from "@/utils/safeDate";
+import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
+import { needsPostTeaser } from "@/utils/postTeaser";
+import { PostTeaser } from "@/components/wall/PostTeaser";
+import { PostCover } from "@/components/wall/PostCover";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 import {
   type WallPost,
@@ -60,6 +64,14 @@ export const FeedWallPostCard = ({
   // Reports the post as viewed once the card becomes visible in the viewport.
   const viewTrackingRef = usePostViewTracking(post.id);
   const postPath = getWallPostPath(post.user_id, post.id);
+  const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
+  // Long, media-heavy posts are teased on the feed; the full post opens on its
+  // own page.
+  const teaserMode = needsPostTeaser(post.content_json, post.content);
 
   const [likesCount, setLikesCount] = useState(post.likes_count ?? 0);
   const [isLiked, setIsLiked] = useState(Boolean(post.liked_by_viewer));
@@ -67,18 +79,13 @@ export const FeedWallPostCard = ({
   const [shareOpen, setShareOpen] = useState(false);
 
   const handleOpenPost = useCallback(() => {
+    // The post opens as an overlay over the feed; stop any inline clip that is
+    // playing underneath so it does not keep running behind the post page.
+    pauseAllInlineMedia();
     // Carry the already rendered card to the post page (removes the skeleton
     // flash) and keep the feed mounted underneath via backgroundLocation so the
     // post opens as a draggable overlay over it.
     navigate(postPath, { state: { wallPost: post, backgroundLocation: location } });
-  }, [navigate, post, postPath, location]);
-
-  // X-style: tapping a wall video opens the post page and autoplays the clip
-  // there instead of playing it inline on the feed.
-  const handleVideoOpen = useCallback(() => {
-    navigate(postPath, {
-      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true },
-    });
   }, [navigate, post, postPath, location]);
 
   const handleLikeToggle = async () => {
@@ -162,33 +169,39 @@ export const FeedWallPostCard = ({
             attachments,
             inlineMedia,
             galleryKey: `feed-${post.id}`,
+            hiddenMediaIds,
             onImageClick,
-            onVideoOpen: handleVideoOpen,
           }}
         >
-        {hasContent && (
-          <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-            <ProcessedContent
-              content={(post.content as string) || ""}
-              contentJson={post.content_json}
-              currentUserId={currentUserId}
-              isAdmin={false}
-              currentUsername={currentUsername}
-              currentUserColor={currentUserColor}
-              postAuthorId={post.author_id}
-              authorUsername={post.author.username}
-              showHiddenIndicators={false}
-            />
-          </div>
-        )}
+        {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+        {teaserMode ? (
+          <PostTeaser contentJson={post.content_json} onOpenPost={handleOpenPost} />
+        ) : (
+          <>
+            {hasContent && (
+              <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                <ProcessedContent
+                  content={(post.content as string) || ""}
+                  contentJson={post.content_json}
+                  currentUserId={currentUserId}
+                  isAdmin={false}
+                  currentUsername={currentUsername}
+                  currentUserColor={currentUserColor}
+                  postAuthorId={post.author_id}
+                  authorUsername={post.author.username}
+                  showHiddenIndicators={false}
+                />
+              </div>
+            )}
 
-        {attachments.length > 0 && !inlineMedia && (
-          <WallAttachments
-            attachments={attachments}
-            galleryKey={`feed-${post.id}`}
-            onImageClick={onImageClick}
-            onVideoOpen={handleVideoOpen}
-          />
+            {attachments.length > 0 && !inlineMedia && (
+              <WallAttachments
+                attachments={attachments}
+                galleryKey={`feed-${post.id}`}
+                onImageClick={onImageClick}
+              />
+            )}
+          </>
         )}
         </MediaAttachmentsProvider>
 

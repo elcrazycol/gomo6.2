@@ -7,6 +7,7 @@ import {
   deterministicAttachmentId,
   docHasMediaNodes,
   ensureAttachmentIds,
+  getDocCover,
   hasUploadPlaceholders,
   makeUploadId,
   mediaBlockAttrsFromAttachment,
@@ -17,6 +18,7 @@ import {
   stripUploadPlaceholders,
   toMediaBlockAttrs,
   toMediaGroupAttrs,
+  withDocCover,
   appendAttachmentsAsMedia,
 } from "./mediaSchema";
 
@@ -153,9 +155,34 @@ describe("mediaSchema", () => {
 
   it("coerces a media group layout", () => {
     expect(toMediaGroupAttrs({ layout: "carousel" })).toEqual({ layout: "carousel" });
+    expect(toMediaGroupAttrs({ layout: "compare" })).toEqual({ layout: "compare" });
     expect(toMediaGroupAttrs({ layout: "smart" })).toEqual({ layout: "smart" });
     expect(toMediaGroupAttrs({ layout: "bogus" })).toEqual({ layout: "smart" });
     expect(toMediaGroupAttrs(null)).toEqual({ layout: "smart" });
+  });
+
+  it("reads and writes the post cover", () => {
+    expect(getDocCover({ type: "doc", content: [], cover: "att_1", coverPlacements: ["top"] })).toEqual({
+      id: "att_1",
+      placements: ["top"],
+    });
+    // Legacy doc with an id only: keep the photo inline + a top banner.
+    expect(getDocCover({ type: "doc", content: [], cover: "att_1" })).toEqual({
+      id: "att_1",
+      placements: ["top", "inline"],
+    });
+    expect(getDocCover({ type: "doc", content: [] })).toBeNull();
+    expect(getDocCover(null)).toBeNull();
+    expect(withDocCover({ type: "doc", content: [], cover: "att_1", coverPlacements: ["top"] }, null)).toEqual({
+      type: "doc",
+      content: [],
+    });
+    expect(withDocCover({ type: "doc", content: [] }, { id: "att_2", placements: ["bottom"] })).toEqual({
+      type: "doc",
+      content: [],
+      cover: "att_2",
+      coverPlacements: ["bottom"],
+    });
   });
 
   it("buckets aspect ratios into smart-collage shapes", () => {

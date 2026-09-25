@@ -139,7 +139,7 @@ export const getWallPostPath = (profileUserId: string, postId: string) =>
 export const isInteractiveTarget = (target: EventTarget | null, currentTarget?: HTMLElement | null) => {
   if (!(target instanceof HTMLElement)) return false;
   const interactiveElement = target.closest(
-    "a, button, input, textarea, select, summary, [role='button'], [contenteditable='true'], [data-wall-no-open='true']"
+    "a, button, input, textarea, select, summary, [role='button'], [contenteditable='true'], [data-wall-no-open='true'], img, video, audio, picture, [data-media-block], [data-media-content], [data-media-group], [data-compare-handle]"
   );
 
   if (!interactiveElement) return false;

@@ -62,7 +62,7 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
 
     if (loading && items.length === 0) {
       return (
-        <div className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground">
+        <div data-mention-menu="true" className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Поиск...
         </div>
@@ -70,7 +70,7 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
     }
 
     return (
-      <div className="py-2">
+      <div data-mention-menu="true" className="py-2">
         <div className="mb-1 border-b border-border/50 px-3 py-1 text-xs font-medium text-muted-foreground">
           Выберите пользователя{query ? `: @${query}` : ""}
         </div>

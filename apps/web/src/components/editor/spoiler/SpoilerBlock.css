@@ -1,0 +1,26 @@
+/* Spoiler block. The reveal wrapper animates height via CSS grid rows
+   (0fr → 1fr) in the component; the body only needs a minimum height while
+   revealed so an empty spoiler still has a drop target in the editor. */
+
+.spoiler-block__content {
+  min-height: 1.5rem;
+}
+
+/* Soft, diffuse hover shadow — Tailwind's arbitrary shadow values are not
+   generated in this build, so it lives here (low opacity + a wide blur). */
+.spoiler-block {
+  transition: box-shadow 220ms ease-out;
+}
+.spoiler-block:hover {
+  box-shadow: 0 12px 38px -18px rgba(0, 0, 0, 0.16);
+}
+
+/* Toolbar buttons inside the block: the same soft, diffuse shadow. */
+.spoiler-block [data-spoiler-btn]:hover {
+  box-shadow: 0 4px 16px -10px rgba(0, 0, 0, 0.18);
+}
+@media (prefers-reduced-motion: reduce) {
+  .spoiler-block {
+    transition: none;
+  }
+}

@@ -1,4 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { InkBar, InkButton } from "@/components/ui/ink-bar";
 import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
 import type { Editor, Extensions } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
@@ -9,16 +10,10 @@ import Link from "@tiptap/extension-link";
 import Mention from "@tiptap/extension-mention";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
-import { AtSign, Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Bold, Check, Eye, Italic, Link2, Palette, Strikethrough, Trash2, Type, UnderlineIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Popover, PopoverPanel, PopoverTrigger } from "@/components/ui/popover";
+import { ColorPicker } from "@/components/ui/color-picker";
 import { EMPTY_EDITOR_STATE, normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
 import { SpoilerMark } from "@/components/emoji/SpoilerMark";
 import { HashtagMark } from "@/components/emoji/HashtagMark";
@@ -73,9 +68,6 @@ export interface GomoRichEditorHandle {
   getEditor: () => Editor | null;
 }
 
-const randomHexColor = () =>
-  `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
-
 const normalizeHexColor = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -83,31 +75,57 @@ const normalizeHexColor = (value: string) => {
   return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(prefixed) ? prefixed : null;
 };
 
+const FONT_SIZES = Array.from({ length: 17 }, (_, index) => 10 + index);
+
+const ToolButton = ({
+  active = false,
+  title,
+  onClick,
+  children,
+}: {
+  active?: boolean;
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) => (
+  <InkButton
+    size="sm"
+    active={active}
+    aria-pressed={active}
+    title={title}
+    onMouseDown={(event) => event.preventDefault()}
+    onClick={onClick}
+  >
+    {children}
+  </InkButton>
+);
+
 export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?: string }) => {
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const [colorDraft, setColorDraft] = useState("#ff5500");
-  const colorInputRef = useRef<HTMLInputElement>(null);
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState("");
   const [isSizeDialogOpen, setIsSizeDialogOpen] = useState(false);
-  const [sizeDraft, setSizeDraft] = useState("18");
 
   // Re-render the toolbar when the selection/marks change so toggle buttons
   // can show their active state (editor.isActive at the caret).
   const active = useEditorState({
     editor,
-    selector: ({ editor: e }) => ({
-      bold: e.isActive("bold"),
-      italic: e.isActive("italic"),
-      underline: e.isActive("underline"),
-      strike: e.isActive("strike"),
-      link: e.isActive("link"),
-      spoiler: e.isActive("spoiler"),
-    }),
+    selector: ({ editor: e }) => {
+      const charExtension = e.extensionManager.extensions.find((ext) => ext.name === "characterCount");
+      return {
+        bold: e.isActive("bold"),
+        italic: e.isActive("italic"),
+        underline: e.isActive("underline"),
+        strike: e.isActive("strike"),
+        link: e.isActive("link"),
+        spoiler: e.isActive("spoiler"),
+        characters: (e.storage.characterCount as { characters?: () => number } | undefined)?.characters?.() ?? 0,
+        limit: (charExtension?.options as { limit?: number | null } | undefined)?.limit ?? null,
+        fontSize: (e.getAttributes("textStyle") as { fontSize?: string } | undefined)?.fontSize ?? null,
+      };
+    },
   });
-
-  const toolClass = (isActive: boolean) =>
-    `h-8 w-8 p-0 flex-shrink-0${isActive ? " bg-primary/15 text-primary" : ""}`;
 
   const toggleTextFormat = (format: "bold" | "italic" | "underline" | "strikethrough") => {
     const chain = editor.chain().focus();
@@ -118,12 +136,6 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
       case "strikethrough": chain.toggleStrike(); break;
     }
     chain.run();
-  };
-
-  const openLinkDialog = () => {
-    const current = (editor.getAttributes("link") as { href?: string })?.href ?? "";
-    setLinkDraft(current);
-    setIsLinkDialogOpen(true);
   };
 
   const applyLink = () => {
@@ -146,16 +158,6 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     editor.chain().focus().toggleSpoiler().run();
   };
 
-  // Insert "@" at the caret and let the suggestion plugin pick it up (it
-  // re-runs findSuggestionMatch on every transaction). If the cursor sits
-  // mid-word, a leading space is inserted first so the popup always opens.
-  const insertMention = () => {
-    const { from } = editor.state.selection;
-    const charBefore = editor.state.doc.textBetween(Math.max(0, from - 1), from);
-    const needsSpace = charBefore.length > 0 && !/\s/.test(charBefore);
-    editor.chain().focus().insertContent(needsSpace ? " @" : "@").run();
-  };
-
   const applyColor = (nextColor: string) => {
     if (!nextColor) {
       editor.chain().focus().unsetColor().run();
@@ -171,160 +173,129 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
     applyColor(normalized);
   };
 
-  const openColorDialog = () => {
-    setColorDraft(randomHexColor());
-    setIsColorDialogOpen(true);
-  };
-
-  const openSizeDialog = () => {
-    setSizeDraft("18");
-    setIsSizeDialogOpen(true);
-  };
-
-  const applySize = (px?: number) => {
-    const raw = px !== undefined ? String(px) : sizeDraft;
-    const clean = raw.replace(/[^\d.]/g, "");
-    if (clean) {
-      editor.chain().focus().setMark("textStyle", { fontSize: `${clean}px` }).run();
-    }
+  const applySize = (px: number) => {
+    editor.chain().focus().setMark("textStyle", { fontSize: `${px}px` }).run();
     setIsSizeDialogOpen(false);
   };
 
+  // Floating glass capsule: centered, grouped, with a live character count and
+  // an "ink" blob that springs under the hovered/focused button.
   return (
-    <>
-      <div className={`flex flex-nowrap gap-1 overflow-x-auto scrollbar-hide max-w-full border border-border/70 bg-background p-1 ${className}`}>
-        <Button type="button" variant="ghost" size="sm" className={toolClass(active.bold)} aria-pressed={active.bold} title="Жирный" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className={toolClass(active.italic)} aria-pressed={active.italic} title="Курсив" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className={toolClass(active.underline)} aria-pressed={active.underline} title="Подчёркнутый" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className={toolClass(active.strike)} aria-pressed={active.strike} title="Зачёркнутый" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className={toolClass(active.link)} aria-pressed={active.link} title="Ссылка" onMouseDown={(e) => e.preventDefault()} onClick={openLinkDialog}><Link2 className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={insertMention} title="Упомянуть пользователя"><AtSign className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={openColorDialog} title="Цвет текста"><Palette className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={openSizeDialog} title="Размер шрифта"><Type className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className={toolClass(active.spoiler)} aria-pressed={active.spoiler} title="Спойлер (размытие)" onMouseDown={(e) => e.preventDefault()} onClick={toggleBlur}><Eye className="h-4 w-4" /></Button>
+    <InkBar
+      blobClassName="h-8 w-8"
+      className={`sticky top-2 z-20 mx-auto flex w-fit max-w-full items-center gap-0.5 overflow-x-auto scrollbar-hide rounded-full border border-border/60 bg-background/70 p-1 shadow-lg shadow-black/5 backdrop-blur-md ${className}`}
+    >
+      <div className="flex items-center gap-0.5">
+        <ToolButton active={active.bold} title="Жирный" onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></ToolButton>
+        <ToolButton active={active.italic} title="Курсив" onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></ToolButton>
+        <ToolButton active={active.underline} title="Подчёркнутый" onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></ToolButton>
+        <ToolButton active={active.strike} title="Зачёркнутый" onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></ToolButton>
       </div>
 
-      <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
-          <DialogHeader>
-            <DialogTitle>Цвет текста</DialogTitle>
-          </DialogHeader>
+      <span className="mx-0.5 h-5 w-px shrink-0 bg-border/70" aria-hidden="true" />
 
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
+      <div className="flex items-center gap-0.5">
+        <Popover
+          open={isLinkDialogOpen}
+          onOpenChange={(open) => {
+            if (open) setLinkDraft((editor.getAttributes("link") as { href?: string })?.href ?? "");
+            setIsLinkDialogOpen(open);
+          }}
+        >
+          <PopoverTrigger asChild>
+            <InkButton size="sm" active={active.link} title="Ссылка" onMouseDown={(event) => event.preventDefault()}>
+              <Link2 className="h-4 w-4" />
+            </InkButton>
+          </PopoverTrigger>
+          <PopoverPanel side="bottom" align="center" className="z-[80] w-72">
+            <div className="px-3 py-3">
+              <Input
+                autoFocus
+                className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
+                value={linkDraft}
+                onChange={(event) => setLinkDraft(event.target.value)}
+                placeholder="https://…"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    applyLink();
+                  }
+                }}
+              />
+            </div>
+            <div className="flex justify-end border-t border-border/60 px-1.5 py-1">
+              <button type="button" onClick={applyLink} className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground">
+                Вставить
+              </button>
+            </div>
+          </PopoverPanel>
+        </Popover>
+
+        <Popover
+          open={isColorDialogOpen}
+          onOpenChange={(open) => {
+            if (open) setColorDraft((editor.getAttributes("textStyle") as { color?: string } | undefined)?.color ?? "#ffffff");
+            setIsColorDialogOpen(open);
+          }}
+        >
+          <PopoverTrigger asChild>
+            <InkButton size="sm" title="Цвет текста" onMouseDown={(event) => event.preventDefault()}>
+              <Palette className="h-4 w-4" />
+            </InkButton>
+          </PopoverTrigger>
+          <PopoverPanel side="bottom" align="center" className="z-[80] w-[300px]">
+            <div className="p-3">
+              <ColorPicker value={colorDraft} onChange={setColorDraft} />
+            </div>
+            <div className="flex items-center justify-between border-t border-border/60 px-2 py-1.5">
               <button
                 type="button"
-                onClick={() => colorInputRef.current?.click()}
-                className="h-10 w-10 shrink-0 rounded-lg border border-border/70"
-                style={{ backgroundColor: normalizeHexColor(colorDraft) || "transparent" }}
-                title="Открыть палитру"
-                aria-label="Выбрать цвет"
-              />
-              <Input
-                value={colorDraft}
-                onChange={(event) => setColorDraft(event.target.value)}
-                placeholder={randomHexColor()}
-                className="min-w-0 flex-[0_1_10rem]"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 p-0"
-                onClick={() => setColorDraft(randomHexColor())}
-                title="Случайный цвет"
+                onClick={() => applyColor("")}
+                title="Убрать цвет"
+                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               >
-                <Dice3 className="h-4 w-4" />
-              </Button>
+                <Trash2 className="h-4 w-4" />
+              </button>
+              <button type="button" onClick={handleApplyColor} className="rounded px-4 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-foreground/5">
+                OK
+              </button>
             </div>
+          </PopoverPanel>
+        </Popover>
 
-            <input
-              ref={colorInputRef}
-              type="color"
-              value={normalizeHexColor(colorDraft) || "#ff5500"}
-              onChange={(event) => setColorDraft(event.target.value)}
-              className="sr-only"
-              tabIndex={-1}
-              aria-hidden="true"
-            />
-          </div>
-
-          <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => applyColor("")}>
-                <X className="mr-2 h-4 w-4" />
-                Снять цвет
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setIsColorDialogOpen(false)}>
-                Отмена
-              </Button>
+        <Popover open={isSizeDialogOpen} onOpenChange={setIsSizeDialogOpen}>
+          <PopoverTrigger asChild>
+            <InkButton size="sm" title="Размер шрифта" onMouseDown={(event) => event.preventDefault()}>
+              <Type className="h-4 w-4" />
+            </InkButton>
+          </PopoverTrigger>
+          <PopoverPanel side="bottom" align="center" className="z-[80] w-24">
+            <div className="max-h-64 overflow-y-auto py-1">
+              {FONT_SIZES.map((px) => {
+                const selected = active.fontSize === `${px}px`;
+                return (
+                  <button
+                    key={px}
+                    type="button"
+                    onClick={() => applySize(px)}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-sm transition-colors hover:bg-foreground/5 ${selected ? "text-primary" : "text-foreground/90"}`}
+                  >
+                    <span>{px}</span>
+                    {selected && <Check className="h-3.5 w-3.5" />}
+                  </button>
+                );
+              })}
             </div>
-            <Button type="button" onClick={handleApplyColor}>
-              Применить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </PopoverPanel>
+        </Popover>
 
-      <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
-          <DialogHeader>
-            <DialogTitle>Ссылка</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              value={linkDraft}
-              onChange={(event) => setLinkDraft(event.target.value)}
-              placeholder="https://…"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") applyLink();
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Оставьте поле пустым, чтобы убрать ссылку.
-            </p>
-          </div>
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setIsLinkDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={applyLink}>
-              Применить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <ToolButton active={active.spoiler} title="Спойлер (размытие)" onClick={toggleBlur}><Eye className="h-4 w-4" /></ToolButton>
+      </div>
 
-      <Dialog open={isSizeDialogOpen} onOpenChange={setIsSizeDialogOpen}>
-        <DialogContent className="max-w-md border-border/70 bg-background" style={{ zIndex: 70 }}>
-          <DialogHeader>
-            <DialogTitle>Размер шрифта</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {[13, 16, 18, 20, 24].map((px) => (
-                <Button key={px} type="button" variant="outline" size="sm" onClick={() => applySize(px)}>
-                  {px}px
-                </Button>
-              ))}
-            </div>
-            <Input
-              value={sizeDraft}
-              onChange={(event) => setSizeDraft(event.target.value)}
-              placeholder="Размер в px"
-            />
-          </div>
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setIsSizeDialogOpen(false)}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={() => applySize()}>
-              Применить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+      <span className="mx-1 hidden shrink-0 px-1 font-mono text-[11px] tabular-nums text-muted-foreground sm:inline">
+        {active.limit ? `${active.characters}/${active.limit}` : active.characters}
+      </span>
+    </InkBar>
   );
 };
 
@@ -356,6 +327,13 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   onFilesDroppedRef.current = onFilesDropped;
   const onFilesPastedRef = useRef(onFilesPasted);
   onFilesPastedRef.current = onFilesPasted;
+  // Enter-to-submit state. Kept in refs (not effect-local) because the editor
+  // re-renders mid-keydown when a slash command inserts a block — re-running
+  // the effect would re-register the listener with a fresh, false flag and let
+  // Enter publish. The capture snapshot and the submit read the same refs.
+  const popupConsumesEnterRef = useRef(false);
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
   // Start "handled" at the current key: useEditor already applies the initial
   // content at creation, so we only need to reset when resetKey changes.
@@ -582,18 +560,37 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 
   useEffect(() => {
     if (!editor) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Don't submit while the @-mention popup is open — Enter there picks a user.
-      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768 && !isMentionPopupActive() && !isSlashPopupActive()) {
-        event.preventDefault();
-        onSubmit?.();
-      }
-    };
     const el = editorContainerRef.current;
     if (!el) return;
+    // The slash/mention popup clears its "active" flag when it consumes Enter,
+    // and ProseMirror handles the keydown before this bubble listener runs — so
+    // snapshot whether a popup is open in the capture phase (which runs first).
+    // The flag lives in a ref so a mid-event re-render cannot reset it. We check
+    // both the module flag and the popup's DOM marker (the flag can go stale
+    // across an HMR instance; the empty result state has no items).
+    const captureKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter") return;
+      popupConsumesEnterRef.current =
+        isSlashPopupActive() ||
+        isMentionPopupActive() ||
+        document.querySelector("[data-slash-menu]") !== null ||
+        document.querySelector("[data-mention-menu]") !== null;
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.shiftKey || window.innerWidth < 768) return;
+      // Don't submit while the @-mention/slash popup is open — Enter there
+      // selects a user/item.
+      if (popupConsumesEnterRef.current) return;
+      event.preventDefault();
+      onSubmitRef.current?.();
+    };
+    document.addEventListener("keydown", captureKeyDown, true);
     el.addEventListener("keydown", handleKeyDown);
-    return () => el.removeEventListener("keydown", handleKeyDown);
-  }, [editor, onSubmit]);
+    return () => {
+      document.removeEventListener("keydown", captureKeyDown, true);
+      el.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [editor]);
 
   // Cancel Safari scroll-to-reveal on tap. The global handleAppShellScroll in
   // mobileKeyboard.ts fires too late (after the scroll already happened and

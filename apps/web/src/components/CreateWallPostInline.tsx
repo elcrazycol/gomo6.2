@@ -7,16 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
-import { Button } from "@/components/ui/button";
+import { Popover, PopoverPanel, PopoverTrigger } from "@/components/ui/popover";
+import { InkBar, InkButton, glassGhostButtonClass } from "@/components/ui/ink-bar";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
@@ -34,6 +28,9 @@ import { normalizeAttachments, type WallPost } from "@/utils/wallNormalizers";
 import { mediaExtensions } from "@/components/editor/media/mediaExtensions";
 import { createSlashCommand } from "@/components/editor/slash/slashCommands";
 import { insertLinkCard } from "@/components/editor/link/linkCommands";
+import { insertSpoilerBlock } from "@/components/editor/spoiler/spoilerCommands";
+import { insertYouTubeEmbed } from "@/components/editor/youtube/youtubeCommands";
+import { parseYouTubeId } from "@/components/editor/youtube/youtubeSchema";
 import { isCardableUrl, linkHost } from "@/components/editor/link/linkCardSchema";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
 import { MediaEditorProvider } from "@/components/editor/media/mediaEditorContext";
@@ -50,11 +47,14 @@ import {
   collectMediaAttachmentIds,
   countMediaNodes,
   ensureAttachmentIds,
+  getDocCover,
   hasUploadPlaceholders,
   makeUploadId,
   mediaBlockAttrsFromAttachment,
   naturalWidthPercent,
   stripUploadPlaceholders,
+  withDocCover,
+  type DocCover,
   type MediaAttachment,
   type MediaKind,
 } from "@/components/editor/media/mediaSchema";
@@ -138,6 +138,10 @@ export const CreateWallPostInline = ({
   const [contentJson, setContentJson] = useState<unknown>(() =>
     initialDraft?.contentJson ?? buildInitialDocument(editingPost),
   );
+  // Post cover (an image already used in the document + where to show it).
+  const [cover, setCoverState] = useState<DocCover | null>(() =>
+    getDocCover(initialDraft?.contentJson ?? editingPost?.content_json),
+  );
   const [attachments, setAttachments] = useState<MediaAttachment[]>(() =>
     initialDraft ? ensureAttachmentIds(initialDraft.attachments) : editingPost ? normalizeAttachments(editingPost) : [],
   );
@@ -153,15 +157,23 @@ export const CreateWallPostInline = ({
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
+  // Spoiler-block dialog state (label text shown on the collapsed block).
+  const [spoilerDialogOpen, setSpoilerDialogOpen] = useState(false);
+  const [spoilerLabelDraft, setSpoilerLabelDraft] = useState("");
+  // YouTube embed dialog state.
+  const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   // Editor extension pack: media nodes + the slash command menu (its media
-  // action opens the composer's hidden file input, the link action opens the
-  // link-card dialog).
+  // action opens the composer's hidden file input, the link/spoiler actions
+  // open their dialogs).
   const editorExtensions = useMemo(
     () => [
       ...mediaExtensions,
       createSlashCommand({
         requestMedia: () => fileInputRef.current?.click(),
         requestLinkCard: () => setLinkDialogOpen(true),
+        requestSpoiler: () => setSpoilerDialogOpen(true),
+        requestYouTube: () => setYoutubeDialogOpen(true),
       }),
     ],
     [],
@@ -199,6 +211,19 @@ export const CreateWallPostInline = ({
   const uploading = hasUploadPlaceholders(contentJson);
   const mediaCount = useMemo(() => countMediaNodes(contentJson), [contentJson]);
   const referencedIds = useMemo(() => new Set(collectMediaAttachmentIds(contentJson)), [contentJson]);
+
+  // Drop a cover whose media node was removed from the document.
+  useEffect(() => {
+    if (cover && !referencedIds.has(cover.id)) setCoverState(null);
+  }, [cover, referencedIds]);
+
+  const handleSetCover = useCallback(
+    (attachmentId: string | null, placements: DocCover["placements"]) => {
+      if (!attachmentId || placements.length === 0) setCoverState(null);
+      else setCoverState({ id: attachmentId, placements });
+    },
+    [],
+  );
   const plainText = useMemo(
     () => prosemirrorToPlainText(contentJson, "").replace(/\u200b/g, "").trim(),
     [contentJson],
@@ -233,7 +258,7 @@ export const CreateWallPostInline = ({
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
       const stored: WallDraftV2 = {
-        contentJson: stripEdgeEmptyParagraphs(stripUploadPlaceholders(contentJson)),
+        contentJson: withDocCover(stripEdgeEmptyParagraphs(stripUploadPlaceholders(contentJson)), cover),
         attachments: attachments.filter((att) => referencedIds.has(att.id)),
       };
       try {
@@ -245,7 +270,7 @@ export const CreateWallPostInline = ({
     return () => {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
-  }, [isEditing, draftKey, contentJson, attachments, referencedIds]);
+  }, [isEditing, draftKey, contentJson, attachments, referencedIds, cover]);
 
   // ── Uploads ───────────────────────────────────────────────────────────────
   const runUploads = useCallback(
@@ -402,6 +427,29 @@ export const CreateWallPostInline = ({
     }
   };
 
+  // ── Spoiler block ─────────────────────────────────────────────────────────
+  const handleCreateSpoiler = () => {
+    const editor = editorRef.current?.getEditor();
+    if (!editor) return;
+    insertSpoilerBlock(editor, spoilerLabelDraft);
+    setSpoilerDialogOpen(false);
+    setSpoilerLabelDraft("");
+  };
+
+  // ── YouTube embed ─────────────────────────────────────────────────────────
+  const handleCreateYouTube = () => {
+    const editor = editorRef.current?.getEditor();
+    if (!editor) return;
+    const videoId = parseYouTubeId(youtubeUrl);
+    if (!videoId) {
+      toast.error("Не удалось распознать ссылку на YouTube");
+      return;
+    }
+    insertYouTubeEmbed(editor, videoId);
+    setYoutubeDialogOpen(false);
+    setYoutubeUrl("");
+  };
+
   // ── Composer resize (desktop, bottom-right corner) ───────────────────────
   const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -450,7 +498,7 @@ export const CreateWallPostInline = ({
       return;
     }
 
-    const json = stripEdgeEmptyParagraphs(stripUploadPlaceholders(editor.getJSON()));
+    const json = withDocCover(stripEdgeEmptyParagraphs(stripUploadPlaceholders(editor.getJSON())), cover);
     const text = prosemirrorToPlainText(json, "").replace(/\u200b/g, "").trim();
     const usedIds = new Set(collectMediaAttachmentIds(json));
     const usedAttachments = attachments.filter((att) => usedIds.has(att.id));
@@ -464,13 +512,16 @@ export const CreateWallPostInline = ({
 
     try {
       const firstImage = usedAttachments.find((att) => att.type === "image");
+      const coverAttachment = cover
+        ? usedAttachments.find((att) => att.id === cover.id && att.type === "image")
+        : null;
       const postData = {
         user_id: profileUserId,
         author_id: currentUserId,
         title: deriveTitle(text),
         content: text || null,
         content_json: json,
-        image_url: firstImage?.url ?? null,
+        image_url: coverAttachment?.url ?? firstImage?.url ?? null,
         attachments: usedAttachments.length > 0 ? usedAttachments : null,
       };
 
@@ -558,7 +609,8 @@ export const CreateWallPostInline = ({
             type="button"
             onClick={close}
             aria-label="Закрыть"
-            className="rounded-full p-2 text-muted-foreground transition hover:bg-muted/70 hover:text-foreground active:scale-95"
+            title="Закрыть"
+            className={`${glassGhostButtonClass} active:scale-95`}
           >
             <X className="h-5 w-5" />
           </button>
@@ -568,16 +620,14 @@ export const CreateWallPostInline = ({
               <span className="ml-2 whitespace-nowrap text-[11px] text-muted-foreground/70">черновик</span>
             )}
           </div>
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-muted-foreground"
             title={fullscreen ? "Свернуть" : "На весь экран"}
             onClick={() => setFullscreen((prev) => !prev)}
+            className={glassGhostButtonClass}
           >
             {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-          </Button>
+          </button>
         </div>
 
         {/* Editor — media blocks are edited in place */}
@@ -608,6 +658,9 @@ export const CreateWallPostInline = ({
                 openImageEditor,
                 toggleFullscreen: () => setFullscreen((prev) => !prev),
                 canAddMore: !atLimit,
+                coverId: cover?.id ?? null,
+                coverPlacements: cover?.placements ?? [],
+                setCover: handleSetCover,
               }}
             >
               <GomoRichEditor
@@ -625,35 +678,23 @@ export const CreateWallPostInline = ({
                 placeholder="Что нового? Пишите, двигайте фото и видео прямо в тексте…"
                 minHeightClassName={fullscreen ? "min-h-[70dvh]" : "min-h-[180px]"}
                 maxHeightClassName="max-h-full"
-                toolbarClassName="sticky top-0 z-20 bg-background"
               />
             </MediaEditorProvider>
           </MediaAttachmentsProvider>
         </div>
 
         {/* Toolbar */}
-        <div className="flex shrink-0 items-center gap-0.5 border-t border-border/60 py-1.5 pl-2 pr-2 md:pr-7">
-          <EmojiPicker
-            onEmojiSelect={(data) => {
-              editorRef.current?.focus();
-              editorRef.current?.insertEmoji(data);
-            }}
-          >
-            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" title="Эмодзи">
-              <Smile className="h-5 w-5" />
-            </Button>
-          </EmojiPicker>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-muted-foreground"
+        <InkBar
+          blobClassName="h-9 w-9"
+          className="flex shrink-0 items-center gap-0.5 border-t border-border/60 py-1.5 pl-2 pr-2 md:pr-7"
+        >
+          <InkButton
             title="Добавить медиа"
             disabled={isSubmitting || atLimit}
             onClick={() => fileInputRef.current?.click()}
           >
             {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Paperclip className="h-5 w-5" />}
-          </Button>
+          </InkButton>
           <input
             ref={fileInputRef}
             type="file"
@@ -662,16 +703,55 @@ export const CreateWallPostInline = ({
             data-testid="inline-media-file-input"
             onChange={handleFiles}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-muted-foreground"
-            title="Ссылка-карточка"
-            onClick={() => setLinkDialogOpen(true)}
+          <EmojiPicker
+            onEmojiSelect={(data) => {
+              editorRef.current?.focus();
+              editorRef.current?.insertEmoji(data);
+            }}
           >
-            <Link2 className="h-5 w-5" />
-          </Button>
+            <InkButton title="Эмодзи">
+              <Smile className="h-5 w-5" />
+            </InkButton>
+          </EmojiPicker>
+          <Popover
+            open={linkDialogOpen}
+            onOpenChange={(open) => {
+              if (!linkLoading) setLinkDialogOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <InkButton title="Ссылка-карточка" onMouseDown={(event) => event.preventDefault()}>
+                <Link2 className="h-5 w-5" />
+              </InkButton>
+            </PopoverTrigger>
+            <PopoverPanel side="top" align="start" className="z-[80] w-80">
+              <div className="px-3 py-3">
+                <Input
+                  autoFocus
+                  className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
+                  value={linkUrl}
+                  onChange={(event) => setLinkUrl(event.target.value)}
+                  placeholder="https://…"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleCreateLinkCard();
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex justify-end border-t border-border/60 px-1.5 py-1">
+                <button
+                  type="button"
+                  onClick={() => void handleCreateLinkCard()}
+                  disabled={linkLoading || !linkUrl.trim()}
+                  className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {linkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Добавить"}
+                </button>
+              </div>
+            </PopoverPanel>
+          </Popover>
           <span className="ml-1 text-[11px] text-muted-foreground">
             {mediaCount > 0 ? `${mediaCount}/${MAX_MEDIA_NODES}` : null}
           </span>
@@ -683,7 +763,7 @@ export const CreateWallPostInline = ({
             onClick={handleSubmit}
             label={isEditing ? "Сохранить" : "Опубликовать"}
           />
-        </div>
+        </InkBar>
 
         {/* Desktop resize handle (bottom-right): drag to resize the composer.
             The default size is the minimum. */}
@@ -717,32 +797,64 @@ export const CreateWallPostInline = ({
         />
       )}
 
-      <Dialog open={linkDialogOpen} onOpenChange={(open) => { if (!linkLoading) setLinkDialogOpen(open); }}>
-        <DialogContent className="z-[70] max-w-md border-border/70 bg-background">
-          <DialogHeader>
-            <DialogTitle>Ссылка-карточка</DialogTitle>
-            <DialogDescription>Вставьте ссылку — покажем предпросмотр.</DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={linkUrl}
-            onChange={(event) => setLinkUrl(event.target.value)}
-            placeholder="https://…"
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void handleCreateLinkCard();
-              }
-            }}
-          />
-          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
-            <Button type="button" variant="outline" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
-              Отмена
-            </Button>
-            <Button type="button" onClick={() => void handleCreateLinkCard()} disabled={linkLoading || !linkUrl.trim()}>
-              {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Добавить"}
-            </Button>
-          </DialogFooter>
+      <Dialog open={spoilerDialogOpen} onOpenChange={setSpoilerDialogOpen}>
+        <DialogContent className="z-[70] w-[calc(100vw-2rem)] max-w-sm !gap-0 !p-0 border-border/60 bg-background">
+          <div className="border-b border-border/60 px-4 py-3 pr-10 text-sm font-medium">Спойлер</div>
+          <div className="px-4 py-4">
+            <Input
+              autoFocus
+              className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
+              value={spoilerLabelDraft}
+              onChange={(event) => setSpoilerLabelDraft(event.target.value)}
+              placeholder="Текст на спойлере"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateSpoiler();
+                }
+              }}
+            />
+          </div>
+          <div className="flex justify-end border-t border-border/60 px-2 py-1.5">
+            <button
+              type="button"
+              onClick={handleCreateSpoiler}
+              className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            >
+              Добавить
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={youtubeDialogOpen} onOpenChange={setYoutubeDialogOpen}>
+        <DialogContent className="z-[70] w-[calc(100vw-2rem)] max-w-sm !gap-0 !p-0 border-border/60 bg-background">
+          <div className="border-b border-border/60 px-4 py-3 pr-10 text-sm font-medium">YouTube</div>
+          <div className="px-4 py-4">
+            <Input
+              autoFocus
+              className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
+              value={youtubeUrl}
+              onChange={(event) => setYoutubeUrl(event.target.value)}
+              placeholder="https://youtu.be/…"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateYouTube();
+                }
+              }}
+            />
+          </div>
+          <div className="flex justify-end border-t border-border/60 px-2 py-1.5">
+            <button
+              type="button"
+              onClick={handleCreateYouTube}
+              disabled={!youtubeUrl.trim()}
+              className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            >
+              Добавить
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>,
