@@ -13,6 +13,9 @@
 
 import type { AttachmentMeta } from "@/utils/mediaUpload";
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 /** Bump when node/attribute shape changes. Stored on the doc root. */
 export const MEDIA_SCHEMA_VERSION = 2;
 
@@ -30,6 +33,22 @@ export type MediaAlign = "inline" | "left" | "right" | "full";
 export const MEDIA_BLOCK_NODE = "mediaBlock";
 export const MEDIA_GROUP_NODE = "mediaGroup";
 export const UPLOAD_PLACEHOLDER_NODE = "uploadPlaceholder";
+
+/** Gallery layouts available for a mediaGroup. */
+export const MEDIA_GROUP_LAYOUTS = ["grid", "grid3", "mosaic", "carousel"] as const;
+export type MediaGroupLayout = (typeof MEDIA_GROUP_LAYOUTS)[number];
+export interface MediaGroupAttrs {
+  layout: MediaGroupLayout;
+}
+export const DEFAULT_MEDIA_GROUP_ATTRS: MediaGroupAttrs = { layout: "grid" };
+
+export const toMediaGroupAttrs = (raw: unknown): MediaGroupAttrs => {
+  const src = isRecord(raw) ? raw : {};
+  const layout = MEDIA_GROUP_LAYOUTS.includes(src.layout as MediaGroupLayout)
+    ? (src.layout as MediaGroupLayout)
+    : DEFAULT_MEDIA_GROUP_ATTRS.layout;
+  return { layout };
+};
 
 /** An attachment that is guaranteed to carry a stable id. */
 export type MediaAttachment = AttachmentMeta & { id: string };
@@ -79,9 +98,6 @@ export const safeHref = (raw?: string | null): string | null => {
   if (!value) return null;
   return /^(https?:\/\/|mailto:|tel:)/i.test(value) ? value : null;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** True for the empty-editor sentinel and whitespace-only text. */
 export const isZeroWidthText = (value: string | null | undefined): boolean =>
@@ -280,7 +296,12 @@ export const appendAttachmentsAsMedia = (
       width: naturalWidthPercent(attachment),
     }),
   }));
-  return { ...doc, content: [...doc.content, { type: "paragraph", content: mediaNodes }] };
+  // Several legacy attachments become one gallery; a single one stays inline.
+  const appended =
+    mediaNodes.length > 1
+      ? { type: MEDIA_GROUP_NODE, attrs: { ...DEFAULT_MEDIA_GROUP_ATTRS }, content: mediaNodes }
+      : { type: "paragraph", content: mediaNodes };
+  return { ...doc, content: [...doc.content, appended] };
 };
 
 /**

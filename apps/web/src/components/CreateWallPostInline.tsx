@@ -26,6 +26,7 @@ import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewCon
 import { MediaEditorProvider } from "@/components/editor/media/mediaEditorContext";
 import {
   countMediaNodes as countEditorMediaNodes,
+  insertMediaGroupWithPlaceholders,
   insertUploadPlaceholders,
   replaceUploadPlaceholder,
   updateUploadPlaceholder,
@@ -267,7 +268,12 @@ export const CreateWallPostInline = ({
         toast.error(`Максимум ${MAX_MEDIA_NODES} медиа в записи`);
       }
       const pending = chosen.map((file) => ({ uploadId: makeUploadId(), kind: previewKind(file), name: file.name }));
-      insertUploadPlaceholders(editor, pending, at ?? undefined);
+      // A multi-file drop/paste becomes a gallery; a single file stays inline.
+      if (pending.length > 1) {
+        insertMediaGroupWithPlaceholders(editor, pending, at ?? undefined);
+      } else {
+        insertUploadPlaceholders(editor, pending, at ?? undefined);
+      }
       void runUploads(
         editor,
         pending.map((item, index) => ({ uploadId: item.uploadId, file: chosen[index] })),

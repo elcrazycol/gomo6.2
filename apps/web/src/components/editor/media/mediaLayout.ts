@@ -6,7 +6,8 @@
 // takes a whole line by itself. "left"/"right" float it so text wraps.
 
 import type { CSSProperties } from "react";
-import { clampMediaWidth, type MediaAlign } from "./mediaSchema";
+import { clampMediaWidth, type MediaAlign, type MediaGroupLayout } from "./mediaSchema";
+import "./MediaGroup.css";
 
 export const mediaFigureLayout = (
   align: MediaAlign,
@@ -28,3 +29,7 @@ export const mediaFigureLayout = (
       };
   }
 };
+
+/** Class for a mediaGroup's layout container (shared by read and editor). */
+export const mediaGroupLayoutClass = (layout: MediaGroupLayout): string =>
+  `media-group media-group--${layout}`;

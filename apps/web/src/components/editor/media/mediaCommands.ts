@@ -12,6 +12,7 @@ import { NodeSelection, type EditorState, type Transaction } from "@tiptap/pm/st
 
 import {
   MEDIA_BLOCK_NODE,
+  MEDIA_GROUP_NODE,
   UPLOAD_PLACEHOLDER_NODE,
   type MediaBlockAttrs,
 } from "./mediaSchema";
@@ -192,6 +193,33 @@ export const insertUploadPlaceholders = (
     attrs: { uploadId: placeholder.uploadId, kind: placeholder.kind, name: placeholder.name, percent: 0, phase: "upload", error: null },
   }));
   editor.chain().insertContentAt(pos, content).run();
+};
+
+/** A block-level position near `at` (or the caret), for block insertions. */
+export const blockInsertPos = (state: EditorState, at?: number): number => {
+  const raw = at ?? state.selection.from;
+  const clamped = Math.max(0, Math.min(raw, state.doc.content.size));
+  const $pos = state.doc.resolve(clamped);
+  if ($pos.depth === 0) return $pos.pos;
+  return $pos.after(1);
+};
+
+/**
+ * Insert several upload placeholders as one media gallery (a mediaGroup block)
+ * so a multi-file drop/paste lands as a grid, not a stack.
+ */
+export const insertMediaGroupWithPlaceholders = (
+  editor: Editor,
+  placeholders: Array<{ uploadId: string; kind: string; name: string }>,
+  at?: number,
+): void => {
+  if (placeholders.length === 0) return;
+  const pos = blockInsertPos(editor.state, at);
+  const content = placeholders.map((placeholder) => ({
+    type: UPLOAD_PLACEHOLDER_NODE,
+    attrs: { uploadId: placeholder.uploadId, kind: placeholder.kind, name: placeholder.name, percent: 0, phase: "upload", error: null },
+  }));
+  editor.chain().insertContentAt(pos, { type: MEDIA_GROUP_NODE, attrs: { layout: "grid" }, content }).run();
 };
 
 /** Insert a ready inline media node at the given position (or the caret). */

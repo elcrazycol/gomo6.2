@@ -8,6 +8,7 @@ import { EditorState } from "@tiptap/pm/state";
 import { MediaBlockNode } from "./MediaBlockNode";
 import { UploadPlaceholderNode } from "./UploadPlaceholderNode";
 import {
+  blockInsertPos,
   findNodePos,
   moveNodeToPos,
   moveTransaction,
@@ -159,5 +160,10 @@ describe("mediaCommands", () => {
     const tr = moveNodeToPos(state, source, 1);
     expect(tr).not.toBeNull();
     expect(snapshot(state.apply(tr!))).toEqual([["media:m1"], []]);
+  });
+
+  it("computes a block-level insert position after the current block", () => {
+    const state = makeState([paragraphWith(text("привет"))]);
+    expect(blockInsertPos(state)).toBe(state.doc.child(0).nodeSize);
   });
 });

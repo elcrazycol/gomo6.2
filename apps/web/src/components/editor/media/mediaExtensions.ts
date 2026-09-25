@@ -3,6 +3,7 @@
 
 import type { Extensions } from "@tiptap/core";
 import { MediaBlockNode } from "./MediaBlockNode";
+import { MediaGroupNode } from "./MediaGroupNode";
 import { UploadPlaceholderNode } from "./UploadPlaceholderNode";
 
-export const mediaExtensions: Extensions = [MediaBlockNode, UploadPlaceholderNode];
+export const mediaExtensions: Extensions = [MediaBlockNode, MediaGroupNode, UploadPlaceholderNode];

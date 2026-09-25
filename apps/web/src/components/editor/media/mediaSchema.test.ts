@@ -15,6 +15,7 @@ import {
   safeHref,
   stripUploadPlaceholders,
   toMediaBlockAttrs,
+  toMediaGroupAttrs,
   appendAttachmentsAsMedia,
 } from "./mediaSchema";
 
@@ -149,6 +150,12 @@ describe("mediaSchema", () => {
     expect(countMediaNodes(null)).toBe(0);
   });
 
+  it("coerces a media group layout", () => {
+    expect(toMediaGroupAttrs({ layout: "carousel" })).toEqual({ layout: "carousel" });
+    expect(toMediaGroupAttrs({ layout: "bogus" })).toEqual({ layout: "grid" });
+    expect(toMediaGroupAttrs(null)).toEqual({ layout: "grid" });
+  });
+
   it("generates unique upload ids", () => {
     const a = makeUploadId();
     const b = makeUploadId();
@@ -170,16 +177,16 @@ describe("mediaSchema", () => {
     expect(naturalWidthPercent({ id: "d", url: "u", type: "video", mime: "video/mp4", name: "v", size: 1, width: 320, height: 240 }, 640)).toBe(50);
   });
 
-  it("appends legacy attachments as media blocks (edit conversion)", () => {
+  it("wraps several legacy attachments into one gallery (edit conversion)", () => {
     const attachments = [
       { id: "att_1", url: "u1", type: "image" as const, mime: "image/webp", name: "p1", size: 1 },
       { id: "att_2", url: "u2", type: "file" as const, mime: "application/pdf", name: "d.pdf", size: 2 },
     ];
     const result = appendAttachmentsAsMedia(doc([{ type: "paragraph" }]), attachments) as {
-      content: Array<{ type: string; content?: Array<{ type: string; attrs?: Record<string, unknown> }> }>;
+      content: Array<{ type: string; attrs?: Record<string, unknown>; content?: Array<{ type: string; attrs?: Record<string, unknown> }> }>;
     };
-    // Media are inline: a new paragraph holds both of them.
-    expect(result.content.map((node) => node.type)).toEqual(["paragraph", "paragraph"]);
+    // Several media are grouped into a gallery.
+    expect(result.content.map((node) => node.type)).toEqual(["paragraph", "mediaGroup"]);
     const mediaNodes = result.content[1].content ?? [];
     expect(mediaNodes.map((node) => node.type)).toEqual(["mediaBlock", "mediaBlock"]);
     expect(mediaNodes[0].attrs?.attachmentId).toBe("att_1");
@@ -188,6 +195,14 @@ describe("mediaSchema", () => {
     // No attachments → unchanged.
     const plain = doc([{ type: "paragraph" }]);
     expect(appendAttachmentsAsMedia(plain, [])).toBe(plain);
+  });
+
+  it("keeps a single legacy attachment as an inline media node", () => {
+    const result = appendAttachmentsAsMedia(doc([{ type: "paragraph" }]), [
+      { id: "att_1", url: "u1", type: "image" as const, mime: "image/webp", name: "p1", size: 1 },
+    ]) as { content: Array<{ type: string; content?: Array<{ type: string }> }> };
+    expect(result.content.map((node) => node.type)).toEqual(["paragraph", "paragraph"]);
+    expect(result.content[1].content?.map((node) => node.type)).toEqual(["mediaBlock"]);
   });
 
   it("wraps legacy top-level media nodes into paragraphs", () => {

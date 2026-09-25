@@ -3,7 +3,8 @@ import { EmojiInline } from "@/components/EmojiInline";
 import { CensorBlur } from "@/components/CensorBlur";
 import { MentionLink } from "@/components/MentionLink";
 import { MediaBlockRenderer } from "@/components/editor/media/MediaBlockView";
-import { isZeroWidthText, toMediaBlockAttrs } from "@/components/editor/media/mediaSchema";
+import { mediaGroupLayoutClass } from "@/components/editor/media/mediaLayout";
+import { isZeroWidthText, toMediaBlockAttrs, toMediaGroupAttrs } from "@/components/editor/media/mediaSchema";
 
 interface ProsemirrorNode {
   type: string;
@@ -142,10 +143,8 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
     case "mediaBlock":
       return <MediaBlockRenderer key={key} attrs={toMediaBlockAttrs(node.attrs)} />;
     case "mediaGroup":
-      // Galleries are a P3 feature; render the children in a simple grid so a
-      // group is never lost even before the layouts land.
       return (
-        <div key={key} data-media-group="true" className="my-3 grid gap-2 sm:grid-cols-2">
+        <div key={key} data-media-group="true" className={mediaGroupLayoutClass(toMediaGroupAttrs(node.attrs).layout)}>
           {children}
         </div>
       );

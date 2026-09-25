@@ -10,7 +10,7 @@ vi.mock("@/components/WallAttachments", () => ({
 }));
 
 import { MediaBlockRenderer } from "./MediaBlockView";
-import { mediaFigureLayout } from "./mediaLayout";
+import { mediaFigureLayout, mediaGroupLayoutClass } from "./mediaLayout";
 import { MediaAttachmentsProvider } from "./mediaViewContext";
 
 const attachment = (id: string): MediaAttachment => ({
@@ -93,5 +93,13 @@ describe("mediaFigureLayout", () => {
   it("spans full width for the full placement", () => {
     expect(mediaFigureLayout("full", 20).style.width).toBe("100%");
     expect(mediaFigureLayout("full", 20).className).toContain("w-full");
+  });
+});
+
+describe("mediaGroupLayoutClass", () => {
+  it("maps each layout to a media-group class", () => {
+    expect(mediaGroupLayoutClass("grid")).toBe("media-group media-group--grid");
+    expect(mediaGroupLayoutClass("carousel")).toContain("media-group--carousel");
+    expect(mediaGroupLayoutClass("mosaic")).toContain("media-group--mosaic");
   });
 });

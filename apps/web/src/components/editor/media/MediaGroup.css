@@ -1,0 +1,53 @@
+/* Gallery layouts for a mediaGroup. Children are the media nodes (figures in
+   the read view, node-view wrappers in the editor), targeted with `> *`. */
+
+.media-group {
+  margin: 0.5rem 0;
+}
+
+.media-group--grid,
+.media-group--grid3 {
+  display: grid;
+  gap: 4px;
+}
+.media-group--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.media-group--grid3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.media-group--grid > *,
+.media-group--grid3 > * {
+  width: 100% !important;
+  margin: 0 !important;
+}
+
+.media-group--mosaic {
+  columns: 2;
+  column-gap: 4px;
+}
+.media-group--mosaic > * {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 0 4px 0 !important;
+  break-inside: avoid;
+}
+
+.media-group--carousel {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.media-group--carousel > * {
+  width: 75% !important;
+  flex: 0 0 auto;
+  margin: 0 !important;
+}
+
+@media (min-width: 640px) {
+  .media-group--mosaic {
+    columns: 3;
+  }
+}
