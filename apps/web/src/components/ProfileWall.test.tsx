@@ -94,6 +94,36 @@ vi.mock("@/components/CreateWallPost", () => ({
   WallPost: null as any,
 }));
 
+// The default composer is the inline one (wallInlineMedia defaults to true); the
+// mocks share the same contract so ProfileWall's create/edit plumbing is tested
+// regardless of which composer the flag selects.
+vi.mock("@/components/CreateWallPostInline", () => ({
+  CreateWallPostInline: ({ profileUserId, currentUserId, editingPost, onPostCreated, onPostUpdated, onCancel, onBeforeCreate }: any) => (
+    <div data-testid="create-wall-post" data-profile-user-id={profileUserId} data-current-user-id={currentUserId} data-editing={!!editingPost}>
+      <button data-testid="mock-submit-post" onClick={() => {
+        onBeforeCreate?.();
+        onPostCreated?.({
+          id: crypto.randomUUID(),
+          user_id: profileUserId,
+          author_id: currentUserId,
+          title: "Test post",
+          content: "Test content",
+          content_json: null,
+          image_url: null,
+          attachments: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_pinned: false,
+          author: { username: "testuser", is_anonymous: false, avatar_url: null },
+        });
+      }}>
+        {editingPost ? "Save Edit" : "Create Post"}
+      </button>
+      <button data-testid="mock-cancel" onClick={onCancel}>Cancel</button>
+    </div>
+  ),
+}));
+
 vi.mock("@/components/ProcessedContent", () => ({
   ProcessedContent: ({ content }: any) => <span data-testid="processed-content">{content}</span>,
 }));

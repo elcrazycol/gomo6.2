@@ -1,26 +1,26 @@
 // Minimal runtime feature flags.
 //
 // There is deliberately no backend/config infrastructure: flags are a compiled
-// default plus an optional per-browser override, so the team can enable a
-// feature on production (or reproduce a bug) without a deploy by setting
-// `localStorage["gomo6:flags"] = {"wallInlineMedia": true}` in devtools.
+// default plus an optional per-browser override, so a flag can be turned back
+// off on production (or reproduced locally) without a deploy by setting
+// `localStorage["gomo6:flags"] = {"wallInlineMedia": false}` in devtools.
 //
 // The override map is merged over the defaults on every read, so flipping a
 // flag in devtools takes effect on the next render/refresh — no cache to bust.
 // For a server-driven runtime config later, replace `readOverrides`; callers
 // (isFeatureEnabled) do not change.
 
-/** Compiled defaults. A flag must default to `false` (off) until it is ready. */
+/** Compiled defaults. */
 export const DEFAULT_FEATURE_FLAGS = {
   /**
    * Inline media blocks (photo/video/audio/file) placed directly inside the
    * wall post document instead of a gallery rendered under the text.
    *
-   * Consumed by the wall composer (P1) and by the render policy in the wall
-   * cards: when off, a post's attachments keep rendering as the legacy bottom
-   * gallery even if its document happens to contain media nodes (kill-switch).
+   * Enabled by default since the server-side document validation (enforce) is
+   * live. Set `localStorage["gomo6:flags"] = {"wallInlineMedia": false}` to fall
+   * back to the legacy composer / bottom-gallery rendering (kill-switch).
    */
-  wallInlineMedia: false,
+  wallInlineMedia: true,
 } as const;
 
 export type FeatureFlags = typeof DEFAULT_FEATURE_FLAGS;

@@ -19,12 +19,12 @@ describe("featureFlags", () => {
 
   it("falls back to the compiled default when no override is set", () => {
     expect(getFeatureFlags()).toEqual(DEFAULT_FEATURE_FLAGS);
-    expect(isFeatureEnabled("wallInlineMedia")).toBe(false);
+    expect(isFeatureEnabled("wallInlineMedia")).toBe(true);
   });
 
-  it("applies a localStorage override", () => {
-    setFeatureFlagOverride("wallInlineMedia", true);
-    expect(isFeatureEnabled("wallInlineMedia")).toBe(true);
+  it("applies a localStorage override (can disable a default-on flag)", () => {
+    setFeatureFlagOverride("wallInlineMedia", false);
+    expect(isFeatureEnabled("wallInlineMedia")).toBe(false);
   });
 
   it("ignores unknown keys and non-boolean values", () => {
