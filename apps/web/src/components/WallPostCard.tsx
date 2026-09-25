@@ -34,6 +34,7 @@ import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { LightboxItem } from "@/components/Lightbox";
 import { WallCommentTree } from "@/components/wall/WallCommentTree";
+import { PostTeaser } from "@/components/wall/PostTeaser";
 import {
   type WallPost,
   normalizeAttachments, isInteractiveTarget, getWallPostPath,
@@ -41,6 +42,7 @@ import {
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
 import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
+import { needsPostTeaser } from "@/utils/postTeaser";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 
@@ -312,19 +314,30 @@ export const WallPostCard = ({
     }
   };
 
-  const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
+  // Open the full post page (overlay). Shared by the card tap and the teaser's
+  // "Показать полностью" button.
+  const openPost = useCallback(() => {
     if (!postHref || isEditing) return;
-    // Clicks inside the comments section keep their own behaviour and must not
-    // open the post page.
-    if (commentsRef.current?.contains(event.target as Node)) return;
-    if (isInteractiveTarget(event.target, event.currentTarget)) return;
     // The post opens as an overlay over this card; stop any inline clip that is
     // playing underneath so it does not keep running behind the post page.
     pauseAllInlineMedia();
     // backgroundLocation keeps the profile mounted underneath so the post opens
     // as a draggable overlay over it instead of replacing the page.
     navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
+  }, [postHref, isEditing, navigate, post, location]);
+
+  const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!postHref || isEditing) return;
+    // Clicks inside the comments section keep their own behaviour and must not
+    // open the post page.
+    if (commentsRef.current?.contains(event.target as Node)) return;
+    if (isInteractiveTarget(event.target, event.currentTarget)) return;
+    openPost();
   };
+
+  // Long, media-heavy posts are shown as a teaser on the wall; the full post
+  // lives on its own page (with comments).
+  const teaserMode = !standalone && Boolean(postHref) && needsPostTeaser(post.content_json, post.content);
 
   return (
     <>
@@ -430,19 +443,25 @@ export const WallPostCard = ({
           }}
         >
         <div>
-          {hasContent && (
-            <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-              <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
-            </div>
-          )}
+          {teaserMode ? (
+            <PostTeaser contentJson={post.content_json} onOpenPost={openPost} />
+          ) : (
+            <>
+              {hasContent && (
+                <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                  <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
+                </div>
+              )}
 
-          {attachments.length > 0 && !inlineMedia && (
-            <WallAttachments
-              attachments={attachments}
-              galleryKey={post.id}
-              onImageClick={onImageClick}
-              autoPlayVideo={autoplayVideo}
-            />
+              {attachments.length > 0 && !inlineMedia && (
+                <WallAttachments
+                  attachments={attachments}
+                  galleryKey={post.id}
+                  onImageClick={onImageClick}
+                  autoPlayVideo={autoplayVideo}
+                />
+              )}
+            </>
           )}
 
           {post.original_post && (

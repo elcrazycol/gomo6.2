@@ -48,6 +48,10 @@ vi.mock("@/components/ProcessedContent", () => ({
   ),
 }));
 
+vi.mock("@/components/ProseMirrorRenderer", () => ({
+  ProseMirrorRenderer: ({ json }: any) => <div data-testid="teaser-text">{(json?.content ?? []).length}</div>,
+}));
+
 vi.mock("@/components/WallAttachments", () => ({
   WallAttachments: ({ attachments, onVideoOpen }: any) => (
     <div
@@ -158,5 +162,42 @@ describe("FeedWallPostCard", () => {
     fireEvent.click(screen.getByTestId("wall-attachments"));
 
     expect(mockNavigateFn).not.toHaveBeenCalled();
+  });
+
+  it("teases long media-heavy posts and opens the post from the button", async () => {
+    const attachments = [1, 2, 3, 4].map((n) => ({
+      id: `att_${n}`,
+      url: `a${n}.jpg`,
+      type: "image",
+      mime: "image/jpeg",
+      name: `a${n}`,
+      size: 1,
+    }));
+    renderCard(createMockPost({
+      content: "Много контента",
+      attachments,
+      content_json: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Много контента" }] },
+          {
+            type: "mediaGroup",
+            content: attachments.map((att) => ({
+              type: "mediaBlock",
+              attrs: { attachmentId: att.id, kind: "image", width: 100, align: "inline", aspect: 1 },
+            })),
+          },
+        ],
+      },
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Показать полностью")).toBeInTheDocument();
+    });
+    // Only the first three media are shown; the fourth is behind the "+1" badge.
+    expect(screen.getByText("+1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Показать полностью"));
+    expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner/wall/post-1", expect.anything());
   });
 });

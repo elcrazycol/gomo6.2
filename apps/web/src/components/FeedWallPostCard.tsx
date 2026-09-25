@@ -20,6 +20,8 @@ import { PostViewCount } from "@/components/PostViewCount";
 
 import { safeDate } from "@/utils/safeDate";
 import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
+import { needsPostTeaser } from "@/utils/postTeaser";
+import { PostTeaser } from "@/components/wall/PostTeaser";
 import { usePostViewTracking } from "@/hooks/usePostViewTracking";
 import {
   type WallPost,
@@ -61,6 +63,9 @@ export const FeedWallPostCard = ({
   // Reports the post as viewed once the card becomes visible in the viewport.
   const viewTrackingRef = usePostViewTracking(post.id);
   const postPath = getWallPostPath(post.user_id, post.id);
+  // Long, media-heavy posts are teased on the feed; the full post opens on its
+  // own page.
+  const teaserMode = needsPostTeaser(post.content_json, post.content);
 
   const [likesCount, setLikesCount] = useState(post.likes_count ?? 0);
   const [isLiked, setIsLiked] = useState(Boolean(post.liked_by_viewer));
@@ -161,28 +166,34 @@ export const FeedWallPostCard = ({
             onImageClick,
           }}
         >
-        {hasContent && (
-          <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-            <ProcessedContent
-              content={(post.content as string) || ""}
-              contentJson={post.content_json}
-              currentUserId={currentUserId}
-              isAdmin={false}
-              currentUsername={currentUsername}
-              currentUserColor={currentUserColor}
-              postAuthorId={post.author_id}
-              authorUsername={post.author.username}
-              showHiddenIndicators={false}
-            />
-          </div>
-        )}
+        {teaserMode ? (
+          <PostTeaser contentJson={post.content_json} onOpenPost={handleOpenPost} />
+        ) : (
+          <>
+            {hasContent && (
+              <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                <ProcessedContent
+                  content={(post.content as string) || ""}
+                  contentJson={post.content_json}
+                  currentUserId={currentUserId}
+                  isAdmin={false}
+                  currentUsername={currentUsername}
+                  currentUserColor={currentUserColor}
+                  postAuthorId={post.author_id}
+                  authorUsername={post.author.username}
+                  showHiddenIndicators={false}
+                />
+              </div>
+            )}
 
-        {attachments.length > 0 && !inlineMedia && (
-          <WallAttachments
-            attachments={attachments}
-            galleryKey={`feed-${post.id}`}
-            onImageClick={onImageClick}
-          />
+            {attachments.length > 0 && !inlineMedia && (
+              <WallAttachments
+                attachments={attachments}
+                galleryKey={`feed-${post.id}`}
+                onImageClick={onImageClick}
+              />
+            )}
+          </>
         )}
         </MediaAttachmentsProvider>
 
