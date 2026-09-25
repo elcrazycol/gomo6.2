@@ -248,6 +248,8 @@ export const startMediaDrag = ({
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onCancel);
     document.removeEventListener("mousedown", blockMouseDown, true);
+    document.removeEventListener("touchmove", preventTouchScroll, { passive: false } as EventListenerOptions);
+    document.removeEventListener("contextmenu", preventContextMenu, true);
     document.body.classList.remove("media-dragging");
     clearMerge();
     document.body.style.cursor = "";
@@ -263,6 +265,14 @@ export const startMediaDrag = ({
   function blockMouseDown(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
+  }
+  // After a touch long-press activates the drag, stop the page from scrolling
+  // and the OS from popping the callout/context menu.
+  function preventTouchScroll(event: TouchEvent) {
+    event.preventDefault();
+  }
+  function preventContextMenu(event: Event) {
+    event.preventDefault();
   }
 
   function onMove(event: PointerEvent) {
@@ -298,6 +308,8 @@ export const startMediaDrag = ({
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onCancel);
   document.addEventListener("mousedown", blockMouseDown, true);
+  document.addEventListener("touchmove", preventTouchScroll, { passive: false });
+  document.addEventListener("contextmenu", preventContextMenu, true);
   // Show the caret immediately, at the grab point.
   placeCaret(clientX, clientY);
 };
