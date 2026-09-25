@@ -16,7 +16,7 @@ export const SpoilerBlockView = ({ label, children }: { label: unknown; children
     <div
       data-spoiler-block="true"
       data-open={open ? "true" : "false"}
-      className="spoiler-block my-2 overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-shadow duration-200 ease-out hover:shadow-sm"
+      className="spoiler-block my-2 overflow-hidden rounded-xl border border-border/70 bg-card/60"
     >
       <button
         type="button"

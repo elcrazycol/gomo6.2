@@ -28,16 +28,16 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
   };
 
   const toolbarButtonClass =
-    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,box-shadow] duration-200 ease-out hover:bg-foreground/5 hover:text-foreground hover:shadow-sm";
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,box-shadow] duration-200 ease-out hover:bg-foreground/5 hover:text-foreground";
   const deleteButtonClass =
-    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-destructive transition-[color,background-color,box-shadow] duration-200 ease-out hover:bg-foreground/5 hover:shadow-sm";
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-destructive transition-[color,background-color,box-shadow] duration-200 ease-out hover:bg-foreground/5";
 
   return (
     <NodeViewWrapper
       as="div"
       data-spoiler-block="true"
       data-open={open ? "true" : "false"}
-      className={`spoiler-block group/spoiler my-2 overflow-hidden rounded-xl border bg-card/60 transition-shadow duration-200 ease-out hover:shadow-sm ${
+      className={`spoiler-block group/spoiler my-2 overflow-hidden rounded-xl border bg-card/60 ${
         selected ? "border-primary/60" : "border-border/70"
       }`}
     >
@@ -70,6 +70,7 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
           <PopoverTrigger asChild>
             <button
               type="button"
+              data-spoiler-btn="true"
               title="Текст спойлера"
               className={toolbarButtonClass}
               onMouseDown={(event) => event.preventDefault()}
@@ -107,6 +108,7 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
 
         <button
           type="button"
+          data-spoiler-btn="true"
           title="Удалить спойлер"
           className={deleteButtonClass}
           onMouseDown={(event) => event.preventDefault()}
