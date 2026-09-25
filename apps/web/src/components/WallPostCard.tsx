@@ -312,20 +312,15 @@ export const WallPostCard = ({
   };
 
   const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!postHref || isEditing || isInteractiveTarget(event.target, event.currentTarget)) return;
+    if (!postHref || isEditing) return;
+    // Clicks inside the comments section keep their own behaviour and must not
+    // open the post page.
+    if (commentsRef.current?.contains(event.target as Node)) return;
+    if (isInteractiveTarget(event.target, event.currentTarget)) return;
     // backgroundLocation keeps the profile mounted underneath so the post opens
     // as a draggable overlay over it instead of replacing the page.
     navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
   };
-
-  // X-style: tapping a wall video opens the post page and autoplays the clip
-  // there instead of playing it inline on the wall.
-  const handleVideoOpen = useCallback(() => {
-    if (!postHref || isEditing) return;
-    navigate(postHref, {
-      state: { wallPost: post, backgroundLocation: location, autoplayVideo: true },
-    });
-  }, [postHref, isEditing, navigate, post, location]);
 
   return (
     <>
@@ -337,7 +332,12 @@ export const WallPostCard = ({
         post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "bg-background"
       }`}
     >
-      <CardContent className="space-y-4 p-3 sm:p-4">
+      <CardContent
+        className={`space-y-4 p-3 sm:p-4${postHref && !isEditing ? " cursor-pointer" : ""}`}
+        onClick={handleOpenPost}
+        role={postHref && !isEditing ? "button" : undefined}
+        tabIndex={postHref && !isEditing ? 0 : undefined}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             <div className="min-w-0 flex-1">
@@ -422,16 +422,10 @@ export const WallPostCard = ({
             inlineMedia,
             galleryKey: post.id,
             onImageClick,
-            onVideoOpen: postHref ? handleVideoOpen : undefined,
             autoPlayVideo: autoplayVideo,
           }}
         >
-        <div
-          className={`${postHref && !isEditing ? "cursor-pointer" : ""}`}
-          onClick={handleOpenPost}
-          role={postHref && !isEditing ? "button" : undefined}
-          tabIndex={postHref && !isEditing ? 0 : undefined}
-        >
+        <div>
           {hasContent && (
             <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
               <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
@@ -443,7 +437,6 @@ export const WallPostCard = ({
               attachments={attachments}
               galleryKey={post.id}
               onImageClick={onImageClick}
-              onVideoOpen={postHref ? handleVideoOpen : undefined}
               autoPlayVideo={autoplayVideo}
             />
           )}

@@ -1756,7 +1756,49 @@ describe("ProfileWall", () => {
       const player = screen.getByTestId("media-player");
       expect(player).toBeInTheDocument();
       expect(player).toHaveAttribute("data-kind", "video");
+      // Wall videos play inline; tapping one must not open the post page.
+      expect(player).toHaveAttribute("data-open-mode", "false");
     });
+  });
+
+  it("opens the post from the header/action bar but never from a photo", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "post-open",
+        content: "Body",
+        views_count: 3,
+        attachments: [{ url: "pic.jpg", type: "image", mime: "image/jpeg", name: "pic.jpg", size: 0 }],
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByAltText("pic.jpg")).toBeInTheDocument());
+
+    mockNavigate.mockClear();
+    // A photo opens the lightbox, never the post page.
+    await userEvent.click(screen.getByAltText("pic.jpg"));
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    // The header (nickname row) opens the post.
+    await userEvent.click(screen.getByTestId("user-badge"));
+    expect(mockNavigate).toHaveBeenCalledWith(
+      "/profile/profile-user-1/wall/post-open",
+      expect.objectContaining({ state: expect.objectContaining({ backgroundLocation: expect.anything() }) }),
+    );
+
+    mockNavigate.mockClear();
+    // The bottom interaction bar opens the post as well.
+    await userEvent.click(screen.getByTestId("post-views-count"));
+    expect(mockNavigate).toHaveBeenCalledWith("/profile/profile-user-1/wall/post-open", expect.anything());
   });
 
   // ─── WallPostCard: audio attachment ──────────────────────────────────────────
