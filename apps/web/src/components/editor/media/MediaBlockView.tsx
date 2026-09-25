@@ -35,7 +35,7 @@ export const MediaBlockContent = ({ attrs, editable = false }: { attrs: MediaBlo
   return (
     <>
       {attachment ? (
-        <div className="relative">
+        <div className="relative" data-media-content="true">
           <WallAttachments
             attachments={[attachment]}
             galleryKey={`${galleryKey}-media-${attrs.attachmentId}`}

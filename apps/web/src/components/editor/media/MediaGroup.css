@@ -81,10 +81,11 @@
   height: 100% !important;
   margin: 0 !important;
 }
-.media-group--smart [data-media-block] div,
-.media-group--smart [data-media-block] figure,
-.media-group--smart [data-media-block] button,
-.media-group--smart [data-media-block] a {
+/* Height chain only through the media content — NOT the floating toolbar
+   (a sibling inside the media node), which used to stretch. */
+.media-group--smart [data-media-block] > div:not([data-media-toolbar]),
+.media-group--smart [data-media-content],
+.media-group--smart [data-media-content] * {
   height: 100% !important;
 }
 /* The grid item is the media node itself in the read view, but tiptap's
