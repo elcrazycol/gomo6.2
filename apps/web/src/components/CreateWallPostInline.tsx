@@ -135,6 +135,9 @@ export const CreateWallPostInline = ({
   const [isDragging, setIsDragging] = useState(false);
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number; startInEditMode: boolean } | null>(null);
   const [publishButtonStyle] = useState(getPublishButtonStyle);
+  // Resized composer size (desktop only). null = default (auto) size.
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const minSizeRef = useRef<{ w: number; h: number } | null>(null);
 
   // Switching which post is edited resets the composer (same mounted instance).
   // Skip the first run: on mount the state already holds the initial document
@@ -324,6 +327,45 @@ export const CreateWallPostInline = ({
     }
   };
 
+  // ── Composer resize (desktop, bottom-right corner) ───────────────────────
+  const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const panel = composerRootRef.current;
+    if (!panel) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = panel.getBoundingClientRect();
+    // The default (current) size is the minimum — remember it once.
+    if (!minSizeRef.current) minSizeRef.current = { w: rect.width, h: rect.height };
+    const min = minSizeRef.current;
+    const startW = rect.width;
+    const startH = rect.height;
+    const startX = event.clientX;
+    const startY = event.clientY;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const maxW = Math.max(min.w, window.innerWidth - 32);
+      const maxH = Math.max(min.h, window.innerHeight - 32);
+      const w = Math.min(maxW, Math.max(min.w, startW + (moveEvent.clientX - startX)));
+      const h = Math.min(maxH, Math.max(min.h, startH + (moveEvent.clientY - startY)));
+      setSize({ w, h });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "nwse-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
   // ── Publish ───────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     const editor = editorRef.current?.getEditor();
@@ -410,6 +452,7 @@ export const CreateWallPostInline = ({
         role="dialog"
         aria-modal="true"
         data-testid="wall-post-composer-inline"
+        style={size && !fullscreen ? { width: `${size.w}px`, height: `${size.h}px`, maxWidth: "none", maxHeight: "none" } : undefined}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer?.types || []).includes("Files")) {
             event.preventDefault();
@@ -418,7 +461,7 @@ export const CreateWallPostInline = ({
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleRootDrop}
-        className={`fixed inset-x-0 top-0 bottom-0 flex w-full flex-col overflow-hidden bg-background transition-transform duration-300 md:static md:border md:border-border/60 md:bg-card md:shadow-2xl ${
+        className={`group/panel fixed inset-x-0 top-0 bottom-0 flex w-full flex-col overflow-hidden bg-background transition-transform duration-300 md:relative md:border md:border-border/60 md:bg-card md:shadow-2xl ${
           fullscreen
             ? "md:h-[100dvh] md:max-h-none md:max-w-none md:rounded-none"
             : "md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-t-none md:rounded-bl-none md:rounded-br-2xl"
@@ -501,7 +544,7 @@ export const CreateWallPostInline = ({
         </div>
 
         {/* Toolbar */}
-        <div className="flex shrink-0 items-center gap-0.5 border-t border-border/60 px-2 py-1.5">
+        <div className="flex shrink-0 items-center gap-0.5 border-t border-border/60 py-1.5 pl-2 pr-2 md:pr-7">
           <EmojiPicker
             onEmojiSelect={(data) => {
               editorRef.current?.focus();
@@ -542,6 +585,26 @@ export const CreateWallPostInline = ({
             onClick={handleSubmit}
             label={isEditing ? "Сохранить" : "Опубликовать"}
           />
+        </div>
+
+        {/* Desktop resize handle (bottom-right): drag to resize the composer.
+            The default size is the minimum. */}
+        <div
+          role="separator"
+          aria-label="Изменить размер окна"
+          title="Потяните, чтобы изменить размер"
+          onPointerDown={handleResizeStart}
+          className="absolute bottom-0 right-0 z-40 hidden h-6 w-6 cursor-nwse-resize items-end justify-end p-1 md:flex"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            aria-hidden="true"
+            className="text-muted-foreground/50 transition-colors group-hover/panel:text-muted-foreground"
+          >
+            <path d="M13 5 L5 13 M13 10 L10 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
         </div>
       </div>
 
