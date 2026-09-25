@@ -10,17 +10,28 @@ export const INK_ATTR = "data-ink";
 
 /**
  * Icon button for an InkBar: no flat hover tint (the blob is the hover
- * feedback), rounded, focus-ringed, marked with data-ink.
+ * feedback), rounded, focus-ringed, marked with data-ink. `active` renders the
+ * filled primary pill used by the formatting toolbar.
  */
-export const inkButtonClass =
-  "relative z-10 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50";
+export const inkButtonClass = (active = false, size: "sm" | "md" = "md") =>
+  `relative z-10 inline-flex ${size === "sm" ? "h-8 w-8" : "h-9 w-9"} shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 ${
+    active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+  }`;
 
 export const InkButton = ({
+  active = false,
+  size = "md",
   className = "",
   children,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-  <button type="button" {...{ [INK_ATTR]: true }} className={`${inkButtonClass} ${className}`} {...props}>
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; size?: "sm" | "md" }) => (
+  <button
+    type="button"
+    aria-pressed={props["aria-pressed"] ?? (active || undefined)}
+    {...{ [INK_ATTR]: true }}
+    className={`${inkButtonClass(active, size)} ${className}`}
+    {...props}
+  >
     {children}
   </button>
 );

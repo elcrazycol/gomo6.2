@@ -1,5 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { InkBar, INK_ATTR } from "@/components/ui/ink-bar";
+import { InkBar, InkButton } from "@/components/ui/ink-bar";
 import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
 import type { Editor, Extensions } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
@@ -84,13 +84,6 @@ const normalizeHexColor = (value: string) => {
   return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(prefixed) ? prefixed : null;
 };
 
-const toolbarButtonClass = (active: boolean) =>
-  `relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
-    active
-      ? "bg-primary text-primary-foreground shadow-sm"
-      : "text-muted-foreground hover:text-foreground"
-  }`;
-
 const ToolButton = ({
   active = false,
   title,
@@ -102,17 +95,16 @@ const ToolButton = ({
   onClick: () => void;
   children: React.ReactNode;
 }) => (
-  <button
-    type="button"
-    {...{ [INK_ATTR]: true }}
-    title={title}
+  <InkButton
+    size="sm"
+    active={active}
     aria-pressed={active}
+    title={title}
     onMouseDown={(event) => event.preventDefault()}
     onClick={onClick}
-    className={toolbarButtonClass(active)}
   >
     {children}
-  </button>
+  </InkButton>
 );
 
 export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?: string }) => {
