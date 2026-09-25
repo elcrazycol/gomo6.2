@@ -41,6 +41,7 @@ describe("buildPostTeaser", () => {
       content: [
         { type: "spoilerBlock", attrs: { label: "x" }, content: [paragraph(text("секрет"))] },
         { type: "linkCard", attrs: { url: "https://x" } },
+        { type: "youtubeEmbed", attrs: { videoId: "dQw4w9WgXcQ" } },
         { type: "horizontalRule" },
         paragraph(text("видно")),
       ],

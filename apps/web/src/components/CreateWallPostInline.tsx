@@ -35,6 +35,8 @@ import { mediaExtensions } from "@/components/editor/media/mediaExtensions";
 import { createSlashCommand } from "@/components/editor/slash/slashCommands";
 import { insertLinkCard } from "@/components/editor/link/linkCommands";
 import { insertSpoilerBlock } from "@/components/editor/spoiler/spoilerCommands";
+import { insertYouTubeEmbed } from "@/components/editor/youtube/youtubeCommands";
+import { parseYouTubeId } from "@/components/editor/youtube/youtubeSchema";
 import { isCardableUrl, linkHost } from "@/components/editor/link/linkCardSchema";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
 import { MediaEditorProvider } from "@/components/editor/media/mediaEditorContext";
@@ -157,6 +159,9 @@ export const CreateWallPostInline = ({
   // Spoiler-block dialog state (label text shown on the collapsed block).
   const [spoilerDialogOpen, setSpoilerDialogOpen] = useState(false);
   const [spoilerLabelDraft, setSpoilerLabelDraft] = useState("");
+  // YouTube embed dialog state.
+  const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   // Editor extension pack: media nodes + the slash command menu (its media
   // action opens the composer's hidden file input, the link/spoiler actions
   // open their dialogs).
@@ -167,6 +172,7 @@ export const CreateWallPostInline = ({
         requestMedia: () => fileInputRef.current?.click(),
         requestLinkCard: () => setLinkDialogOpen(true),
         requestSpoiler: () => setSpoilerDialogOpen(true),
+        requestYouTube: () => setYoutubeDialogOpen(true),
       }),
     ],
     [],
@@ -414,6 +420,20 @@ export const CreateWallPostInline = ({
     insertSpoilerBlock(editor, spoilerLabelDraft);
     setSpoilerDialogOpen(false);
     setSpoilerLabelDraft("");
+  };
+
+  // ── YouTube embed ─────────────────────────────────────────────────────────
+  const handleCreateYouTube = () => {
+    const editor = editorRef.current?.getEditor();
+    if (!editor) return;
+    const videoId = parseYouTubeId(youtubeUrl);
+    if (!videoId) {
+      toast.error("Не удалось распознать ссылку на YouTube");
+      return;
+    }
+    insertYouTubeEmbed(editor, videoId);
+    setYoutubeDialogOpen(false);
+    setYoutubeUrl("");
   };
 
   // ── Composer resize (desktop, bottom-right corner) ───────────────────────
@@ -785,6 +805,35 @@ export const CreateWallPostInline = ({
               Отмена
             </Button>
             <Button type="button" onClick={handleCreateSpoiler}>
+              Добавить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={youtubeDialogOpen} onOpenChange={setYoutubeDialogOpen}>
+        <DialogContent className="z-[70] max-w-md border-border/70 bg-background">
+          <DialogHeader>
+            <DialogTitle>YouTube</DialogTitle>
+            <DialogDescription>Вставьте ссылку на видео — встроим плеер.</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={youtubeUrl}
+            onChange={(event) => setYoutubeUrl(event.target.value)}
+            placeholder="https://youtu.be/…"
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                handleCreateYouTube();
+              }
+            }}
+          />
+          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
+            <Button type="button" variant="outline" onClick={() => setYoutubeDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={handleCreateYouTube} disabled={!youtubeUrl.trim()}>
               Добавить
             </Button>
           </DialogFooter>

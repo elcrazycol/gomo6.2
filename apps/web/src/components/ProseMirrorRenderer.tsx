@@ -10,6 +10,8 @@ import { isZeroWidthText, toMediaBlockAttrs, toMediaGroupAttrs } from "@/compone
 import { LinkCardView } from "@/components/editor/link/LinkCardView";
 import { toLinkCardAttrs } from "@/components/editor/link/linkCardSchema";
 import { SpoilerBlockView } from "@/components/editor/spoiler/SpoilerBlockView";
+import { YouTubeEmbedView } from "@/components/editor/youtube/YouTubeEmbedView";
+import { isYouTubeId } from "@/components/editor/youtube/youtubeSchema";
 
 interface ProsemirrorNode {
   type: string;
@@ -198,6 +200,10 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
           {children}
         </SpoilerBlockView>
       );
+    case "youtubeEmbed": {
+      const videoId = node.attrs?.videoId;
+      return isYouTubeId(videoId) ? <YouTubeEmbedView key={key} videoId={videoId} /> : null;
+    }
     default:
       return <React.Fragment key={key}>{children}</React.Fragment>;
   }

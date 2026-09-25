@@ -10,7 +10,7 @@ import { PluginKey } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import { Suggestion } from "@tiptap/suggestion";
 import type { SuggestionKeyDownProps, SuggestionOptions } from "@tiptap/suggestion";
-import { Image as ImageIcon, EyeOff, LayoutDashboard, Link2, Minus } from "lucide-react";
+import { Image as ImageIcon, EyeOff, LayoutDashboard, Link2, Minus, Youtube } from "lucide-react";
 
 import { SlashCommandList, type SlashCommandListHandle } from "./SlashCommandList";
 
@@ -21,6 +21,8 @@ export interface SlashActions {
   requestLinkCard: () => void;
   /** Open the spoiler dialog (label → spoiler block). */
   requestSpoiler: () => void;
+  /** Open the YouTube dialog (URL → embed). */
+  requestYouTube: () => void;
 }
 
 interface Range {
@@ -90,6 +92,17 @@ export const slashItems: SlashItem[] = [
     run: ({ editor, range, actions }) => {
       editor.chain().focus().deleteRange(range).run();
       actions.requestSpoiler();
+    },
+  },
+  {
+    key: "youtube",
+    title: "YouTube",
+    hint: "Встроить видео с YouTube",
+    keywords: ["youtube", "ютуб", "видео", "video", "embed"],
+    Icon: Youtube,
+    run: ({ editor, range, actions }) => {
+      editor.chain().focus().deleteRange(range).run();
+      actions.requestYouTube();
     },
   },
 ];

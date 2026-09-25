@@ -92,6 +92,12 @@ describe("ProseMirrorRenderer", () => {
     expect(link?.textContent).toContain("Example");
   });
 
+  it("renders a youtube embed facade", () => {
+    const { container } = renderDoc([{ type: "youtubeEmbed", attrs: { videoId: "dQw4w9WgXcQ" } }]);
+    expect(container.querySelector("[data-youtube-embed]")).toBeInTheDocument();
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("i.ytimg.com/vi/dQw4w9WgXcQ");
+  });
+
   it("renders a spoiler block collapsed and reveals it on click", () => {
     const { container } = renderDoc([
       {

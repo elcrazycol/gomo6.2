@@ -3,6 +3,7 @@ package wall
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/gomo6/backend/internal/textutil"
@@ -40,7 +41,10 @@ var allowedNodeTypes = map[string]bool{
 	"horizontalRule": true,
 	"linkCard":       true,
 	"spoilerBlock":   true,
+	"youtubeEmbed":   true,
 }
+
+var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
 var allowedMarkTypes = map[string]bool{
 	"bold":      true,
@@ -157,6 +161,8 @@ func walkDocument(node map[string]interface{}, depth int, count *int, problems *
 		validateLinkCardNode(node, problems)
 	case "spoilerBlock":
 		validateSpoilerBlockNode(node, problems)
+	case "youtubeEmbed":
+		validateYouTubeEmbedNode(node, problems)
 	}
 	content, ok := node["content"].([]interface{})
 	if !ok {
@@ -259,6 +265,19 @@ func validateSpoilerBlockNode(node map[string]interface{}, problems *[]string) {
 	}
 	if value, ok := attrs["label"].(string); ok && utf8RuneLen(value) > maxCaptionRunes {
 		*problems = append(*problems, "spoilerBlock label is too long")
+	}
+}
+
+// validateYouTubeEmbedNode checks that a YouTube embed carries a valid id.
+func validateYouTubeEmbedNode(node map[string]interface{}, problems *[]string) {
+	attrs, _ := node["attrs"].(map[string]interface{})
+	if attrs == nil {
+		*problems = append(*problems, "youtubeEmbed without attributes")
+		return
+	}
+	videoID, _ := attrs["videoId"].(string)
+	if !youtubeIDPattern.MatchString(videoID) {
+		*problems = append(*problems, "youtubeEmbed with an invalid videoId")
 	}
 }
 
@@ -457,6 +476,13 @@ func documentPlainText(node map[string]interface{}) string {
 			}
 		}
 		return spoiler.String()
+	case "youtubeEmbed":
+		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
+			if id, ok := attrs["videoId"].(string); ok && id != "" {
+				return " https://youtu.be/" + id + " "
+			}
+		}
+		return " "
 	}
 	var builder strings.Builder
 	content, _ := node["content"].([]interface{})

@@ -142,6 +142,41 @@ func TestDocumentPlainTextSpoilerBlock(t *testing.T) {
 	}
 }
 
+func TestValidatePostDocumentYouTubeEmbed(t *testing.T) {
+	valid := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{"type": "youtubeEmbed", "attrs": map[string]interface{}{"videoId": "dQw4w9WgXcQ"}},
+		},
+	}
+	if problems := ValidatePostDocument(valid); len(problems) != 0 {
+		t.Fatalf("expected no problems, got %v", problems)
+	}
+
+	invalid := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{"type": "youtubeEmbed", "attrs": map[string]interface{}{"videoId": "javascript:alert(1)"}},
+		},
+	}
+	problems := strings.Join(ValidatePostDocument(invalid), "; ")
+	if !strings.Contains(problems, "invalid videoId") {
+		t.Fatalf("expected videoId problem, got %q", problems)
+	}
+}
+
+func TestDocumentPlainTextYouTubeEmbed(t *testing.T) {
+	doc := map[string]interface{}{
+		"type": "doc",
+		"content": []interface{}{
+			map[string]interface{}{"type": "youtubeEmbed", "attrs": map[string]interface{}{"videoId": "dQw4w9WgXcQ"}},
+		},
+	}
+	if text := documentPlainText(doc); !strings.Contains(text, "youtu.be/dQw4w9WgXcQ") {
+		t.Fatalf("expected youtu.be url in plain text, got %q", text)
+	}
+}
+
 func TestValidateAttachmentRefsAndOwnership(t *testing.T) {
 	doc := map[string]interface{}{
 		"type":    "doc",

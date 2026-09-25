@@ -12,9 +12,10 @@ describe("filterSlashItems", () => {
 
   it("filters by keyword, case-insensitively", () => {
     expect(filterSlashItems("GALLERY").map((item) => item.key)).toEqual(["gallery"]);
-    expect(filterSlashItems("видео").map((item) => item.key)).toEqual(["media"]);
+    expect(filterSlashItems("видео").map((item) => item.key)).toEqual(["media", "youtube"]);
     expect(filterSlashItems("ссылка").map((item) => item.key)).toEqual(["link"]);
     expect(filterSlashItems("спойлер").map((item) => item.key)).toEqual(["spoiler"]);
+    expect(filterSlashItems("youtube").map((item) => item.key)).toEqual(["youtube"]);
   });
 
   it("returns nothing for an unknown query", () => {

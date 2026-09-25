@@ -59,8 +59,14 @@ export const buildPostTeaser = (contentJson: unknown, maxMedia = 3): PostTeaser 
       }
       return null;
     }
-    // Collapsed spoilers, link cards and rules carry no preview text.
-    if (type === "uploadPlaceholder" || type === "linkCard" || type === "horizontalRule" || type === "spoilerBlock") {
+    // Collapsed spoilers, link cards, embeds and rules carry no preview text.
+    if (
+      type === "uploadPlaceholder" ||
+      type === "linkCard" ||
+      type === "horizontalRule" ||
+      type === "spoilerBlock" ||
+      type === "youtubeEmbed"
+    ) {
       return null;
     }
     if (type === "text") return value;
