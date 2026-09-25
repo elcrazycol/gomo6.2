@@ -6,9 +6,8 @@ import { useState } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { ChevronDown, Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverPanel, PopoverTrigger } from "@/components/ui/popover";
 import { clampSpoilerLabel, spoilerLabel } from "./spoilerSchema";
 import "./SpoilerBlock.css";
 
@@ -28,7 +27,10 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
     setLabelOpen(false);
   };
 
-  const toolbarButtonClass = "h-7 w-7 p-0 text-muted-foreground hover:text-foreground";
+  const toolbarButtonClass =
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,box-shadow] duration-200 ease-out hover:bg-foreground/5 hover:text-foreground hover:shadow-sm";
+  const deleteButtonClass =
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-destructive transition-[color,background-color,box-shadow] duration-200 ease-out hover:bg-foreground/5 hover:shadow-sm";
 
   return (
     <NodeViewWrapper
@@ -66,53 +68,52 @@ export const SpoilerBlockNodeView = ({ node, updateAttributes, deleteNode, selec
 
         <Popover open={labelOpen} onOpenChange={openLabelEditor}>
           <PopoverTrigger asChild>
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="icon"
               title="Текст спойлера"
               className={toolbarButtonClass}
               onMouseDown={(event) => event.preventDefault()}
             >
               <Pencil className="h-4 w-4" />
-            </Button>
+            </button>
           </PopoverTrigger>
-          <PopoverContent
-            side="bottom"
-            align="end"
-            className="w-64 space-y-2 p-3"
-            style={{ zIndex: 70 }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <span className="text-xs font-medium text-muted-foreground">Текст на спойлере</span>
-            <Input
-              value={labelDraft}
-              onChange={(event) => setLabelDraft(event.target.value)}
-              placeholder="Например: Спойлер к серии"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  applyLabel();
-                }
-              }}
-            />
-            <Button type="button" size="sm" className="w-full" onClick={applyLabel}>
-              Применить
-            </Button>
-          </PopoverContent>
+          <PopoverPanel side="bottom" align="end" className="w-64 !p-0">
+            <div className="px-3 py-3">
+              <Input
+                autoFocus
+                className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
+                value={labelDraft}
+                onChange={(event) => setLabelDraft(event.target.value)}
+                placeholder="Текст на спойлере"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    applyLabel();
+                  }
+                }}
+              />
+            </div>
+            <div className="flex justify-end border-t border-border/60 px-1.5 py-1">
+              <button
+                type="button"
+                onClick={applyLabel}
+                className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              >
+                Применить
+              </button>
+            </div>
+          </PopoverPanel>
         </Popover>
 
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="icon"
           title="Удалить спойлер"
-          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+          className={deleteButtonClass}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => deleteNode()}
         >
           <Trash2 className="h-4 w-4" />
-        </Button>
+        </button>
       </div>
 
       {/* Same height animation as the read view (grid rows 0fr → 1fr). */}
