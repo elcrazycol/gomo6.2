@@ -6,6 +6,13 @@
   margin: 0.5rem 0;
 }
 
+/* tiptap React NodeViews wrap the content children in an extra element; flatten
+   it so the media are laid out by the gallery container itself (grid/flex/columns
+   see them as direct children), matching the read view. */
+.media-group [data-node-view-content-react] {
+  display: contents;
+}
+
 .media-group--grid,
 .media-group--grid3 {
   display: grid;
@@ -47,7 +54,6 @@
   width: 100% !important;
   margin: 0 !important;
 }
-
 @media (min-width: 640px) {
   .media-group--mosaic {
     columns: 3;

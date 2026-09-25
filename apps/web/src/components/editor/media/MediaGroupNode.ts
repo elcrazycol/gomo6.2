@@ -15,7 +15,10 @@ import {
 export const MediaGroupNode = Node.create({
   name: MEDIA_GROUP_NODE,
   group: "block",
-  content: "mediaBlock+",
+  // A gallery holds media, and transiently the upload placeholders that become
+  // media once their upload finishes (a multi-file insert starts as a group of
+  // placeholders).
+  content: "(mediaBlock | uploadPlaceholder)+",
   defining: true,
 
   addAttributes() {
