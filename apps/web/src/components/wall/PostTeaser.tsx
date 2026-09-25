@@ -1,9 +1,10 @@
-// Compact preview of a long wall post: a rich-text snippet, a strip of the
-// first few media (with a "+N" badge) and a "Показать полностью" button that
-// opens the full post page. Rendered inside the card's MediaAttachmentsProvider.
+// Compact preview of a long wall post: a rich-text snippet that fades out with
+// a centered "Показать больше" button on the fade, a strip of the first few
+// media (with a "+N" badge), and a fallback button when there is no text fade.
+// Rendered inside the card's MediaAttachmentsProvider.
 
-import { useMemo } from "react";
-import { ChevronRight, ImageOff } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ImageOff } from "lucide-react";
 
 import { ProseMirrorRenderer } from "@/components/ProseMirrorRenderer";
 import { useMediaView } from "@/components/editor/media/mediaViewContext";
@@ -21,19 +22,51 @@ const tileSrc = (attachment: MediaAttachment | null): string | null => {
   return resolveUrl(attachment.meta?.preview_key) ?? resolveUrl(attachment.url);
 };
 
+const showMoreButtonClass =
+  "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/95 px-4 py-1.5 text-sm font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent";
+
 export const PostTeaser = ({ contentJson, onOpenPost }: { contentJson: unknown; onOpenPost: () => void }) => {
   const { attachments } = useMediaView();
   const teaser = useMemo(() => buildPostTeaser(contentJson, 3), [contentJson]);
 
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const [textOverflow, setTextOverflow] = useState(false);
+
   const hasText = Array.isArray(teaser.textDoc?.content) && (teaser.textDoc?.content as unknown[]).length > 0;
   const extra = Math.max(0, teaser.totalMedia - teaser.media.length);
+
+  // Show the fade + centered button only when the snippet is actually clipped.
+  useEffect(() => {
+    const element = textRef.current;
+    if (!element) return;
+    const check = () => setTextOverflow(element.scrollHeight > element.clientHeight + 2);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [teaser.textDoc]);
+
+  const handleOpen = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    onOpenPost();
+  };
 
   return (
     <div className="post-teaser">
       {hasText && teaser.textDoc && (
-        <div className="relative max-h-56 overflow-hidden">
+        <div ref={textRef} className="relative max-h-56 overflow-hidden">
           <ProseMirrorRenderer json={teaser.textDoc as unknown as Parameters<typeof ProseMirrorRenderer>[0]["json"]} />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-background to-transparent" />
+          {textOverflow && (
+            <>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background via-background/85 to-transparent" />
+              <div className="absolute inset-x-0 bottom-2 flex justify-center">
+                <button type="button" onClick={handleOpen} className={showMoreButtonClass}>
+                  Показать больше
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -72,17 +105,12 @@ export const PostTeaser = ({ contentJson, onOpenPost }: { contentJson: unknown; 
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenPost();
-        }}
-        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-      >
-        Показать полностью
-        <ChevronRight className="h-4 w-4" />
-      </button>
+      {/* Fallback: no text fade to sit on (media-only, or text short enough). */}
+      {(!hasText || !textOverflow) && (
+        <button type="button" onClick={handleOpen} className={`mt-3 ${showMoreButtonClass}`}>
+          Показать больше
+        </button>
+      )}
     </div>
   );
 };

@@ -192,12 +192,12 @@ describe("FeedWallPostCard", () => {
     }));
 
     await waitFor(() => {
-      expect(screen.getByText("Показать полностью")).toBeInTheDocument();
+      expect(screen.getByText("Показать больше")).toBeInTheDocument();
     });
     // Only the first three media are shown; the fourth is behind the "+1" badge.
     expect(screen.getByText("+1")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Показать полностью"));
+    fireEvent.click(screen.getByText("Показать больше"));
     expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner/wall/post-1", expect.anything());
   });
 });

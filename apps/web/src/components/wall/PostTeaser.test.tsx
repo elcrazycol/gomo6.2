@@ -50,7 +50,7 @@ describe("PostTeaser", () => {
     expect(container.querySelectorAll("img")).toHaveLength(3);
     expect(screen.getByText("+1")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Показать полностью/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Показать больше/ }));
     expect(onOpenPost).toHaveBeenCalledTimes(1);
   });
 });
