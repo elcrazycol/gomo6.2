@@ -36,15 +36,16 @@
 }
 
 .media-group--carousel {
-  display: flex;
-  gap: 4px;
   overflow-x: auto;
+  white-space: nowrap;
   padding-bottom: 4px;
 }
 .media-group--carousel [data-media-block] {
+  display: inline-block !important;
   width: 75% !important;
-  flex: 0 0 auto;
-  margin: 0 !important;
+  vertical-align: top;
+  white-space: normal;
+  margin: 0 4px 0 0 !important;
 }
 
 @media (min-width: 640px) {
