@@ -70,6 +70,7 @@ export const SlashCommandList = forwardRef<SlashCommandListHandle, SlashCommandL
             <button
               key={item.key}
               type="button"
+              aria-label={item.title}
               data-slash-item={item.key}
               className={`mx-1 flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors ${
                 index === selectedIndex ? "bg-muted shadow-sm" : "hover:bg-muted/60"

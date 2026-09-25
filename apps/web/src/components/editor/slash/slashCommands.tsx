@@ -84,14 +84,6 @@ export const slashCommandPluginKey = new PluginKey("slashCommand");
 let slashPopupActive = false;
 export const isSlashPopupActive = () => slashPopupActive;
 
-export const createSlashCommand = (actions: SlashActions) =>
-  Extension.create({
-    name: "slashCommand",
-    addProseMirrorPlugins() {
-      return [Suggestion<SlashItem, SlashItem>({ editor: this.editor, ...slashSuggestion(actions) })];
-    },
-  });
-
 const slashSuggestion = (
   actions: SlashActions,
 ): Omit<SuggestionOptions<SlashItem, SlashItem>, "editor"> => ({
@@ -122,3 +114,11 @@ const slashSuggestion = (
     };
   },
 });
+
+export const createSlashCommand = (actions: SlashActions) =>
+  Extension.create({
+    name: "slashCommand",
+    addProseMirrorPlugins() {
+      return [Suggestion<SlashItem, SlashItem>({ editor: this.editor, ...slashSuggestion(actions) })];
+    },
+  });
