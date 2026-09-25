@@ -211,22 +211,25 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 <Link2 className="h-4 w-4" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="z-[80] w-72 space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">Ссылка</div>
-              <Input
-                autoFocus
-                value={linkDraft}
-                onChange={(event) => setLinkDraft(event.target.value)}
-                placeholder="https://…"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    applyLink();
-                  }
-                }}
-              />
-              <p className="text-[11px] text-muted-foreground">Пусто — убрать ссылку.</p>
-              <div className="flex justify-end gap-2">
+            <PopoverContent side="bottom" align="center" className="z-[80] w-72 !p-0">
+              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Ссылка</div>
+              <div className="space-y-2 px-3 py-3">
+                <Input
+                  autoFocus
+                  className="h-9"
+                  value={linkDraft}
+                  onChange={(event) => setLinkDraft(event.target.value)}
+                  placeholder="https://…"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      applyLink();
+                    }
+                  }}
+                />
+                <p className="text-[11px] leading-4 text-muted-foreground">Пусто — убрать ссылку.</p>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border/60 px-3 py-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => setIsLinkDialogOpen(false)}>Отмена</Button>
                 <Button type="button" size="sm" onClick={applyLink}>Применить</Button>
               </div>
@@ -245,44 +248,46 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 <Palette className="h-4 w-4" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="z-[80] w-72 space-y-3">
-              <div className="text-xs font-medium text-muted-foreground">Цвет текста</div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => colorInputRef.current?.click()}
-                  className="h-9 w-9 shrink-0 rounded-md border border-border/70"
-                  style={{ backgroundColor: normalizeHexColor(colorDraft) || "transparent" }}
-                  title="Открыть палитру"
-                  aria-label="Выбрать цвет"
-                />
-                <Input
-                  value={colorDraft}
+            <PopoverContent side="bottom" align="center" className="z-[80] w-72 !p-0">
+              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Цвет текста</div>
+              <div className="space-y-3 px-3 py-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => colorInputRef.current?.click()}
+                    className="h-9 w-9 shrink-0 rounded-md border border-border/70"
+                    style={{ backgroundColor: normalizeHexColor(colorDraft) || "transparent" }}
+                    title="Открыть палитру"
+                    aria-label="Выбрать цвет"
+                  />
+                  <Input
+                    value={colorDraft}
+                    onChange={(event) => setColorDraft(event.target.value)}
+                    placeholder={randomHexColor()}
+                    className="h-9 min-w-0 flex-1 font-mono"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 p-0"
+                    onClick={() => setColorDraft(randomHexColor())}
+                    title="Случайный цвет"
+                  >
+                    <Dice3 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <input
+                  ref={colorInputRef}
+                  type="color"
+                  value={normalizeHexColor(colorDraft) || "#ff5500"}
                   onChange={(event) => setColorDraft(event.target.value)}
-                  placeholder={randomHexColor()}
-                  className="min-w-0 flex-1"
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden="true"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9 shrink-0 p-0"
-                  onClick={() => setColorDraft(randomHexColor())}
-                  title="Случайный цвет"
-                >
-                  <Dice3 className="h-4 w-4" />
-                </Button>
               </div>
-              <input
-                ref={colorInputRef}
-                type="color"
-                value={normalizeHexColor(colorDraft) || "#ff5500"}
-                onChange={(event) => setColorDraft(event.target.value)}
-                className="sr-only"
-                tabIndex={-1}
-                aria-hidden="true"
-              />
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 border-t border-border/60 px-3 py-2">
                 <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => applyColor("")}>
                   <X className="mr-1.5 h-3.5 w-3.5" /> Снять
                 </Button>
@@ -306,19 +311,22 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 <Type className="h-4 w-4" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="z-[80] w-64 space-y-3">
-              <div className="text-xs font-medium text-muted-foreground">Размер шрифта</div>
-              <div className="flex flex-wrap gap-1.5">
-                {[13, 16, 18, 20, 24].map((px) => (
-                  <Button key={px} type="button" variant="outline" size="sm" onClick={() => applySize(px)}>{px}</Button>
-                ))}
+            <PopoverContent side="bottom" align="center" className="z-[80] w-64 !p-0">
+              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Размер шрифта</div>
+              <div className="space-y-3 px-3 py-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {[13, 16, 18, 20, 24].map((px) => (
+                    <Button key={px} type="button" variant="outline" size="sm" className="h-8 min-w-9 px-2" onClick={() => applySize(px)}>{px}</Button>
+                  ))}
+                </div>
+                <Input
+                  className="h-9"
+                  value={sizeDraft}
+                  onChange={(event) => setSizeDraft(event.target.value)}
+                  placeholder="Своё значение, px"
+                />
               </div>
-              <Input
-                value={sizeDraft}
-                onChange={(event) => setSizeDraft(event.target.value)}
-                placeholder="Размер в px"
-              />
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 border-t border-border/60 px-3 py-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => setIsSizeDialogOpen(false)}>Отмена</Button>
                 <Button type="button" size="sm" onClick={() => applySize()}>Применить</Button>
               </div>

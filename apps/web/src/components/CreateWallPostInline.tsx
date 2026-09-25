@@ -732,22 +732,25 @@ export const CreateWallPostInline = ({
                 <Link2 className="h-5 w-5" />
               </InkButton>
             </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="z-[80] w-80 space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">Ссылка-карточка</div>
-              <Input
-                autoFocus
-                value={linkUrl}
-                onChange={(event) => setLinkUrl(event.target.value)}
-                placeholder="https://…"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void handleCreateLinkCard();
-                  }
-                }}
-              />
-              <p className="text-[11px] text-muted-foreground">Вставьте ссылку — покажем предпросмотр.</p>
-              <div className="flex justify-end gap-2">
+            <PopoverContent side="top" align="start" className="z-[80] w-80 !p-0">
+              <div className="border-b border-border/60 px-3 py-2 text-sm font-medium">Ссылка-карточка</div>
+              <div className="space-y-2 px-3 py-3">
+                <Input
+                  autoFocus
+                  className="h-9"
+                  value={linkUrl}
+                  onChange={(event) => setLinkUrl(event.target.value)}
+                  placeholder="https://…"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleCreateLinkCard();
+                    }
+                  }}
+                />
+                <p className="text-[11px] leading-4 text-muted-foreground">Вставьте ссылку — покажем предпросмотр.</p>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border/60 px-3 py-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => setLinkDialogOpen(false)} disabled={linkLoading}>
                   Отмена
                 </Button>
