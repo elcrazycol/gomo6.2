@@ -685,7 +685,6 @@ export const CreateWallPostInline = ({
                 placeholder="Что нового? Пишите, двигайте фото и видео прямо в тексте…"
                 minHeightClassName={fullscreen ? "min-h-[70dvh]" : "min-h-[180px]"}
                 maxHeightClassName="max-h-full"
-                toolbarClassName="sticky top-0 z-20 bg-background"
               />
             </MediaEditorProvider>
           </MediaAttachmentsProvider>
