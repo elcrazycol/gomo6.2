@@ -519,7 +519,20 @@ export const CreateWallPostInline = ({
         </div>
 
         {/* Editor — media blocks are edited in place */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-4 pb-2"
+          onClick={(event) => {
+            const target = event.target as HTMLElement;
+            if (
+              target.closest(
+                "a, button, input, textarea, select, [contenteditable='true'], [data-media-toolbar], [data-radix-popper-content-wrapper]",
+              )
+            ) {
+              return;
+            }
+            editorRef.current?.focus();
+          }}
+        >
           <MediaAttachmentsProvider
             value={{
               attachments,
@@ -548,7 +561,7 @@ export const CreateWallPostInline = ({
                 onChange={({ json }) => setContentJson(json)}
                 onSubmit={handleSubmit}
                 placeholder="Что нового? Пишите, двигайте фото и видео прямо в тексте…"
-                minHeightClassName="min-h-[180px]"
+                minHeightClassName={fullscreen ? "min-h-[70dvh]" : "min-h-[180px]"}
                 maxHeightClassName="max-h-full"
                 toolbarClassName="sticky top-0 z-20 bg-background"
               />
