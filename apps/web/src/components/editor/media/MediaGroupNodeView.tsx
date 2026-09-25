@@ -38,6 +38,7 @@ export const MediaGroupNodeView = ({ node, editor, getPos, updateAttributes, del
       <NodeViewContent as="div" className={mediaGroupLayoutClass(attrs.layout)} />
 
       <div
+        data-media-toolbar="true"
         contentEditable={false}
         onClick={(event) => event.stopPropagation()}
         className={`absolute right-2 top-2 z-30 flex items-center gap-0.5 rounded-lg border border-border/70 bg-background/95 p-1 shadow-sm transition-opacity ${toolbarVisibility}`}

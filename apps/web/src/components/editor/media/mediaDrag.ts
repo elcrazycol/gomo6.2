@@ -63,28 +63,85 @@ export const startMediaDrag = ({
     if (caret) caret.style.display = "none";
   };
 
-  /** A media node under/near the pointer (other than the source), if any. */
-  const findMergeTarget = (x: number, y: number): MergeTarget | null => {
-    clearMerge();
-    let result: MergeTarget | null = null;
+  /** Document position of the media node whose DOM is `element`. */
+  const mediaPosForElement = (element: HTMLElement): number | null => {
+    let found: number | null = null;
     view.state.doc.descendants((node, pos) => {
-      if (result) return false;
-      if (node.type.name !== MEDIA_BLOCK_NODE || pos === sourcePos) return true;
-      const el = view.nodeDOM(pos) as HTMLElement | null;
-      if (!el || typeof el.getBoundingClientRect !== "function") return true;
-      const rect = el.getBoundingClientRect();
-      const pad = 14;
-      if (x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad) {
-        result = { pos, side: x < rect.left + rect.width / 2 ? "before" : "after", el };
+      if (found !== null) return false;
+      if (node.type.name !== MEDIA_BLOCK_NODE) return true;
+      let dom: Node | null = null;
+      try {
+        dom = view.nodeDOM(pos);
+      } catch {
+        dom = null;
+      }
+      if (dom === element) {
+        found = pos;
         return false;
       }
       return true;
     });
-    if (result) {
-      result.el.classList.add("media-merge-target");
-      mergeTarget = result;
+    if (found !== null) return found;
+    // Fallback: resolve through the DOM position.
+    try {
+      const domPos = view.posAtDOM(element, 0);
+      for (const candidate of [domPos, domPos - 1, domPos + 1]) {
+        const node = view.state.doc.nodeAt(candidate);
+        if (node && node.type.name === MEDIA_BLOCK_NODE) return candidate;
+      }
+    } catch {
+      // posAtDOM can throw for detached nodes
     }
-    return result;
+    return null;
+  };
+
+  /** A media node under/near the pointer (other than the source), if any. */
+  const findMergeTarget = (x: number, y: number): MergeTarget | null => {
+    clearMerge();
+    // What is actually under the pointer: this also works when a media's hover
+    // toolbar is on top (it is a descendant of the media node).
+    let element: HTMLElement | null = null;
+    if (typeof document.elementFromPoint === "function") {
+      try {
+        const under = document.elementFromPoint(x, y) as HTMLElement | null;
+        element = (under?.closest?.("[data-media-block]") as HTMLElement | null) ?? null;
+      } catch {
+        element = null;
+      }
+    }
+    // Fallback: nearest media by rect (covers the small gap around a media).
+    if (!element) {
+      let bestDist = Number.POSITIVE_INFINITY;
+      view.state.doc.descendants((node, pos) => {
+        if (node.type.name !== MEDIA_BLOCK_NODE || pos === sourcePos) return true;
+        let el: HTMLElement | null = null;
+        try {
+          el = view.nodeDOM(pos) as HTMLElement | null;
+        } catch {
+          return true;
+        }
+        if (!el || typeof el.getBoundingClientRect !== "function") return true;
+        const rect = el.getBoundingClientRect();
+        const pad = 10;
+        if (x < rect.left - pad || x > rect.right + pad || y < rect.top - pad || y > rect.bottom + pad) return true;
+        const distance = Math.abs(x - (rect.left + rect.width / 2));
+        if (distance < bestDist) {
+          bestDist = distance;
+          element = el;
+        }
+        return true;
+      });
+    }
+    if (!element) return null;
+
+    const pos = mediaPosForElement(element);
+    if (pos === null || pos === sourcePos) return null;
+
+    const rect = element.getBoundingClientRect();
+    const target: MergeTarget = { pos, side: x < rect.left + rect.width / 2 ? "before" : "after", el: element };
+    element.classList.add("media-merge-target");
+    mergeTarget = target;
+    return target;
   };
 
   /**
@@ -103,9 +160,15 @@ export const startMediaDrag = ({
 
     for (let i = 0; i < doc.childCount; i += 1) {
       const node = doc.child(i);
-      const dom =
-        (view.nodeDOM(pos) as HTMLElement | null) ??
-        (view.dom.children.length === doc.childCount ? (view.dom.children[i] as HTMLElement) : null);
+      let dom: HTMLElement | null = null;
+      try {
+        dom = view.nodeDOM(pos) as HTMLElement | null;
+      } catch {
+        dom = null;
+      }
+      if (!dom && view.dom.children.length === doc.childCount) {
+        dom = view.dom.children[i] as HTMLElement;
+      }
       const isEmpty = node.isTextblock && node.content.size === 0;
       if (dom && typeof dom.getBoundingClientRect === "function") {
         const rect = dom.getBoundingClientRect();
@@ -150,7 +213,12 @@ export const startMediaDrag = ({
       let { top, bottom, left } = rect;
       const $c = view.state.doc.resolve(caretPos);
       if ($c.parent.inlineContent && $c.parent.content.size === 0) {
-        const blockDom = view.nodeDOM($c.before($c.depth)) as HTMLElement | null;
+        let blockDom: HTMLElement | null = null;
+        try {
+          blockDom = view.nodeDOM($c.before($c.depth)) as HTMLElement | null;
+        } catch {
+          blockDom = null;
+        }
         if (blockDom && typeof blockDom.getBoundingClientRect === "function") {
           const box = blockDom.getBoundingClientRect();
           if (box.height > 0) {
@@ -180,6 +248,7 @@ export const startMediaDrag = ({
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onCancel);
     document.removeEventListener("mousedown", blockMouseDown, true);
+    document.body.classList.remove("media-dragging");
     clearMerge();
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
@@ -221,6 +290,9 @@ export const startMediaDrag = ({
 
   document.body.style.cursor = "grabbing";
   document.body.style.userSelect = "none";
+  // Hide the media toolbars while dragging so they do not pop up over the
+  // target and get in the way of the merge affordance.
+  document.body.classList.add("media-dragging");
   onStart?.();
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);

@@ -58,3 +58,9 @@
   outline-offset: 3px;
   border-radius: 6px;
 }
+
+/* While dragging a media, hide every media toolbar (source + targets). */
+body.media-dragging [data-media-toolbar] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
