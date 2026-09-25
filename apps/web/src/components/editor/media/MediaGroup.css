@@ -121,6 +121,43 @@
   aspect-ratio: auto !important;
   height: 100% !important;
 }
+
+/* "Justified" layout: rows of equal height, widths by aspect, no cropping.
+   Item sizes are set inline (read view: .justified-item; editor: the tiptap
+   content wrapper's children). */
+.media-group--justified {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.media-group--justified .justified-item,
+.media-group--justified [data-node-view-content-react] > * {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 6px;
+}
+.media-group--justified [data-media-block] {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+}
+.media-group--justified [data-media-block] > div:not([data-media-toolbar]),
+.media-group--justified [data-media-content],
+.media-group--justified [data-media-content] * {
+  height: 100% !important;
+}
+.media-group--justified [data-media-block] img,
+.media-group--justified [data-media-block] video {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  object-fit: contain !important;
+}
+.media-group--justified [data-media-block] button,
+.media-group--justified [data-media-block] figure {
+  aspect-ratio: auto !important;
+  height: 100% !important;
+}
 @media (min-width: 640px) {
   .media-group--mosaic {
     columns: 3;

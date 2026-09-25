@@ -35,7 +35,7 @@ export const MEDIA_GROUP_NODE = "mediaGroup";
 export const UPLOAD_PLACEHOLDER_NODE = "uploadPlaceholder";
 
 /** Gallery layouts available for a mediaGroup. */
-export const MEDIA_GROUP_LAYOUTS = ["grid", "grid3", "mosaic", "carousel", "smart"] as const;
+export const MEDIA_GROUP_LAYOUTS = ["grid", "grid3", "mosaic", "carousel", "smart", "justified"] as const;
 export type MediaGroupLayout = (typeof MEDIA_GROUP_LAYOUTS)[number];
 export interface MediaGroupAttrs {
   layout: MediaGroupLayout;

@@ -3,6 +3,7 @@ import { EmojiInline } from "@/components/EmojiInline";
 import { CensorBlur } from "@/components/CensorBlur";
 import { MentionLink } from "@/components/MentionLink";
 import { MediaBlockRenderer } from "@/components/editor/media/MediaBlockView";
+import { JustifiedGallery } from "@/components/editor/media/JustifiedGallery";
 import { mediaGroupLayoutClass } from "@/components/editor/media/mediaLayout";
 import { isZeroWidthText, toMediaBlockAttrs, toMediaGroupAttrs } from "@/components/editor/media/mediaSchema";
 
@@ -142,12 +143,28 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
     }
     case "mediaBlock":
       return <MediaBlockRenderer key={key} attrs={toMediaBlockAttrs(node.attrs)} />;
-    case "mediaGroup":
+    case "mediaGroup": {
+      const groupAttrs = toMediaGroupAttrs(node.attrs);
+      if (groupAttrs.layout === "justified") {
+        const items = node.content || [];
+        const aspects = items.map((child) => {
+          const aspect = Number(child.attrs?.aspect);
+          return Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+        });
+        return (
+          <JustifiedGallery
+            key={key}
+            aspects={aspects}
+            renderItem={(index) => renderNode(items[index], `${key}-${index}`)}
+          />
+        );
+      }
       return (
-        <div key={key} data-media-group="true" className={mediaGroupLayoutClass(toMediaGroupAttrs(node.attrs).layout)}>
+        <div key={key} data-media-group="true" className={mediaGroupLayoutClass(groupAttrs.layout)}>
           {children}
         </div>
       );
+    }
     case "uploadPlaceholder":
       // Transient editor-only node: never persisted, nothing to render.
       return null;
