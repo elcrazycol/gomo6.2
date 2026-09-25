@@ -211,7 +211,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
             <div className="px-3 py-3">
               <Input
                 autoFocus
-                className="h-9"
+                className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
                 value={linkDraft}
                 onChange={(event) => setLinkDraft(event.target.value)}
                 placeholder="https://…"
@@ -224,7 +224,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
               />
             </div>
             <div className="flex justify-end border-t border-border/60 px-1.5 py-1">
-              <button type="button" onClick={applyLink} className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground">
+              <button type="button" onClick={applyLink} className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground">
                 Вставить
               </button>
             </div>
@@ -252,11 +252,11 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                 type="button"
                 onClick={() => applyColor("")}
                 title="Убрать цвет"
-                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
-              <button type="button" onClick={handleApplyColor} className="rounded px-4 py-1.5 text-sm font-medium text-primary hover:bg-primary/10">
+              <button type="button" onClick={handleApplyColor} className="rounded px-4 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10">
                 OK
               </button>
             </div>
@@ -278,7 +278,7 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
                     key={px}
                     type="button"
                     onClick={() => applySize(px)}
-                    className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-foreground/5 ${selected ? "text-primary" : "text-foreground/90"}`}
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-sm transition-colors hover:bg-foreground/5 ${selected ? "text-primary" : "text-foreground/90"}`}
                   >
                     <span>{px}</span>
                     {selected && <Check className="h-3.5 w-3.5" />}

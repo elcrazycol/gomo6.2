@@ -63,7 +63,7 @@ export const hsvToHex = ({ h, s, v }: HSV): string => {
 const randomHex = () => `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
 
 const tabClass = (active: boolean) =>
-  `rounded px-2 py-1 text-xs ${active ? "text-primary" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"}`;
+  `rounded px-2 py-1 text-xs transition-colors ${active ? "text-primary" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"}`;
 
 export const ColorPicker = ({
   value,
@@ -140,7 +140,7 @@ export const ColorPicker = ({
           type="button"
           title="Случайный цвет"
           onClick={() => emit(hexToHsv(randomHex()))}
-          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
           <Shuffle className="h-3.5 w-3.5" />
         </button>
@@ -154,7 +154,7 @@ export const ColorPicker = ({
               type="button"
               title={swatch}
               onClick={() => emit(hexToHsv(swatch))}
-              className={`h-6 rounded-[3px] ${current === swatch.toLowerCase() ? "ring-2 ring-foreground/40" : ""}`}
+              className={`h-6 rounded-[3px] transition-shadow ${current === swatch.toLowerCase() ? "ring-2 ring-foreground/40" : ""}`}
               style={{ backgroundColor: swatch }}
             />
           ))}
@@ -206,7 +206,7 @@ export const ColorPicker = ({
             if (/^#?[0-9a-f]{6}$/i.test(event.target.value.trim())) emit(hexToHsv(event.target.value));
           }}
           placeholder="#000000"
-          className="h-9 min-w-0 flex-1 font-mono"
+          className="h-9 min-w-0 flex-1 font-mono focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
         />
         <span
           className="h-9 w-9 shrink-0 rounded-[3px] border border-border/60"

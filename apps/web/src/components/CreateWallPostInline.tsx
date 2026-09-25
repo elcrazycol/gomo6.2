@@ -736,7 +736,7 @@ export const CreateWallPostInline = ({
               <div className="px-3 py-3">
                 <Input
                   autoFocus
-                  className="h-9"
+                  className="h-9 focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0"
                   value={linkUrl}
                   onChange={(event) => setLinkUrl(event.target.value)}
                   placeholder="https://…"
@@ -753,7 +753,7 @@ export const CreateWallPostInline = ({
                   type="button"
                   onClick={() => void handleCreateLinkCard()}
                   disabled={linkLoading || !linkUrl.trim()}
-                  className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 >
                   {linkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Добавить"}
                 </button>
