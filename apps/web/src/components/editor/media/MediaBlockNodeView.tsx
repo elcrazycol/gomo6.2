@@ -18,6 +18,7 @@ import {
   Pencil,
   Pilcrow,
   Replace,
+  Star,
   Trash2,
   Type,
 } from "lucide-react";
@@ -56,6 +57,8 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
 
   const attachment = attachments.find((att) => att.id === attrs.attachmentId) ?? null;
   const layout = mediaFigureLayout(attrs.align, attrs.width);
+  const isCover = Boolean(editorContext?.setCover) && editorContext?.coverId === attrs.attachmentId;
+  const canSetCover = Boolean(editorContext?.setCover) && attachment?.type === "image";
 
   const selectNode = () => {
     const pos = getPos();
@@ -186,6 +189,31 @@ export const MediaBlockNodeView = ({ node, editor, getPos, updateAttributes, del
         <span className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-background/85 px-2 py-1 text-[11px] text-muted-foreground">
           <ImageIcon className="h-3 w-3" /> Нет файла
         </span>
+      )}
+
+      {/* Cover chip — top-left corner so it never touches the bottom toolbar.
+          Always visible once chosen; on hover/selection otherwise. */}
+      {canSetCover && (
+        <button
+          type="button"
+          title={isCover ? "Убрать обложку" : "Сделать обложкой"}
+          aria-pressed={isCover}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.stopPropagation();
+            editorContext?.setCover?.(isCover ? null : attrs.attachmentId);
+          }}
+          className={`absolute left-2 top-2 z-30 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium shadow-sm transition-opacity ${
+            isCover
+              ? "border-primary/40 bg-primary/90 text-primary-foreground opacity-100"
+              : `border-border/70 bg-background/90 text-muted-foreground ${
+                  selected ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                }`
+          }`}
+        >
+          <Star className={`h-3.5 w-3.5 ${isCover ? "fill-current" : ""}`} />
+          {isCover && <span>Обложка</span>}
+        </button>
       )}
 
       {/* Toolbar — pinned to the bottom INSIDE the media box, horizontally

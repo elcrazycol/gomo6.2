@@ -30,11 +30,12 @@ import { PostViewCount } from "@/components/PostViewCount";
 import { WallAttachments } from "@/components/WallAttachments";
 import { EmbeddedWallPost } from "@/components/WallEmbeddedPost";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
-import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
+import { docHasMediaNodes, getDocCover } from "@/components/editor/media/mediaSchema";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { LightboxItem } from "@/components/Lightbox";
 import { WallCommentTree } from "@/components/wall/WallCommentTree";
 import { PostTeaser } from "@/components/wall/PostTeaser";
+import { PostCover } from "@/components/wall/PostCover";
 import {
   type WallPost,
   normalizeAttachments, isInteractiveTarget, getWallPostPath,
@@ -94,6 +95,7 @@ export const WallPostCard = ({
   // (every legacy post) the attachments fall back to the bottom gallery.
   const hasMediaNodes = useMemo(() => docHasMediaNodes(post.content_json), [post.content_json]);
   const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
   // Media-only posts have no plain text but still need their content rendered.
   const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   // Reports the post as viewed once the card becomes visible in the viewport
@@ -443,6 +445,7 @@ export const WallPostCard = ({
           }}
         >
         <div>
+          {coverId && <PostCover attachmentId={coverId} />}
           {teaserMode ? (
             <PostTeaser contentJson={post.content_json} onOpenPost={openPost} />
           ) : (

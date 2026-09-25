@@ -409,6 +409,9 @@ func DerivePostFields(
 		refSet[ref] = true
 	}
 	used = []interface{}{}
+	coverID, _ := doc["cover"].(string)
+	var firstImageURL *string
+	var coverImageURL *string
 	for _, raw := range attachments {
 		attachment, ok := raw.(map[string]interface{})
 		if !ok {
@@ -419,14 +422,24 @@ func DerivePostFields(
 			continue
 		}
 		used = append(used, attachment)
-		if imageURL == nil {
-			if kind, _ := attachment["type"].(string); kind == "image" {
-				if url, _ := attachment["url"].(string); url != "" {
-					value := url
-					imageURL = &value
+		if kind, _ := attachment["type"].(string); kind == "image" {
+			if url, _ := attachment["url"].(string); url != "" {
+				value := url
+				if firstImageURL == nil {
+					firstImageURL = &value
+				}
+				if coverID != "" && id == coverID {
+					coverImageURL = &value
 				}
 			}
 		}
+	}
+	// The chosen cover wins over the first image so share previews (image_url)
+	// show the cover.
+	if coverImageURL != nil {
+		imageURL = coverImageURL
+	} else {
+		imageURL = firstImageURL
 	}
 	return content, title, imageURL, used
 }

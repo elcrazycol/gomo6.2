@@ -53,11 +53,13 @@ import {
   collectMediaAttachmentIds,
   countMediaNodes,
   ensureAttachmentIds,
+  getDocCover,
   hasUploadPlaceholders,
   makeUploadId,
   mediaBlockAttrsFromAttachment,
   naturalWidthPercent,
   stripUploadPlaceholders,
+  withDocCover,
   type MediaAttachment,
   type MediaKind,
 } from "@/components/editor/media/mediaSchema";
@@ -141,6 +143,10 @@ export const CreateWallPostInline = ({
   const [contentJson, setContentJson] = useState<unknown>(() =>
     initialDraft?.contentJson ?? buildInitialDocument(editingPost),
   );
+  // Post cover (attachmentId of an image already used in the document).
+  const [coverId, setCoverId] = useState<string | null>(() =>
+    getDocCover(initialDraft?.contentJson ?? editingPost?.content_json),
+  );
   const [attachments, setAttachments] = useState<MediaAttachment[]>(() =>
     initialDraft ? ensureAttachmentIds(initialDraft.attachments) : editingPost ? normalizeAttachments(editingPost) : [],
   );
@@ -210,6 +216,11 @@ export const CreateWallPostInline = ({
   const uploading = hasUploadPlaceholders(contentJson);
   const mediaCount = useMemo(() => countMediaNodes(contentJson), [contentJson]);
   const referencedIds = useMemo(() => new Set(collectMediaAttachmentIds(contentJson)), [contentJson]);
+
+  // Drop a cover whose media node was removed from the document.
+  useEffect(() => {
+    if (coverId && !referencedIds.has(coverId)) setCoverId(null);
+  }, [coverId, referencedIds]);
   const plainText = useMemo(
     () => prosemirrorToPlainText(contentJson, "").replace(/\u200b/g, "").trim(),
     [contentJson],
@@ -244,7 +255,7 @@ export const CreateWallPostInline = ({
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
       const stored: WallDraftV2 = {
-        contentJson: stripEdgeEmptyParagraphs(stripUploadPlaceholders(contentJson)),
+        contentJson: withDocCover(stripEdgeEmptyParagraphs(stripUploadPlaceholders(contentJson)), coverId),
         attachments: attachments.filter((att) => referencedIds.has(att.id)),
       };
       try {
@@ -256,7 +267,7 @@ export const CreateWallPostInline = ({
     return () => {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
-  }, [isEditing, draftKey, contentJson, attachments, referencedIds]);
+  }, [isEditing, draftKey, contentJson, attachments, referencedIds, coverId]);
 
   // ── Uploads ───────────────────────────────────────────────────────────────
   const runUploads = useCallback(
@@ -484,7 +495,7 @@ export const CreateWallPostInline = ({
       return;
     }
 
-    const json = stripEdgeEmptyParagraphs(stripUploadPlaceholders(editor.getJSON()));
+    const json = withDocCover(stripEdgeEmptyParagraphs(stripUploadPlaceholders(editor.getJSON())), coverId);
     const text = prosemirrorToPlainText(json, "").replace(/\u200b/g, "").trim();
     const usedIds = new Set(collectMediaAttachmentIds(json));
     const usedAttachments = attachments.filter((att) => usedIds.has(att.id));
@@ -498,13 +509,16 @@ export const CreateWallPostInline = ({
 
     try {
       const firstImage = usedAttachments.find((att) => att.type === "image");
+      const coverAttachment = coverId
+        ? usedAttachments.find((att) => att.id === coverId && att.type === "image")
+        : null;
       const postData = {
         user_id: profileUserId,
         author_id: currentUserId,
         title: deriveTitle(text),
         content: text || null,
         content_json: json,
-        image_url: firstImage?.url ?? null,
+        image_url: coverAttachment?.url ?? firstImage?.url ?? null,
         attachments: usedAttachments.length > 0 ? usedAttachments : null,
       };
 
@@ -642,6 +656,8 @@ export const CreateWallPostInline = ({
                 openImageEditor,
                 toggleFullscreen: () => setFullscreen((prev) => !prev),
                 canAddMore: !atLimit,
+                coverId,
+                setCover: setCoverId,
               }}
             >
               <GomoRichEditor

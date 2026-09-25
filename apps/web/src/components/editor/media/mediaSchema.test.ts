@@ -7,6 +7,7 @@ import {
   deterministicAttachmentId,
   docHasMediaNodes,
   ensureAttachmentIds,
+  getDocCover,
   hasUploadPlaceholders,
   makeUploadId,
   mediaBlockAttrsFromAttachment,
@@ -17,6 +18,7 @@ import {
   stripUploadPlaceholders,
   toMediaBlockAttrs,
   toMediaGroupAttrs,
+  withDocCover,
   appendAttachmentsAsMedia,
 } from "./mediaSchema";
 
@@ -157,6 +159,14 @@ describe("mediaSchema", () => {
     expect(toMediaGroupAttrs({ layout: "smart" })).toEqual({ layout: "smart" });
     expect(toMediaGroupAttrs({ layout: "bogus" })).toEqual({ layout: "smart" });
     expect(toMediaGroupAttrs(null)).toEqual({ layout: "smart" });
+  });
+
+  it("reads and writes the post cover", () => {
+    expect(getDocCover({ type: "doc", content: [], cover: "att_1" })).toBe("att_1");
+    expect(getDocCover({ type: "doc", content: [] })).toBeNull();
+    expect(getDocCover(null)).toBeNull();
+    expect(withDocCover({ type: "doc", content: [], cover: "att_1" }, null)).toEqual({ type: "doc", content: [] });
+    expect(withDocCover({ type: "doc", content: [] }, "att_2")).toEqual({ type: "doc", content: [], cover: "att_2" });
   });
 
   it("buckets aspect ratios into smart-collage shapes", () => {

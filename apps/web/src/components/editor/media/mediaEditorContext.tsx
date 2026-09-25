@@ -12,6 +12,10 @@ export interface MediaEditorContextValue {
   toggleFullscreen?: () => void;
   /** False when the post already holds MAX_MEDIA_NODES. */
   canAddMore: boolean;
+  /** The post's current cover attachment id, or null. */
+  coverId?: string | null;
+  /** Set/clear the post cover (only meaningful for image attachments). */
+  setCover?: (attachmentId: string | null) => void;
 }
 
 const MediaEditorContext = createContext<MediaEditorContextValue | null>(null);

@@ -244,6 +244,25 @@ func TestDerivePostFields(t *testing.T) {
 	}
 }
 
+func TestDerivePostFieldsPrefersCover(t *testing.T) {
+	doc := map[string]interface{}{
+		"type":  "doc",
+		"cover": "att_2",
+		"content": []interface{}{
+			mediaBlock("att_1", nil),
+			mediaBlock("att_2", nil),
+		},
+	}
+	pool := []interface{}{
+		attachment("att_1", "image", wallURL("first.png")),
+		attachment("att_2", "image", wallURL("cover.png")),
+	}
+	_, _, imageURL, _ := DerivePostFields(doc, pool)
+	if imageURL == nil || *imageURL != wallURL("cover.png") {
+		t.Fatalf("expected the cover to win image_url, got %v", imageURL)
+	}
+}
+
 func TestDerivePostFieldsMediaOnly(t *testing.T) {
 	doc := map[string]interface{}{"type": "doc", "content": []interface{}{mediaBlock("att_1", nil)}}
 	content, title, _, used := DerivePostFields(doc, []interface{}{attachment("att_1", "image", wallURL("a.png"))})

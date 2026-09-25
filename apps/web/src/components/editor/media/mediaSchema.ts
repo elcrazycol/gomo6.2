@@ -206,6 +206,27 @@ export const collectMediaAttachmentIds = (contentJson: unknown): string[] => {
 /** Hard cap on inline media per post (server validates the same number in P2). */
 export const MAX_MEDIA_NODES = 15;
 
+/**
+ * The post's chosen cover attachment id (a doc-level `cover` attribute), or
+ * null. The cover is presentation only: it must reference an attachment that a
+ * mediaBlock already uses, so it never needs its own pool entry.
+ */
+export const getDocCover = (contentJson: unknown): string | null => {
+  const doc = parseDocument(contentJson);
+  if (!isRecord(doc)) return null;
+  const cover = doc.cover;
+  return typeof cover === "string" && cover ? cover : null;
+};
+
+/** A copy of the document with the cover set (or removed when null). */
+export const withDocCover = (doc: unknown, coverId: string | null): unknown => {
+  if (!isRecord(doc)) return doc;
+  const next: Record<string, unknown> = { ...doc };
+  if (coverId) next.cover = coverId;
+  else delete next.cover;
+  return next;
+};
+
 export const makeUploadId = (): string => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `up_${crypto.randomUUID()}`;

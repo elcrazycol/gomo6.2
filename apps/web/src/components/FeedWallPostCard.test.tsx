@@ -200,4 +200,26 @@ describe("FeedWallPostCard", () => {
     fireEvent.click(screen.getByText("Показать больше"));
     expect(mockNavigateFn).toHaveBeenCalledWith("/profile/wall-owner/wall/post-1", expect.anything());
   });
+
+  it("renders the post cover banner when a cover is set", async () => {
+    const { container } = renderCard(createMockPost({
+      content: "With cover",
+      attachments: [{ id: "att_1", url: "cover.jpg", type: "image", mime: "image/jpeg", name: "cover", size: 1 }],
+      content_json: {
+        type: "doc",
+        cover: "att_1",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "With cover" }] },
+          {
+            type: "mediaGroup",
+            content: [{ type: "mediaBlock", attrs: { attachmentId: "att_1", kind: "image", width: 100, align: "inline", aspect: 1 } }],
+          },
+        ],
+      },
+    }));
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-post-cover]")).toBeInTheDocument();
+    });
+  });
 });
