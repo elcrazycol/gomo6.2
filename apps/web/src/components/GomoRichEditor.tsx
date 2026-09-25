@@ -327,6 +327,13 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   onFilesDroppedRef.current = onFilesDropped;
   const onFilesPastedRef = useRef(onFilesPasted);
   onFilesPastedRef.current = onFilesPasted;
+  // Enter-to-submit state. Kept in refs (not effect-local) because the editor
+  // re-renders mid-keydown when a slash command inserts a block — re-running
+  // the effect would re-register the listener with a fresh, false flag and let
+  // Enter publish. The capture snapshot and the submit read the same refs.
+  const popupConsumesEnterRef = useRef(false);
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
   // Start "handled" at the current key: useEditor already applies the initial
   // content at creation, so we only need to reset when resetKey changes.
@@ -558,14 +565,12 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     // The slash/mention popup clears its "active" flag when it consumes Enter,
     // and ProseMirror handles the keydown before this bubble listener runs — so
     // snapshot whether a popup is open in the capture phase (which runs first).
-    // We check both the module flag and the popup's DOM marker: the flag can go
-    // stale across an HMR module instance, and an empty result state has no
-    // items to look for. Capture runs on the document so it always fires, even
-    // when focus sits in a popup portal outside the editor container.
-    let popupConsumesEnter = false;
+    // The flag lives in a ref so a mid-event re-render cannot reset it. We check
+    // both the module flag and the popup's DOM marker (the flag can go stale
+    // across an HMR instance; the empty result state has no items).
     const captureKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter") return;
-      popupConsumesEnter =
+      popupConsumesEnterRef.current =
         isSlashPopupActive() ||
         isMentionPopupActive() ||
         document.querySelector("[data-slash-menu]") !== null ||
@@ -575,9 +580,9 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       if (event.key !== "Enter" || event.shiftKey || window.innerWidth < 768) return;
       // Don't submit while the @-mention/slash popup is open — Enter there
       // selects a user/item.
-      if (popupConsumesEnter) return;
+      if (popupConsumesEnterRef.current) return;
       event.preventDefault();
-      onSubmit?.();
+      onSubmitRef.current?.();
     };
     document.addEventListener("keydown", captureKeyDown, true);
     el.addEventListener("keydown", handleKeyDown);
@@ -585,7 +590,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       document.removeEventListener("keydown", captureKeyDown, true);
       el.removeEventListener("keydown", handleKeyDown);
     };
-  }, [editor, onSubmit]);
+  }, [editor]);
 
   // Cancel Safari scroll-to-reveal on tap. The global handleAppShellScroll in
   // mobileKeyboard.ts fires too late (after the scroll already happened and
