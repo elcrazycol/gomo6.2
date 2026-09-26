@@ -196,12 +196,13 @@ const Index = () => {
           </div>
 
           {/* Sidebar - Desktop. Kept for now, but restyled into the feed cards'
-              language: outlined rounded-2xl panels, a leading 32px chip, muted
-              meta on the right, no underline/track animations. */}
+              language: outlined rounded-lg panels (the app's --radius, same as the
+              cards), a leading 32px chip, muted meta on the right, no
+              underline/track animations. */}
           <div className="hidden lg:block lg:col-span-1">
             <div className="space-y-4">
               {/* G-сабы */}
-              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+              <div className="overflow-clip rounded-lg border border-border/70 bg-background">
                 <button
                   type="button"
                   onClick={() => navigate("/g")}
@@ -216,7 +217,7 @@ const Index = () => {
               </div>
 
               {/* Подписки */}
-              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+              <div className="overflow-clip rounded-lg border border-border/70 bg-background">
                 <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
                   Подписки
                 </h3>
@@ -228,7 +229,7 @@ const Index = () => {
                       <PrefetchLink
                         key={sub.id}
                         to={`/g/${sub.slug}`}
-                        className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors hover:bg-muted/60"
+                        className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors hover:bg-muted/60"
                       >
                         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
                           <Hash className="h-4 w-4 text-primary" />
@@ -244,7 +245,7 @@ const Index = () => {
               </div>
 
               {/* Капля рандома */}
-              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+              <div className="overflow-clip rounded-lg border border-border/70 bg-background">
                 <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
                   Капля рандома
                 </h3>
@@ -256,7 +257,7 @@ const Index = () => {
                       <PrefetchLink
                         key={sub.id}
                         to={`/g/${sub.slug}`}
-                        className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors hover:bg-muted/60"
+                        className="flex items-center gap-2.5 rounded-md px-2.5 py-2 transition-colors hover:bg-muted/60"
                       >
                         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
                           <Hash className="h-4 w-4 text-primary" />
@@ -278,14 +279,14 @@ const Index = () => {
               </div>
 
               {/* Важное */}
-              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+              <div className="overflow-clip rounded-lg border border-border/70 bg-background">
                 <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
                   Важное
                 </h3>
                 <div className="p-2 sm:p-2.5">
                   <PrefetchLink
                     to="/rules"
-                    className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
+                    className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
                   >
                     <BookOpenText className="h-4 w-4 shrink-0 text-muted-foreground" />
                     Информация
@@ -294,7 +295,7 @@ const Index = () => {
 
                   <PrefetchLink
                     to="/bugs"
-                    className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
+                    className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
                   >
                     <Bug className="h-4 w-4 shrink-0 text-muted-foreground" />
                     Баги/Идеи
@@ -303,7 +304,7 @@ const Index = () => {
 
                   <PrefetchLink
                     to="/faq"
-                    className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
+                    className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
                   >
                     <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
                     FAQ

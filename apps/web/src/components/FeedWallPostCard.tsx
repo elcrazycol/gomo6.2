@@ -128,7 +128,7 @@ export const FeedWallPostCard = ({
     <>
     <Card
       ref={viewTrackingRef}
-      className="overflow-clip rounded-2xl border-border/70 shadow-none bg-background"
+      className="overflow-clip rounded-lg border-border/70 shadow-none bg-background"
       onClick={(e) => {
         if (!isInteractiveTarget(e.target, e.currentTarget)) {
           handleOpenPost();
