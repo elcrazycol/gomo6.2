@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	profilepkg "github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -24,10 +26,17 @@ type ProfilesHandler struct {
 	db        *sql.DB
 	redis     *redis.Client
 	achEngine *achievements.Engine
+	hub       *websocket.Hub
 }
 
 func NewProfilesHandler(db *sql.DB) *ProfilesHandler {
 	return &ProfilesHandler{db: db}
+}
+
+// SetHub wires the realtime hub so profile edits can be broadcast to every
+// connected client (see PublishProfileUpdated).
+func (h *ProfilesHandler) SetHub(hub *websocket.Hub) {
+	h.hub = hub
 }
 
 func (h *ProfilesHandler) SetAchievementEngine(e *achievements.Engine) {
@@ -681,6 +690,15 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	}
 	if updates.Bio != nil && *updates.Bio != "" {
 		achievements.EmitAchievement(h.achEngine, id, achievements.EventBioUpdated)
+	}
+
+	// Tell every connected client to drop its cached copy of this profile.
+	// Without the fan-out a name or avatar change only reached the editor's own
+	// browser (the "profile-cache:invalidate" event is local to that tab).
+	if h.hub != nil {
+		if err := h.hub.PublishProfileUpdated(id); err != nil {
+			log.Printf("[profiles] failed to publish profile_updated for %s: %v", id, err)
+		}
 	}
 
 	// Return updated profile

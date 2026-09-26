@@ -133,6 +133,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
 	profilesHandler.SetAchievementEngine(achEngine)
+	profilesHandler.SetHub(wsHub)
 	likesHandler := handlers.NewLikesHandler(db, redis)
 	likesHandler.SetWebSocketHub(wsHub)
 	likesHandler.SetAchievementEngine(achEngine)

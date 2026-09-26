@@ -22,6 +22,7 @@ package crudengine
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -334,4 +335,21 @@ func afterUserSessionTimeWrite(h *Engine, c *gin.Context, method string, result 
 // wall write domain lives in the wall service).
 func afterPrivacySettingsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
 	h.revokeSubscriptionsAfterPrivacyChange("privacy_settings", result)
+}
+
+// afterProfileCustomizationWrite broadcasts the new nickname style (and badge)
+// over the websocket. The client-side "profile-cache:invalidate" event only
+// reaches the browser of the person editing, so without this fan-out every
+// other viewer keeps rendering the cached nickname until its entry expires.
+func afterProfileCustomizationWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	if h.hub == nil {
+		return
+	}
+	uid := profiles.RowUserID(result["user_id"])
+	if uid == "" {
+		return
+	}
+	if err := h.hub.PublishProfileUpdated(uid); err != nil {
+		log.Printf("[profile] failed to publish profile_updated for %s: %v", uid, err)
+	}
 }
