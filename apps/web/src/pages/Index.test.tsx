@@ -220,6 +220,18 @@ describe("Index", () => {
     });
   });
 
+  it("renders the restyled sidebar blocks with their lists", async () => {
+    setupLoggedIn();
+    renderWithProviders(<IndexComponent />);
+    await waitFor(() => {
+      expect(screen.getByText("Подписки")).toBeInTheDocument();
+      expect(screen.getByText("Капля рандома")).toBeInTheDocument();
+      expect(screen.getByText("Важное")).toBeInTheDocument();
+    });
+    // g-sub rows, now with the post-card layout (leading chip + g/slug + name)
+    expect(screen.getAllByText(/^g\//).length).toBeGreaterThan(0);
+  });
+
   it("renders important links in sidebar", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);

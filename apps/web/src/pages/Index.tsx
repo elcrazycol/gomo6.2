@@ -3,9 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Users } from "lucide-react";
+import { BookOpenText, Bug, ChevronRight, Hash, HelpCircle, Users } from "lucide-react";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -196,96 +195,119 @@ const Index = () => {
             />
           </div>
 
-          {/* Sidebar - Desktop */}
+          {/* Sidebar - Desktop. Kept for now, but restyled into the feed cards'
+              language: outlined rounded-2xl panels, a leading 32px chip, muted
+              meta on the right, no underline/track animations. */}
           <div className="hidden lg:block lg:col-span-1">
-            <div className="space-y-6">
-              {/* Navigation */}
-              <div className="bg-card border border-border rounded-lg p-4">
-                <Button
+            <div className="space-y-4">
+              {/* G-сабы */}
+              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+                <button
+                  type="button"
                   onClick={() => navigate("/g")}
-                  variant="outline"
-                  className="w-full relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50"
+                  className="flex w-full items-center gap-2.5 px-3 py-3 text-sm font-medium transition-colors hover:bg-muted/60 sm:px-4"
                 >
-                  <Users className="h-4 w-4 mr-2" />
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
+                    <Users className="h-4 w-4 text-primary" />
+                  </span>
                   G-сабы
-                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                </Button>
-        </div>
+                  <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              </div>
 
-              {/* Boards List */}
-              <div className="bg-card border border-border rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-4">Подписки</h3>
-                <div className="space-y-2">
+              {/* Подписки */}
+              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+                <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
+                  Подписки
+                </h3>
+                <div className="p-2 sm:p-2.5">
                   {joinedGomoSubs.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Пока нет подписок</p>
+                    <p className="px-2.5 py-1.5 text-[13px] text-muted-foreground">Пока нет подписок</p>
                   ) : (
                     joinedGomoSubs.map((sub) => (
                       <PrefetchLink
                         key={sub.id}
                         to={`/g/${sub.slug}`}
-                        className="block p-3 border border-border rounded hover:bg-thread-hover transition-colors group hover:translate-x-0.5 transition-transform duration-200"
+                        className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors hover:bg-muted/60"
                       >
-                        <div className="font-medium text-primary relative">
-                          g/{sub.slug}
-                          <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                        </div>
-                        <div className="text-sm text-muted-foreground line-clamp-2">{sub.name}</div>
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
+                          <Hash className="h-4 w-4 text-primary" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold leading-5 text-primary">g/{sub.slug}</span>
+                          <span className="block text-[13px] leading-5 text-muted-foreground line-clamp-2">{sub.name}</span>
+                        </span>
                       </PrefetchLink>
                     ))
                   )}
                 </div>
               </div>
 
-              {/* Gomo Subs */}
-              <div className="bg-card border border-border rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-4">Капля рандома</h3>
-                <div className="space-y-2">
-                  {gomoSubs.map((sub) => (
-                    <PrefetchLink
-                      key={sub.id}
-                      to={`/g/${sub.slug}`}
-                      className="block p-3 border border-border rounded hover:bg-thread-hover transition-colors group hover:translate-x-0.5 transition-transform duration-200"
-                    >
-                      <div className="font-medium text-primary relative">
-                        g/{sub.slug}
-                        <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                      </div>
-                      {user && (
-                        <div className="text-xs text-muted-foreground mb-1">
-                          участников: {gomoSubsMembers[sub.id] ?? 0}
-                        </div>
-                      )}
-                      <div className="text-sm text-muted-foreground line-clamp-2">
-                        {sub.name}
-                      </div>
-                    </PrefetchLink>
-                  ))}
+              {/* Капля рандома */}
+              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+                <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
+                  Капля рандома
+                </h3>
+                <div className="p-2 sm:p-2.5">
+                  {gomoSubs.length === 0 ? (
+                    <p className="px-2.5 py-1.5 text-[13px] text-muted-foreground">Пока нечего показать</p>
+                  ) : (
+                    gomoSubs.map((sub) => (
+                      <PrefetchLink
+                        key={sub.id}
+                        to={`/g/${sub.slug}`}
+                        className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors hover:bg-muted/60"
+                      >
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
+                          <Hash className="h-4 w-4 text-primary" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold leading-5 text-primary">g/{sub.slug}</span>
+                          <span className="block text-[13px] leading-5 text-muted-foreground line-clamp-2">{sub.name}</span>
+                        </span>
+                        {user && (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                            <Users className="h-3 w-3" aria-hidden="true" />
+                            {gomoSubsMembers[sub.id] ?? 0}
+                          </span>
+                        )}
+                      </PrefetchLink>
+                    ))
+                  )}
                 </div>
               </div>
 
-              {/* Important Links */}
-              <div className="bg-card border border-border rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-4">Важное</h3>
-                <div className="space-y-2">
-                  <PrefetchLink to="/rules">
-                    <Button variant="outline" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50">
-                      Информация
-                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                    </Button>
+              {/* Важное */}
+              <div className="overflow-clip rounded-2xl border border-border/70 bg-background">
+                <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
+                  Важное
+                </h3>
+                <div className="p-2 sm:p-2.5">
+                  <PrefetchLink
+                    to="/rules"
+                    className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
+                  >
+                    <BookOpenText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    Информация
+                    <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
                   </PrefetchLink>
 
-                  <PrefetchLink to="/bugs">
-                    <Button variant="outline" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50">
-                      Баги/Идеи
-                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                    </Button>
+                  <PrefetchLink
+                    to="/bugs"
+                    className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
+                  >
+                    <Bug className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    Баги/Идеи
+                    <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
                   </PrefetchLink>
 
-                  <PrefetchLink to="/faq">
-                    <Button variant="outline" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50">
-                      FAQ
-                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                    </Button>
+                  <PrefetchLink
+                    to="/faq"
+                    className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
+                  >
+                    <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    FAQ
+                    <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
                   </PrefetchLink>
                 </div>
               </div>
