@@ -5,9 +5,9 @@ import { api } from "@/integrations/api/compat";
 import { getGiftCatalog } from "@/utils/currentUserMeta";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
-import type { AchievementData } from "@/components/AchievementCard";
+import { useTrophies } from "@/hooks/useTrophies";
+import type { AchievementData, Trophy, UserAward } from "@/utils/trophies";
 import type { GiftCatalogItem } from "@/components/GiftCard";
-import { mapUserAchievementRaw } from "./utils";
 import type { AvatarHistoryItem } from "./types";
 
 export interface UseProfileDataParams {
@@ -24,6 +24,10 @@ export interface UseProfileDataParams {
 export interface UseProfileDataResult {
   achievements: AchievementData[];
   achievementsLoaded: boolean;
+  /** Active hand-granted awards (each with author/reason/date). */
+  awards: UserAward[];
+  /** Milestones + awards merged into one rarest-first trophy list. */
+  trophies: Trophy[];
   userThreads: any[];
   profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
   threadsLoading: boolean;
@@ -57,36 +61,18 @@ export function useProfileData({
 }: UseProfileDataParams): UseProfileDataResult {
   const { t } = useTranslation();
 
-  // ── Achievements ───────────────────────────────────────────────────────────
-  const [achievements, setAchievements] = useState<AchievementData[]>([]);
-  const [achievementsLoaded, setAchievementsLoaded] = useState(false);
-
-  const loadAchievements = useCallback(async () => {
-    try {
-      const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc`);
-      const achResult = await achRes.json();
-      const data = achResult.data || [];
-
-      if (data) {
-        setAchievements(data.map(mapUserAchievementRaw));
-      }
-    } catch (error) {
-      // Guests or transient failures must never surface as unhandled
-      // rejections — the profile page just renders without achievements.
-      console.error('Error loading achievements:', error);
-    } finally {
-      setAchievementsLoaded(true);
-    }
-  }, [userId]);
-
-  // Achievements are a heavy payload and the wall is the landing tab — fetch
-  // them only when the achievements tab is first opened.
-  useEffect(() => {
-    if (activeTab === 'achievements' && !achievementsLoaded) {
-      loadAchievements();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, achievementsLoaded]);
+  // ── Achievements & awards ──────────────────────────────────────────────────
+  // Auto milestones (`user_achievements`) and hand-granted awards (`user_awards`)
+  // are both heavy payloads, so they load lazily when the achievements tab is
+  // first opened. The hook fetches them in parallel and merges the milestones
+  // and awards into one rarest-first trophy list.
+  const {
+    milestones: achievements,
+    awards,
+    trophies,
+    loaded: achievementsLoaded,
+    reload: loadAchievements,
+  } = useTrophies(userId, { enabled: activeTab === "achievements" });
 
   // ── User threads + likes ───────────────────────────────────────────────────
   const [userThreads, setUserThreads] = useState<any[]>([]);
@@ -278,6 +264,8 @@ export function useProfileData({
   return {
     achievements,
     achievementsLoaded,
+    awards,
+    trophies,
     userThreads,
     profileLikesMap,
     threadsLoading,

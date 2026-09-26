@@ -3,50 +3,10 @@ import { cn } from "@/lib/utils";
 import { Pin, PinOff, Trophy } from "lucide-react";
 import { getAchievementIcon } from "@/components/AchievementIcons";
 import { getIntlLanguage } from "@/i18n/dateLocale";
-
-export interface AchievementLevel {
-  level: number;
-  threshold: number;
-  /** i18n key for the level name (new catalog). */
-  name_key?: string;
-  /** i18n key for the level description (new catalog). */
-  description_key?: string;
-  /** Legacy plain-text name (old catalog rows / tests). */
-  name?: string;
-  /** Legacy plain-text description. */
-  description?: string;
-  rarity: "common" | "uncommon" | "rare" | "epic" | "legendary";
-  reward_type?: string;
-  reward_value?: string;
-}
-
-export interface AchievementData {
-  id: string;
-  group_key?: string;
-  /** i18n key for the group title (new catalog). */
-  title?: string;
-  /** Legacy plain-text name / fallback. */
-  name: string;
-  description: string;
-  icon: string;
-  category: string;
-  rarity?: "common" | "uncommon" | "rare" | "epic" | "legendary";
-  level?: number;
-  maxLevel?: number;
-  max_level?: number;
-  current_level?: number;
-  is_pinned?: boolean;
-  pinned_order?: number;
-  unlocked_at?: string;
-  hidden?: boolean;
-  locked?: boolean;
-  progress_current?: number;
-  progress_target?: number;
-  achievement_type?: string;
-  reward_type?: string;
-  reward_value?: string;
-  levels?: AchievementLevel[];
-}
+// The achievement/trophy domain types live in one place; re-exported here so
+// existing `from "@/components/AchievementCard"` imports keep working.
+import type { AchievementData, AchievementLevel } from "@/utils/trophies";
+export type { AchievementData, AchievementLevel };
 
 interface AchievementCardProps {
   achievement: AchievementData;

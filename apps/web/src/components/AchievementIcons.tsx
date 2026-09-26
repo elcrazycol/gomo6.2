@@ -13,6 +13,12 @@ import {
   MoonStar,
   ShowerHead,
   Ghost,
+  Flame,
+  Gem,
+  Bug,
+  Shield,
+  Crown,
+  Trophy,
 } from "lucide-react";
 
 interface IconProps {
@@ -388,6 +394,13 @@ export const ACHIEVEMENT_ICONS: Record<string, React.FC<IconProps>> = {
   "moon-star": MoonStar,
   "shower-head": ShowerHead,
   ghost: Ghost,
+  // Awards-rework catalog icons.
+  flame: Flame,
+  gem: Gem,
+  bug: Bug,
+  shield: Shield,
+  crown: Crown,
+  trophy: Trophy,
 };
 
 /**

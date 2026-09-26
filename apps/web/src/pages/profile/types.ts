@@ -1,5 +1,7 @@
-import type { AchievementLevel } from "@/components/AchievementCard";
 import { useFileDrop } from "@/hooks/useFileDrop";
+
+// Achievement/trophy row types live with the trophy domain helpers.
+export type { UserAchievementRaw, UserAwardRaw, UserAward } from "@/utils/trophies";
 
 /** Raw row returned by /profiles. */
 export interface Profile {
@@ -33,30 +35,7 @@ export interface Profile {
   last_seen_at?: string | null;
 }
 
-/** Raw user_achievements join row (one per unlocked achievement). */
-export interface UserAchievementRaw {
-  current_level?: number;
-  level?: number;
-  unlocked_at?: string;
-  is_pinned?: boolean;
-  pinned_order?: number;
-  progress_current?: number;
-  achievements?: {
-    id: string;
-    group_key?: string;
-    title?: string;
-    name: string;
-    description: string;
-    icon?: string;
-    category?: string;
-    rarity?: string;
-    achievement_type?: string;
-    hidden?: boolean;
-    reward_type?: string;
-    reward_value?: string;
-    levels?: AchievementLevel[];
-  };
-}
+/** Raw user_achievements join row type is re-exported from `@/utils/trophies`. */
 
 export interface AvatarHistoryItem {
   id: string;
