@@ -1933,7 +1933,6 @@ const Board = () => {
                           userId={thread.user_id}
                           username={thread.profiles?.username || t("common.anonymous")}
                           isAnonymous={thread.profiles?.is_anonymous}
-                          showOutline={false}
                           disableLink={true}
                           className="text-sm"
                         />
@@ -2043,7 +2042,6 @@ const Board = () => {
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}
                           isAnonymous={thread.profiles?.is_anonymous}
-                          showOutline={false}
                           disableLink={true}
                           className="text-sm"
                         />
@@ -2133,7 +2131,6 @@ const Board = () => {
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}
                           isAnonymous={thread.profiles?.is_anonymous}
-                          showOutline={false}
                           disableLink={true}
                           className="text-sm"
                         />

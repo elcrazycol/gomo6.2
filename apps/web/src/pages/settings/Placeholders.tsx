@@ -300,7 +300,6 @@ const Placeholders = () => {
                       displayName={profile.display_name}
                       emojiId={profile.nickname_emoji_id}
                       isAnonymous={false}
-                      showOutline={false}
                       disableLink={true}
                     />
                     <AdminBadge userId={user.id} />

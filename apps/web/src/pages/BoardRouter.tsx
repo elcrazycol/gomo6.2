@@ -481,7 +481,6 @@ const Board = () => {
                       displayName={thread.profiles?.display_name}
                       emojiId={thread.profiles?.nickname_emoji_id}
                       isAnonymous={thread.profiles?.is_anonymous}
-                      showOutline={false}
                       disableLink={true}
                     />
                     {" · "}
@@ -500,7 +499,6 @@ const Board = () => {
                             displayName={thread.latest_post.profiles.display_name}
                             emojiId={thread.latest_post.profiles.nickname_emoji_id}
                             isAnonymous={thread.latest_post.profiles.is_anonymous}
-                            showOutline={false}
                           />
                         </div>
                       )}

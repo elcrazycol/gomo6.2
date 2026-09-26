@@ -198,7 +198,6 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
                       displayName={liker.is_anonymous ? undefined : liker.display_name}
                       emojiId={liker.is_anonymous ? undefined : liker.nickname_emoji_id}
                       isAnonymous={liker.is_anonymous}
-                      showOutline={false}
                       className="text-xs"
                     />
                   </div>
