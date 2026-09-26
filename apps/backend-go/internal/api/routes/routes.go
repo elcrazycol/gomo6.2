@@ -26,7 +26,6 @@ import (
 	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/oauth"
 	"github.com/gomo6/backend/internal/privacy"
-	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/rpc"
 	"github.com/gomo6/backend/internal/socialpreview"
@@ -128,7 +127,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		log.Fatalf("achievements: invalid catalog: %v", err)
 	}
 	achEngine := achievements.New(db, achCatalog)
-	achEngine.RecomputeStats = func(userID string) { profiles.RecomputeUserProfileStats(db, userID) }
 
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
@@ -151,6 +149,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// emits notifications so delivery, cache invalidation and push share one
 	// path instead of a package-level global.
 	notifService := notifications.New(db, redis, wsHub, pushService)
+	// Milestone unlocks land in the notifications panel (no toast).
+	achEngine.Notifier = handlers.NewAchievementNotifier(notifService)
 	likesHandler.SetNotifier(notifService)
 
 	rpcHandler := rpc.NewRPCHandler(db)
@@ -202,6 +202,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		storageHandler.StartOrphanCleanup()
 	}
 	messengerHandler.SetStorage(storageClient)
+
+	awardsAdminHandler := handlers.NewAwardsAdminHandler(db, storageClient, notifService)
 
 	backupHandler := backup.NewBackupHandler(db)
 	backupHandler.SetStorage(storageClient)
@@ -546,6 +548,16 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// Gift upgrade
 			protected.POST("/gifts/:giftRecordID/upgrade", giftsHandler.UpgradeGift)
 
+			// Admin award management (hand-granted honours). Static paths only
+			// so gin's router never conflicts a :param with a sibling literal.
+			protected.POST("/admin/awards", awardsAdminHandler.CreateAward)
+			protected.PATCH("/admin/awards", awardsAdminHandler.UpdateAward)
+			protected.DELETE("/admin/awards", awardsAdminHandler.DeleteAward)
+			protected.POST("/admin/awards/image", awardsAdminHandler.UploadAwardImage)
+			protected.POST("/admin/awards/grant", awardsAdminHandler.GrantAward)
+			protected.POST("/admin/awards/revoke", awardsAdminHandler.RevokeAward)
+			protected.GET("/admin/awards/grants", awardsAdminHandler.ListAwardGrants)
+
 			// -- Messenger (clean API) --
 			// Read-only endpoints — higher rate limit (300 req/min)
 			messengerRead := protected.Group("")
@@ -826,7 +838,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				// The frontend will add the Authorization header and call this endpoint
 				frontendURL := os.Getenv("FRONTEND_URL")
 				if frontendURL == "" {
-					if domain := os.Getenv("DOMAIN"); domain != "" {
+					if domain := os.Getenv("DOMAIN"); domain != "" && domain != "localhost" {
 						frontendURL = "http://" + domain
 					} else {
 						frontendURL = "http://localhost:8081"
@@ -993,14 +1005,22 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// a Redis marker so it only runs once per Redis lifetime; on a fresh DB the
 	// backfill also populates the user_achievement_counters table.
 	if redis != nil {
-		backfillKey := "achievements:backfill:v1"
+		backfillKey := "achievements:backfill:v2"
 		claimed, err := redis.SetNX(context.Background(), backfillKey, "1", 0).Result()
 		if err == nil && claimed {
-			go achEngine.RecomputeAll(context.Background())
+			go func() {
+				achEngine.RecomputeAll(context.Background())
+				// Levels now exist for everyone — refresh the owner percentages.
+				_ = achEngine.RecomputeRarity(context.Background())
+			}()
 		} else if err != nil {
 			log.Printf("[Achievements] backfill marker check failed: %v", err)
 		}
 	}
+
+	// Owner-percentage worker: the share of active users who own each
+	// award/level, recomputed every 6h (and once at startup).
+	go achEngine.RarityLoop(context.Background(), 6*time.Hour)
 }
 
 // moderatorOrAdminMiddleware rejects the request unless the authenticated user

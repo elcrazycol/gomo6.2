@@ -90,21 +90,7 @@ FROM (
          INNER JOIN profile_wall_post_comments wc ON wc.id = cl.comment_id WHERE wc.user_id = $1) * 1 +
       (SELECT COUNT(*)::numeric FROM posts p2
          INNER JOIN threads th2 ON th2.id = p2.thread_id
-         WHERE th2.user_id = $1 AND p2.user_id <> $1) * 0.25 +
-      COALESCE(
-        (SELECT FLOOR(SUM(total_minutes)::numeric / 30) FROM user_session_time WHERE user_id = $1),
-        0
-      )::numeric +
-      COALESCE(
-        (SELECT SUM(CAST((l.value->>'reward_value') AS integer))
-         FROM user_achievements ua
-         JOIN achievements a ON a.id = ua.achievement_id
-         CROSS JOIN LATERAL jsonb_array_elements(a.levels) l
-         WHERE ua.user_id = $1
-           AND (l.value->>'reward_type') = 'garma'
-           AND (l.value->>'level')::int <= ua.current_level),
-        0
-      )::numeric
+         WHERE th2.user_id = $1 AND p2.user_id <> $1) * 0.25
     )::int)) AS g
 ) s
 WHERE u.id = $1`

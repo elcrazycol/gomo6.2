@@ -10,53 +10,45 @@ func TestDefaultCatalog_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Default() error: %v", err)
 	}
-	if cat.Len() != 21 {
-		t.Errorf("expected 21 groups, got %d", cat.Len())
+	if cat.Len() != 10 {
+		t.Errorf("expected 10 groups, got %d", cat.Len())
 	}
 
+	var milestones, awards int
 	seen := map[string]struct{}{}
 	for _, g := range cat.Groups() {
 		if _, dup := seen[g.Key]; dup {
 			t.Errorf("duplicate group key %q", g.Key)
 		}
 		seen[g.Key] = struct{}{}
-		if g.Stat != StatCounter && g.Stat != StatDerived {
-			t.Errorf("group %s: bad stat %q", g.Key, g.Stat)
+		if !g.IsCode() {
+			t.Errorf("group %s: catalog entries must be origin=code", g.Key)
 		}
+		if g.IsAward() {
+			awards++
+		} else {
+			milestones++
+		}
+	}
+	if milestones != 4 {
+		t.Errorf("expected 4 milestones, got %d", milestones)
+	}
+	if awards != 6 {
+		t.Errorf("expected 6 awards, got %d", awards)
 	}
 }
 
-func TestDefaultCatalog_GroupCounts(t *testing.T) {
-	cat, err := Default()
-	if err != nil {
-		t.Fatal(err)
+func TestDefaultCatalog_HasTenure(t *testing.T) {
+	cat, _ := Default()
+	g, ok := cat.Get("tenure")
+	if !ok {
+		t.Fatal("tenure group missing")
 	}
-	var oneTime, progressive, hidden, derived int
-	for _, g := range cat.Groups() {
-		switch g.Type {
-		case TypeOneTime:
-			oneTime++
-		case TypeProgressive:
-			progressive++
-		}
-		if g.Hidden {
-			hidden++
-		}
-		if g.Stat == StatDerived {
-			derived++
-		}
+	if !g.IsDynamic() {
+		t.Errorf("tenure must be dynamic, got stat=%q", g.Stat)
 	}
-	if oneTime != 14 {
-		t.Errorf("expected 14 one_time groups, got %d", oneTime)
-	}
-	if progressive != 7 {
-		t.Errorf("expected 7 progressive groups, got %d", progressive)
-	}
-	if hidden != 4 {
-		t.Errorf("expected 4 hidden groups, got %d", hidden)
-	}
-	if derived != 6 {
-		t.Errorf("expected 6 derived groups, got %d", derived)
+	if len(g.Levels) != 0 {
+		t.Errorf("tenure must not enumerate levels, got %d", len(g.Levels))
 	}
 }
 
@@ -79,14 +71,37 @@ func TestLevelFor(t *testing.T) {
 	}
 }
 
-func validGroup(key string) *Group {
+func TestTenureLevel(t *testing.T) {
+	cases := []struct {
+		days int
+		want int
+	}{
+		{0, 0}, {182, 0}, {183, 1}, {364, 1}, {365, 2}, {729, 2}, {730, 3},
+		{1095, 4}, {3650, 11},
+	}
+	for _, c := range cases {
+		if got := tenureLevel(c.days); got != c.want {
+			t.Errorf("tenureLevel(%d) = %d, want %d", c.days, got, c.want)
+		}
+	}
+}
+
+func validMilestone(key string) *Group {
 	return &Group{
 		Key: key, TitleKey: "achievements." + key + ".title", Category: CategoryContent,
-		Icon: "star", Type: TypeProgressive, Stat: StatCounter, SortOrder: 1,
+		Icon: "star", Kind: KindMilestone, Type: TypeProgressive, Stat: StatCounter, SortOrder: 1,
 		Levels: []Level{
-			{Level: 1, Threshold: 1, NameKey: "k1", DescriptionKey: "d1", Rarity: "common", RewardType: "garma", RewardValue: "10"},
-			{Level: 2, Threshold: 10, NameKey: "k2", DescriptionKey: "d2", Rarity: "rare", RewardType: "garma", RewardValue: "50"},
+			{Level: 1, Threshold: 1, NameKey: "k1", DescriptionKey: "d1"},
+			{Level: 2, Threshold: 10, NameKey: "k2", DescriptionKey: "d2"},
 		},
+	}
+}
+
+func validAward(key string) *Group {
+	return &Group{
+		Key: key, TitleKey: "achievements." + key + ".title",
+		DescriptionKey: "achievements." + key + ".description",
+		Category:       CategoryAwards, Icon: "gem", Kind: KindAward, SortOrder: 1,
 	}
 }
 
@@ -100,8 +115,8 @@ func expectError(t *testing.T, g *Group, substr string) {
 }
 
 func TestValidate_DuplicateKeys(t *testing.T) {
-	a := validGroup("x")
-	b := validGroup("x")
+	a := validMilestone("x")
+	b := validMilestone("x")
 	if _, err := NewCatalog([]*Group{a, b}); err == nil {
 		t.Fatal("expected duplicate key error")
 	} else if !strings.Contains(err.Error(), "duplicate group key") {
@@ -110,96 +125,92 @@ func TestValidate_DuplicateKeys(t *testing.T) {
 }
 
 func TestValidate_EmptyLevels(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Levels = nil
 	expectError(t, g, "no levels")
 }
 
 func TestValidate_NonContiguousLevels(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Levels[1].Level = 3 // 1, 3 instead of 1, 2
 	expectError(t, g, "must be 1..N")
 }
 
 func TestValidate_NonIncreasingThresholds(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Levels[1].Threshold = 1 // not > 1
 	expectError(t, g, "strictly increasing")
 }
 
 func TestValidate_ZeroThreshold(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Levels[0].Threshold = 0
 	expectError(t, g, "threshold must be positive")
 }
 
 func TestValidate_OneTimeMultiLevel(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Type = TypeOneTime
 	expectError(t, g, "one_time must have exactly one level")
 }
 
-func TestValidate_OneTimeDerivedThreshold(t *testing.T) {
-	// Derived one_time groups carry their real condition as the threshold
-	// (e.g. secret_owl threshold=10) — that is valid.
-	g := validGroup("x")
-	g.Type = TypeOneTime
-	g.Levels = []Level{{Level: 1, Threshold: 10, NameKey: "k", DescriptionKey: "d", Rarity: "common"}}
-	if err := g.Validate(); err != nil {
-		t.Fatalf("one_time with derived threshold should be valid, got: %v", err)
-	}
-
-	// Zero/negative threshold stays invalid.
-	g.Levels[0].Threshold = 0
-	expectError(t, g, "threshold must be positive")
-}
-
 func TestValidate_ProgressiveSingleLevel(t *testing.T) {
-	g := validGroup("x")
-	g.Levels = []Level{{Level: 1, Threshold: 1, NameKey: "k", DescriptionKey: "d", Rarity: "common"}}
+	g := validMilestone("x")
+	g.Levels = []Level{{Level: 1, Threshold: 1, NameKey: "k", DescriptionKey: "d"}}
 	expectError(t, g, "progressive must have at least two levels")
 }
 
-func TestValidate_BadRarity(t *testing.T) {
-	g := validGroup("x")
-	g.Levels[0].Rarity = "mythic"
-	expectError(t, g, "invalid rarity")
-}
-
-func TestValidate_UnknownRewardType(t *testing.T) {
-	g := validGroup("x")
-	g.Levels[0].RewardType = "fiat"
-	expectError(t, g, "unknown reward type")
-}
-
 func TestValidate_EmptyNameKey(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Levels[0].NameKey = ""
 	expectError(t, g, "name/description keys are empty")
 }
 
 func TestValidate_BadCategory(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Category = "nowhere"
 	expectError(t, g, "invalid category")
 }
 
 func TestValidate_EmptyIcon(t *testing.T) {
-	g := validGroup("x")
+	g := validMilestone("x")
 	g.Icon = ""
 	expectError(t, g, "icon is empty")
 }
 
-func TestValidate_RewardWithoutValue(t *testing.T) {
-	g := validGroup("x")
-	g.Levels[0].RewardType = "garma"
-	g.Levels[0].RewardValue = ""
-	expectError(t, g, "reward \"garma\" without value")
+func TestValidate_BadStat(t *testing.T) {
+	g := validMilestone("x")
+	g.Stat = "magic"
+	expectError(t, g, "invalid stat kind")
+}
+
+func TestValidate_TenureWithLevels(t *testing.T) {
+	g := validMilestone("x")
+	g.Stat = StatTenure
+	expectError(t, g, "tenure must not have fixed levels")
+}
+
+func TestValidate_AwardWithLevels(t *testing.T) {
+	g := validAward("x")
+	g.Levels = []Level{{Level: 1, Threshold: 1, NameKey: "k", DescriptionKey: "d"}}
+	expectError(t, g, "award must not have levels")
+}
+
+func TestValidate_AwardWithoutDescription(t *testing.T) {
+	g := validAward("x")
+	g.DescriptionKey = ""
+	expectError(t, g, "award description key is empty")
+}
+
+func TestValidate_ValidAward(t *testing.T) {
+	if err := validAward("x").Validate(); err != nil {
+		t.Fatalf("valid award rejected: %v", err)
+	}
 }
 
 func TestHash_Stable(t *testing.T) {
-	a := validGroup("x")
-	b := validGroup("x")
+	a := validMilestone("x")
+	b := validMilestone("x")
 	ha, err := a.Hash()
 	if err != nil {
 		t.Fatal(err)
@@ -212,27 +223,16 @@ func TestHash_Stable(t *testing.T) {
 		t.Errorf("hash not stable: %s != %s", ha, hb)
 	}
 
-	diff := validGroup("y")
+	diff := validMilestone("y")
 	hd, _ := diff.Hash()
 	if hd == ha {
 		t.Errorf("different groups hash equal")
 	}
 
-	changed := validGroup("x")
-	changed.Levels[0].RewardValue = "99"
+	changed := validMilestone("x")
+	changed.Levels[0].Threshold = 99
 	hc, _ := changed.Hash()
 	if hc == ha {
 		t.Errorf("definition change did not change hash")
-	}
-}
-
-func TestRegisterRewardType(t *testing.T) {
-	g := validGroup("x")
-	g.Levels[0].RewardType = "trophy"
-	expectError(t, g, "unknown reward type")
-
-	RegisterRewardType("trophy")
-	if err := g.Validate(); err != nil {
-		t.Fatalf("expected registration to make reward valid, got: %v", err)
 	}
 }

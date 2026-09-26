@@ -15,27 +15,29 @@ import (
 
 // ──────────────── Events ────────────────
 
-// EventType is a user action the engine reacts to. The messenger NEVER emits
-// events — private conversations are out of scope by design.
+// EventType is a user action the engine reacts to. Constants for retired
+// themes are kept so existing emitters keep compiling; the engine simply has no
+// mapping for them and treats them as no-ops. The messenger NEVER emits events
+// — private conversations are out of scope by design.
 type EventType string
 
 const (
 	EventEntryCreated         EventType = "entry_created"   // thread or wall post
-	EventImageUploaded        EventType = "image_uploaded"  // entry with image
+	EventImageUploaded        EventType = "image_uploaded"  // retired
 	EventCommentCreated       EventType = "comment_created" // post-in-thread or wall comment
 	EventLikeGiven            EventType = "like_given"      // any like by the user
 	EventLikeReceived         EventType = "like_received"   // like on the user's content
 	EventRepostCreated        EventType = "repost_created"  // wall post repost
-	EventSubJoined            EventType = "sub_joined"      // gomosub membership
-	EventSubRulesAccepted     EventType = "rules_accepted"  // gomosub rules acceptance
-	EventSubCreated           EventType = "sub_created"     // created a gomosub
-	EventGiftSent             EventType = "gift_sent"
-	EventGiftReceived         EventType = "gift_received"
-	EventAvatarUpdated        EventType = "avatar_updated"
-	EventBioUpdated           EventType = "bio_updated"
-	EventProfileStyled        EventType = "profile_styled"        // profile customization saved
-	EventIntegrationConnected EventType = "integration_connected" // spotify (first integration)
-	EventDailyVisit           EventType = "daily_visit"           // daily visit / session recorded
+	EventSubJoined            EventType = "sub_joined"      // retired
+	EventSubRulesAccepted     EventType = "rules_accepted"  // retired
+	EventSubCreated           EventType = "sub_created"     // retired
+	EventGiftSent             EventType = "gift_sent"       // retired
+	EventGiftReceived         EventType = "gift_received"   // retired
+	EventAvatarUpdated        EventType = "avatar_updated"  // retired
+	EventBioUpdated           EventType = "bio_updated"     // retired
+	EventProfileStyled        EventType = "profile_styled"  // retired
+	EventIntegrationConnected EventType = "integration_connected"
+	EventDailyVisit           EventType = "daily_visit" // daily visit / session recorded
 )
 
 // Event is a user action handed to the engine. Handlers emit it after the
@@ -46,48 +48,42 @@ type Event struct {
 	At     time.Time
 }
 
-// eventCounters maps an event to the counter groups it increments.
+// eventCounters maps an event to the counter milestones it increments.
 var eventCounters = map[EventType][]string{
-	EventEntryCreated:         {"entries"},
-	EventImageUploaded:        {"images"},
-	EventCommentCreated:       {"comments"},
-	EventLikeGiven:            {"likes_given"},
-	EventLikeReceived:         {"likes_received"},
-	EventRepostCreated:        {"reposts"},
-	EventSubJoined:            {"sub_join"},
-	EventSubRulesAccepted:     {"sub_rules"},
-	EventSubCreated:           {"sub_create"},
-	EventGiftSent:             {"gift_sent"},
-	EventGiftReceived:         {"gift_received"},
-	EventAvatarUpdated:        {"avatar"},
-	EventBioUpdated:           {"bio"},
-	EventProfileStyled:        {"profile_style"},
-	EventIntegrationConnected: {"spotify"},
+	EventEntryCreated: {"entries"},
+	EventLikeReceived: {"likes_received"},
 }
 
-// eventDerived maps an event to the derived groups to re-evaluate.
-// Derived groups are computed from live data, so an event only needs to
-// trigger the check; the value itself comes from the DB.
+// eventDerived maps an event to the derived milestones to re-evaluate. Resonance
+// is recomputed from live data, so an event is just a trigger; the owner's
+// resonance is also refreshed lazily whenever their profile is read.
 var eventDerived = map[EventType][]string{
-	// A daily visit is recorded alongside session-time accumulation, so it is
-	// the natural trigger for all retention-derived groups.
-	EventDailyVisit:   {"daily_streak", "secret_shower", "secret_lurk", "session_time"},
-	EventEntryCreated: {"secret_owl"},
+	EventEntryCreated:   {"resonance"},
+	EventCommentCreated: {"resonance"},
+	EventLikeReceived:   {"resonance"},
+	EventRepostCreated:  {"resonance"},
+	EventDailyVisit:     {"tenure"},
 }
 
 // ──────────────── Engine ────────────────
 
+// Notifier delivers unlock notifications (a row in the notifications panel —
+// no toasts). Nil disables them. Wired in routes once the notification service
+// is available.
+type Notifier interface {
+	NotifyMilestone(userID string, g *Group, prevLevel, newLevel int)
+}
+
 // Engine evaluates events against the catalog, keeps user_achievement_counters
-// in sync and upgrades levels. Unlocks are silent by design — no notifications,
-// no WS events; the achievements page reads the progress on demand. It is safe
-// for concurrent use; handlers typically call HandleEvent in a goroutine.
+// in sync and upgrades levels. Unlocks write a notification row (no toast); the
+// achievements page reads progress on demand. It is safe for concurrent use;
+// handlers typically call EmitAchievement in a goroutine.
 type Engine struct {
 	db      *sql.DB
 	catalog *Catalog
 
-	// RecomputeStats refreshes derived stats (garma is formula-based; the
-	// callback lets the app recalc garma promptly after an unlock). Nil = skip.
-	RecomputeStats func(userID string)
+	// Notifier is called when a milestone level rises. Nil = silent.
+	Notifier Notifier
 
 	mu          sync.Mutex
 	dirtyGroups map[string]bool // groups whose definition changed at last Sync
@@ -113,8 +109,8 @@ func (e *Engine) logf(format string, args ...interface{}) {
 }
 
 // HandleEvent processes one user action: increments mapped counters, then
-// re-evaluates the touched groups (counter and derived). Errors are logged and
-// swallowed — the engine must never break the action that emitted the event.
+// re-evaluates the touched derived milestones. Errors are logged and swallowed —
+// the engine must never break the action that emitted the event.
 func (e *Engine) HandleEvent(ev Event) {
 	if e.db == nil || ev.UserID == "" {
 		return
@@ -124,30 +120,20 @@ func (e *Engine) HandleEvent(ev Event) {
 		at = time.Now()
 	}
 
-	unlockedAny := false
 	for _, key := range eventCounters[ev.Type] {
-		if e.handleCounter(ev.UserID, key) {
-			unlockedAny = true
-		}
+		e.handleCounter(ev.UserID, key)
 	}
 	for _, key := range eventDerived[ev.Type] {
-		if e.handleDerived(ev.UserID, key, at) {
-			unlockedAny = true
-		}
-	}
-	// Cross-cutting: re-evaluate the all-rounder secret after any unlock.
-	if unlockedAny {
-		e.handleDerived(ev.UserID, "secret_allrounder", at)
+		e.handleDerived(ev.UserID, key, at)
 	}
 }
 
-// handleCounter reconciles a counter group with live data and applies the
+// handleCounter reconciles a counter milestone with live data and applies the
 // level. It ALWAYS recomputes from the source tables instead of blindly
 // incrementing: counter groups have a deterministic sourceCount query, so an
 // event is simply a trigger to re-read reality. This makes the counter
-// self-healing — a missed event, a generic-CRUD write that didn't emit, or a
-// pre-existing row can never leave the counter permanently wrong (the "44 vs
-// 41" drift where the achievement lagged the real row count forever).
+// self-healing — a missed event or a pre-existing row can never leave the
+// counter permanently wrong.
 func (e *Engine) handleCounter(userID, key string) bool {
 	g, ok := e.catalog.Get(key)
 	if !ok || g.Stat != StatCounter {
@@ -163,19 +149,31 @@ func (e *Engine) handleCounter(userID, key string) bool {
 	return e.applyLevelExact(ctx, userID, g, g.LevelFor(value), value)
 }
 
-// handleDerived computes a derived group's value from live data and applies the
-// level exactly (derived groups have no persistent counter).
-func (e *Engine) handleDerived(userID, key string, at time.Time) bool {
+// handleDerived computes a derived/tenure milestone's value from live data and
+// applies the level exactly.
+func (e *Engine) handleDerived(userID, key string, _ time.Time) bool {
 	g, ok := e.catalog.Get(key)
-	if !ok || g.Stat != StatDerived {
+	if !ok {
 		return false
 	}
-	value, err := e.derivedValue(context.Background(), userID, key)
+	ctx := context.Background()
+	if g.Stat == StatTenure {
+		days, err := e.tenureDays(ctx, userID)
+		if err != nil {
+			e.logf("tenureDays(%s): %v", userID, err)
+			return false
+		}
+		return e.applyLevelExact(ctx, userID, g, tenureLevel(days), days)
+	}
+	if g.Stat != StatDerived {
+		return false
+	}
+	value, err := e.derivedValue(ctx, userID, key)
 	if err != nil {
 		e.logf("derivedValue(%s,%s): %v", userID, key, err)
 		return false
 	}
-	return e.applyLevelExact(context.Background(), userID, g, g.LevelFor(value), value)
+	return e.applyLevelExact(ctx, userID, g, g.LevelFor(value), value)
 }
 
 func (e *Engine) setCounter(ctx context.Context, userID, key string, value int) {
@@ -190,7 +188,7 @@ DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, userID, key, value)
 }
 
 // applyLevelExact writes the level exactly as computed (recompute / derived
-// path): it may go down or disappear when rules change. Notifies only on up.
+// path): it may go down or disappear when rules change.
 func (e *Engine) applyLevelExact(ctx context.Context, userID string, g *Group, newLevel, progress int) bool {
 	currentLevel := e.currentLevel(ctx, userID, g.Key)
 	if newLevel == 0 {
@@ -201,7 +199,7 @@ func (e *Engine) applyLevelExact(ctx context.Context, userID string, g *Group, n
 	}
 	e.upsertExact(ctx, userID, g, newLevel, progress)
 	if newLevel > currentLevel {
-		e.onLevelUp(userID, g, currentLevel, newLevel)
+		e.onLevelUp(ctx, userID, g, currentLevel, newLevel)
 		return true
 	}
 	return false
@@ -250,32 +248,28 @@ func (e *Engine) ruleHash(g *Group) string {
 	return h
 }
 
-// onLevelUp applies rewards for the delta levels and refreshes derived stats.
-// Unlocks are silent: no notification, no WS event — the achievements page
-// reads progress on demand.
-func (e *Engine) onLevelUp(userID string, g *Group, prevLevel, newLevel int) {
-	for lvl := prevLevel + 1; lvl <= newLevel; lvl++ {
-		if lvl-1 < 0 || lvl-1 >= len(g.Levels) {
-			continue
-		}
-		e.applyRewards(userID, g, g.Levels[lvl-1])
-	}
-	if e.RecomputeStats != nil {
-		e.RecomputeStats(userID)
+// onLevelUp runs when a milestone level rises. Awards grant no rewards, so
+// there is nothing to apply — the notification is written by the notifier hook
+// (`Notifier`), wired in routes, and the achievements page reads progress on
+// demand.
+func (e *Engine) onLevelUp(_ context.Context, userID string, g *Group, prevLevel, newLevel int) {
+	if e.Notifier != nil {
+		e.Notifier.NotifyMilestone(userID, g, prevLevel, newLevel)
 	}
 }
 
 // ──────────────── Sync / recompute ────────────────
 
-// Sync mirrors the catalog into the achievements table and returns the group
-// keys whose definition hash changed (dirty). Call at startup, before serving.
+// Sync mirrors the code catalog into the achievements table and returns the
+// group keys whose definition hash changed (dirty). Admin-created rows
+// (origin = admin) are never touched. Call at startup, before serving.
 func (e *Engine) Sync(ctx context.Context) ([]string, error) {
 	if e.db == nil {
 		return nil, fmt.Errorf("achievements: Sync: nil db")
 	}
 
 	existing := map[string]string{}
-	rows, err := e.db.QueryContext(ctx, "SELECT group_key, COALESCE(definition_hash, '') FROM achievements")
+	rows, err := e.db.QueryContext(ctx, "SELECT group_key, COALESCE(definition_hash, '') FROM achievements WHERE origin = 'code'")
 	if err != nil {
 		return nil, fmt.Errorf("achievements: Sync read: %w", err)
 	}
@@ -318,27 +312,44 @@ func (e *Engine) Sync(ctx context.Context) ([]string, error) {
 }
 
 func (e *Engine) upsertMirror(ctx context.Context, g *Group, hash string) error {
-	levels, err := json.Marshal(g.Levels)
-	if err != nil {
-		return fmt.Errorf("achievements: marshal levels %s: %w", g.Key, err)
-	}
-	rarity := "common"
+	levels := "[]"
 	if len(g.Levels) > 0 {
-		rarity = g.Levels[0].Rarity
+		b, err := json.Marshal(g.Levels)
+		if err != nil {
+			return fmt.Errorf("achievements: marshal levels %s: %w", g.Key, err)
+		}
+		levels = string(b)
 	}
-	_, err = e.db.ExecContext(ctx, `
-INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity,
-                          achievement_type, hidden, sort_order, levels, definition_hash, updated_at)
-VALUES ($1, $2, $3::text, $3::text, '', $4::text, $5, $6, $7, $8, $9, $10::jsonb, $11, NOW())
+	atype := string(g.Type)
+	switch {
+	case g.IsAward():
+		atype = "award"
+	case g.IsDynamic():
+		atype = "tenure"
+	}
+	description := ""
+	if g.IsAward() {
+		description = g.DescriptionKey
+	}
+	_, err := e.db.ExecContext(ctx, `
+INSERT INTO achievements (id, group_key, name, title, description, category, icon,
+                          achievement_type, kind, origin, image_url, hidden, sort_order,
+                          levels, definition_hash, updated_at)
+VALUES ($1, $2, $3::text, $3::text, $4, $5::text, $6,
+        $7, $8, 'code', $9, FALSE, $10,
+        $11::jsonb, $12, NOW())
 ON CONFLICT (group_key)
 DO UPDATE SET
 	name = EXCLUDED.name, title = EXCLUDED.title, description = EXCLUDED.description,
-	category = EXCLUDED.category, icon = EXCLUDED.icon, rarity = EXCLUDED.rarity,
-	achievement_type = EXCLUDED.achievement_type, hidden = EXCLUDED.hidden,
+	category = EXCLUDED.category, icon = EXCLUDED.icon,
+	achievement_type = EXCLUDED.achievement_type, kind = EXCLUDED.kind,
+	-- image_url is NOT synced: artwork is uploaded from the admin panel and must
+	-- survive every boot (the Go catalog leaves it empty).
+	hidden = EXCLUDED.hidden,
 	sort_order = EXCLUDED.sort_order, levels = EXCLUDED.levels,
 	definition_hash = EXCLUDED.definition_hash, updated_at = NOW()`,
-		GroupID(g.Key), g.Key, g.TitleKey, string(g.Category), g.Icon, rarity,
-		string(g.Type), g.Hidden, g.SortOrder, string(levels), hash)
+		GroupID(g.Key), g.Key, g.TitleKey, description, string(g.Category), g.Icon,
+		atype, string(g.Kind), g.ImageURL, g.SortOrder, levels, hash)
 	if err != nil {
 		return fmt.Errorf("achievements: upsert mirror %s: %w", g.Key, err)
 	}
@@ -350,30 +361,27 @@ func (e *Engine) deleteRetired(ctx context.Context) error {
 	for _, g := range e.catalog.Groups() {
 		keys = append(keys, g.Key)
 	}
-	if len(keys) == 0 {
-		return nil
-	}
-	// Delete rows whose group_key is not in the catalog (retired groups).
+	// Retire code rows no longer in the catalog. Admin rows are left alone.
 	// user_achievements rows reference the mirrored id, so clear them first.
 	if _, err := e.db.ExecContext(ctx, `
 DELETE FROM user_achievements WHERE achievement_id IN (
-	SELECT id FROM achievements WHERE group_key NOT IN (
+	SELECT id FROM achievements WHERE origin = 'code' AND group_key NOT IN (
 		SELECT unnest($1::text[])
 	)
 )`, pq.Array(keys)); err != nil {
 		return fmt.Errorf("achievements: delete retired user rows: %w", err)
 	}
 	if _, err := e.db.ExecContext(ctx, `
-DELETE FROM achievements WHERE group_key NOT IN (
+DELETE FROM achievements WHERE origin = 'code' AND group_key NOT IN (
 	SELECT unnest($1::text[])
-	)`, pq.Array(keys)); err != nil {
+)`, pq.Array(keys)); err != nil {
 		return fmt.Errorf("achievements: delete retired groups: %w", err)
 	}
 	return nil
 }
 
-// RecomputeDirty recomputes every dirty group for all affected users (those
-// with rows in user_achievements or counters). Runs at startup after Sync.
+// RecomputeDirty recomputes every dirty group for all affected users (those with
+// rows in user_achievements or counters). Runs at startup after Sync.
 func (e *Engine) RecomputeDirty(ctx context.Context) {
 	e.mu.Lock()
 	dirty := make([]string, 0, len(e.dirtyGroups))
@@ -417,23 +425,25 @@ SELECT DISTINCT user_id FROM user_achievement_counters WHERE group_key = $2`, Gr
 	return out
 }
 
-// RecomputeUser re-derives every group for one user from live data (heals
-// drift, applies rule changes). Used by the admin trigger / full recompute.
+// RecomputeUser re-derives every milestone for one user from live data (heals
+// drift, applies rule changes). Awards are hand-granted and never recomputed.
 func (e *Engine) RecomputeUser(ctx context.Context, userID string) {
 	if userID == "" {
 		return
 	}
 	for _, g := range e.catalog.Groups() {
+		if g.IsAward() {
+			continue
+		}
 		e.recomputeGroup(ctx, userID, g.Key)
 	}
 }
 
-// RecomputeAll backfills every group for every user from live data. It is the
-// one-time startup migration after a catalog rework: counter values are
-// recomputed from the source tables (not incremented), derived groups are
-// re-evaluated, and levels are applied exactly — so old progress rows that no
-// longer match the catalog are dropped and everyone starts from their real
-// current activity. The caller decides how often this runs (startup marker).
+// RecomputeAll backfills every milestone for every user from live data. It is
+// the one-time startup migration after a catalog rework: counter values are
+// recomputed from the source tables, derived/tenure groups are re-evaluated,
+// and levels are applied exactly. The caller decides how often this runs
+// (startup marker).
 func (e *Engine) RecomputeAll(ctx context.Context) {
 	if e.db == nil {
 		return
@@ -466,7 +476,16 @@ func (e *Engine) RecomputeAll(ctx context.Context) {
 
 func (e *Engine) recomputeGroup(ctx context.Context, userID, key string) {
 	g, ok := e.catalog.Get(key)
-	if !ok {
+	if !ok || g.IsAward() {
+		return
+	}
+	if g.Stat == StatTenure {
+		days, err := e.tenureDays(ctx, userID)
+		if err != nil {
+			e.logf("recompute tenure(%s,%s): %v", userID, key, err)
+			return
+		}
+		e.applyLevelExact(ctx, userID, g, tenureLevel(days), days)
 		return
 	}
 	if g.Stat == StatCounter {

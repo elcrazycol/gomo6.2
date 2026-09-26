@@ -1,19 +1,22 @@
-// Package achievements defines the achievement catalog — the single source of
-// truth, in Go code — and validates it. The runtime engine (later stage) uses
-// this catalog: event-driven counters increment user_achievement_counters,
-// levels are evaluated against thresholds, and rewards/notifications fire on
-// unlock.
+// Package achievements defines the awards catalog — the single source of truth,
+// in Go code — and validates it. The runtime engine uses this catalog: event-
+// driven counters increment user_achievement_counters, levels are evaluated
+// against thresholds, and hand-granted awards live in user_awards.
+//
+// Two kinds of entries:
+//   - milestone (auto): a counter/derived/tenure metric with levels.
+//   - award (manual): a single, hand-granted honour (contributor, legend, …).
 //
 // Design rules:
-//   - The catalog lives in code, not in DB seeds. The `achievements` table is
-//     only a mirror synced from here at startup; change detection uses the
-//     definition Hash() stored in achievements.definition_hash.
-//   - Names/descriptions are i18n keys (achievements.<group>.<level>.name …);
-//     the frontend localizes them.
+//   - The catalog lives in code for milestones and the starter awards. Awards
+//     created by an admin live in the DB (origin = admin) and are NOT touched by
+//     the code sync. The `achievements` table is the mirror the frontend reads.
+//   - Names/descriptions are i18n keys (achievements.<key>.<level>.name …); the
+//     frontend localizes them.
+//   - Awards are NOT a currency: no garma, no rewards anywhere.
+//   - Rarity is not a field — it is the computed share of owners.
 //   - The messenger NEVER emits achievement events — private conversations are
 //     out of scope by design.
-//   - One-time achievements have exactly one level; progressive groups have
-//     two or more levels with strictly increasing thresholds.
 package achievements
 
 import (
@@ -23,7 +26,26 @@ import (
 	"fmt"
 )
 
-// Type is the achievement progression model.
+// Kind is the nature of a catalog entry.
+type Kind string
+
+const (
+	// KindMilestone is an automatic, metric-driven achievement.
+	KindMilestone Kind = "milestone"
+	// KindAward is a hand-granted honour (never auto-unlocked).
+	KindAward Kind = "award"
+)
+
+// Origin says who owns a catalog row. Code rows are managed by the Go sync;
+// admin rows are created/edited through the admin API and survive the sync.
+type Origin string
+
+const (
+	OriginCode  Origin = "code"
+	OriginAdmin Origin = "admin"
+)
+
+// Type is the milestone progression model. Awards and tenure have no type.
 type Type string
 
 const (
@@ -31,7 +53,7 @@ const (
 	TypeProgressive Type = "progressive"
 )
 
-// Category groups achievements on the UI (filters, secret bucket, …).
+// Category groups entries on the UI.
 type Category string
 
 const (
@@ -41,51 +63,20 @@ const (
 	CategoryProfile      Category = "profile"
 	CategoryIntegrations Category = "integrations"
 	CategoryGifts        Category = "gifts"
-	CategorySecret       Category = "secret"
+	CategoryAwards       Category = "awards" // hand-granted honours
 )
 
-// StatKind describes how the engine obtains the progress value of a group.
+// StatKind describes how the engine obtains a milestone's value.
 type StatKind string
 
 const (
-	// StatCounter: event-driven increments stored in user_achievement_counters.
+	// StatCounter: event-driven values stored in user_achievement_counters.
 	StatCounter StatKind = "counter"
-	// StatDerived: computed from live data during recompute (streaks, session
-	// time, secret conditions that cannot be a plain counter).
+	// StatDerived: computed from live data during (re)compute.
 	StatDerived StatKind = "derived"
+	// StatTenure: account age in days; a dynamic series with no fixed levels.
+	StatTenure StatKind = "tenure"
 )
-
-// RewardType is the reward a level grants. The registry is the extension point:
-// adding a new reward type = RegisterRewardType + a Rewarder implementation in
-// the engine. Only garma exists today.
-type RewardType string
-
-const (
-	RewardGarma RewardType = "garma"
-)
-
-var registeredRewards = map[RewardType]struct{}{
-	RewardGarma: {},
-}
-
-// RegisterRewardType adds a reward type so catalog validation accepts it.
-func RegisterRewardType(rt RewardType) { registeredRewards[rt] = struct{}{} }
-
-func isRegisteredReward(rt string) bool {
-	if rt == "" {
-		return true
-	}
-	_, ok := registeredRewards[RewardType(rt)]
-	return ok
-}
-
-var validRarities = map[string]struct{}{
-	"common":    {},
-	"uncommon":  {},
-	"rare":      {},
-	"epic":      {},
-	"legendary": {},
-}
 
 var validCategories = map[Category]struct{}{
 	CategoryContent:      {},
@@ -94,37 +85,63 @@ var validCategories = map[Category]struct{}{
 	CategoryProfile:      {},
 	CategoryIntegrations: {},
 	CategoryGifts:        {},
-	CategorySecret:       {},
+	CategoryAwards:       {},
 }
 
 var validKinds = map[StatKind]struct{}{
 	StatCounter: {},
 	StatDerived: {},
+	StatTenure:  {},
 }
 
-// Level is one step of a group. Names/descriptions are i18n keys.
+// Level is one step of a milestone. Names/descriptions are i18n keys.
 type Level struct {
 	Level          int    `json:"level"`
 	Threshold      int    `json:"threshold"`
 	NameKey        string `json:"name_key"`
 	DescriptionKey string `json:"description_key"`
-	Rarity         string `json:"rarity"`
-	RewardType     string `json:"reward_type,omitempty"`
-	RewardValue    string `json:"reward_value,omitempty"`
 }
 
-// Group is one achievement group (e.g. "entries", "daily_streak").
+// Group is one catalog entry: a milestone or an award.
 type Group struct {
 	Key       string   `json:"key"`
 	TitleKey  string   `json:"title_key"`
 	Category  Category `json:"category"`
 	Icon      string   `json:"icon"`
-	Type      Type     `json:"type"`
-	Hidden    bool     `json:"hidden"`
+	Kind      Kind     `json:"kind"`
+	Origin    Origin   `json:"origin"`
 	SortOrder int      `json:"sort_order"`
-	Stat      StatKind `json:"stat"`
-	Levels    []Level  `json:"levels"`
+	// Milestone fields.
+	Type   Type     `json:"type,omitempty"`
+	Stat   StatKind `json:"stat,omitempty"`
+	Levels []Level  `json:"levels,omitempty"`
+	// Award fields (manual).
+	DescriptionKey string `json:"description_key,omitempty"`
+	ImageURL       string `json:"image_url,omitempty"`
 }
+
+func (g *Group) kind() Kind {
+	if g.Kind == "" {
+		return KindMilestone
+	}
+	return g.Kind
+}
+
+func (g *Group) origin() Origin {
+	if g.Origin == "" {
+		return OriginCode
+	}
+	return g.Origin
+}
+
+// IsAward reports whether the group is hand-granted.
+func (g *Group) IsAward() bool { return g.kind() == KindAward }
+
+// IsCode reports whether the group is defined in Go (managed by the sync).
+func (g *Group) IsCode() bool { return g.origin() == OriginCode }
+
+// IsDynamic reports whether the group is a dynamic series (no fixed levels).
+func (g *Group) IsDynamic() bool { return g.kind() == KindMilestone && g.Stat == StatTenure }
 
 // Hash returns a stable definition hash used for change detection at startup
 // (stored in achievements.definition_hash; compared to detect dirty groups).
@@ -148,14 +165,48 @@ func (g *Group) Validate() error {
 	if g.Icon == "" {
 		return fmt.Errorf("achievements: %s: icon is empty", g.Key)
 	}
-	if g.Type != TypeOneTime && g.Type != TypeProgressive {
-		return fmt.Errorf("achievements: %s: invalid type %q", g.Key, g.Type)
+	if g.TitleKey == "" {
+		return fmt.Errorf("achievements: %s: title key is empty", g.Key)
 	}
+
+	switch g.kind() {
+	case KindAward:
+		return g.validateAward()
+	case KindMilestone:
+		return g.validateMilestone()
+	default:
+		return fmt.Errorf("achievements: %s: invalid kind %q", g.Key, g.Kind)
+	}
+}
+
+func (g *Group) validateAward() error {
+	if len(g.Levels) != 0 {
+		return fmt.Errorf("achievements: %s: award must not have levels", g.Key)
+	}
+	if g.Type != "" {
+		return fmt.Errorf("achievements: %s: award must not have a type", g.Key)
+	}
+	if g.Stat != "" {
+		return fmt.Errorf("achievements: %s: award must not have a stat", g.Key)
+	}
+	if g.DescriptionKey == "" {
+		return fmt.Errorf("achievements: %s: award description key is empty", g.Key)
+	}
+	return nil
+}
+
+func (g *Group) validateMilestone() error {
 	if _, ok := validKinds[g.Stat]; !ok {
 		return fmt.Errorf("achievements: %s: invalid stat kind %q", g.Key, g.Stat)
 	}
-	if g.TitleKey == "" {
-		return fmt.Errorf("achievements: %s: title key is empty", g.Key)
+	if g.Stat == StatTenure {
+		if len(g.Levels) != 0 {
+			return fmt.Errorf("achievements: %s: tenure must not have fixed levels", g.Key)
+		}
+		return nil
+	}
+	if g.Type != TypeOneTime && g.Type != TypeProgressive {
+		return fmt.Errorf("achievements: %s: invalid type %q", g.Key, g.Type)
 	}
 	if len(g.Levels) == 0 {
 		return fmt.Errorf("achievements: %s: no levels", g.Key)
@@ -180,24 +231,11 @@ func (g *Group) Validate() error {
 		if lvl.NameKey == "" || lvl.DescriptionKey == "" {
 			return fmt.Errorf("achievements: %s: level %d name/description keys are empty", g.Key, lvl.Level)
 		}
-		if _, ok := validRarities[lvl.Rarity]; !ok {
-			return fmt.Errorf("achievements: %s: level %d: invalid rarity %q", g.Key, lvl.Level, lvl.Rarity)
-		}
-		if !isRegisteredReward(lvl.RewardType) {
-			return fmt.Errorf("achievements: %s: level %d: unknown reward type %q", g.Key, lvl.Level, lvl.RewardType)
-		}
-		if lvl.RewardType != "" && lvl.RewardValue == "" {
-			return fmt.Errorf("achievements: %s: level %d: reward %q without value", g.Key, lvl.Level, lvl.RewardType)
-		}
 	}
-	// One-time: threshold is the unlock condition. For counter groups it is 1
-	// (the action itself unlocks it); for derived groups it is the real metric
-	// threshold (e.g. 10 night entries for secret_owl). Either way it must be
-	// positive — already enforced above.
 	return nil
 }
 
-// Catalog is the validated set of achievement groups.
+// Catalog is the validated set of catalog entries.
 type Catalog struct {
 	groups []*Group
 	byKey  map[string]*Group
@@ -218,8 +256,7 @@ func NewCatalog(groups []*Group) (*Catalog, error) {
 	return &Catalog{groups: groups, byKey: byKey}, nil
 }
 
-// Groups returns the catalog groups in definition order (sort_order ascending
-// is applied by the sync to the DB mirror).
+// Groups returns the catalog groups in definition order.
 func (c *Catalog) Groups() []*Group { return c.groups }
 
 // Get returns a group by key.
@@ -231,8 +268,8 @@ func (c *Catalog) Get(key string) (*Group, bool) {
 // Len returns the number of groups.
 func (c *Catalog) Len() int { return len(c.groups) }
 
-// LevelFor returns the highest qualifying level for a progress value
-// (0 if none), for counter-based groups.
+// LevelFor returns the highest qualifying level for a value (0 if none), for
+// counter/derived milestones with fixed levels.
 func (g *Group) LevelFor(value int) int {
 	highest := 0
 	for _, lvl := range g.Levels {

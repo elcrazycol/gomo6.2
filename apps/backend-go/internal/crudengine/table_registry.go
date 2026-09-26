@@ -591,6 +591,18 @@ var genericTables = []TableMeta{
 		UserScopedRead: true,
 	},
 	{
+		Name:         "user_awards",
+		ReadAccess:   GuestRead,
+		ReadWildcard: true,
+		// Rows are written only by the admin grant/revoke endpoints (WriteDenied
+		// prevents a client forging a hand-granted award). Reads use the
+		// dedicated handler (handleUserAwardsGet), which embeds the award
+		// definition and applies the same privacy rules as achievements.
+		ReadHandler:    (*Engine).handleUserAwardsGet,
+		WriteDenied:    true,
+		UserScopedRead: true,
+	},
+	{
 		Name:       "user_bans",
 		ReadDenied: true,
 		// Same posture as reports: reads are sensitive, no routes registered.

@@ -252,6 +252,14 @@ type NotificationParams struct {
 	GiftName string `json:"gift_name,omitempty"`
 	// Count is the number of liked wall posts in a wall_post_like burst group.
 	Count int `json:"count,omitempty"`
+	// GroupKey is the achievements group key for achievement_unlock/award_granted.
+	GroupKey string `json:"group_key,omitempty"`
+	// Level is the unlocked level for achievement_unlock (1 for awards).
+	Level int `json:"level,omitempty"`
+	// AwardKey is the hand-granted award key for award_granted.
+	AwardKey string `json:"award_key,omitempty"`
+	// Reason is the grant/revoke reason shown for award_granted/award_revoked.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Achievement — multi-level grouped achievement definition.
