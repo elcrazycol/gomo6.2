@@ -187,7 +187,7 @@ describe("Profile", () => {
     renderWithProviders(<ProfileComponent />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Достижения/)).toBeInTheDocument();
+      expect(screen.getByText(/Награды/)).toBeInTheDocument();
     });
   });
 

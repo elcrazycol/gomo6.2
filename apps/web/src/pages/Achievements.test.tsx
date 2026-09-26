@@ -1,6 +1,7 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import Achievements from "./Achievements";
+import { clearQueryCache } from "@/integrations/api/queryCache";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -21,107 +22,76 @@ vi.mock("@/components/PentagramLoader", () => ({
   PentagramLoader: () => <div data-testid="pentagram-loader">Loading...</div>,
 }));
 
-vi.mock("@/utils/storage", () => ({ storageUrl: () => null }));
+// ─── Fixtures (new catalog) ──────────────────────────────────────────────────
 
-// Controlled mocks: tests rewire the current-user identity and the rpc fn.
-const mocks = vi.hoisted(() => ({
-  mockCurrentUser: { id: null as string | null },
-  rpcMock: vi.fn(() => Promise.resolve({ error: null, data: true })),
-}));
-
-vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({ user: mocks.mockCurrentUser }),
-}));
-
-vi.mock("@/integrations/api/compat", () => ({
-  api: {
-    rpc: mocks.rpcMock,
-  },
-}));
-
-// The page uses the light client (getCached) — let real fetches flow through
-// the mock, but keep queryCache state isolated per test.
-import { clearQueryCache } from "@/integrations/api/queryCache";
-
-// ─── Fixtures (new catalog: i18n keys + category enum) ──────────────────────
-
-const ACHIEVEMENTS = [
-  {
+const MILESTONE = {
+  achievement_id: "a1",
+  current_level: 2,
+  unlocked_at: "2025-01-01T00:00:00Z",
+  progress_current: 120,
+  achievements: {
     id: "a1",
     group_key: "entries",
-    name: "achievements.entries.title",
     title: "achievements.entries.title",
+    name: "achievements.entries.title",
     description: "",
     icon: "message-square",
     category: "content",
-    rarity: "common",
-    hidden: false,
-    sort_order: 1,
+    kind: "milestone",
+    origin: "code",
+    image_url: null,
+    level_images: {},
+    owner_share: { "1": 12.5, "2": 4 },
     achievement_type: "progressive",
-    levels: [
-      { level: 1, threshold: 1, name_key: "achievements.entries.1.name", description_key: "achievements.entries.1.description", rarity: "common" },
-    ],
-  },
-  {
-    id: "a2",
-    group_key: "daily_streak",
-    name: "achievements.daily_streak.title",
-    title: "achievements.daily_streak.title",
-    description: "",
-    icon: "calendar-check",
-    category: "retention",
-    rarity: "legendary",
     hidden: false,
-    sort_order: 2,
-    achievement_type: "progressive",
     levels: [
-      { level: 1, threshold: 3, name_key: "achievements.daily_streak.1.name", description_key: "achievements.daily_streak.1.description", rarity: "common" },
+      {
+        level: 1,
+        threshold: 25,
+        name_key: "achievements.entries.1.name",
+        description_key: "achievements.entries.1.description",
+      },
+      {
+        level: 2,
+        threshold: 100,
+        name_key: "achievements.entries.2.name",
+        description_key: "achievements.entries.2.description",
+      },
     ],
   },
-  {
-    id: "a3",
-    group_key: "secret_owl",
-    name: "achievements.secret_owl.title",
-    title: "achievements.secret_owl.title",
-    description: "",
-    icon: "moon-star",
-    category: "secret",
-    rarity: "rare",
-    hidden: true,
-    sort_order: 3,
-    achievement_type: "one_time",
-    levels: [
-      { level: 1, threshold: 10, name_key: "achievements.secret_owl.1.name", description_key: "achievements.secret_owl.1.description", rarity: "rare" },
-    ],
+};
+
+const AWARD = {
+  id: "g1",
+  user_id: "profile-user-1",
+  award_key: "award_bughunter",
+  awarded_by: "u-demo",
+  awarded_by_username: "demo",
+  reason: "Поймал краш",
+  awarded_at: "2026-02-01T00:00:00Z",
+  award: {
+    id: "w1",
+    group_key: "award_bughunter",
+    title: "achievements.award_bughunter.title",
+    name: "achievements.award_bughunter.title",
+    description: "achievements.award_bughunter.description",
+    icon: "bug",
+    category: "awards",
+    origin: "code",
+    image_url: null,
+    level_images: {},
+    owner_share: { "1": 0.8 },
   },
-  {
-    id: "a4",
-    group_key: "gift_sent",
-    name: "achievements.gift_sent.title",
-    title: "achievements.gift_sent.title",
-    description: "",
-    icon: "gift",
-    category: "gifts",
-    rarity: "uncommon",
-    hidden: false,
-    sort_order: 4,
-    achievement_type: "one_time",
-    levels: [
-      { level: 1, threshold: 1, name_key: "achievements.gift_sent.1.name", description_key: "achievements.gift_sent.1.description", rarity: "uncommon" },
-    ],
-  },
-];
+};
 
 function setupFetch({
   profile = { id: "profile-user-1", username: "testuser" },
-  unlockedIds = ["a1"],
-  pinnedIds = [],
-  achievements = ACHIEVEMENTS,
+  milestones = [MILESTONE],
+  awards = [AWARD],
 }: {
   profile?: { id: string; username: string } | null;
-  unlockedIds?: string[];
-  pinnedIds?: string[];
-  achievements?: typeof ACHIEVEMENTS;
+  milestones?: typeof MILESTONE[];
+  awards?: typeof AWARD[];
 } = {}) {
   mockFetch.mockImplementation((url: string) => {
     if (url.includes("/profiles")) {
@@ -131,22 +101,10 @@ function setupFetch({
       });
     }
     if (url.includes("/user_achievements")) {
-      const data = unlockedIds.map((id) => ({
-        achievement_id: id,
-        current_level: 1,
-        is_pinned: pinnedIds.includes(id),
-        pinned_order: null,
-        unlocked_at: "2025-01-01T00:00:00Z",
-        progress_current: 0,
-        achievements: { id },
-      }));
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: milestones }) });
     }
-    if (url.includes("/achievements")) {
-      return Promise.resolve({
-        ok: true,
-        text: () => Promise.resolve(JSON.stringify({ data: achievements })),
-      });
+    if (url.includes("/user_awards")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: awards }) });
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
   });
@@ -155,8 +113,6 @@ function setupFetch({
 beforeEach(() => {
   clearQueryCache();
   mockFetch.mockReset();
-  mocks.rpcMock.mockClear();
-  mocks.mockCurrentUser = { id: null };
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -168,81 +124,48 @@ describe("Achievements page", () => {
     expect(screen.getByTestId("pentagram-loader")).toBeInTheDocument();
   });
 
-  it("renders profile header and progress stats", async () => {
+  it("renders the trophy hall header and the total count", async () => {
     setupFetch();
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Достижения — testuser")).toBeInTheDocument();
+      expect(screen.getByText("Награды — testuser")).toBeInTheDocument();
     });
-    expect(screen.getByText("Открыто 1 из 3")).toBeInTheDocument();
+    // One milestone + one award.
+    expect(screen.getByText("Наград: 2")).toBeInTheDocument();
+    expect(screen.getByText("Вехи (1)")).toBeInTheDocument();
   });
 
-  it("marks achievements as unlocked and shows rarity labels", async () => {
+  it("shows the current milestone level name and its owner share", async () => {
+    setupFetch();
+    render(<Achievements />);
+
+    // Level 2 of "entries" is the unlocked trophy (art comes from the bundled
+    // registry, so the name is the image alt rather than a text label).
+    await waitFor(() => {
+      expect(screen.getByAltText("Хронист")).toBeInTheDocument();
+    });
+    expect(screen.getByText("4% владельцев")).toBeInTheDocument();
+  });
+
+  it("lists hand-granted awards with author, reason and date", async () => {
     setupFetch();
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первое слово")).toBeInTheDocument();
+      expect(screen.getByText("Ручные награды (1)")).toBeInTheDocument();
     });
-    // Section header now includes the count in one text node
-    expect(screen.getByText("Открытые (1)")).toBeInTheDocument();
-    // Unlocked card renders its rarity badge
-    expect(screen.getAllByText("Обычное").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Баг-хантер")).toBeInTheDocument();
+    expect(screen.getByText(/@demo/)).toBeInTheDocument();
+    expect(screen.getByText("«Поймал краш»")).toBeInTheDocument();
   });
 
-  it("hides locked secret achievements entirely", async () => {
-    setupFetch();
+  it("shows an empty state when there are no trophies", async () => {
+    setupFetch({ milestones: [], awards: [] });
     render(<Achievements />);
 
     await waitFor(() => {
-      expect(screen.getByText("Первое слово")).toBeInTheDocument();
-    });
-    // a3 is hidden + locked: no reveal card, no name — invisible.
-    expect(screen.queryByText("Секретное достижение")).not.toBeInTheDocument();
-    expect(screen.queryByText("Сова")).not.toBeInTheDocument();
-    // Only non-secret locked achievements show up in the locked section (a2 + a4).
-    expect(screen.getByText("Закрытые (2)")).toBeInTheDocument();
-  });
-
-  it("shows secret achievements once unlocked", async () => {
-    setupFetch({ unlockedIds: ["a1", "a3"] });
-    render(<Achievements />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Первое слово")).toBeInTheDocument();
-    });
-    // Unlocked secret appears by name, no reveal card needed.
-    expect(screen.getByText("Сова")).toBeInTheDocument();
-  });
-
-  it("does not render pin buttons for other users", async () => {
-    setupFetch();
-    render(<Achievements />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Первое слово")).toBeInTheDocument();
-    });
-    expect(screen.queryByTitle("Закрепить")).not.toBeInTheDocument();
-  });
-
-  it("toggles pin for the current user's profile", async () => {
-    mocks.mockCurrentUser = { id: "profile-user-1" };
-
-    setupFetch({ pinnedIds: ["a1"] });
-    render(<Achievements />);
-
-    await waitFor(() => {
-      expect(screen.getByTitle("Открепить")).toBeInTheDocument();
-    });
-    expect(screen.getByText("Закреплено: 1/6")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTitle("Открепить"));
-    await waitFor(() => {
-      expect(mocks.rpcMock).toHaveBeenCalledWith("toggle_achievement_pin", {
-        _user_id: "profile-user-1",
-        _achievement_id: "a1",
-      });
+      expect(screen.getByText("Пока нет наград")).toBeInTheDocument();
     });
   });
 
@@ -253,6 +176,6 @@ describe("Achievements page", () => {
     await waitFor(() => {
       expect(screen.getByText("Назад")).toBeInTheDocument();
     });
-    expect(screen.getByText("Достижения")).toBeInTheDocument();
+    expect(screen.getByText("Награды")).toBeInTheDocument();
   });
 });

@@ -1,76 +1,73 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { TrophyShowcase } from "./TrophyShowcase";
-import type { AchievementData } from "./AchievementCard";
+import type { Trophy } from "@/utils/trophies";
 
-function makeAchievement(overrides: Partial<AchievementData> = {}): AchievementData {
+function makeTrophy(overrides: Partial<Trophy> = {}): Trophy {
   return {
-    id: "ach-1",
-    name: "Achievement",
-    description: "",
-    icon: "sparkles",
-    category: "content",
-    rarity: "common",
+    key: "a:1",
+    kind: "milestone",
+    groupKey: "likes_received",
+    icon: "heart",
+    artUrl: "/trophies/likes_received-1.png",
     level: 1,
+    maxLevel: 1,
+    name: "Любимец",
+    description: "",
+    ownerShare: 3,
+    tier: "legendary",
     ...overrides,
   };
 }
 
 describe("TrophyShowcase", () => {
-  it("renders nothing when no achievement has artwork", () => {
-    const { container } = render(
-      <TrophyShowcase achievements={[makeAchievement({ id: "a", group_key: "comments" })]} />,
-    );
+  it("renders nothing when there are no trophies", () => {
+    const { container } = render(<TrophyShowcase trophies={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("shows only achievements that have artwork", () => {
+  it("renders trophies in the given (rarest-first) order", () => {
     render(
       <TrophyShowcase
-        achievements={[
-          makeAchievement({ id: "a", group_key: "likes_received", name: "Замеченный" }),
-          makeAchievement({ id: "b", group_key: "comments", name: "Комментарии" }),
+        trophies={[
+          makeTrophy({ key: "a:1", name: "Идол", artUrl: "/trophies/likes_received-2.png" }),
+          makeTrophy({ key: "a:2", name: "Любимец" }),
         ]}
       />,
     );
 
-    expect(screen.getByAltText("Замеченный")).toBeInTheDocument();
-    expect(screen.queryByAltText("Комментарии")).not.toBeInTheDocument();
+    const alts = screen.getAllByRole("img").map((el) => el.getAttribute("alt"));
+    expect(alts).toEqual(["Идол", "Любимец"]);
   });
 
-  it("hides locked trophies", () => {
+  it("caps the case to the limit", () => {
     render(
       <TrophyShowcase
-        achievements={[
-          makeAchievement({
-            id: "a",
-            group_key: "likes_received",
-            name: "Замеченный",
-            locked: true,
+        limit={1}
+        trophies={[makeTrophy({ name: "Первый" }), makeTrophy({ key: "a:2", name: "Второй" })]}
+      />,
+    );
+
+    expect(screen.getByAltText("Первый")).toBeInTheDocument();
+    expect(screen.queryByAltText("Второй")).not.toBeInTheDocument();
+  });
+
+  it("includes hand-granted awards", () => {
+    render(
+      <TrophyShowcase
+        trophies={[
+          makeTrophy({
+            key: "w:1",
+            kind: "award",
+            groupKey: "award_bughunter",
+            name: "Баг-хантер",
+            artUrl: null,
           }),
         ]}
       />,
     );
 
-    expect(screen.queryByAltText("Замеченный")).not.toBeInTheDocument();
-  });
-
-  it("orders trophies rarest first", () => {
-    render(
-      <TrophyShowcase
-        achievements={[
-          makeAchievement({ id: "a", group_key: "bio", name: "О себе", rarity: "common" }),
-          makeAchievement({
-            id: "b",
-            group_key: "likes_received",
-            name: "Замеченный",
-            rarity: "legendary",
-          }),
-        ]}
-      />,
-    );
-
-    const names = screen.getAllByRole("img").map((el) => el.getAttribute("alt"));
-    expect(names).toEqual(["Замеченный", "О себе"]);
+    // No art: the name renders as text next to the icon.
+    expect(screen.getByText("Баг-хантер")).toBeInTheDocument();
   });
 });

@@ -41,7 +41,7 @@ const en: LocaleResources = {
     wallet: "Wallet",
     drops: "Drops",
     gomosubs: "G-subs",
-    achievements: "Achievements",
+    achievements: "Awards",
     moderation: "Moderation",
     logout: "Log out",
     login: "Log in",
@@ -548,7 +548,7 @@ const en: LocaleResources = {
     studio: "Studio",
     about: "About",
     avatarCrop: "Crop avatar",
-    noAchievements: "No achievements yet",
+    noAchievements: "No awards yet",
     allAchievements: "All achievements",
     noThreads: "No posts yet",
     changeUsername: "Change username",
@@ -557,7 +557,7 @@ const en: LocaleResources = {
     latinOnly: "Latin letters and digits only",
     usernamesMatch: "Usernames match",
     wall: "Wall",
-    achievements: "Achievements",
+    achievements: "Awards",
     threads: "Posts",
     gifts: "Gifts",
     friends: "Friends",
@@ -623,133 +623,67 @@ const en: LocaleResources = {
   },
   achievements: {
     // ── Page ──
-    title: "Achievements",
+    title: "Awards",
     backToProfile: "Profile {{username}}",
     back: "Back",
-    opened: "Unlocked {{unlocked}} of {{total}}",
-    unlockedSection: "Unlocked",
-    lockedSection: "Locked",
-    pin: "Pin",
-    unpin: "Unpin",
-    allAchievements: "All achievements",
-    pinnedCount: "Pinned: {{count}}/6",
-    reward: "+{{value}} garma",
-    unlockedAt: "Unlocked",
+    allAchievements: "All awards",
+    count: "Awards: {{count}}",
+    owners: "owners",
+    milestonesSection: "Milestones",
+    manualSection: "Hand-granted awards",
+    noTrophies: "No awards yet",
+    grantedBy: "Granted by",
 
-    // ── Rarities ──
-    rarity: {
-      legendary: "Legendary",
-      epic: "Epic",
-      rare: "Rare",
-      uncommon: "Uncommon",
-      common: "Common",
-    },
-
-    // ── Groups ──
+    // ── Catalog: milestones ──
     entries: {
       title: "Entries",
-      "1": { name: "First words", description: "Publish your first entry" },
-      "2": { name: "Writer", description: "Publish 50 entries" },
-      "3": { name: "Novelist", description: "Publish 500 entries" },
-      "4": { name: "Classic", description: "Publish 2500 entries" },
-      "5": { name: "Graphomaniac", description: "Publish 10000 entries" },
-    },
-    comments: {
-      title: "Comments",
-      "1": { name: "First opinion", description: "Leave your first comment" },
-      "2": { name: "Commentator", description: "Leave 100 comments" },
-      "3": { name: "Expert", description: "Leave 1000 comments" },
-      "4": { name: "Oracle", description: "Leave 5000 comments" },
+      "1": { name: "Scribe", description: "25 entries" },
+      "2": { name: "Chronicler", description: "100 entries" },
+      "3": { name: "Archivist", description: "500 entries" },
     },
     likes_received: {
-      title: "Recognition",
-      "1": { name: "Noticed", description: "Get your first like" },
-      "2": { name: "Popular", description: "Get 100 likes" },
-      "3": { name: "Star", description: "Get 1000 likes" },
-      "4": { name: "Legend", description: "Get 10000 likes" },
+      title: "Likes",
+      "1": { name: "Favourite", description: "50 likes" },
+      "2": { name: "Idolised", description: "250 likes" },
+      "3": { name: "Idol", description: "1000 likes" },
     },
-    likes_given: {
-      title: "Generosity",
-      "1": { name: "Kind", description: "Give your first like" },
-      "2": { name: "Generous", description: "Give 100 likes" },
-      "3": { name: "Patron", description: "Give 1000 likes" },
+    resonance: {
+      title: "Resonance",
+      "1": { name: "Wave", description: "Resonance 100" },
+      "2": { name: "Storm", description: "Resonance 500" },
+      "3": { name: "Tsunami", description: "Resonance 2000" },
     },
-    images: {
-      title: "Gallery",
-      "1": { name: "Photographer", description: "Publish an entry with an image" },
-      "2": { name: "Gallerist", description: "Publish 100 entries with images" },
-      "3": { name: "Photo artist", description: "Publish 1000 entries with images" },
+    tenure: {
+      title: "Tenure",
+      half: "Half a year on g6",
+      years_one: "{{count}} year on g6",
+      years_other: "{{count}} years on g6",
     },
-    reposts: {
-      title: "Reposts",
-      "1": { name: "Promoter", description: "Make your first repost" },
+
+    // ── Catalog: hand-granted awards ──
+    award_ktitor: {
+      title: "Ktitor",
+      description: "For contributing to the project",
     },
-    sub_join: {
-      title: "Communities",
-      "1": { name: "One of us", description: "Join a g-sub" },
+    award_bughunter: {
+      title: "Bug hunter",
+      description: "For finding and triaging bugs",
     },
-    sub_rules: {
-      title: "Communities",
-      "1": { name: "Law-abiding", description: "Accept g-sub rules" },
+    award_zodchiy: {
+      title: "Architect",
+      description: "For creativity and craft",
     },
-    sub_create: {
-      title: "Communities",
-      "1": { name: "Founder", description: "Create your own g-sub" },
+    award_keeper: {
+      title: "Keeper",
+      description: "For supporting the community",
     },
-    daily_streak: {
-      title: "Visits",
-      "1": { name: "Regular", description: "Visit 3 days in a row" },
-      "2": { name: "Steady", description: "Visit 7 days in a row" },
-      "3": { name: "Devoted", description: "Visit 30 days in a row" },
-      "4": { name: "Inseparable", description: "Visit 100 days in a row" },
-      "5": { name: "Veteran", description: "Visit 365 days in a row" },
+    award_patriarch: {
+      title: "Patriarch",
+      description: "The project's highest honour",
     },
-    session_time: {
-      title: "Time on site",
-      "1": { name: "Hanging around", description: "Spend 1 hour on the site" },
-      "2": { name: "Homebody", description: "Spend 10 hours on the site" },
-      "3": { name: "Resident", description: "Spend 100 hours on the site" },
-      "4": { name: "Soul of the site", description: "Spend 500 hours on the site" },
-    },
-    avatar: {
-      title: "Profile",
-      "1": { name: "Face", description: "Upload an avatar" },
-    },
-    bio: {
-      title: "Profile",
-      "1": { name: "About me", description: "Fill in your bio" },
-    },
-    profile_style: {
-      title: "Profile",
-      "1": { name: "Style", description: "Customize your profile" },
-    },
-    spotify: {
-      title: "Integrations",
-      "1": { name: "Music lover", description: "Connect Spotify" },
-    },
-    gift_sent: {
-      title: "Gifts",
-      "1": { name: "Generous giver", description: "Send your first gift" },
-    },
-    gift_received: {
-      title: "Gifts",
-      "1": { name: "Favorite", description: "Receive your first gift" },
-    },
-    secret_owl: {
-      title: "Secrets",
-      "1": { name: "Owl", description: "Publish 10 entries at night (3:00–6:00)" },
-    },
-    secret_shower: {
-      title: "Secrets",
-      "1": { name: "Go take a shower", description: "Spend 12+ hours on the site in one day" },
-    },
-    secret_lurk: {
-      title: "Secrets",
-      "1": { name: "Ghost", description: "Visit 30 days in a row without publishing an entry" },
-    },
-    secret_allrounder: {
-      title: "Secrets",
-      "1": { name: "All-rounder", description: "Reach level 2 in 5 different groups" },
+    award_triumph: {
+      title: "Triumphator",
+      description: "For winning events",
     },
   },
 };

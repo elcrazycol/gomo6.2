@@ -546,8 +546,8 @@ const Profile = () => {
                 wallRefreshKey={wallRefreshKey}
                 wallCreateOpen={wallCreateOpen}
                 onWallCreateOpenChange={setWallCreateOpen}
-                achievements={data.achievements}
-                achievementsLoaded={data.achievementsLoaded}
+                trophies={data.trophies}
+                trophiesLoaded={data.trophiesLoaded}
                 userThreads={data.userThreads}
                 profileLikesMap={data.profileLikesMap}
                 threadsLoading={data.threadsLoading}

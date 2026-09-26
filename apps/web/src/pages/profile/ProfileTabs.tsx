@@ -11,7 +11,7 @@ import { ProfileWall } from "@/components/ProfileWall";
 import { ProfileAlbumView } from "@/components/ProfileAlbumView";
 import { useFriendsStore } from "@/stores/friendsStore";
 import { useProfileAlbums } from "./useProfileAlbums";
-import type { AchievementData } from "@/components/AchievementCard";
+import type { Trophy as TrophyData } from "@/utils/trophies";
 import { TrophyShowcase } from "@/components/TrophyShowcase";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import type { Profile } from "./types";
@@ -51,9 +51,9 @@ export interface ProfileTabsProps {
   wallRefreshKey: number;
   wallCreateOpen: boolean;
   onWallCreateOpenChange: (open: boolean) => void;
-  // Achievements
-  achievements: AchievementData[];
-  achievementsLoaded: boolean;
+  // Trophies (achievements + awards)
+  trophies: TrophyData[];
+  trophiesLoaded: boolean;
   // Threads
   userThreads: any[];
   profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
@@ -234,8 +234,8 @@ export function ProfileTabs({
   wallRefreshKey,
   wallCreateOpen,
   onWallCreateOpenChange,
-  achievements,
-  achievementsLoaded,
+  trophies,
+  trophiesLoaded,
   userThreads,
   profileLikesMap,
   threadsLoading,
@@ -394,7 +394,7 @@ export function ProfileTabs({
                 key: "achievements",
                 icon: Trophy,
                 label: t("profile.achievements"),
-                count: achievementsLoaded ? ` (${achievements.length})` : undefined,
+                count: trophiesLoaded ? ` (${trophies.length})` : undefined,
               }}
               active={activeTab === 'achievements'}
               onClick={() => switchTab('achievements')}
@@ -557,14 +557,13 @@ export function ProfileTabs({
 
       {activeTab === 'achievements' && canViewAchievements && (
         <div>
-          {achievements.length === 0 ? (
+          {trophies.length === 0 ? (
             <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
           ) : (
             <div className="space-y-6">
-              {/* Trophy case — hand-drawn trophies, rarest first. Replaces the
-                  old pinned-achievements grid; pinning now lives on the full
-                  achievements page. */}
-              <TrophyShowcase achievements={achievements} />
+              {/* Trophy case — the rarest trophies (milestones + hand-granted
+                  awards). The full hall lives on the achievements page. */}
+              <TrophyShowcase trophies={trophies} />
 
               {/* Link to full achievements page */}
               <div className="pt-2">
@@ -575,7 +574,7 @@ export function ProfileTabs({
                   <Trophy className="w-4 h-4 group-hover/link:text-amber-400 transition-colors" />
                   {t("achievements.allAchievements")}
                   <span className="text-xs text-muted-foreground/50">
-                    ({achievements.length})
+                    ({trophies.length})
                   </span>
                   <span className="ml-1 group-hover/link:translate-x-0.5 transition-transform">→</span>
                 </Link>

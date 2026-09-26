@@ -6,7 +6,7 @@ import { getGiftCatalog } from "@/utils/currentUserMeta";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import { useTrophies } from "@/hooks/useTrophies";
-import type { AchievementData, Trophy, UserAward } from "@/utils/trophies";
+import type { Trophy, UserAward } from "@/utils/trophies";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import type { AvatarHistoryItem } from "./types";
 
@@ -22,12 +22,12 @@ export interface UseProfileDataParams {
 }
 
 export interface UseProfileDataResult {
-  achievements: AchievementData[];
-  achievementsLoaded: boolean;
   /** Active hand-granted awards (each with author/reason/date). */
   awards: UserAward[];
   /** Milestones + awards merged into one rarest-first trophy list. */
   trophies: Trophy[];
+  /** True once the trophy fetch for the current user has settled. */
+  trophiesLoaded: boolean;
   userThreads: any[];
   profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
   threadsLoading: boolean;
@@ -37,7 +37,6 @@ export interface UseProfileDataResult {
   giftCatalog: GiftCatalogItem[];
   giftCount: number;
   giftCountLoaded: boolean;
-  loadAchievements: () => Promise<void>;
   loadUserThreads: () => Promise<void>;
   loadAvatarHistory: () => Promise<AvatarHistoryItem[]>;
   openAvatarGallery: () => Promise<void>;
@@ -66,13 +65,9 @@ export function useProfileData({
   // are both heavy payloads, so they load lazily when the achievements tab is
   // first opened. The hook fetches them in parallel and merges the milestones
   // and awards into one rarest-first trophy list.
-  const {
-    milestones: achievements,
-    awards,
-    trophies,
-    loaded: achievementsLoaded,
-    reload: loadAchievements,
-  } = useTrophies(userId, { enabled: activeTab === "achievements" });
+  const { awards, trophies, loaded: trophiesLoaded } = useTrophies(userId, {
+    enabled: activeTab === "achievements",
+  });
 
   // ── User threads + likes ───────────────────────────────────────────────────
   const [userThreads, setUserThreads] = useState<any[]>([]);
@@ -262,10 +257,9 @@ export function useProfileData({
   }, [activeTab, giftCountLoaded, userId]);
 
   return {
-    achievements,
-    achievementsLoaded,
     awards,
     trophies,
+    trophiesLoaded,
     userThreads,
     profileLikesMap,
     threadsLoading,
@@ -275,7 +269,6 @@ export function useProfileData({
     giftCatalog,
     giftCount,
     giftCountLoaded,
-    loadAchievements,
     loadUserThreads,
     loadAvatarHistory,
     openAvatarGallery,
