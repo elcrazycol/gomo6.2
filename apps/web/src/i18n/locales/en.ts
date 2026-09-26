@@ -634,7 +634,6 @@ const en: LocaleResources = {
     back: "Back",
     allAchievements: "All awards",
     count: "Awards: {{count}}",
-    owners: "owners",
     milestonesSection: "Milestones",
     manualSection: "Hand-granted awards",
     noTrophies: "No awards yet",

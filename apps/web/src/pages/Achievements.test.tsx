@@ -145,7 +145,8 @@ describe("Achievements page", () => {
     await waitFor(() => {
       expect(screen.getByAltText("Хронист")).toBeInTheDocument();
     });
-    expect(screen.getByText("4% владельцев")).toBeInTheDocument();
+    // The owner share lives in the badge corner, revealed on hover.
+    expect(screen.getByText("4%")).toBeInTheDocument();
   });
 
   it("lists hand-granted awards with author, reason and date", async () => {

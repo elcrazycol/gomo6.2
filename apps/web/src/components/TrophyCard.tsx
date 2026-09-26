@@ -29,6 +29,7 @@ export function TrophyBadge({
 }) {
   const Icon = getAchievementIcon(trophy.icon);
   const glow = TROPHY_TIER_GLOW[trophy.tier] ?? TROPHY_TIER_GLOW.common;
+  const shareLabel = formatOwnerShare(trophy.ownerShare, getIntlLanguage());
 
   const maskStyle: React.CSSProperties | undefined = trophy.artUrl
     ? {
@@ -45,7 +46,7 @@ export function TrophyBadge({
 
   return (
     <div
-      className={cn("trophy-badge relative aspect-square select-none", className)}
+      className={cn("trophy-badge group relative aspect-square select-none", className)}
       style={{ "--trophy-glow": glow } as React.CSSProperties}
       title={label}
     >
@@ -69,6 +70,19 @@ export function TrophyBadge({
           <Icon size={52} />
         </div>
       )}
+
+      {shareLabel && (
+        <span
+          className={cn(
+            "pointer-events-none absolute bottom-1 right-1 z-30 rounded-md bg-background/85 px-1.5 py-0.5",
+            "text-[11px] font-medium tabular-nums leading-none text-foreground/90 shadow-sm backdrop-blur-sm",
+            "opacity-0 transition-opacity duration-300 ease-out",
+            "group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none",
+          )}
+        >
+          {shareLabel}
+        </span>
+      )}
     </div>
   );
 }
@@ -80,18 +94,12 @@ export function TrophyBadge({
 export function TrophyCard({ trophy, className }: { trophy: Trophy; className?: string }) {
   const { t } = useTranslation();
   const name = trophyName(t, trophy);
-  const share = formatOwnerShare(trophy.ownerShare, getIntlLanguage());
 
   return (
     <div className={cn("flex flex-col items-center gap-1.5 text-center", className)}>
       <TrophyBadge trophy={trophy} label={name} className="w-full" />
       {!trophy.artUrl && (
         <p className="line-clamp-2 text-xs font-medium leading-tight text-foreground">{name}</p>
-      )}
-      {share && (
-        <p className="text-[11px] tabular-nums text-muted-foreground">
-          {share} {t("achievements.owners")}
-        </p>
       )}
     </div>
   );
@@ -105,7 +113,6 @@ export function AwardCard({ trophy, className }: { trophy: Trophy; className?: s
   const { t } = useTranslation();
   const name = trophyName(t, trophy);
   const description = trophyDescription(t, trophy);
-  const share = formatOwnerShare(trophy.ownerShare, getIntlLanguage());
   const date = trophy.grantedAt
     ? new Date(trophy.grantedAt).toLocaleDateString(getIntlLanguage(), {
         day: "numeric",
@@ -120,11 +127,6 @@ export function AwardCard({ trophy, className }: { trophy: Trophy; className?: s
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           <p className="truncate font-medium text-foreground">{name}</p>
-          {share && (
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {share} {t("achievements.owners")}
-            </span>
-          )}
         </div>
         {description && (
           <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>

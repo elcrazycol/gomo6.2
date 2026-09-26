@@ -659,7 +659,6 @@ const ru: LocaleResources = {
     back: "Назад",
     allAchievements: "Все награды",
     count: "Наград: {{count}}",
-    owners: "владельцев",
     milestonesSection: "Вехи",
     manualSection: "Ручные награды",
     noTrophies: "Пока нет наград",
