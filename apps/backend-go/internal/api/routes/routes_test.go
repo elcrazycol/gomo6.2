@@ -105,6 +105,7 @@ var expectedRoutes = []string{
 	"POST /api/v1/users/status/bulk",
 	"GET /api/v1/actieye",
 	"GET /api/v1/users/:id/privacy",
+	"GET /api/v1/users/:id/customization",
 	"GET /api/v1/gift_catalog",
 	"GET /api/v1/user_gifts",
 	"POST /api/v1/client-errors",

@@ -92,6 +92,11 @@ func invalidateProfileCustomizationCache(h *Engine, _ *gin.Context, result map[s
 	}
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=eq.%s*", userID))
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=%s*", userID))
+	// The public per-user appearance route every badge/profile header reads for
+	// a foreign user (data:/api/v1/users/<id>/customization?|viewer=<v>). Without
+	// this the refetch that follows a broadcast is served the previous nickname
+	// colour from the data cache, so the change never becomes visible to others.
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/users/%s/customization*", userID))
 	// Also invalidate profile hover card cache (contains customization)
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
 }
