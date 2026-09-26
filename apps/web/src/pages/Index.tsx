@@ -386,7 +386,7 @@ const Index = () => {
 
   return (
     <div className="bg-background min-h-screen">
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6">
           {/* Main Feed */}
           <div className="lg:col-span-3">
