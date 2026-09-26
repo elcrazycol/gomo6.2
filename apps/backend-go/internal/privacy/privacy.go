@@ -38,6 +38,18 @@ const SettingsFlagColumns = `COALESCE(private_profile, false),
 	       COALESCE(private_hide_gifts, true),
 	       COALESCE(private_hide_achievements, true)`
 
+// DefaultSettings returns the privacy defaults for a user with no
+// privacy_settings row. It mirrors the COALESCE fallbacks above; keep the two in
+// sync so the content gates and the public visibility endpoint cannot disagree.
+func DefaultSettings() Settings {
+	return Settings{
+		PrivateHideThreads:      true,
+		PrivateHideFriends:      true,
+		PrivateHideGifts:        true,
+		PrivateHideAchievements: true,
+	}
+}
+
 // Wall-visibility flags. Both CanViewWall's SELECT and WallVisibilityClause's
 // SQL text reference these columns through the constants below, so a rename
 // touches one place instead of three.
@@ -64,7 +76,11 @@ func GetSettings(db *sql.DB, userID string) (*Settings, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return &Settings{}, nil
+			// A missing row must fall back to the same defaults as the COALESCE
+			// columns, otherwise the flags read as false and content that is
+			// hidden by default (achievements, gifts, friends, threads) leaks.
+			fallback := DefaultSettings()
+			return &fallback, nil
 		}
 		return nil, err
 	}

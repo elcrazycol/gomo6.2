@@ -76,8 +76,27 @@ func TestGetSettings_NoRow_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error for missing row, got %v", err)
 	}
-	if *ps != (Settings{}) {
-		t.Fatalf("expected zero-value Settings, got %+v", *ps)
+	expected := DefaultSettings()
+	if *ps != expected {
+		t.Fatalf("expected default Settings %+v, got %+v", expected, *ps)
+	}
+}
+
+// A missing privacy_settings row defaults to hidden achievements/gifts/friends/
+// threads — the same defaults the COALESCE columns encode. Regression guard for
+// achievements leaking to guests when the row was absent.
+func TestCanViewUserAchievements_NoRow_HidesFromOthers(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(settingsQuery).
+		WithArgs("u1").
+		WillReturnError(sql.ErrNoRows)
+
+	can, err := CanViewUserAchievements(db, "", "u1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if can {
+		t.Fatal("expected achievements to be hidden by default when no settings row exists")
 	}
 }
 

@@ -128,7 +128,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			httpx.ServerError(c, "handler error", err)
 			return
 		}
-		if !canView {
+		if !canView && !h.isModeratorOrAdmin(viewerID) {
 			c.JSON(http.StatusOK, models.SuccessResponse([]map[string]interface{}{}))
 			return
 		}
