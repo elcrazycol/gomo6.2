@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -49,7 +50,13 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 
 	baseURL := os.Getenv("ISSUER_URL")
 	if baseURL == "" {
-		baseURL = "http://" + domain
+		if domain == "localhost" {
+			// Local dev: the OAuth issuer is the API server on 8080, not the
+			// bare "localhost" (which would resolve to port 80).
+			baseURL = "http://localhost:8080"
+		} else {
+			baseURL = "http://" + domain
+		}
 	}
 
 	frontendURL := os.Getenv("DEV_DASHBOARD_URL")
@@ -63,6 +70,11 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 		}
 	}
 	frontendURL = strings.TrimRight(frontendURL, "/")
+	// The OAuth redirect must land on the exact origin the dashboard is served
+	// from (localhost:3002 vs dev.localhost:3002) so the PKCE verifier — stored
+	// per origin — is found again. Echo the request origin when it is one of the
+	// app's registered redirect URIs; otherwise fall back to the configured URL.
+	frontendURL = h.resolveFrontendURL(c, clientID, frontendURL)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"client_id":         clientID,
@@ -76,6 +88,47 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 		"app_name":          "gomo6 Dev Dashboard",
 		"app_description":   "Управление OAuth-приложениями и интеграциями gomo6",
 	}))
+}
+
+// resolveFrontendURL returns the request's own origin+"/callback" base when that
+// origin is a registered redirect URI of the app, else the configured fallback.
+// This makes login work on every registered origin (localhost vs dev.localhost)
+// without opening the door to arbitrary hosts.
+func (h *DevDashboardHandler) resolveFrontendURL(c *gin.Context, clientID, fallback string) string {
+	origin := requestOrigin(c)
+	if origin == "" {
+		return fallback
+	}
+	var raw []byte
+	if err := h.db.QueryRow(
+		`SELECT redirect_uris FROM oauth_applications WHERE client_id = $1`, clientID,
+	).Scan(&raw); err != nil {
+		return fallback
+	}
+	var uris []string
+	if err := json.Unmarshal(raw, &uris); err != nil {
+		return fallback
+	}
+	want := origin + "/callback"
+	for _, u := range uris {
+		if strings.TrimRight(u, "/") == want {
+			return origin
+		}
+	}
+	return fallback
+}
+
+// requestOrigin extracts the browser origin from the Origin or Referer header.
+func requestOrigin(c *gin.Context) string {
+	if o := strings.TrimRight(c.GetHeader("Origin"), "/"); o != "" {
+		return o
+	}
+	if ref := c.GetHeader("Referer"); ref != "" {
+		if u, err := url.Parse(ref); err == nil && u.Scheme != "" && u.Host != "" {
+			return u.Scheme + "://" + u.Host
+		}
+	}
+	return ""
 }
 
 // SeedDevDashboardApp creates or ensures the dev-dashboard OAuth app exists
@@ -102,11 +155,6 @@ func SeedDevDashboardApp(db *sql.DB) {
 	devDashboardURL = strings.TrimRight(devDashboardURL, "/")
 
 	redirectURIsList := []string{devDashboardURL + "/callback"}
-	// Keep the conventional dev.localhost alias registered for local setups,
-	// while production remains limited to the explicitly configured URL.
-	if domain == "localhost" {
-		redirectURIsList = append(redirectURIsList, "http://dev.localhost:3002/callback")
-	}
 	redirectURIsJSON, err := json.Marshal(redirectURIsList)
 	if err != nil {
 		log.Printf("SeedDevDashboardApp: failed to encode redirect URIs: %v", err)

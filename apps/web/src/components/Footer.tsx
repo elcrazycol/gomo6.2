@@ -1,10 +1,16 @@
 export const Footer = () => {
   // Use window.location.hostname so subdomain links work both locally
-  // (dev.localhost, docs.localhost) and in production (dev.example.com, docs.example.com)
+  // (localhost ports) and in production (dev.example.com, docs.example.com)
   const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   // Strip known subdomain prefixes to get the root domain
-  // docs.localhost → localhost | docs.example.com → example.com
+  // docs.example.com → example.com | localhost → localhost
   const rootDomain = hostname.replace(/^(docs|dev|www)\./, '');
+  const isLocal = rootDomain === 'localhost' || rootDomain === '127.0.0.1' || hostname.endsWith('.localhost');
+
+  // Locally the dev tools run on their own Vite ports; in production they are
+  // subdomains behind the reverse proxy.
+  const devHref = isLocal ? 'http://localhost:3002' : `//dev.${rootDomain}`;
+  const docsHref = isLocal ? 'http://localhost:3001' : `//docs.${rootDomain}`;
 
   // Git commit hash injected at build time via VITE_GIT_COMMIT
   const commitHash = import.meta.env.VITE_GIT_COMMIT;
@@ -23,7 +29,7 @@ export const Footer = () => {
           </p>
           {versionLabel && <span className="text-xs text-muted-foreground/70 font-medium">{versionLabel}</span>}
           <a
-            href={`//dev.${rootDomain}`}
+            href={devHref}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -31,7 +37,7 @@ export const Footer = () => {
             Dev
           </a>
           <a
-            href={`//docs.${rootDomain}`}
+            href={docsHref}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
