@@ -44,7 +44,7 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
   return (
     <Button
       variant="ghost"
-      className="relative h-8 w-8 p-0 hover:bg-white/20 hover:text-white transition-colors group"
+      className="relative h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors group"
       onClick={() => navigate("/messages")}
       aria-label="Открыть мессенджер"
     >

@@ -127,7 +127,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
     <>
       <Button
         variant="ghost"
-        className="lg:hidden h-8 w-8 p-0 hover:bg-white/20 hover:text-white transition-colors"
+        className="lg:hidden h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors"
         onClick={() => setOpen(true)}
       >
         <Menu className="h-5 w-5" />

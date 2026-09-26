@@ -1108,7 +1108,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <motion.header
         ref={headerRef}
         data-app-layout-header="true"
-        className="app-header-glass text-board-header-foreground fixed top-0 left-0 right-0 z-50"
+        className="app-header-glass fixed top-0 left-0 right-0 z-50"
         style={{ y: headerY, willChange: "transform" }}
       >
         <div className="max-w-6xl mx-auto px-4">
@@ -1117,7 +1117,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             <img
               src="/gomo6-logo.svg"
               alt="gomo6"
-              className="h-8 w-auto transition-transform duration-200 ease-out group-hover:scale-105"
+              className="app-header-logo h-8 w-auto transition-transform duration-200 ease-out group-hover:scale-105"
               draggable={false}
             />
           </Link>
@@ -1239,7 +1239,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <Search className="h-4 w-4" />
             </Button>
             <Link to="/settings" className="hidden lg:block">
-              <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-white/20 hover:text-white transition-colors group">
+              <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors group">
                 <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>

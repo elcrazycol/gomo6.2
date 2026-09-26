@@ -43,7 +43,8 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
     : {};
 
   // Neutral, like every other nickname: inherits the header's foreground colour
-  // (white on the glass bar) instead of the theme's quote accent + white halo.
+  // (dark on light glass, light on dark glass) instead of the theme's quote
+  // accent + white halo.
   const usernameClassName = `text-sm sm:text-base`;
 
   return (

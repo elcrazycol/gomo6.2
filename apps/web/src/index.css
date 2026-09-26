@@ -1071,10 +1071,14 @@ main.is-app-surface {
    ═══════════════════════════════════════════════════════════════════════════
 
    One pane of neutral frosted glass. It deliberately does NOT take the theme's
-   board-header colour any more — a tinted pane reads as coloured plastic,
-   while an untinted one behaves like real glass over every theme. The
-   foreground stays white (text-board-header-foreground is white in all
-   themes), which is why the pane is always dark, even on light themes.
+   board-header colour — a tinted pane reads as coloured plastic, while a
+   neutral one behaves like real glass over every theme.
+
+   It does follow the theme's SURFACE though: the pane frosts the theme
+   background and takes the theme foreground, so a light theme gets light glass
+   with dark text and a dark theme dark glass with light text. A single fixed
+   dark pane (0 0% 8% + always-white text) made every light theme look like a
+   heavy darkening rather than glass.
 
    Three things make it read as glass rather than as a translucent bar:
      • blur plus a saturation boost, so the colours behind the pane stay vivid
@@ -1100,20 +1104,21 @@ main.is-app-surface {
    Three progressively cheaper tiers live further down ("Cost tiers"): narrow
    screens, html.perf-lite, and the no-backdrop-filter fallback. */
 .app-header-glass {
-  --glass-base: 0 0% 8%;
-  --glass-alpha: 0.55;
+  --glass-alpha: 0.62;
   --glass-blur: 18px;
   --glass-saturate: 180%;
 
-  background-color: hsl(var(--glass-base) / var(--glass-alpha));
+  /* Both read from the theme, so the pane is light glass on a light theme and
+     dark glass on a dark one without any per-theme selectors. */
+  background-color: hsl(var(--background) / var(--glass-alpha));
+  color: hsl(var(--foreground));
   /* Ordered top-to-bottom: sheen, diagonal streak, then the thickness gradient
-     (a whisper of light at the top, a denser floor — which is also what keeps
-     white text readable over bright content). All static, so they cost nothing
-     per frame here. */
+     (a whisper of light at the top, a denser floor). All static, so they cost
+     nothing per frame here. */
   background-image:
-    radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.22), transparent 58%),
-    linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.07) 49%, transparent 61%),
-    linear-gradient(to bottom, hsl(0 0% 100% / 0.04), hsl(0 0% 0% / 0.16));
+    radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%),
+    linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%),
+    linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
 
   /* Exactly two passes: the blur and one colour matrix. Every extra function
      is another full-width shader on every scroll frame, which is why there is
@@ -1121,11 +1126,20 @@ main.is-app-surface {
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 
-  border-bottom: 1px solid hsl(0 0% 100% / 0.1);
+  /* The theme border doubles as the pane's edge in both schemes — a white
+     hairline only worked on dark glass. */
+  border-bottom: 1px solid hsl(var(--border) / 0.85);
   box-shadow:
-    inset 0 1px 0 hsl(0 0% 100% / 0.14),
-    inset 0 -1px 0 hsl(0 0% 0% / 0.22),
-    0 10px 30px -14px hsl(0 0% 0% / 0.55);
+    inset 0 1px 0 hsl(0 0% 100% / 0.12),
+    inset 0 -1px 0 hsl(0 0% 0% / 0.1),
+    0 10px 30px -14px hsl(0 0% 0% / 0.22);
+}
+
+/* The mark is white-and-purple: on light glass its white facets would vanish.
+   A tight dark hairline keeps the whole mark readable — on dark glass it would
+   only add mud, so it is light-mode only (data-mode is set by applyTheme). */
+html[data-mode="light"] .app-header-logo {
+  filter: drop-shadow(0 0 1px hsl(0 0% 0% / 0.5));
 }
 
 /* Grain. Isolated in its own layer so soft-light only textures the glass —
@@ -1175,7 +1189,7 @@ main.is-app-surface {
 html.perf-lite .app-header-glass {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  background-color: hsl(var(--glass-base) / 0.86);
+  background-color: hsl(var(--background) / 0.86);
 }
 
 html.perf-lite .app-header-glass::before {
@@ -1187,7 +1201,7 @@ html.perf-lite .app-header-glass::before {
    near-solid neutral bar. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .app-header-glass {
-    background-color: hsl(var(--glass-base) / 0.96);
+    background-color: hsl(var(--background) / 0.96);
   }
   .app-header-glass::before {
     display: none;
@@ -1197,7 +1211,7 @@ html.perf-lite .app-header-glass::before {
 /* Respect the OS "reduce transparency" switch. */
 @media (prefers-reduced-transparency: reduce) {
   .app-header-glass {
-    background-color: hsl(var(--glass-base));
+    background-color: hsl(var(--background));
     background-image: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
