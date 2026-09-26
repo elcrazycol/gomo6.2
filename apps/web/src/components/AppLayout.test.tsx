@@ -178,7 +178,9 @@ describe("AppLayout", () => {
 
   it("renders gomo6 logo link", () => {
     renderLayout();
-    expect(screen.getByText("gomo6")).toBeInTheDocument();
+    const logo = screen.getByAltText("gomo6");
+    expect(logo).toBeInTheDocument();
+    expect(logo).toHaveAttribute("src", "/gomo6-logo.svg");
   });
 
   it("hides header/footer on the auth page", () => {
@@ -430,6 +432,8 @@ describe("AppLayout", () => {
       origInnerHeight = window.innerHeight;
       Object.defineProperty(document.documentElement, "scrollHeight", { value: 3000, configurable: true });
       window.innerHeight = 800;
+      // These tests exercise the auto-hide mode; the default is "fixed".
+      localStorage.setItem("header-behavior", "auto-hide");
       renderLayout();
       mockAnimate.mockClear();
     });
@@ -461,6 +465,44 @@ describe("AppLayout", () => {
     it("does not animate the header near the page bottom", () => {
       scrollTo(2999, 0); // near bottom (maxScroll = 2200)
       expect(mockAnimate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("fixed header behaviour", () => {
+    function scrollTo(latest: number, previous: number) {
+      (globalThis as any).__scrollPrevious = previous;
+      const handler = (globalThis as any).__scrollHandler;
+      act(() => handler(latest));
+    }
+
+    let origInnerHeight = 0;
+
+    beforeEach(() => {
+      origInnerHeight = window.innerHeight;
+      Object.defineProperty(document.documentElement, "scrollHeight", { value: 3000, configurable: true });
+      window.innerHeight = 800;
+      // No stored preference → the default "fixed".
+      renderLayout();
+      mockAnimate.mockClear();
+    });
+
+    afterEach(() => {
+      delete (document.documentElement as any).scrollHeight;
+      window.innerHeight = origInnerHeight;
+    });
+
+    it("never hides the header on scroll-down by default", () => {
+      scrollTo(500, 0);
+      expect(mockAnimate).not.toHaveBeenCalled();
+    });
+
+    it("starts hiding after a live switch to auto-hide", () => {
+      act(() => {
+        localStorage.setItem("header-behavior", "auto-hide");
+        window.dispatchEvent(new CustomEvent("gomo6:header-behavior"));
+      });
+      scrollTo(500, 0);
+      expect(mockAnimate).toHaveBeenCalledWith(expect.anything(), 0, expect.anything());
     });
   });
 

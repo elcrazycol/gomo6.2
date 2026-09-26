@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle } from "lucide-react";
+import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle, PanelTop } from "lucide-react";
 import { useAnimatedVideoStore, type AutoplayMode } from "@/stores/animatedVideoStore";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
@@ -23,6 +23,7 @@ import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStore
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { PublishButton } from "@/components/PublishButton";
 import { PUBLISH_BUTTON_STYLES, getPublishButtonStyle, setPublishButtonStyle, type PublishButtonStyle } from "@/lib/publishButtonStyle";
+import { HEADER_BEHAVIORS, getHeaderBehavior, setHeaderBehavior, type HeaderBehavior } from "@/lib/headerBehavior";
 
 
 const defaultPrivacySettings = {
@@ -113,6 +114,8 @@ const Settings = () => {
   const [fontSettingsExpanded, setFontSettingsExpanded] = useState(false);
   const [publishButtonExpanded, setPublishButtonExpanded] = useState(false);
   const [publishButtonStyle, setPublishButtonStyleState] = useState<PublishButtonStyle>(getPublishButtonStyle);
+  const [headerExpanded, setHeaderExpanded] = useState(false);
+  const [headerBehavior, setHeaderBehaviorState] = useState<HeaderBehavior>(getHeaderBehavior);
 
   const [customFont, setCustomFont] = useState(() => {
     return localStorage.getItem('custom_font') || '';
@@ -403,6 +406,11 @@ const Settings = () => {
   const handlePublishButtonStyleChange = (style: PublishButtonStyle) => {
     setPublishButtonStyleState(style);
     setPublishButtonStyle(style);
+  };
+
+  const handleHeaderBehaviorChange = (behavior: HeaderBehavior) => {
+    setHeaderBehaviorState(behavior);
+    setHeaderBehavior(behavior);
   };
 
   const handleTabChange = (value: string) => {
@@ -770,6 +778,72 @@ const Settings = () => {
                               </div>
                               <div className="mt-3 flex min-h-[52px] items-center justify-center rounded-xl border border-border/60 bg-background/50 p-2">
                                 <PublishButton style={s.id} onClick={() => {}} />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Header behaviour */}
+                <Collapsible open={headerExpanded} onOpenChange={setHeaderExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <PanelTop className="h-5 w-5" />
+                        <div>
+                          <span className="text-lg font-semibold">Хедер</span>
+                          <p className="text-sm text-muted-foreground">Как ведёт себя верхняя панель при прокрутке</p>
+                        </div>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 transition-transform ${headerExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
+                    <div className="bg-card border border-border p-4 sm:p-6 space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {HEADER_BEHAVIORS.map((b) => {
+                          const isSelected = headerBehavior === b.id;
+                          return (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => handleHeaderBehaviorChange(b.id)}
+                              className={`group relative rounded-2xl border p-3 text-left transition-all duration-200 ${
+                                isSelected
+                                  ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_hsl(var(--primary)/0.22),0_10px_28px_hsl(var(--primary)/0.1)]"
+                                  : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="font-semibold leading-tight">{b.label}</div>
+                                  <div className="text-xs text-muted-foreground">{b.description}</div>
+                                </div>
+                                <span
+                                  className={`h-3 w-3 shrink-0 rounded-full border transition-all duration-200 ${
+                                    isSelected ? "scale-110 bg-primary ring-4 ring-primary/15" : "border-foreground/20"
+                                  }`}
+                                />
+                              </div>
+                              {/* Mini preview: the bar at the top, "auto-hide"
+                                  shows it slid up and faded. */}
+                              <div className="mt-3 h-16 overflow-hidden rounded-xl border border-border/60 bg-background/50 p-1.5">
+                                <div
+                                  className={`flex items-center justify-between rounded-md border border-border/60 bg-primary/25 px-2 py-1 transition-all duration-300 ${
+                                    b.id === "auto-hide" ? "-translate-y-3 opacity-40" : "translate-y-0 opacity-100"
+                                  }`}
+                                >
+                                  <span className="h-1.5 w-8 rounded-full bg-foreground/40" />
+                                  <span className="h-1.5 w-1.5 rounded-full bg-foreground/40" />
+                                </div>
+                                <div className="mt-2 space-y-1.5 px-1">
+                                  <span className="block h-1.5 w-3/4 rounded-full bg-foreground/15" />
+                                  <span className="block h-1.5 w-1/2 rounded-full bg-foreground/15" />
+                                  <span className="block h-1.5 w-2/3 rounded-full bg-foreground/15" />
+                                </div>
                               </div>
                             </button>
                           );
