@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { BrowserRouter } from "react-router-dom";
@@ -150,14 +149,6 @@ function setupLoggedIn() {
         return makePromiseChain({ data: [], error: null });
     }
   });
-  mockRpc.mockResolvedValue({ data: null, error: null });
-}
-
-function setupLoggedOut() {
-  mockAuth.getSession.mockResolvedValue({ data: { session: null }, error: null });
-  mockAuth.getUser.mockResolvedValue({ data: { user: null }, error: null });
-  mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
-  mockFrom.mockImplementation((_table: string) => makePromiseChain({ data: [], error: null }));
   mockRpc.mockResolvedValue({ data: null, error: null });
 }
 

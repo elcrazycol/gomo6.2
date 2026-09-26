@@ -1,29 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { Users } from "lucide-react";
-import { UserBadge } from "@/components/UserBadge";
-import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
-
-interface Board {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-}
 
 interface GomoSub {
   id: string;
@@ -34,16 +20,18 @@ interface GomoSub {
 
 const Index = () => {
   const { loadProfile } = useProfileCache();
-  const [boards, setBoards] = useState<Board[]>([]);
   const [gomoSubs, setGomoSubs] = useState<GomoSub[]>([]);
   const [gomoSubsMembers, setGomoSubsMembers] = useState<Record<string, number>>({});
   const [joinedGomoSubs, setJoinedGomoSubs] = useState<GomoSub[]>([]);
   const [user, setUser] = useState<{ id: string } | null>(null);
-  const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
+  // Consumed by ProcessedContent to colour @-mentions of the current user inside
+  // post text, but nothing computes it any more (nickname colours now come from
+  // profile_customization, not from the legacy colour presets), so mentions fall
+  // back to the theme's quote colour. Flagged rather than removed: dropping the
+  // prop means touching ProcessedContent + every card that threads it through.
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [showTerms, setShowTerms] = useState(false);
-  const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   
@@ -59,13 +47,11 @@ const Index = () => {
           const [profileData, termsRes] = await Promise.all([
             loadProfile(session.user.id),
             api.from("user_terms_acceptance").select("*").eq("user_id", session.user.id).maybeSingle(),
-          ]);		  setIsModerator(profileData.isAdmin);
+          ]);
           setCurrentUserUsername(profileData.username);
 
           if (!termsRes.data) {
             setShowTerms(true);
-          } else {
-            setTermsAccepted(true);
           }
         }
       } catch (error) {
@@ -89,19 +75,6 @@ const Index = () => {
 
   useEffect(() => {
     const loadSidebarData = async () => {
-      const { data: boardsData } = await api
-        .from("boards")
-        .select("*")
-        .eq("is_rules_board", false)
-        .eq("is_gomosub", false)
-        .order("created_at", { ascending: true });
-
-      if (boardsData) {
-        // Filter out /faq/ and /bugs/ boards from the main list
-        const filteredBoards = boardsData.filter((board: { slug: string }) => board.slug !== 'faq' && board.slug !== 'bugs');
-        setBoards(filteredBoards as unknown as Board[]);
-      }
-
       const { data: gomoSubsData } = await api
         .from("boards")
         .select("id, slug, name, description")
@@ -174,11 +147,6 @@ const Index = () => {
     loadJoinedGomoSubs();
   }, [user?.id]);
 
-  const handleLogout = async () => {
-    await api.auth.signOut();
-    toast.success("Вышли");
-  };
-
   const handleAcceptTerms = async () => {
     if (!user) return;
 
@@ -197,7 +165,6 @@ const Index = () => {
     }
 
     setShowTerms(false);
-    setTermsAccepted(true);
     toast.success("Спасибо за согласие с правилами");
   };
 
