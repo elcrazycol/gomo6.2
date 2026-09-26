@@ -1,15 +1,12 @@
 /**
- * Trophy artwork registry.
+ * Trophy artwork registry (fallback).
  *
  * The achievement catalog (groups, levels, thresholds, text) lives in Go —
- * `apps/backend-go/internal/achievements` — and is mirrored into the DB. The
- * trophy artwork is, by contrast, a purely frontend asset: one hand-drawn PNG
- * per (group_key, level), served from `public/trophies/`.
- *
- * Keeping the map here means the backend never has to know about image paths,
- * and an achievement without artwork simply has no entry — the UI falls back to
- * the icon-only card. Add a level's art by dropping `<group_key>-<level>.png`
- * into `public/trophies/` and registering it below.
+ * `apps/backend-go/internal/achievements` — and is mirrored into the DB. Artwork
+ * is primarily DB-driven: `achievements.level_images[level]` (per-level uploads
+ * from the admin panel) and `achievements.image_url`. This registry is only the
+ * bundle-time fallback for code milestones that ship their art with the app; it
+ * is consulted after the DB fields (see `utils/trophies.ts`).
  *
  * The artwork carries its own baked-in caption, so it is rendered as a whole
  * badge (no separate title/rarity text next to it).
@@ -23,8 +20,6 @@ const TROPHY_ART: Record<string, Record<number, string>> = {
     1: "/trophies/likes_received-1.png",
     2: "/trophies/likes_received-2.png",
   },
-  daily_streak: { 1: "/trophies/daily_streak-1.png" },
-  bio: { 1: "/trophies/bio-1.png" },
 };
 
 /**

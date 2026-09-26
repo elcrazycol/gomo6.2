@@ -1061,7 +1061,7 @@ main.is-app-surface {
    back while hovered (`alternate`), and `screen` blending makes it read as
    light *added* onto the artwork, which gives the flat PNG a sense of volume.
    The badge itself sways gently, as if it turns into the light. The halo color
-   comes from --trophy-glow (rarity), set inline. */
+   comes from --trophy-glow (owner-share tier), set inline. */
 
 .trophy-badge img {
   transform-origin: 50% 55%;

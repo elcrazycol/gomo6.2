@@ -4384,34 +4384,6 @@ paths:
       summary: Check if user liked thread
       tags:
       - RPC
-  /rpc/toggle_achievement_pin:
-    post:
-      consumes:
-      - application/json
-      description: Pin or unpin an achievement on profile
-      parameters:
-      - description: User and achievement IDs
-        in: body
-        name: request
-        required: true
-        schema:
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-      security:
-      - BearerAuth: []
-      summary: Toggle achievement pin
-      tags:
-      - RPC
   /rpc/toggle_wall_post_pin:
     get:
       description: Pin or unpin a wall post

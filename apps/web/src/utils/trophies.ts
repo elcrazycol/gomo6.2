@@ -41,11 +41,6 @@ export interface AchievementLevel {
   name?: string;
   /** Legacy plain-text description. */
   description?: string;
-  /** Legacy rarity label (kept for old rows/tests; the UI no longer reads it). */
-  rarity?: string;
-  /** Legacy garma reward fields (unused by the rewards-free catalog). */
-  reward_type?: string;
-  reward_value?: string;
 }
 
 /** Normalized milestone/trophy entry (auto). */
@@ -59,8 +54,7 @@ export interface AchievementData {
   description: string;
   icon: string;
   category: string;
-  /** Legacy rarity label; the UI ranks by owner share instead. */
-  rarity?: string;
+  /** Whether this is an auto milestone or a hand-granted award. */
   kind?: TrophyKind;
   origin?: TrophyOrigin;
   /** Single/group artwork URL (admin-uploaded or curated). */
@@ -73,29 +67,16 @@ export interface AchievementData {
   maxLevel?: number;
   max_level?: number;
   current_level?: number;
-  is_pinned?: boolean;
-  pinned_order?: number | null;
   unlocked_at?: string;
-  hidden?: boolean;
   locked?: boolean;
-  progress_current?: number;
-  progress_target?: number;
-  achievement_type?: string;
-  /** Legacy garma reward fields (unused). */
-  reward_type?: string;
-  reward_value?: string;
   levels?: AchievementLevel[];
 }
 
 /** Raw `user_achievements` join row (one per unlocked achievement). */
 export interface UserAchievementRaw {
-  id?: string;
   current_level?: number;
   level?: number;
   unlocked_at?: string;
-  is_pinned?: boolean;
-  pinned_order?: number | null;
-  progress_current?: number;
   achievements?: {
     id: string;
     group_key?: string;
@@ -109,8 +90,6 @@ export interface UserAchievementRaw {
     image_url?: string | null;
     level_images?: Record<string, string>;
     owner_share?: Record<string, number>;
-    achievement_type?: string;
-    hidden?: boolean;
     levels?: AchievementLevel[];
   };
 }
@@ -227,7 +206,6 @@ export function mapUserAchievementRaw(ua: UserAchievementRaw): AchievementData {
     description: levelDef?.description || a.description || "",
     icon: a.icon || "sparkles",
     category: a.category || "",
-    rarity: levelDef?.rarity || undefined,
     kind: (a.kind as TrophyKind) || "milestone",
     origin: (a.origin as TrophyOrigin) || "code",
     image_url: a.image_url ?? null,
@@ -237,14 +215,7 @@ export function mapUserAchievementRaw(ua: UserAchievementRaw): AchievementData {
     current_level: currentLevel,
     maxLevel: levels.length || 1,
     max_level: levels.length || 1,
-    is_pinned: ua.is_pinned || false,
-    pinned_order: ua.pinned_order ?? null,
     unlocked_at: ua.unlocked_at,
-    progress_current: ua.progress_current ?? 0,
-    achievement_type: a.achievement_type || "one_time",
-    reward_type: levelDef?.reward_type,
-    reward_value: levelDef?.reward_value,
-    hidden: a.hidden || false,
     locked: currentLevel === 0,
     levels,
   };

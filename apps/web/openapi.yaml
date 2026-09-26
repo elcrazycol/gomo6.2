@@ -1427,14 +1427,6 @@ paths:
         "200":
           description: Удалён
 
-  /api/rpc/toggle_achievement_pin:
-    post:
-      summary: Закрепить/открепить достижение
-      tags: [RPC]
-      responses:
-        "200":
-          description: Статус
-
   /api/rpc/create_gomosub:
     post:
       summary: Создать GomoSub

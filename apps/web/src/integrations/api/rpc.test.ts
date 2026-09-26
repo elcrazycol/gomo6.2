@@ -192,14 +192,6 @@ describe("rpc() compatibility wrapper", () => {
       expect(result.data).toEqual({ deleted: true });
     });
 
-    it("toggle_achievement_pin returns the raw response data", async () => {
-      mocks.rawRequest.mockResolvedValue({ data: { pinned: false } });
-      const result = await rpc("toggle_achievement_pin", { achievement_id: "ach-1" });
-
-      expect(mocks.rawRequest).toHaveBeenCalledWith("/api/rpc/toggle_achievement_pin", expect.anything());
-      expect(result.data).toEqual({ pinned: false });
-    });
-
     it("get_or_create_direct_chat falls back to the whole response when data is absent", async () => {
       // Go handler returns a plain string body → rawRequest resolves without a data field
       mocks.rawRequest.mockResolvedValue({ conversation_id: "conv-1" });

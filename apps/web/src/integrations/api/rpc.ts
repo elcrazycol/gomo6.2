@@ -82,7 +82,6 @@ export const rpc = (functionName: string, params?: Record<string, unknown>) => {
         }
         case 'get_avatar_history':
         case 'delete_avatar_from_history':
-        case 'toggle_achievement_pin':
         case 'get_or_create_direct_chat': {
           // Go handler returns the conversation ID as a plain JSON string, NOT {success, data}
           // e.g. `c.JSON(http.StatusOK, conversationID)` → body is just "conv-uuid"

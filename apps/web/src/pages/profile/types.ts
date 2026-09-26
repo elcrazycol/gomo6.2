@@ -1,8 +1,5 @@
 import { useFileDrop } from "@/hooks/useFileDrop";
 
-// Achievement/trophy row types live with the trophy domain helpers.
-export type { UserAchievementRaw, UserAwardRaw, UserAward } from "@/utils/trophies";
-
 /** Raw row returned by /profiles. */
 export interface Profile {
   id: string;

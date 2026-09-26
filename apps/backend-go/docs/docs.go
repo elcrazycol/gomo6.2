@@ -6346,51 +6346,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/rpc/toggle_achievement_pin": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Pin or unpin an achievement on profile",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "RPC"
-                ],
-                "summary": "Toggle achievement pin",
-                "parameters": [
-                    {
-                        "description": "User and achievement IDs",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/rpc/toggle_wall_post_pin": {
             "get": {
                 "security": [

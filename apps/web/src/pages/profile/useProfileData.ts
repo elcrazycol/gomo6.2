@@ -6,7 +6,7 @@ import { getGiftCatalog } from "@/utils/currentUserMeta";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import { useTrophies } from "@/hooks/useTrophies";
-import type { Trophy, UserAward } from "@/utils/trophies";
+import type { Trophy } from "@/utils/trophies";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import type { AvatarHistoryItem } from "./types";
 
@@ -22,8 +22,6 @@ export interface UseProfileDataParams {
 }
 
 export interface UseProfileDataResult {
-  /** Active hand-granted awards (each with author/reason/date). */
-  awards: UserAward[];
   /** Milestones + awards merged into one rarest-first trophy list. */
   trophies: Trophy[];
   /** True once the trophy fetch for the current user has settled. */
@@ -65,7 +63,7 @@ export function useProfileData({
   // are both heavy payloads, so they load lazily when the achievements tab is
   // first opened. The hook fetches them in parallel and merges the milestones
   // and awards into one rarest-first trophy list.
-  const { awards, trophies, loaded: trophiesLoaded } = useTrophies(userId, {
+  const { trophies, loaded: trophiesLoaded } = useTrophies(userId, {
     enabled: activeTab === "achievements",
   });
 
@@ -257,7 +255,6 @@ export function useProfileData({
   }, [activeTab, giftCountLoaded, userId]);
 
   return {
-    awards,
     trophies,
     trophiesLoaded,
     userThreads,
