@@ -41,7 +41,12 @@ describe("notificationLink", () => {
 
   it("links thread events via slug when provided", () => {
     const n: Notification = { ...base, type: "reply", related_thread_id: "t1" };
-    expect(notificationLink(n, "b")).toBe("/b/thread/t1");
+    expect(notificationLink(n, "b")).toBe("/g/b/thread/t1");
+  });
+
+  it("links board-less (global) thread events directly", () => {
+    const n: Notification = { ...base, type: "reply", related_thread_id: "t1" };
+    expect(notificationLink(n)).toBe("/thread/t1");
   });
 
   it("falls back to # for notifications with no target", () => {

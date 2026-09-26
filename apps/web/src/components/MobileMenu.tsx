@@ -5,7 +5,7 @@ import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Menu, Settings, Hammer, LogOut, Users, Droplets } from "lucide-react";
+import { Menu, Settings, Hammer, LogOut, Users, Droplets, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
@@ -175,6 +175,17 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 <Button
                   variant="ghost"
                   onClick={() => {
+                    navigate("/create");
+                    setOpen(false);
+                  }}
+                  className="h-10 rounded-xl border border-primary/40 bg-primary/10 px-3 text-xs shrink-0 text-primary"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  Создать тему
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
                     navigate("/g");
                     setOpen(false);
                   }}
@@ -262,13 +273,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   <div className="text-xs text-muted-foreground line-clamp-1">{sub.name}</div>
                 </Link>
               ))}
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('nav.important')}</div>
-              <Link to="/rules" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">Информация</Link>
-              <Link to="/bugs" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">Баги/Идеи</Link>
-              <Link to="/faq" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">FAQ</Link>
             </div>
 
           </div>

@@ -29,10 +29,7 @@ export const CookieBanner = () => {
       <div className="max-w-6xl mx-auto px-4 flex items-center justify-between gap-4">
         <div className="flex-1">
           <p className="text-sm text-muted-foreground">
-            Мы используем куки для улучшения вашего опыта. Продолжая использовать сайт, вы соглашаетесь с нашей{" "}
-            <a href="/rules" className="text-primary hover:underline">
-              политикой конфиденциальности
-            </a>.
+            Мы используем куки для улучшения вашего опыта. Продолжая использовать сайт, вы соглашаетесь с политикой конфиденциальности.
           </p>
         </div>
         <div className="flex gap-2">

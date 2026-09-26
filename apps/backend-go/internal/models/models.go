@@ -133,6 +133,8 @@ type Thread struct {
 	ID           string          `json:"id" db:"id"`
 	BoardID      string          `json:"board_id" db:"board_id"`
 	ChannelID    *string         `json:"channel_id,omitempty" db:"channel_id"`
+	SectionID    *string         `json:"section_id,omitempty" db:"section_id"`
+	SubsectionID *string         `json:"subsection_id,omitempty" db:"subsection_id"`
 	UserID       *string         `json:"user_id" db:"user_id"`
 	Title        string          `json:"title" db:"title"`
 	Content      string          `json:"content" db:"content"`
@@ -152,6 +154,8 @@ type ThreadWithBoards struct {
 	ID              string          `json:"id" db:"id"`
 	BoardID         string          `json:"board_id" db:"board_id"`
 	ChannelID       *string         `json:"channel_id,omitempty" db:"channel_id"`
+	SectionID       *string         `json:"section_id,omitempty" db:"section_id"`
+	SubsectionID    *string         `json:"subsection_id,omitempty" db:"subsection_id"`
 	UserID          *string         `json:"user_id" db:"user_id"`
 	Title           string          `json:"title" db:"title"`
 	Content         string          `json:"content" db:"content"`
@@ -171,6 +175,8 @@ type ThreadWithBoards struct {
 	AvatarURL       *string         `json:"avatar_url"`
 	IsAnonymous     bool            `json:"is_anonymous"`
 	Boards          BoardInfo       `json:"boards"`
+	Section         *SectionInfo    `json:"section,omitempty"`
+	Subsection      *SubsectionInfo `json:"subsection,omitempty"`
 }
 
 type BoardInfo struct {
@@ -178,6 +184,23 @@ type BoardInfo struct {
 	Name         string `json:"name"`
 	IsGomosub    bool   `json:"is_gomosub"`
 	IsRulesBoard bool   `json:"is_rules_board"`
+}
+
+// SectionInfo is a top-level раздел (thread_sections row) as embedded in a
+// thread payload. Empty section_id on the thread means Section is nil.
+type SectionInfo struct {
+	ID     string  `json:"id"`
+	Slug   string  `json:"slug"`
+	Name   string  `json:"name"`
+	Icon   *string `json:"icon,omitempty"`
+	IsNSFW bool    `json:"is_nsfw"`
+}
+
+// SubsectionInfo is a подраздел (thread_subsections row) under a SectionInfo.
+type SubsectionInfo struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 // Post with federation support
@@ -344,7 +367,11 @@ type PollRequest struct {
 }
 
 type CreateThreadRequest struct {
-	BoardID           string          `json:"board_id"`
+	BoardID string `json:"board_id"`
+	// Global topics carry a section (and, optionally, a subsection) instead of
+	// a board. At least one of board_id / section_id is required.
+	SectionID         string          `json:"section_id,omitempty"`
+	SubsectionID      *string         `json:"subsection_id,omitempty"`
 	ChannelID         *string         `json:"channel_id,omitempty"`
 	Title             string          `json:"title"`
 	Content           string          `json:"content"`

@@ -1184,33 +1184,28 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                           ))}
                         </div>
                       )}
-                      {searchResults.boards.length > 0 && (
+                      {searchResults.boards.filter((item) => item.is_gomosub).length > 0 && (
                         <div className="space-y-1">
                           <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.boardsAndSubs')}</div>
-                          {searchResults.boards.map((item) => {
-                            const isGomo = item.is_gomosub;
-                            const link = isGomo ? `/g/${item.slug}` : `/${item.slug}`;
-                            const prefix = isGomo ? "g/" : "/";
-                            return (
-                              <Link
-                                key={item.id}
-                                to={link}
-                                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                              >
-                                {prefix}{item.slug} - {item.name}
-                              </Link>
-                            );
-                          })}
+                          {searchResults.boards.filter((item) => item.is_gomosub).map((item) => (
+                            <Link
+                              key={item.id}
+                              to={`/g/${item.slug}`}
+                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+                            >
+                              g/{item.slug} - {item.name}
+                            </Link>
+                          ))}
                         </div>
                       )}
                       {searchResults.threads.length > 0 && (
                         <div className="space-y-1">
                           <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.threads')}</div>
                           {searchResults.threads.map((item) => {
-                            const isGomo = item.board_is_gomosub;
+                            const isGomo = item.board_is_gomosub && item.board_slug;
                             const link = isGomo
                               ? `/g/${item.board_slug}/thread/${item.id}`
-                              : `/${item.board_slug}/thread/${item.id}`;
+                              : `/thread/${item.id}`;
                             return (
                               <Link
                                 key={item.id}
@@ -1291,21 +1286,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                         @{item.username}
                       </Link>
                     ))}
-                    {searchResults.boards.map((item) => {
-                      const isGomo = item.is_gomosub;
-                      const link = isGomo ? `/g/${item.slug}` : `/${item.slug}`;
-                      const prefix = isGomo ? "g/" : "/";
-                      return (
-                        <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                          {prefix}{item.slug} - {item.name}
-                        </Link>
-                      );
-                    })}
+                    {searchResults.boards.filter((item) => item.is_gomosub).map((item) => (
+                      <Link key={item.id} to={`/g/${item.slug}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
+                        g/{item.slug} - {item.name}
+                      </Link>
+                    ))}
                     {searchResults.threads.map((item) => {
-                      const isGomo = item.board_is_gomosub;
+                      const isGomo = item.board_is_gomosub && item.board_slug;
                       const link = isGomo
                         ? `/g/${item.board_slug}/thread/${item.id}`
-                        : `/${item.board_slug}/thread/${item.id}`;
+                        : `/thread/${item.id}`;
                       return (
                         <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
                           {item.title}

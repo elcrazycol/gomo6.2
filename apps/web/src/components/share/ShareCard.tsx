@@ -129,12 +129,15 @@ export const ShareCard = ({ target }: ShareCardProps) => {
     const image = resolveImageUrl(rawImage);
 
     const board = thread?.boards;
-    const boardLabel = thread
-      ? `${board?.is_gomosub ? "g/" : "/"}${board?.slug ?? "b"}`
+    const hasBoard = Boolean(thread && board?.slug);
+    const boardLabel = hasBoard
+      ? `${board?.is_gomosub ? "g/" : "/"}${board?.slug}`
       : null;
 
     const url = thread
-      ? `${board?.is_gomosub ? "/g" : ""}/${board?.slug ?? "b"}/thread/${thread.id}`
+      ? hasBoard
+        ? `${board?.is_gomosub ? "/g" : ""}/${board?.slug}/thread/${thread.id}`
+        : `/thread/${thread.id}`
       : `/profile/${wall!.user_id}/wall/${wall!.id}`;
 
     return { author, title, snippet, image, boardLabel, url, isThread: Boolean(thread) };

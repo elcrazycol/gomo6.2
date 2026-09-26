@@ -66,14 +66,13 @@ describe("CookieBanner", () => {
     expect(screen.queryByText("куки")).not.toBeInTheDocument();
   });
 
-  it("links to privacy policy", async () => {
+  it("mentions the privacy policy", async () => {
     render(<CookieBanner />);
 
     act(() => {
       vi.advanceTimersByTime(1000);
     });
 
-    const link = screen.getByRole("link", { name: /политикой конфиденциальности/ });
-    expect(link).toHaveAttribute("href", "/rules");
+    expect(screen.getByText(/политикой конфиденциальности/)).toBeInTheDocument();
   });
 });

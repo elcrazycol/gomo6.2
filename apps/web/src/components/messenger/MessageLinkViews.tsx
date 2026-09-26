@@ -80,7 +80,7 @@ function ThreadPreview({ slug, threadId }: { slug: string; threadId: string }) {
   const isGomo = board?.is_gomosub;
   const threadPath = isGomo
     ? `/g/${board?.slug ?? slug}/thread/${threadId}`
-    : `/${board?.slug ?? slug}/thread/${threadId}`;
+    : `/thread/${threadId}`;
 
   return (
     <div className="msg-link-panel">

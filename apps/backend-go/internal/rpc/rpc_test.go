@@ -1339,14 +1339,14 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 
 	// INSERT thread + RETURNING
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, nil, "u1", "Test Title", "Test Content",
+		WithArgs(boardID, nil, nil, nil, "u1", "Test Title", "Test Content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+			"id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 			"image_url", "image_urls", "attachments", "post_count", "server_domain",
 			"created_at", "updated_at", "is_remote",
 		}).AddRow(
-			"thread-1", boardID, nil, "u1", "Test Title", "Test Content", nil,
+			"thread-1", boardID, nil, nil, nil, "u1", "Test Title", "Test Content", nil,
 			nil, nil, nil, 0, "localhost:8080",
 			now, now, false,
 		))
@@ -1414,14 +1414,14 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 
 	// INSERT thread + RETURNING
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, nil, "u1", "Poll Thread", "Poll content",
+		WithArgs(boardID, nil, nil, nil, "u1", "Poll Thread", "Poll content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+			"id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 			"image_url", "image_urls", "attachments", "post_count", "server_domain",
 			"created_at", "updated_at", "is_remote",
 		}).AddRow(
-			"thread-poll", boardID, nil, "u1", "Poll Thread", "Poll content", nil,
+			"thread-poll", boardID, nil, nil, nil, "u1", "Poll Thread", "Poll content", nil,
 			nil, nil, nil, 0, "localhost:8080",
 			now, now, false,
 		))
@@ -1589,7 +1589,7 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, nil, "u1", "Test", "Test",
+		WithArgs(boardID, nil, nil, nil, "u1", "Test", "Test",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnError(sqlmock.ErrCancelled)
 
@@ -1604,6 +1604,157 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Global topics (раздел / подраздел) ─────────────────────────────────────
+
+func TestCreateThreadRPC_GlobalSection_Success(t *testing.T) {
+	h, mock := setupRPCHandlerWithSyncStats(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	sectionID := "660e8400-e29b-41d4-a716-446655440000"
+	subsectionID := "770e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_sections WHERE id = \$1\)`).
+		WithArgs(sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_subsections WHERE id = \$1 AND section_id = \$2\)`).
+		WithArgs(subsectionID, sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
+		WithArgs(nil, nil, sectionID, subsectionID, "u1", "Global topic", "Body",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
+			"image_url", "image_urls", "attachments", "post_count", "server_domain",
+			"created_at", "updated_at", "is_remote",
+		}).AddRow(
+			"thread-global", nil, nil, sectionID, subsectionID, "u1", "Global topic", "Body", nil,
+			nil, nil, nil, 0, "localhost:8080",
+			now, now, false,
+		))
+
+	mock.ExpectCommit()
+
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id":    sectionID,
+		"subsection_id": subsectionID,
+		"title":         "Global topic",
+		"content":       "Body",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	data, _ := json.Marshal(resp.Data)
+	var thread models.Thread
+	if err := json.Unmarshal(data, &thread); err != nil {
+		t.Fatalf("response data is not a valid Thread: %v", err)
+	}
+	if thread.SectionID == nil || *thread.SectionID != sectionID {
+		t.Fatalf("expected section_id %q, got %v", sectionID, thread.SectionID)
+	}
+	if thread.SubsectionID == nil || *thread.SubsectionID != subsectionID {
+		t.Fatalf("expected subsection_id %q, got %v", subsectionID, thread.SubsectionID)
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_BadFormat(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id": "not-a-uuid",
+		"title":      "T",
+		"content":    "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_NotFound(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	sectionID := "660e8400-e29b-41d4-a716-446655440000"
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_sections WHERE id = \$1\)`).
+		WithArgs(sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id": sectionID,
+		"title":      "T",
+		"content":    "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_SubsectionMismatch(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	sectionID := "660e8400-e29b-41d4-a716-446655440000"
+	subsectionID := "770e8400-e29b-41d4-a716-446655440000"
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_sections WHERE id = \$1\)`).
+		WithArgs(sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_subsections WHERE id = \$1 AND section_id = \$2\)`).
+		WithArgs(subsectionID, sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id":    sectionID,
+		"subsection_id": subsectionID,
+		"title":         "T",
+		"content":       "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_ChannelRejected(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id": "660e8400-e29b-41d4-a716-446655440000",
+		"channel_id": "880e8400-e29b-41d4-a716-446655440000",
+		"title":      "T",
+		"content":    "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

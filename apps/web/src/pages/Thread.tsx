@@ -31,6 +31,7 @@ import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { ThreadCommentTree } from "@/components/thread/ThreadCommentTree";
+import { SectionIcon } from "@/components/topic/sectionIcons";
 import type { AttachmentMeta } from "@/types/forum";
 
 interface ThreadWithExtras extends ThreadModel {
@@ -43,6 +44,8 @@ interface ThreadWithExtras extends ThreadModel {
   nickname_emoji_id?: string | null;
   avatar_url?: string;
   tags?: { content?: string; format?: string; atmosphere?: string; flag?: string };
+  section?: { id: string; slug: string; name: string; icon?: string | null; is_nsfw: boolean } | null;
+  subsection?: { id: string; slug: string; name: string } | null;
 }
 
 // Record a thread visit at most once per browser session. The backend upsert
@@ -90,6 +93,9 @@ const Thread = () => {
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
+  // g-sub threads live under /g/<sub>/... ; global topics under /thread/<id>.
+  const boardBasePath = slug ? `${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}` : "";
+  const threadPath = boardBasePath || `/thread/${threadId}`;
   // Set when the thread opened by tapping a feed video — autoplays the clip.
   const autoplayVideo = Boolean((location.state as { autoplayVideo?: boolean } | null)?.autoplayVideo);
   const navigate = useNavigate();
@@ -256,13 +262,12 @@ const Thread = () => {
       toast.success(t("thread.threadDeleted"));
       invalidateByPrefix("/api/v1/threads");
       invalidateByPrefix("/api/v1/boards");
-      navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`);
+      invalidateByPrefix("/api/v1/feed");
+      navigate(boardBasePath || "/", { replace: true });
     } catch {
       toast.error(t("thread.threadDeleteError"));
     }
   };
-
-  const threadPath = `${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`;
 
   // Hooks must run before the early returns below.
   const tx = thread as ThreadWithExtras | null;
@@ -373,13 +378,21 @@ const Thread = () => {
                         # {channelSlug}
                       </Link>
                     )}
-                    <Link
-                      to={threadPath}
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
-                    >
-                      в {isGomoRoute ? "g/" : ""}{slug}/
-                    </Link>
+                    {tx.section ? (
+                      <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                        <SectionIcon name={tx.section.icon} className="h-3 w-3" />
+                        {tx.section.name}
+                        {tx.subsection ? ` · ${tx.subsection.name}` : ""}
+                      </span>
+                    ) : slug ? (
+                      <Link
+                        to={threadPath}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                      >
+                        в {isGomoRoute ? "g/" : ""}{slug}/
+                      </Link>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -567,7 +580,7 @@ const Thread = () => {
         open={shareOpen}
         onOpenChange={setShareOpen}
         target={{ type: "thread", id: thread.id }}
-        url={`${window.location.origin}${threadPath}/thread/${thread.id}`}
+        url={`${window.location.origin}${slug ? `${threadPath}/thread/${thread.id}` : `/thread/${thread.id}`}`}
         title={thread.title || "Запись"}
       />
     </>

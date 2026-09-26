@@ -229,12 +229,15 @@ const ThreadCard = ({
   };
 
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
-  const boardSlug = thread.boards?.slug || "b";
+  const boardSlug = thread.boards?.slug || "";
+  const threadPath = boardSlug
+    ? `${boardPrefix}/${boardSlug}/thread/${thread.id}`
+    : `/thread/${thread.id}`;
 
   return (
     <article
       className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-all duration-200 cursor-pointer"
-      onClick={() => navigate(`${boardPrefix}/${boardSlug}/thread/${thread.id}`)}
+      onClick={() => navigate(threadPath)}
     >
         <div className="flex items-start gap-3 mb-3">
           <UserAvatar
@@ -260,13 +263,15 @@ const ThreadCard = ({
                 disableLink={false}
                 stopPropagationOnClick={true}
               />
-              <Link
-                to={`${boardPrefix}/${boardSlug}`}
-                className="text-xs text-muted-foreground hover:text-primary transition-colors"
-                onClick={(e) => e.stopPropagation()}
-              >
-                в {boardPrefix || ""}/{boardSlug}/
-              </Link>
+              {boardSlug && (
+                <Link
+                  to={`${boardPrefix}/${boardSlug}`}
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  в {boardPrefix || ""}/{boardSlug}/
+                </Link>
+              )}
               <span className={`text-xs text-muted-foreground ${hideTimestampOnCompactMobile ? "compact-mobile-hide" : ""}`}>
                 {formatDistanceToNow(safeDate(thread.created_at), {
                   locale: dateLocale,
@@ -466,7 +471,7 @@ const ThreadCard = ({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                navigate(`${boardPrefix}/${boardSlug}/thread/${thread.id}`);
+                navigate(threadPath);
               }}
               className="
                 flex items-center gap-1

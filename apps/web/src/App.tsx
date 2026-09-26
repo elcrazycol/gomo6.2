@@ -288,8 +288,7 @@ function AppRoutes() {
           <Route path="g/:slug/c/:channelSlug/thread/:threadId" element={<LazyPage component={Thread} />} />
           <Route path="g/:slug/c/:channelSlug" element={<LazyPage component={Board} />} />
           <Route path="g/:slug" element={<LazyPage component={Board} />} />
-          <Route path=":slug" element={<LazyPage component={Board} />} />
-          <Route path=":slug/thread/:threadId" element={<LazyPage component={Thread} />} />
+          <Route path="thread/:threadId" element={<LazyPage component={Thread} />} />
         </Route>
 
         {/* Catch-all */}

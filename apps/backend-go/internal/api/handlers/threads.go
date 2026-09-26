@@ -170,13 +170,17 @@ func (h *ThreadsHandler) canAccessBoard(userID string, boardID string) (bool, er
 // @Router       /threads [get]
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
-		SELECT t.id, t.board_id, t.channel_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
+		SELECT t.id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
-		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
+		       b.slug as board_slug, b.name as board_name, COALESCE(b.is_gomosub, false) as board_is_gomosub, COALESCE(b.is_rules_board, false) as board_is_rules_board,
+		       s.slug as section_slug, s.name as section_name, s.icon as section_icon, COALESCE(s.is_nsfw, false) as section_is_nsfw,
+		       ss.slug as subsection_slug, ss.name as subsection_name
 		FROM threads t
 		LEFT JOIN users u ON t.user_id = u.id
 		LEFT JOIN boards b ON t.board_id = b.id
+		LEFT JOIN thread_sections s ON s.id = t.section_id
+		LEFT JOIN thread_subsections ss ON ss.id = t.subsection_id
 	`
 
 	var args []interface{}
@@ -207,6 +211,18 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			conditions = append(conditions, "t.board_id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, boardID)
 		}
+	}
+
+	// Handle section_id / subsection_id filters (global topics)
+	if sectionID := c.Query("section_id"); sectionID != "" {
+		sid := strings.TrimPrefix(sectionID, "eq.")
+		conditions = append(conditions, "t.section_id = $"+strconv.Itoa(len(args)+1))
+		args = append(args, sid)
+	}
+	if subsectionID := c.Query("subsection_id"); subsectionID != "" {
+		sid := strings.TrimPrefix(subsectionID, "eq.")
+		conditions = append(conditions, "t.subsection_id = $"+strconv.Itoa(len(args)+1))
+		args = append(args, sid)
 	}
 
 	// Handle id filter
@@ -281,15 +297,16 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		}
 	}
 
-	// Filter out threads from private boards the user cannot access
+	// Filter out threads from private boards the user cannot access. Global
+	// topics (board_id IS NULL) are never board-gated.
 	userID := h.getUserIDFromRequest(c)
 	if userID != "" {
 		p1 := strconv.Itoa(len(args) + 1)
 		p2 := strconv.Itoa(len(args) + 2)
-		conditions = append(conditions, "(b.visibility != 'private' OR b.owner_id = $"+p1+" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id = $"+p2+"))")
+		conditions = append(conditions, "(t.board_id IS NULL OR b.visibility != 'private' OR b.owner_id = $"+p1+" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id = $"+p2+"))")
 		args = append(args, userID, userID)
 	} else {
-		conditions = append(conditions, "b.visibility != 'private'")
+		conditions = append(conditions, "(t.board_id IS NULL OR b.visibility != 'private')")
 	}
 
 	// Determine ORDER BY (before cursor, since cursor direction depends on order)
@@ -373,18 +390,23 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		var thread models.ThreadWithBoards
 		var avatarURL sql.NullString
 		var displayName, nicknameEmojiID sql.NullString
-		var boardSlug, boardName string
+		var boardID, boardSlug, boardName sql.NullString
 		var boardIsGomosub, boardIsRulesBoard bool
+		var sectionSlug, sectionName, sectionIcon sql.NullString
+		var sectionIsNSFW bool
+		var subsectionSlug, subsectionName sql.NullString
 		var contentJSON, tagsJSON []byte
 
-		var channelID sql.NullString
+		var channelID, sectionID, subsectionID sql.NullString
 
 		err := rows.Scan(
-			&thread.ID, &thread.BoardID, &channelID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
+			&thread.ID, &boardID, &channelID, &sectionID, &subsectionID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 			&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL, &thread.IsAnonymous,
 			&displayName, &nicknameEmojiID,
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
+			&sectionSlug, &sectionName, &sectionIcon, &sectionIsNSFW,
+			&subsectionSlug, &subsectionName,
 		)
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
@@ -414,10 +436,30 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			thread.Tags = json.RawMessage(tagsJSON)
 		}
 		thread.Boards = models.BoardInfo{
-			Slug:         boardSlug,
-			Name:         boardName,
+			Slug:         boardSlug.String,
+			Name:         boardName.String,
 			IsGomosub:    boardIsGomosub,
 			IsRulesBoard: boardIsRulesBoard,
+		}
+		if sectionID.Valid {
+			sid := sectionID.String
+			thread.SectionID = &sid
+			thread.Section = &models.SectionInfo{
+				ID:     sid,
+				Slug:   sectionSlug.String,
+				Name:   sectionName.String,
+				Icon:   nullStringPtr(sectionIcon),
+				IsNSFW: sectionIsNSFW,
+			}
+		}
+		if subsectionID.Valid {
+			ssid := subsectionID.String
+			thread.SubsectionID = &ssid
+			thread.Subsection = &models.SubsectionInfo{
+				ID:   ssid,
+				Slug: subsectionSlug.String,
+				Name: subsectionName.String,
+			}
 		}
 		threads = append(threads, thread)
 	}
@@ -452,32 +494,41 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	}
 
 	query := `
-		SELECT t.id, t.board_id, t.channel_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
+		SELECT t.id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
-		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
+		       b.slug as board_slug, b.name as board_name, COALESCE(b.is_gomosub, false) as board_is_gomosub, COALESCE(b.is_rules_board, false) as board_is_rules_board,
+		       s.slug as section_slug, s.name as section_name, s.icon as section_icon, COALESCE(s.is_nsfw, false) as section_is_nsfw,
+		       ss.slug as subsection_slug, ss.name as subsection_name
 		FROM threads t
 		LEFT JOIN users u ON t.user_id = u.id
 		LEFT JOIN boards b ON t.board_id = b.id
+		LEFT JOIN thread_sections s ON s.id = t.section_id
+		LEFT JOIN thread_subsections ss ON ss.id = t.subsection_id
 		WHERE t.id = $1
 	`
 
 	var thread models.ThreadWithBoards
 	var avatarURL sql.NullString
 	var displayName, nicknameEmojiID sql.NullString
-	var boardSlug, boardName string
+	var boardID, boardSlug, boardName sql.NullString
 	var boardIsGomosub, boardIsRulesBoard bool
+	var sectionSlug, sectionName, sectionIcon sql.NullString
+	var sectionIsNSFW bool
+	var subsectionSlug, subsectionName sql.NullString
 	var contentJSON []byte
 	var tagsJSON []byte
 
-	var channelID sql.NullString
+	var channelID, sectionID, subsectionID sql.NullString
 
 	err = h.db.QueryRow(query, id.String()).Scan(
-		&thread.ID, &thread.BoardID, &channelID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
+		&thread.ID, &boardID, &channelID, &sectionID, &subsectionID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL, &thread.IsAnonymous,
 		&displayName, &nicknameEmojiID,
 		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
+		&sectionSlug, &sectionName, &sectionIcon, &sectionIsNSFW,
+		&subsectionSlug, &subsectionName,
 	)
 
 	if err != nil {
@@ -489,14 +540,19 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		return
 	}
 
-	// Check board-level access for private boards
-	userID := h.getUserIDFromRequest(c)
-	canAccess, accessErr := h.canAccessBoard(userID, thread.BoardID)
-	if accessErr == nil && !canAccess {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
-		return
+	// Check board-level access for private boards (global topics have no board).
+	if boardID.Valid && boardID.String != "" {
+		userID := h.getUserIDFromRequest(c)
+		canAccess, accessErr := h.canAccessBoard(userID, boardID.String)
+		if accessErr == nil && !canAccess {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
+			return
+		}
 	}
 
+	if boardID.Valid {
+		thread.BoardID = boardID.String
+	}
 	if channelID.Valid {
 		thread.ChannelID = &channelID.String
 	}
@@ -521,10 +577,30 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		thread.Tags = json.RawMessage(tagsJSON)
 	}
 	thread.Boards = models.BoardInfo{
-		Slug:         boardSlug,
-		Name:         boardName,
+		Slug:         boardSlug.String,
+		Name:         boardName.String,
 		IsGomosub:    boardIsGomosub,
 		IsRulesBoard: boardIsRulesBoard,
+	}
+	if sectionID.Valid {
+		sid := sectionID.String
+		thread.SectionID = &sid
+		thread.Section = &models.SectionInfo{
+			ID:     sid,
+			Slug:   sectionSlug.String,
+			Name:   sectionName.String,
+			Icon:   nullStringPtr(sectionIcon),
+			IsNSFW: sectionIsNSFW,
+		}
+	}
+	if subsectionID.Valid {
+		ssid := subsectionID.String
+		thread.SubsectionID = &ssid
+		thread.Subsection = &models.SubsectionInfo{
+			ID:   ssid,
+			Slug: subsectionSlug.String,
+			Name: subsectionName.String,
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(thread))
@@ -561,9 +637,10 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 
 	// user_id is nullable (anonymous threads) — scanning it into a plain string
 	// would make a NULL fail the whole request with a scan error. board_id is
-	// needed to invalidate the board's thread-list cache afterwards.
+	// needed to invalidate the board's thread-list cache afterwards and is NULL
+	// for global topics.
 	var ownerID sql.NullString
-	var boardID string
+	var boardID sql.NullString
 	err := h.db.QueryRow(`SELECT user_id, board_id FROM threads WHERE id = $1`, id).Scan(&ownerID, &boardID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -632,7 +709,9 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		// The board's thread list embeds per-thread post_count and the unified
 		// feed contains the thread — both would keep serving the deleted row
 		// until the data-cache TTL expires.
-		cache.InvalidateCacheForBoard(h.redis, boardID)
+		if boardID.Valid && boardID.String != "" {
+			cache.InvalidateCacheForBoard(h.redis, boardID.String)
+		}
 		cache.InvalidateCacheForFeed(h.redis)
 	}
 

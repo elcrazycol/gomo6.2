@@ -14,6 +14,7 @@ import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { renderTags } from "@/components/ThreadCard";
+import { SectionIcon } from "@/components/topic/sectionIcons";
 import { parseAttachments } from "@/components/ThreadAttachments";
 import { safeDate } from "@/utils/safeDate";
 import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
@@ -49,6 +50,18 @@ export interface FeedThread {
     name: string;
     is_gomosub?: boolean | null;
   };
+  section?: {
+    id: string;
+    slug: string;
+    name: string;
+    icon?: string | null;
+    is_nsfw?: boolean;
+  } | null;
+  subsection?: {
+    id: string;
+    slug: string;
+    name: string;
+  } | null;
 }
 
 interface FeedThreadCardProps {
@@ -120,9 +133,12 @@ export const FeedThreadCard = ({
   const { t } = useTranslation();
   const attachments = useMemo(() => buildAttachments(thread), [thread]);
 
+  const isGlobalTopic = !thread.boards?.slug;
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
-  const boardSlug = thread.boards?.slug || "b";
-  const threadPath = `${boardPrefix}/${boardSlug}/thread/${thread.id}`;
+  const boardSlug = thread.boards?.slug || "";
+  const threadPath = isGlobalTopic
+    ? `/thread/${thread.id}`
+    : `${boardPrefix}/${boardSlug}/thread/${thread.id}`;
 
   const [likesCount, setLikesCount] = useState(initialLikesCount);
   const [isLiked, setIsLiked] = useState(initialUserLiked);
@@ -207,13 +223,21 @@ export const FeedThreadCard = ({
                     addSuffix: true,
                   })}
                 </span>
-                <Link
-                  to={`${boardPrefix}/${boardSlug}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
-                >
-                  в {boardPrefix || ""}/{boardSlug}/
-                </Link>
+                {thread.section ? (
+                  <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                    <SectionIcon name={thread.section.icon} className="h-3 w-3" />
+                    {thread.section.name}
+                    {thread.subsection ? ` · ${thread.subsection.name}` : ""}
+                  </span>
+                ) : (
+                  <Link
+                    to={`${boardPrefix}/${boardSlug}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    в {boardPrefix || ""}/{boardSlug}/
+                  </Link>
+                )}
               </div>
             </div>
           </div>

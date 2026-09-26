@@ -11,7 +11,7 @@
 #   - users demo / alice / bob, each with avatar, display name, bio and a
 #     profile background + theme (profile_customization)
 #   - friendships  demo<->alice, demo<->bob, alice<->bob
-#   - a "Demo Lounge" board with a welcome thread and a handful of posts
+#   - a global topic in the «Игры / ПК» раздел with a handful of posts
 #     (images + likes)
 #   - wall posts on the demo profile (own + from friends)
 #   - a demo<->alice direct conversation with a few messages
@@ -208,27 +208,21 @@ friend "${U_TOKEN[0]}" "${U_ID[0]}" "${U_TOKEN[2]}" "${U_ID[2]}"
 friend "${U_TOKEN[1]}" "${U_ID[1]}" "${U_TOKEN[2]}" "${U_ID[2]}"
 note "demo↔alice, demo↔bob, alice↔bob"
 
-# ── Board, thread and posts ─────────────────────────────────────────────────
-ok "board + thread + posts"
+# ── Global topic and posts ──────────────────────────────────────────────────
+ok "topic + posts"
 DEMO_TOKEN="${U_TOKEN[0]}"; DEMO_ID="${U_ID[0]}"
 
-board_id="$(req_get "/api/v1/boards?slug=eq.demo-lounge" | jq_get data.0.id)"
-if [ -z "$board_id" ]; then
-    board_id="$(req POST /api/v1/boards "$DEMO_TOKEN" \
-        "$(mkjson slug "demo-lounge" name "Demo Lounge" description "Demo data — заходи, тут всё для UI." visibility "public")" | jq_get data.id)"
-    note "board Demo Lounge created"
-else
-    note "board Demo Lounge already exists"
-fi
-[ -n "$board_id" ] || die "cannot create/find the demo board"
+section_id="$(req_get "/api/v1/thread_sections?slug=eq.games" | jq_get data.0.id)"
+subsection_id="$(req_get "/api/v1/thread_subsections?slug=eq.pc" | jq_get data.0.id)"
+[ -n "$section_id" ] || die "cannot find the 'games' section — is migration 114 applied?"
 
-THREAD_TITLE="Welcome to the Demo Lounge"
-thread_id="$(req_get "/api/v1/threads?board_id=eq.$board_id" | json_find data title "$THREAD_TITLE")"
+TOPIC_TITLE="Демо-тема: во что играем?"
+thread_id="$(req_get "/api/v1/threads?section_id=eq.$section_id" | json_find data title "$TOPIC_TITLE")"
 if [ -z "$thread_id" ]; then
-    thread_id="$(req POST /api/rpc/create_thread "$DEMO_TOKEN" \
-        "$(mkjson board_id "$board_id" title "$THREAD_TITLE" content "Здесь живут демо-данные для разработки UI. Посты, картинки, лайки — всё как в жизни, только фейковое.")" \
-        | jq_get data.id)"
-    note "thread created"
+    topic_body="$(mkjson section_id "$section_id" title "$TOPIC_TITLE" content "Здесь живут демо-данные для разработки UI. Посты, картинки, лайки — всё как в жизни, только фейковое.")"
+    [ -n "$subsection_id" ] && topic_body="$(mkjson section_id "$section_id" subsection_id "$subsection_id" title "$TOPIC_TITLE" content "Здесь живут демо-данные для разработки UI. Посты, картинки, лайки — всё как в жизни, только фейковое.")"
+    thread_id="$(req POST /api/rpc/create_thread "$DEMO_TOKEN" "$topic_body" | jq_get data.id)"
+    note "topic created"
 
     make_png "$TMPDIR_SEED/post_1.png" 800 600 120 86 255
     make_png "$TMPDIR_SEED/post_2.png" 800 600 232 90 150
@@ -248,7 +242,7 @@ print(json.dumps({"thread_id":sys.argv[4],"content":content,"image_urls":[key],
         req POST /api/rpc/create_post "$token" "$body" | jq_get data.id
     }
 
-    p1=$(create_post "$DEMO_TOKEN" "$DEMO_ID" "Первый пост в демо-треде. Так выглядит обычный текст." "$img1")
+    p1=$(create_post "$DEMO_TOKEN" "$DEMO_ID" "Первый пост в демо-теме. Так выглядит обычный текст." "$img1")
     p2=$(create_post "${U_TOKEN[1]}" "${U_ID[1]}" "Алиса тут: запостила картинку, чтобы проверить ленту и вложения." "$img2")
     p3=$(create_post "${U_TOKEN[2]}" "${U_ID[2]}" "Bob на связи. Если видишь этот пост — API и лента работают.")
     for pid in "$p1" "$p2" "$p3"; do
@@ -256,7 +250,7 @@ print(json.dumps({"thread_id":sys.argv[4],"content":content,"image_urls":[key],
     done
     note "3 posts + likes"
 else
-    note "thread already exists"
+    note "topic already exists"
 fi
 
 # ── Wall posts on the demo profile ──────────────────────────────────────────

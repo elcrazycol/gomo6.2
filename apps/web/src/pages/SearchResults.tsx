@@ -136,20 +136,21 @@ const SearchResults = () => {
                 <p className="text-sm text-muted-foreground">Ничего не найдено</p>
               ) : (
                 results.threads.map((thread) => {
-                  const isGomo = thread.board_is_gomosub;
+                  const isGomo = thread.board_is_gomosub && thread.board_slug;
                   const link = isGomo
                     ? `/g/${thread.board_slug}/thread/${thread.id}`
-                    : `/${thread.board_slug}/thread/${thread.id}`;
-                  const prefix = isGomo ? "g/" : "/";
+                    : `/thread/${thread.id}`;
                   return (
                     <Link
                       key={thread.id}
                       to={link}
                       className="block p-3 rounded-md border border-border hover:bg-muted/50 transition-colors"
                     >
-                      <div className="text-sm text-muted-foreground mb-1">
-                        {prefix}{thread.board_slug}/ — {thread.board_name}
-                      </div>
+                      {thread.board_slug && (
+                        <div className="text-sm text-muted-foreground mb-1">
+                          {isGomo ? "g/" : "/"}{thread.board_slug}/ — {thread.board_name}
+                        </div>
+                      )}
                       <div className="font-medium">{thread.title}</div>
                       <div className="text-sm text-muted-foreground line-clamp-2 mt-1">{thread.content}</div>
                     </Link>
@@ -169,11 +170,10 @@ const SearchResults = () => {
                 <p className="text-sm text-muted-foreground">Ничего не найдено</p>
               ) : (
                 results.posts.map((post) => {
-                  const isGomo = post.board_is_gomosub;
+                  const isGomo = post.board_is_gomosub && post.board_slug;
                   const link = isGomo
                     ? `/g/${post.board_slug}/thread/${post.thread_id}`
-                    : `/${post.board_slug}/thread/${post.thread_id}`;
-                  const prefix = isGomo ? "g/" : "/";
+                    : `/thread/${post.thread_id}`;
                   return (
                     <Link
                       key={post.id}
@@ -181,7 +181,7 @@ const SearchResults = () => {
                       className="block p-3 rounded-md border border-border hover:bg-muted/50 transition-colors"
                     >
                       <div className="text-sm text-muted-foreground mb-1">
-                        {prefix}{post.board_slug}/{post.thread_title} {post.username && `— @${post.username}`}
+                        {post.board_slug ? `${isGomo ? "g/" : "/"}${post.board_slug}/` : ""}{post.thread_title} {post.username && `— @${post.username}`}
                       </div>
                       <div className="text-sm line-clamp-3">{post.content}</div>
                     </Link>

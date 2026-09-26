@@ -4,7 +4,7 @@ import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { toast } from "sonner";
-import { BookOpenText, Bug, ChevronRight, Hash, HelpCircle, Users } from "lucide-react";
+import { ChevronRight, Hash, Plus, Users } from "lucide-react";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -201,6 +201,17 @@ const Index = () => {
               underline/track animations. */}
           <div className="hidden lg:block lg:col-span-1">
             <div className="space-y-4">
+              {/* Create topic */}
+              <PrefetchLink
+                to="/create"
+                className="flex items-center gap-2.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 sm:px-4"
+              >
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-primary/15">
+                  <Plus className="h-4 w-4" />
+                </span>
+                Создать тему
+              </PrefetchLink>
+
               {/* G-сабы */}
               <div className="overflow-clip rounded-lg border border-border/70 bg-background">
                 <button
@@ -275,41 +286,6 @@ const Index = () => {
                       </PrefetchLink>
                     ))
                   )}
-                </div>
-              </div>
-
-              {/* Важное */}
-              <div className="overflow-clip rounded-lg border border-border/70 bg-background">
-                <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
-                  Важное
-                </h3>
-                <div className="p-2 sm:p-2.5">
-                  <PrefetchLink
-                    to="/rules"
-                    className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
-                  >
-                    <BookOpenText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    Информация
-                    <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-                  </PrefetchLink>
-
-                  <PrefetchLink
-                    to="/bugs"
-                    className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
-                  >
-                    <Bug className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    Баги/Идеи
-                    <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-                  </PrefetchLink>
-
-                  <PrefetchLink
-                    to="/faq"
-                    className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] transition-colors hover:bg-muted/60"
-                  >
-                    <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    FAQ
-                    <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-                  </PrefetchLink>
                 </div>
               </div>
             </div>

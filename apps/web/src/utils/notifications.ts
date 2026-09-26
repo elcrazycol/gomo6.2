@@ -45,8 +45,8 @@ export function notificationLink(notif: Notification, threadSlug?: string): stri
 
   if (notif.related_thread_id) {
     return threadSlug
-      ? `/${threadSlug}/thread/${notif.related_thread_id}`
-      : `/notify?thread=${notif.related_thread_id}`;
+      ? `/g/${threadSlug}/thread/${notif.related_thread_id}`
+      : `/thread/${notif.related_thread_id}`;
   }
 
   return "#";

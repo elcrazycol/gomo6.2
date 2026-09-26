@@ -39,6 +39,8 @@ func feedColumnNames() []string {
 		"author_id", "author_username", "author_display_name", "author_nickname_emoji_id",
 		"author_is_anonymous", "author_avatar_url",
 		"board_id", "board_slug", "board_name", "board_is_gomosub",
+		"section_id", "section_slug", "section_name", "section_icon",
+		"subsection_id", "subsection_slug", "subsection_name",
 		"wall_user_id",
 		"likes_count", "comments_count", "reposts_count", "liked_by_viewer", "views_count",
 	}
@@ -61,6 +63,7 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 			`{"content":"games"}`, 3,
 			"author-1", "alice", "Alice", nil, false, "avatar1",
 			"board-1", "b", "Board", false,
+			"sec-1", "general", "Общение", "💬", nil, nil, nil,
 			nil,
 			5, 3, 0, true, 42,
 		).
@@ -70,6 +73,7 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 			nil, nil,
 			"author-2", "bob", "Bob", nil, false, "avatar2",
 			nil, nil, nil, false,
+			nil, nil, nil, nil, nil, nil, nil,
 			"wall-owner-2",
 			2, 1, 0, false, 7,
 		)
@@ -146,6 +150,7 @@ func TestGetUserFeed_AnonymousPassesNull(t *testing.T) {
 			nil, 1,
 			"author-9", "anon-user", nil, nil, false, nil,
 			"board-2", "g", "Gsub", true,
+			nil, nil, nil, nil, nil, nil, nil,
 			nil,
 			9, 1, 0, false, 13,
 		)

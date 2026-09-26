@@ -37,6 +37,18 @@ interface FeedItem {
     name: string;
     is_gomosub: boolean;
   } | null;
+  section?: {
+    id: string;
+    slug: string;
+    name: string;
+    icon?: string | null;
+    is_nsfw?: boolean;
+  } | null;
+  subsection?: {
+    id: string;
+    slug: string;
+    name: string;
+  } | null;
   wall_user_id?: string | null;
   likes_count: number;
   comments_count: number;
@@ -121,7 +133,9 @@ export const ThreadFeed = ({
     post_count: item.post_count ?? 0,
     tags: item.tags ?? undefined,
     profiles: item.author ?? null,
-    boards: item.boards ?? { slug: "b", name: "Доска" },
+    boards: item.boards ?? { slug: "", name: "", is_gomosub: false },
+    section: item.section ?? null,
+    subsection: item.subsection ?? null,
   });
 
   const feedToWallPost = (item: FeedItem): WallPost =>

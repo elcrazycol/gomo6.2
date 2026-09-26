@@ -226,20 +226,20 @@ describe("Index", () => {
     await waitFor(() => {
       expect(screen.getByText("Подписки")).toBeInTheDocument();
       expect(screen.getByText("Капля рандома")).toBeInTheDocument();
-      expect(screen.getByText("Важное")).toBeInTheDocument();
     });
     // g-sub rows, now with the post-card layout (leading chip + g/slug + name)
     expect(screen.getAllByText(/^g\//).length).toBeGreaterThan(0);
   });
 
-  it("renders important links in sidebar", async () => {
+  it("does not render links to the removed forum boards", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      expect(screen.getByText("Информация")).toBeInTheDocument();
-      expect(screen.getByText("Баги/Идеи")).toBeInTheDocument();
-      expect(screen.getByText("FAQ")).toBeInTheDocument();
+      expect(screen.getByText("Капля рандома")).toBeInTheDocument();
     });
+    expect(screen.queryByText("Важное")).not.toBeInTheDocument();
+    expect(screen.queryByText("Информация")).not.toBeInTheDocument();
+    expect(screen.queryByText("FAQ")).not.toBeInTheDocument();
   });
 
   it("loads boards on mount", async () => {

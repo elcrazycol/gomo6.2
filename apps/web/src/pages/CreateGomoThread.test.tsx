@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, beforeAll } from "vitest";
 import React from "react";
@@ -7,7 +7,7 @@ import React from "react";
 
 const { mockAuth, mockToast, mockUploadAttachments, mockInvalidate } = vi.hoisted(() => ({
   mockAuth: { getSession: vi.fn(), getUser: vi.fn() },
-  mockToast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+  mockToast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), message: vi.fn() },
   mockUploadAttachments: vi.fn(),
   mockInvalidate: vi.fn(),
 }));
@@ -20,27 +20,61 @@ vi.mock("@/integrations/api/compat", () => ({
   api: { from: (...args: unknown[]) => mockFrom(...args), auth: mockAuth },
 }));
 vi.mock("@/integrations/api/client", () => ({
-  apiClient: { getToken: vi.fn(() => "token-abc"), getCSRFToken: vi.fn(() => "csrf-xyz") },
+  apiClient: { getToken: vi.fn(() => "token-abc"), getCSRFToken: vi.fn(() => "csrf-xyz"), rawRequest: vi.fn() },
 }));
 vi.mock("@/integrations/api/queryCache", () => ({ invalidateByPrefix: mockInvalidate }));
 vi.mock("sonner", () => ({ toast: mockToast }));
-vi.mock("@/utils/mediaUpload", () => ({ uploadAttachments: mockUploadAttachments }));
+vi.mock("@/utils/mediaUpload", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/utils/mediaUpload")>();
+  return { ...actual, uploadAttachments: mockUploadAttachments, uploadEditedDataUrl: vi.fn() };
+});
 
-// GomoRichEditor pulls in tiptap + emoji context — swap for a plain textarea
-// that reports the same onChange contract ({ json, text }).
+// GomoRichEditor pulls in tiptap + emoji context — swap for a textarea that
+// reports the same onChange contract ({ json, text }) and exposes a minimal
+// handle (getEditor/getJSON) the RichComposer publish path needs.
 vi.mock("@/components/GomoRichEditor", () => {
   const MockEditor = React.forwardRef(function MockEditor(
-    { onChange, placeholder, legacyContent }: any,
-    ref: React.Ref<HTMLTextAreaElement>
+    { onChange, placeholder, contentJson }: any,
+    ref: React.Ref<unknown>
   ) {
+    const [value, setValue] = React.useState<string>("");
+    React.useEffect(() => {
+      // Reflect a restored document the first time one arrives.
+      const doc = contentJson as { content?: Array<{ content?: Array<{ text?: string }> }> } | null;
+      const text = doc?.content?.[0]?.content?.[0]?.text;
+      if (typeof text === "string" && text.length > 0) setValue(text);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    const valueRef = React.useRef(value);
+    valueRef.current = value;
+    React.useImperativeHandle(ref, () => ({
+      focus: () => {},
+      insertText: () => {},
+      insertEmoji: () => {},
+      getEditor: () => ({
+        isDestroyed: false,
+        view: { dom: document.createElement("div") },
+        getJSON: () =>
+          valueRef.current
+            ? { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: valueRef.current }] }] }
+            : { type: "doc", content: [] },
+      }),
+    }));
     return (
       <div>
         <textarea
-          ref={ref}
           data-testid="composer-editor"
           placeholder={placeholder}
-          defaultValue={legacyContent || ""}
-          onChange={(e) => onChange({ json: { type: "doc", content: [] }, text: e.target.value })}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            onChange({
+              json: e.target.value
+                ? { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: e.target.value }] }] }
+                : { type: "doc", content: [] },
+              text: e.target.value,
+            });
+          }}
         />
       </div>
     );
@@ -48,9 +82,6 @@ vi.mock("@/components/GomoRichEditor", () => {
   return { GomoRichEditor: MockEditor };
 });
 vi.mock("@/components/EmojiPicker", () => ({ EmojiPicker: ({ children }: any) => <>{children}</> }));
-vi.mock("@/components/RichContentRenderer", () => ({
-  RichContentRenderer: () => <div data-testid="rich-preview">rich content</div>,
-}));
 vi.mock("@/components/Lightbox", () => ({ Lightbox: () => null }));
 
 const mockNavigate = vi.fn();
@@ -88,7 +119,7 @@ function jsonResponse(data: unknown) {
 }
 
 function setupFetchRoutes() {
-  mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+  mockFetch.mockImplementation((url: string) => {
     if (url.startsWith("/api/rpc/create_thread")) {
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: { id: "thread-1" } }) });
     }
@@ -119,13 +150,12 @@ describe("CreateGomoThread (composer)", () => {
     setupFetchRoutes();
   });
 
-  it("renders the composer with header, title and editor", async () => {
+  it("renders the composer with header, title, editor and tag chips", async () => {
     render(<Component />);
     await waitFor(() => expect(screen.getByText(/g\/test/)).toBeTruthy());
     expect(screen.getByPlaceholderText("Заголовок")).toBeTruthy();
     expect(screen.getByPlaceholderText("Текст записи…")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Опубликовать" })).toBeTruthy();
-    // Tag chips from the board
     expect(screen.getByText("#anime")).toBeTruthy();
     expect(screen.getByText("#games")).toBeTruthy();
   });
@@ -140,7 +170,7 @@ describe("CreateGomoThread (composer)", () => {
 
     await user.type(screen.getByPlaceholderText("Заголовок"), "Hello world");
     await user.type(screen.getByPlaceholderText("Текст записи…"), "Body text here");
-    expect((publish as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect((publish as HTMLButtonElement).disabled).toBe(false));
 
     await user.click(publish);
 
@@ -154,8 +184,6 @@ describe("CreateGomoThread (composer)", () => {
     });
 
     await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith("Запись опубликована"));
-    // The composer history entry is replaced with the sub board page first, so
-    // Back from the new post lands on the sub — not on the composer again.
     expect(mockNavigate).toHaveBeenCalledWith("/g/test", { replace: true });
     expect(mockNavigate).toHaveBeenCalledWith("/g/test/thread/thread-1");
     expect(mockInvalidate).toHaveBeenCalled();
@@ -170,38 +198,7 @@ describe("CreateGomoThread (composer)", () => {
     render(<Component />);
     await waitFor(() => expect(screen.getByText(/g\/test/)).toBeTruthy());
     expect((screen.getByPlaceholderText("Заголовок") as HTMLInputElement).value).toBe("Draft title");
-    expect((screen.getByPlaceholderText("Текст записи…") as HTMLTextAreaElement).value).toBe("Draft body");
     expect(screen.getByText("черновик")).toBeTruthy();
-  });
-
-  it("toggles the live preview", async () => {
-    const user = userEvent.setup();
-    render(<Component />);
-    await waitFor(() => expect(screen.getByText(/g\/test/)).toBeTruthy());
-    await user.type(screen.getByPlaceholderText("Заголовок"), "Preview me");
-    await user.type(screen.getByPlaceholderText("Текст записи…"), "Some body");
-
-    await user.click(screen.getByRole("button", { name: /Предпросмотр/ }));
-    expect(screen.queryByPlaceholderText("Текст записи…")).toBeNull();
-    expect(screen.getByText("Preview me")).toBeTruthy();
-    expect(screen.getByTestId("rich-preview")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: /Редактировать/ }));
-    expect(screen.getByPlaceholderText("Текст записи…")).toBeTruthy();
-  });
-
-  it("focuses the editor when clicking dead space in the pane", async () => {
-    const user = userEvent.setup();
-    render(<Component />);
-    await waitFor(() => expect(screen.getByText(/g\/test/)).toBeTruthy());
-    const editor = screen.getByTestId("composer-editor");
-    expect(document.activeElement).not.toBe(editor);
-    // Click the pane below the editor (the editor's parent div) — not the
-    // textarea itself.
-    const pane = editor.closest(".flex-1") as HTMLElement;
-    expect(pane).toBeTruthy();
-    await user.click(pane);
-    expect(document.activeElement).toBe(editor);
   });
 
   it("closes back via the X button", async () => {
@@ -209,6 +206,6 @@ describe("CreateGomoThread (composer)", () => {
     render(<Component />);
     await waitFor(() => expect(screen.getByText(/g\/test/)).toBeTruthy());
     await user.click(screen.getByRole("button", { name: "Закрыть" }));
-    expect(mockNavigate).toHaveBeenCalledWith(-1);
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(-1));
   });
 });

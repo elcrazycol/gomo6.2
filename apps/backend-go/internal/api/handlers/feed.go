@@ -44,6 +44,10 @@ type feedItem struct {
 	Author        *feedAuthor     `json:"author,omitempty"`
 	BoardID       *string         `json:"board_id,omitempty"`
 	Boards        *feedBoard      `json:"boards,omitempty"`
+	SectionID     *string         `json:"section_id,omitempty"`
+	Section       *feedSection    `json:"section,omitempty"`
+	SubsectionID  *string         `json:"subsection_id,omitempty"`
+	Subsection    *feedSubsection `json:"subsection,omitempty"`
 	WallUserID    *string         `json:"wall_user_id,omitempty"`
 	LikesCount    int64           `json:"likes_count"`
 	CommentsCount int64           `json:"comments_count"`
@@ -64,6 +68,20 @@ type feedBoard struct {
 	Slug      string `json:"slug"`
 	Name      string `json:"name"`
 	IsGomosub bool   `json:"is_gomosub"`
+}
+
+type feedSection struct {
+	ID     string  `json:"id"`
+	Slug   string  `json:"slug"`
+	Name   string  `json:"name"`
+	Icon   *string `json:"icon,omitempty"`
+	IsNSFW bool    `json:"is_nsfw"`
+}
+
+type feedSubsection struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 // GetUserFeed godoc
@@ -124,6 +142,8 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 		        author_id, author_username, author_display_name, author_nickname_emoji_id,
 		        author_is_anonymous, author_avatar_url,
 		        board_id, board_slug, board_name, board_is_gomosub,
+		        section_id, section_slug, section_name, section_icon,
+		        subsection_id, subsection_slug, subsection_name,
 		        wall_user_id,
 	        likes_count, comments_count, reposts_count, liked_by_viewer, views_count
 		 FROM get_user_feed($1, $2, $3, $4, $5)`,
@@ -148,6 +168,9 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 		var boardID sql.NullString
 		var boardSlug, boardName sql.NullString
 		var boardIsGomosub bool
+		var sectionID, sectionSlug, sectionName, sectionIcon sql.NullString
+		var sectionIsNSFW bool
+		var subsectionID, subsectionSlug, subsectionName sql.NullString
 		var wallUserID sql.NullString
 		var score float64
 
@@ -158,6 +181,8 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 			&authorID, &authorUsername, &authorDisplayName, &authorNicknameEmojiID,
 			&authorIsAnonymous, &authorAvatarURL,
 			&boardID, &boardSlug, &boardName, &boardIsGomosub,
+			&sectionID, &sectionSlug, &sectionName, &sectionIcon,
+			&subsectionID, &subsectionSlug, &subsectionName,
 			&wallUserID,
 			&it.LikesCount, &it.CommentsCount, &it.RepostsCount, &it.LikedByViewer,
 			&it.ViewsCount,
@@ -213,6 +238,24 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 				Slug:      boardSlug.String,
 				Name:      boardName.String,
 				IsGomosub: boardIsGomosub,
+			}
+		}
+		if sectionID.Valid {
+			it.SectionID = &sectionID.String
+			it.Section = &feedSection{
+				ID:     sectionID.String,
+				Slug:   sectionSlug.String,
+				Name:   sectionName.String,
+				Icon:   nullStringPtr(sectionIcon),
+				IsNSFW: sectionIsNSFW,
+			}
+		}
+		if subsectionID.Valid {
+			it.SubsectionID = &subsectionID.String
+			it.Subsection = &feedSubsection{
+				ID:   subsectionID.String,
+				Slug: subsectionSlug.String,
+				Name: subsectionName.String,
 			}
 		}
 		if wallUserID.Valid {
