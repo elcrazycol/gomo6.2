@@ -42,7 +42,10 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
     ? parseCssToStyle(profileData.customization.username_css)
     : {};
 
-  const usernameClassName = `text-sm sm:text-base drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] text-quote`;
+  // Neutral, like every other nickname: inherits the header's foreground colour
+  // (dark on light glass, light on dark glass) instead of the theme's quote
+  // accent + white halo.
+  const usernameClassName = `text-sm sm:text-base`;
 
   return (
     <ProfileHoverCard userId={userId} showDrops>

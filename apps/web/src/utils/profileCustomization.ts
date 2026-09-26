@@ -1,4 +1,4 @@
-import { api } from "@/integrations/api/compat";
+import { PROFILE_CACHE_INVALIDATE_EVENT } from "@/utils/profileCacheEvents";
 
 export interface ProfileCustomization {
   username_css: string | null;
@@ -7,33 +7,66 @@ export interface ProfileCustomization {
   background_url: string | null;
 }
 
-const customizationCache = new Map<string, ProfileCustomization | null>();
+const CUSTOMIZATION_TTL = 5 * 60 * 1000;
+const CUSTOMIZATION_MAX_ENTRIES = 200;
+
+interface CacheEntry {
+  value: ProfileCustomization | null;
+  at: number;
+}
+
+const customizationCache = new Map<string, CacheEntry>();
+
+const readCached = (userId: string): { hit: boolean; value: ProfileCustomization | null } => {
+  const entry = customizationCache.get(userId);
+  if (!entry) return { hit: false, value: null };
+  // Expired entries are dropped rather than served. Without a TTL a viewer who
+  // once saw a nickname kept the old colour forever: the invalidate event only
+  // fires in the editor's own browser, so other clients would never hear about
+  // the change.
+  if (Date.now() - entry.at > CUSTOMIZATION_TTL) {
+    customizationCache.delete(userId);
+    return { hit: false, value: null };
+  }
+  return { hit: true, value: entry.value };
+};
+
+const writeCached = (userId: string, value: ProfileCustomization | null) => {
+  if (!customizationCache.has(userId) && customizationCache.size >= CUSTOMIZATION_MAX_ENTRIES) {
+    // Map preserves insertion order, so the first key is the oldest.
+    const oldest = customizationCache.keys().next().value;
+    if (oldest !== undefined) customizationCache.delete(oldest);
+  }
+  customizationCache.set(userId, { value, at: Date.now() });
+};
 
 export const getProfileCustomization = async (userId: string): Promise<ProfileCustomization | null> => {
-  // Check cache first
-  if (customizationCache.has(userId)) {
-    return customizationCache.get(userId) || null;
+  const cached = readCached(userId);
+  if (cached.hit) {
+    return cached.value;
   }
 
   try {
-    const { data, error } = await api
-      .from("profile_customization")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (error && (error as { code?: string }).code !== 'PGRST116') {
-      console.error("Error loading customization:", error);
-      customizationCache.set(userId, null);
+    // Public display endpoint, NOT the generic /profile_customization surface:
+    // that table is read-scoped to the caller's own user_id
+    // (TableMeta.UserScopedRead), so querying it with somebody else's id returns
+    // an empty row — which is exactly why nobody ever saw another user's
+    // nickname colour. /users/:id/customization serves the display fields to any
+    // viewer (the same reason /users/:id/privacy exists for privacy_settings)
+    // and it works for the current user too, so no owner/viewer branch is needed.
+    const res = await fetch(`/api/v1/users/${encodeURIComponent(userId)}/customization`);
+    if (!res.ok) {
+      writeCached(userId, null);
       return null;
     }
 
-    const customization = (data || null) as ProfileCustomization | null;
-    customizationCache.set(userId, customization);
+    const payload = (await res.json()) as { data?: ProfileCustomization | null };
+    const customization = payload?.data ?? null;
+    writeCached(userId, customization);
     return customization;
   } catch (error) {
     console.error("Error loading customization:", error);
-    customizationCache.set(userId, null);
+    writeCached(userId, null);
     return null;
   }
 };
@@ -107,5 +140,5 @@ export const clearCustomizationCache = (userId?: string) => {
  */
 export const dispatchProfileCacheInvalidate = () => {
   clearCustomizationCache();
-  window.dispatchEvent(new CustomEvent('profile-cache:invalidate'));
+  window.dispatchEvent(new CustomEvent(PROFILE_CACHE_INVALIDATE_EVENT));
 };

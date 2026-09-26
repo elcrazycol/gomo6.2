@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { BrowserRouter } from "react-router-dom";
@@ -44,12 +43,6 @@ vi.mock("@/integrations/api/compat", () => ({
 
 vi.mock("@/components/ThreadFeed", () => ({
   ThreadFeed: () => <div data-testid="thread-feed">ThreadFeed</div>,
-}));
-
-vi.mock("@/components/FeedThreadCard", () => ({
-  FeedThreadCard: ({ thread }: { thread: { id: string; title: string } }) => (
-    <div data-testid="thread-card">{thread.title}</div>
-  ),
 }));
 
 vi.mock("@/components/PentagramLoader", () => ({
@@ -152,20 +145,10 @@ function setupLoggedIn() {
         return makePromiseChain({ data: { user_id: "user-1" }, error: null });
       case "gomosub_memberships":
         return makePromiseChain({ data: [], error: null });
-      case "thread_subscriptions":
-        return makePromiseChain({ data: [], error: null });
       default:
         return makePromiseChain({ data: [], error: null });
     }
   });
-  mockRpc.mockResolvedValue({ data: null, error: null });
-}
-
-function setupLoggedOut() {
-  mockAuth.getSession.mockResolvedValue({ data: { session: null }, error: null });
-  mockAuth.getUser.mockResolvedValue({ data: { user: null }, error: null });
-  mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
-  mockFrom.mockImplementation((_table: string) => makePromiseChain({ data: [], error: null }));
   mockRpc.mockResolvedValue({ data: null, error: null });
 }
 
@@ -217,15 +200,16 @@ describe("Index", () => {
     });
   });
 
-  it("shows subscription/promo tab switcher", async () => {
+  it("renders the feed without the recommendations/subscriptions switcher", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      const recommendBtns = screen.getAllByText("Рекомендации");
-      expect(recommendBtns.length).toBeGreaterThanOrEqual(1);
-      const subBtns = screen.getAllByText("Подписки");
-      expect(subBtns.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId("thread-feed")).toBeInTheDocument();
     });
+    // The feed is recommendations-only now: the toggle (and the subscriptions
+    // view behind it) has been removed.
+    expect(screen.queryByText("Рекомендации")).not.toBeInTheDocument();
+    expect(screen.queryByText("Новые записи из подписок")).not.toBeInTheDocument();
   });
 
   it("renders sidebar navigation buttons", async () => {
@@ -234,6 +218,18 @@ describe("Index", () => {
     await waitFor(() => {
       expect(screen.getByText("G-сабы")).toBeInTheDocument();
     });
+  });
+
+  it("renders the restyled sidebar blocks with their lists", async () => {
+    setupLoggedIn();
+    renderWithProviders(<IndexComponent />);
+    await waitFor(() => {
+      expect(screen.getByText("Подписки")).toBeInTheDocument();
+      expect(screen.getByText("Капля рандома")).toBeInTheDocument();
+      expect(screen.getByText("Важное")).toBeInTheDocument();
+    });
+    // g-sub rows, now with the post-card layout (leading chip + g/slug + name)
+    expect(screen.getAllByText(/^g\//).length).toBeGreaterThan(0);
   });
 
   it("renders important links in sidebar", async () => {

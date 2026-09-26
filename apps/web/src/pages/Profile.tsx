@@ -399,8 +399,6 @@ const Profile = () => {
       avatarDragHandlers={editing.avatarDragHandlers}
       newDisplayName={editing.newDisplayName}
       onNewDisplayNameChange={editing.setNewDisplayName}
-      bgUrl={bgUrl}
-      bgVariant={bgVariant}
       customization={customization}
       nicknameEmojiId={nicknameEmojiId}
       showOnlineStatus={showOnlineStatus}
@@ -455,6 +453,23 @@ const Profile = () => {
             <div className="relative overflow-hidden">
               <div className={`h-24 sm:h-28 w-full ${bgUrl ? "bg-cover bg-center" : "bg-muted/60"}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}>
                 {bgUrl && !editing.isEditing && <div className="absolute inset-x-0 top-0 h-24 sm:h-28 bg-gradient-to-b from-black/45 via-black/20 to-transparent" />}
+                {/* Legibility scrim where the identity block overlaps the strip.
+                    The previous approach faked contrast with a white halo on the
+                    text itself, which (with a gradient nickname's transparent
+                    text fill) painted a blurred white copy over the letters and
+                    made every nickname look washed out. Darkening the image
+                    behind the text works for light and custom-coloured names
+                    alike without touching the glyphs. Same box as the strip so
+                    "top-0" also means "bottom of the banner"; the dark stops sit
+                    only in the band the avatar/name cover, leaving the image
+                    visible above them. */}
+                {bgUrl && !editing.isEditing && (
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-0 h-24 sm:h-28"
+                    style={{ backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.35) 24%, transparent 58%)' }}
+                    aria-hidden="true"
+                  />
+                )}
                 {isOwnProfile && editing.isEditing && (
                   <div className="absolute top-2 right-2 flex gap-2">
                     <label className="flex items-center gap-1.5 h-8 px-3 rounded-full bg-background/85 backdrop-blur cursor-pointer hover:bg-background transition-colors text-xs font-medium">

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/privacy"
 	"github.com/redis/go-redis/v9"
-	"strconv"
 )
 
 const (
@@ -62,6 +62,11 @@ const (
 	// room so open moderation screens show it immediately.
 	MessageTypeNewReport = "new_report"
 
+	// A profile edit (display name, avatar, nickname style, badge...). It fans
+	// out to the public feed room because a nickname can appear in any feed,
+	// thread or wall, and carries only the user id — nothing private.
+	MessageTypeProfileUpdated = "profile_updated"
+
 	// Redis channels
 	RedisChannelPosts         = "realtime:posts"
 	RedisChannelThreads       = "realtime:threads"
@@ -73,6 +78,7 @@ const (
 	RedisChannelSpotify       = "realtime:spotify"
 	RedisChannelUserRevoke    = "user:revoke"
 	RedisChannelModeration    = "realtime:moderation"
+	RedisChannelProfiles      = "realtime:profiles"
 
 	// Presence lifecycle timings
 	PresenceTTL        = 60 * time.Second // how long a user stays "online" without any heartbeat
@@ -329,7 +335,7 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify, RedisChannelUserRevoke, RedisChannelModeration)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify, RedisChannelUserRevoke, RedisChannelModeration, RedisChannelProfiles)
 	defer pubsub.Close()
 
 	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
@@ -516,6 +522,12 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 	case MessageTypeNewReport:
 		// Scoped to the moderation room — only moderator clients subscribe.
 		h.BroadcastToRoom("moderation", messageBytes)
+
+	case MessageTypeProfileUpdated:
+		// Every authenticated client may be showing this nickname somewhere, so
+		// it goes to the public feed room everyone joins. The payload is a bare
+		// user id, so there is nothing private to leak.
+		h.BroadcastToRoom("feed", messageBytes)
 
 	case MessageTypeUserOnline, MessageTypeUserOffline:
 		h.broadcastPresenceEvent(payload, messageBytes)
@@ -1111,6 +1123,19 @@ func (h *Hub) PublishToRedis(channel string, event RealtimeEvent) error {
 	defer cancel()
 
 	return h.redis.Publish(ctx, channel, data).Err()
+}
+
+// PublishProfileUpdated tells every connected client that a user's profile
+// changed (display name, avatar, nickname style, badge...), so each client can
+// drop its cached copy. Without it the "profile-cache:invalidate" event is
+// local to the editor's own browser, and every other viewer keeps showing the
+// old nickname until its cache entry happens to expire.
+func (h *Hub) PublishProfileUpdated(userID string) error {
+	event := RealtimeEvent{
+		Type:    MessageTypeProfileUpdated,
+		Payload: map[string]string{"user_id": userID},
+	}
+	return h.PublishToRedis(RedisChannelProfiles, event)
 }
 
 // PublishNewPost publishes a new post event to Redis

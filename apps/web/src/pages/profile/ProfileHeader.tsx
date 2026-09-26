@@ -10,7 +10,6 @@ import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { UserAvatar } from "@/components/UserAvatar";
 import { parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
-import type { ProfileBackgroundVariant } from "@/utils/profileBackground";
 import type { AvatarDragHandlers, Profile } from "./types";
 
 // Heavy interaction-only component — split into a separate chunk so the
@@ -33,8 +32,6 @@ export interface ProfileHeaderProps {
   /** Display-name editing field (shown next to the emoji picker in edit mode). */
   newDisplayName: string;
   onNewDisplayNameChange: (value: string) => void;
-  bgUrl: string | null;
-  bgVariant: ProfileBackgroundVariant;
   customization: ProfileCustomization | null;
   nicknameEmojiId: string | null;
   showOnlineStatus: boolean;
@@ -63,8 +60,6 @@ export function ProfileHeader({
   avatarDragHandlers,
   newDisplayName,
   onNewDisplayNameChange,
-  bgUrl,
-  bgVariant,
   customization,
   nicknameEmojiId,
   showOnlineStatus,
@@ -157,12 +152,7 @@ export function ProfileHeader({
               <div className="flex items-center gap-2 flex-wrap">
                 <h1
                   className="text-xl sm:text-2xl font-bold"
-                  style={{
-                    ...(customization?.username_css ? parseCssToStyle(customization.username_css) : {}),
-                    // Over the banner strip the name may kiss the image edge —
-                    // a light halo keeps it readable on busy backgrounds.
-                    ...(bgUrl && bgVariant === 'banner' ? { textShadow: '0 1px 3px rgba(255,255,255,0.75)' } : {}),
-                  }}
+                  style={customization?.username_css ? parseCssToStyle(customization.username_css) : undefined}
                 >
                   {profile.display_name?.trim() || profile.username}
                 </h1>
@@ -182,7 +172,7 @@ export function ProfileHeader({
           <div className="flex items-center gap-2 gap-y-0.5 flex-wrap">
             <button
               type="button"
-              className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''} ${bgUrl && bgVariant === 'banner' ? '[text-shadow:0_1px_2px_rgba(255,255,255,0.7)]' : ''}`}
+              className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''}`}
               onClick={isOwnProfile ? onUsernameClick : undefined}
               disabled={!isOwnProfile}
             >

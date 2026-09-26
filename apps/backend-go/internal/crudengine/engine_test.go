@@ -1267,6 +1267,56 @@ func TestInvalidateEmojiPacksDispatch(t *testing.T) {
 	}
 }
 
+// TestInvalidateProfileCustomizationCoversPublicAppearance guards the cache half
+// of the "other people never see my nickname colour" bug: badges and profile
+// headers read a foreign user through the public /users/:id/customization route,
+// and that response is served from the Redis data cache. If a customization
+// write only invalidated the generic /profile_customization keys, the refetch
+// triggered by the realtime broadcast would be served the PREVIOUS nickname
+// colour, so the change would still never appear for anyone else.
+func TestInvalidateProfileCustomizationCoversPublicAppearance(t *testing.T) {
+	h, _ := setupEngine(t)
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+	h.redis = client
+
+	staleKeys := []string{
+		// The public appearance read (per-viewer cached, no query string).
+		"data:/api/v1/users/u1/customization?|viewer=anon",
+		"data:/api/v1/users/u1/customization?|viewer=u2",
+		// Owner-scoped generic reads.
+		"data:/api/v1/profile_customization?user_id=eq.u1|viewer=anon",
+		"data:/api/v1/profile_customization?user_id=u1|viewer=anon",
+		// The hover card embeds the same fields.
+		"data:/api/v1/profiles?id=eq.u1|viewer=anon",
+	}
+	otherUserKey := "data:/api/v1/users/u2/customization?|viewer=anon"
+
+	for _, key := range append(append([]string{}, staleKeys...), otherUserKey) {
+		if err := mr.Set(key, `{"data":{}}`); err != nil {
+			t.Fatalf("failed to seed cache key %q: %v", key, err)
+		}
+	}
+
+	c, _ := newRequestContext("POST", "/api/v1/profile_customization", nil, nil)
+	h.invalidateCacheForTableResult(c, "profile_customization", map[string]interface{}{"user_id": "u1"})
+
+	for _, key := range staleKeys {
+		if mr.Exists(key) {
+			t.Errorf("cache key %q was not invalidated after a profile_customization write", key)
+		}
+	}
+	if !mr.Exists(otherUserKey) {
+		t.Errorf("another user's appearance key %q must not be invalidated", otherUserKey)
+	}
+}
+
 // TestInvalidateGenericFallback verifies the dispatcher's default path: a
 // writable table without a declared invalidation hook falls back to the
 // generic table invalidation keyed by the row id, so a new registry table can

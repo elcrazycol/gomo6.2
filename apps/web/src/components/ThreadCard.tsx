@@ -257,7 +257,6 @@ const ThreadCard = ({
                 displayName={thread.profiles?.display_name}
                 emojiId={thread.profiles?.nickname_emoji_id}
                 isAnonymous={thread.profiles?.is_anonymous}
-                showOutline={false}
                 disableLink={false}
                 stopPropagationOnClick={true}
               />
@@ -450,7 +449,6 @@ const ThreadCard = ({
                             displayName={liker.is_anonymous ? undefined : liker.display_name}
                             emojiId={liker.is_anonymous ? undefined : liker.nickname_emoji_id}
                             isAnonymous={liker.is_anonymous}
-                            showOutline={false}
                             className="text-xs"
                           />
                         </div>

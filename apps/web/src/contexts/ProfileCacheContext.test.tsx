@@ -28,6 +28,11 @@ function makeChain<T>(resolveValue: T): any {
   return p;
 }
 
+// The viewed user's appearance comes from the public
+// /users/:id/customization route, not from the owner-scoped generic table.
+const mockFetch = vi.fn((..._args: unknown[]) => Promise.resolve({ ok: true, json: async () => ({ success: true, data: null }) }));
+vi.stubGlobal("fetch", (...args: unknown[]) => mockFetch(...args));
+
 function wrapper({ children }: { children: ReactNode }) {
   return <ProfileCacheProvider>{children}</ProfileCacheProvider>;
 }
@@ -37,7 +42,6 @@ function defaultMocks() {
     if (table === "profiles") return makeChain({ data: { username: "alice", avatar_url: "av.jpg" }, error: null });
     if (table === "user_achievements") return makeChain({ data: [], error: null });
     if (table === "user_roles") return makeChain({ data: [], error: null });
-    if (table === "profile_customization") return makeChain({ data: null, error: null });
     return makeChain({ data: null, error: null });
   });
 }
@@ -88,7 +92,7 @@ describe("ProfileCacheContext", () => {
 
     const cached = result.current.getProfile("user-1");
     expect(cached).not.toBeNull();
-    expect(cached!.username).toBe("alice");	    expect(mockFrom).toHaveBeenCalledTimes(3); // 3 parallel API calls (profiles, roles, customization)
+    expect(cached!.username).toBe("alice");	    expect(mockFrom).toHaveBeenCalledTimes(2); // profiles + roles (appearance comes from the public endpoint)
   });
 
   it("returns cached data on second load", async () => {
@@ -179,11 +183,25 @@ describe("ProfileCacheContext", () => {
     let data: any;
     await act(async () => {
       data = await result.current.loadProfile("user-1");
-    });	    // profiles + profile_customization — NO user_roles.
+    });	    // profiles only — NO user_roles (guest) and no generic
+	    // profile_customization read (appearance comes from the public endpoint).
     const calledTables = mockFrom.mock.calls.map((c) => c[0]);
     expect(calledTables).not.toContain("user_roles");
-    expect(calledTables).toHaveLength(2);
+    expect(calledTables).toHaveLength(1);
     expect(data.isAdmin).toBe(false);
+  });
+
+  it("loads the viewed user's appearance from the public endpoint", async () => {
+    const { result } = renderHook(() => useProfileCache(), { wrapper });
+
+    await act(async () => {
+      await result.current.loadProfile("user-9");
+    });
+
+    // Regression guard: the generic /profile_customization surface is scoped to
+    // the caller's own user_id, so a foreign profile could never render its
+    // owner's nickname colour or badge.
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/users/user-9/customization");
   });
 
   it("detects admin role", async () => {
@@ -191,7 +209,6 @@ describe("ProfileCacheContext", () => {
       if (table === "profiles") return makeChain({ data: { username: "admin" }, error: null });
       if (table === "user_achievements") return makeChain({ data: [], error: null });
       if (table === "user_roles") return makeChain({ data: [{ role: "admin" }], error: null });
-      if (table === "profile_customization") return makeChain({ data: null, error: null });
       return makeChain({ data: null, error: null });
     });
 

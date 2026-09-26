@@ -52,6 +52,7 @@ export type WebSocketMessageType =
   | 'now_playing'
   | 'session_revoked'
   | 'new_report'
+  | 'profile_updated'
   | 'disconnected';
 
 export interface WebSocketMessage {
@@ -465,6 +466,27 @@ class WebSocketService {
    */
   get rooms(): string[] {
     return Array.from(this.subscribedRooms);
+  }
+
+  /**
+   * Re-establish the connection if it is down and a session is available.
+   *
+   * Recovery entry point for the conditions that leave the socket permanently
+   * dead: auth:expired tears it down (disconnect() closes the socket, drops the
+   * room list and disables reconnection), and scheduleReconnect() gives up after
+   * maxReconnectAttempts. A tab that slept through a deploy, or that outlived
+   * one failed token refresh, therefore never received another realtime event —
+   * including another user's profile update — until the page was reloaded.
+   *
+   * Deliberately bypasses the connect debounce and the give-up counter: this is
+   * an explicit repair attempt, not a race.
+   */
+  ensureConnected(): void {
+    if (!this.getToken() && !this.hasCookieSession()) return;
+    if (this.isConnected || this.isConnecting) return;
+    this.lastConnectAttempt = 0;
+    this.reconnectAttempts = 0;
+    void this.connect();
   }
 
   /**

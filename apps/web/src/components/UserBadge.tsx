@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ProfileHoverCard } from "./ProfileHoverCard";
-import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
+import { parseCssToStyle } from "@/utils/profileCustomization";
+import { useProfileCustomization } from "@/hooks/useProfileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { NicknameEmoji } from "./NicknameEmoji";
 
@@ -19,7 +19,6 @@ interface UserBadgeProps {
   /** custom_emojis id shown right of the nickname (users.nickname_emoji_id) */
   emojiId?: string | null;
   isAnonymous?: boolean;
-  showOutline?: boolean;
   disableLink?: boolean;
   disableHoverCard?: boolean;
   stopPropagationOnClick?: boolean;
@@ -33,39 +32,37 @@ export const UserBadge = ({
   displayName,
   emojiId,
   isAnonymous,
-  showOutline = true,
   disableLink = false,
   disableHoverCard = false,
   stopPropagationOnClick = false,
   isThreadOpener,
   className,
 }: UserBadgeProps) => {
-  const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
+  // Re-reads whenever the Profile Studio publishes an edit, so a nickname
+  // style changed there lands on every mounted badge at once instead of only
+  // after a remount.
+  const customization = useProfileCustomization(userId, !isAnonymous);
 
-  useEffect(() => {
-    if (!userId || isAnonymous) return;
-    getProfileCustomization(userId).then(setCustomization);
-  }, [userId, isAnonymous]);
-
-  const textSizeClass = showOutline ? "text-base" : "text-xs sm:text-sm";
-  const outlineClass = showOutline ? "drop-shadow-[0_0_1px_rgba(255,255,255,0.8)]" : "";
+  // One nickname style everywhere: bold, inheriting the surrounding text colour,
+  // one size. The old `showOutline` flag is gone — it painted the nickname in
+  // the theme's quote accent and added a white 1px drop-shadow halo (a leftover
+  // from badges drawn on the coloured board header), and it also flipped the
+  // size between 16px and 12–14px depending on which call site remembered to
+  // opt out. Both effects were unwanted on normal surfaces.
+  const usernameClassName = "font-bold text-sm hover:underline";
 
   if (isAnonymous || !userId) {
-    return <span className={`font-bold text-quote ${textSizeClass} ${outlineClass} ${className ?? ""}`}>Аноним</span>;
+    return <span className={`font-bold text-sm ${className ?? ""}`}>Аноним</span>;
   }
 
   // Apply customization CSS if available
-  const usernameStyle = customization?.username_css 
+  const usernameStyle = customization?.username_css
     ? parseCssToStyle(customization.username_css)
     : {};
 
   const badgeStyle = customization?.profile_badge_css
     ? parseCssToStyle(customization.profile_badge_css)
     : {};
-
-  const usernameClassName = customization?.username_css
-    ? `font-bold hover:underline ${textSizeClass}`
-    : `font-bold hover:underline ${textSizeClass} ${outlineClass} text-quote`;
 
   const usernameContent = (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden">

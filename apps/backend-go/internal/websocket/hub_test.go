@@ -855,6 +855,36 @@ func TestHandleRedisEvent_NewThread(t *testing.T) {
 	}
 }
 
+// A profile edit (nickname style, badge, avatar, display name) must reach every
+// authenticated client: a nickname can appear in any feed, thread or wall, and
+// a viewer holding a cached copy has no other way to learn about the change —
+// the "profile-cache:invalidate" DOM event is local to the editor's browser.
+func TestHandleRedisEvent_ProfileUpdatedReachesFeedRoom(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "feed")
+
+	event := RealtimeEvent{
+		Type:    MessageTypeProfileUpdated,
+		Payload: map[string]string{"user_id": "user-42"},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "profile_updated") {
+			t.Errorf("expected message type 'profile_updated', got: %s", string(msg))
+		}
+		if !containsStr(string(msg), "user-42") {
+			t.Errorf("expected the changed user id in the payload, got: %s", string(msg))
+		}
+	default:
+		t.Error("a client in the 'feed' room should receive profile_updated")
+	}
+}
+
 // H3: a thread created on a private board must never reach the global feed
 // room (any authenticated client can subscribe to "feed"), even though the
 // board room still receives the event to refresh that board's page.

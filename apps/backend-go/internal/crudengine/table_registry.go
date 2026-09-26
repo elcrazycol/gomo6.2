@@ -440,6 +440,7 @@ var genericTables = []TableMeta{
 		BuildUpsert:      upsertProfileCustomization,
 		InvalidateCache:  invalidateProfileCustomizationCache,
 		EmitAchievements: emitProfileCustomizationAchievements,
+		AfterWrite:       afterProfileCustomizationWrite,
 	},
 	{
 		Name:             "profile_wall_comment_likes",

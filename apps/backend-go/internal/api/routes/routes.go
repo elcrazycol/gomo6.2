@@ -133,6 +133,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
 	profilesHandler.SetAchievementEngine(achEngine)
+	profilesHandler.SetHub(wsHub)
 	likesHandler := handlers.NewLikesHandler(db, redis)
 	likesHandler.SetWebSocketHub(wsHub)
 	likesHandler.SetAchievementEngine(achEngine)
@@ -391,6 +392,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// them leaks nothing that was hidden.
 		privacyHandler := handlers.NewPrivacyHandler(db)
 		rest.GET("/users/:id/privacy", privacyHandler.GetUserPrivacy)
+
+		// Profile appearance (public) — nickname CSS, badge and background of a
+		// user, needed to render someone else's nickname styling. The generic
+		// /profile_customization surface is scoped to the caller's own user_id
+		// (TableMeta.UserScopedRead), so it can only ever return the caller's own
+		// row; without this route a viewer never saw any nickname colour but
+		// their own.
+		rest.GET("/users/:id/customization", profilesHandler.GetUserCustomization)
 
 		// Push VAPID public key (public) — needed by the frontend before it can
 		// call PushManager.subscribe / show the permission prompt.

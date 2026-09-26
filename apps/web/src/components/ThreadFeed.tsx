@@ -365,7 +365,7 @@ export const ThreadFeed = ({
         )}
 
         {items.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 py-12 text-center">
+          <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 py-12 text-center">
             <p className="text-lg font-medium">В ленте пока пусто</p>
             <p className="mt-2 text-sm text-muted-foreground">
               {currentUserId

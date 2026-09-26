@@ -25,8 +25,8 @@ export const CookieBanner = () => {
   if (!show) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border p-4 shadow-lg">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border py-4 shadow-lg">
+      <div className="max-w-6xl mx-auto px-4 flex items-center justify-between gap-4">
         <div className="flex-1">
           <p className="text-sm text-muted-foreground">
             Мы используем куки для улучшения вашего опыта. Продолжая использовать сайт, вы соглашаетесь с нашей{" "}
