@@ -7,6 +7,7 @@ import DeveloperApps from "./pages/Apps";
 import CreateApp from "./pages/CreateApp";
 import AppDetail from "./pages/AppDetail";
 import GiftAdmin from "./pages/Gifts";
+import Awards from "./pages/Awards";
 import Chests from "./pages/Chests";
 import Login from "./pages/Login";
 import Callback from "./pages/Callback";
@@ -98,6 +99,16 @@ const App = () => {
                 <AuthGuard>
                   <AppLayout>
                     <Dashboard />
+                  </AppLayout>
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/awards"
+              element={
+                <AuthGuard>
+                  <AppLayout>
+                    <Awards />
                   </AppLayout>
                 </AuthGuard>
               }
