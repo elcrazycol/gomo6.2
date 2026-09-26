@@ -70,3 +70,6 @@ venv/
 
 # Go build cache (sandboxed GOCACHE inside repo during agent sessions)
 .gocache
+
+# Brag skill output (generated launch videos, per-run folders)
+brag-output*/
