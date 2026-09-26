@@ -141,6 +141,18 @@ html, body {
   overscroll-behavior: contain;
 }
 
+/* Always reserve the classic scrollbar's track. Without this, a page that
+   crosses the viewport height — or a route whose content is shorter than the
+   screen — flips the scrollbar on/off, which changes the layout width and
+   shifts everything (including the fixed header, whose inner content is
+   centred) sideways by half the scrollbar. `stable` keeps the gutter reserved
+   whether or not the bar is showing, so nothing moves.
+   Overlay-scrollbar platforms (macOS default, mobile) have a zero gutter, so
+   this is a no-op there. */
+html {
+  scrollbar-gutter: stable;
+}
+
 @media (max-width: 640px) {
   .plyr--audio .plyr__controls {
     gap: 0.2rem;
@@ -1052,4 +1064,198 @@ main.is-app-surface {
   to {
     filter: hue-rotate(55deg);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Glass site header (AppLayout)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   One pane of neutral frosted glass. It deliberately does NOT take the theme's
+   board-header colour any more — a tinted pane reads as coloured plastic,
+   while an untinted one behaves like real glass over every theme. The
+   foreground stays white (text-board-header-foreground is white in all
+   themes), which is why the pane is always dark, even on light themes.
+
+   Three things make it read as glass rather than as a translucent bar:
+     • blur plus a saturation boost, so the colours behind the pane stay vivid
+       instead of turning to grey mush;
+     • a crisp 1px highlight along the top edge and a denser bottom edge, so
+       the pane has visible thickness;
+     • two deliberate "defects" — fractal-noise grain, and an off-centre sheen
+       with a faint diagonal streak — because real glass is never perfectly
+       clean or evenly lit.
+
+   The defects live in ::before / ::after at z-index 0, and every direct child
+   is lifted to z-index 1, so they can never bleed over the icons or text.
+
+   Tune via the custom properties below.
+
+   ── Cost ──────────────────────────────────────────────────────────────────
+   This is the only always-on backdrop-filter in the app, so it is the one
+   thing that runs on EVERY scroll frame. Everything static (thickness, streak,
+   sheen) rides in the element's own background-image, which the browser
+   rasterises once into the header's layer, and the filter chain is kept to the
+   two passes that actually pay for themselves.
+
+   Three progressively cheaper tiers live further down ("Cost tiers"): narrow
+   screens, html.perf-lite, and the no-backdrop-filter fallback. */
+.app-header-glass {
+  --glass-base: 0 0% 8%;
+  --glass-alpha: 0.55;
+  --glass-blur: 18px;
+  --glass-saturate: 180%;
+
+  background-color: hsl(var(--glass-base) / var(--glass-alpha));
+  /* Ordered top-to-bottom: sheen, diagonal streak, then the thickness gradient
+     (a whisper of light at the top, a denser floor — which is also what keeps
+     white text readable over bright content). All static, so they cost nothing
+     per frame here. */
+  background-image:
+    radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.22), transparent 58%),
+    linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.07) 49%, transparent 61%),
+    linear-gradient(to bottom, hsl(0 0% 100% / 0.04), hsl(0 0% 0% / 0.16));
+
+  /* Exactly two passes: the blur and one colour matrix. Every extra function
+     is another full-width shader on every scroll frame, which is why there is
+     no brightness() here. */
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+
+  border-bottom: 1px solid hsl(0 0% 100% / 0.1);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.14),
+    inset 0 -1px 0 hsl(0 0% 0% / 0.22),
+    0 10px 30px -14px hsl(0 0% 0% / 0.55);
+}
+
+/* Grain. Isolated in its own layer so soft-light only textures the glass —
+   not the children. */
+.app-header-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* Keep icon/text children above the grain layer. */
+.app-header-glass > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Cost tiers ────────────────────────────────────────────────────────────
+
+   The header is the only always-on backdrop-filter in the app and the browser
+   re-runs it on every scroll frame, so the cheaper versions matter:
+
+     • narrow screens — fewer pixels and weaker GPUs: a smaller radius, a
+       gentler saturation, and the grain drops its per-frame compositor blend
+       (mix-blend-mode) for a plain source-over overlay;
+     • html.perf-lite — hardware that cannot hold a full-radius live blur (set
+       by utils/perfTier.ts from device hints, then re-checked against real
+       frame pacing during the first scroll): no live filter at all, just a
+       translucent pane. Un-blurred translucency is pure compositing, and on
+       this tier smoothness is worth more than the frosting. */
+@media (max-width: 767px) {
+  .app-header-glass {
+    --glass-blur: 8px;
+    --glass-saturate: 120%;
+  }
+  .app-header-glass::before {
+    mix-blend-mode: normal;
+    opacity: 0.1;
+  }
+}
+
+html.perf-lite .app-header-glass {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background-color: hsl(var(--glass-base) / 0.86);
+}
+
+html.perf-lite .app-header-glass::before {
+  mix-blend-mode: normal;
+  opacity: 0.08;
+}
+
+/* No backdrop-filter → an unreadable see-through pane; fall back to a
+   near-solid neutral bar. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-header-glass {
+    background-color: hsl(var(--glass-base) / 0.96);
+  }
+  .app-header-glass::before {
+    display: none;
+  }
+}
+
+/* Respect the OS "reduce transparency" switch. */
+@media (prefers-reduced-transparency: reduce) {
+  .app-header-glass {
+    background-color: hsl(var(--glass-base));
+    background-image: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .app-header-glass::before {
+    display: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Profile tab bar — frosted once it sticks
+   ═══════════════════════════════════════════════════════════════════════════
+
+   While the bar travels with the page it is an opaque strip; the moment it
+   pins under the app header (ProfileTabs adds .profile-tabbar--stuck) it turns
+   into frosted glass.
+
+   The switch is deliberately instant. The bar pins over the profile header — a
+   flat block of colour — so an animated wipe would not be visible there, and a
+   transition would be per-frame cost with nothing to show for it.
+
+   The pane is a child <span>, not the sticky bar itself: Chrome drops a
+   backdrop-filter sitting on a sticky element while a Radix portal is open,
+   which used to make the whole bar vanish. */
+.profile-tabbar__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: hsl(var(--background));
+}
+
+.profile-tabbar--stuck .profile-tabbar__bg {
+  --tabbar-glass-blur: 14px;
+  background-color: hsl(var(--background) / 0.62);
+  -webkit-backdrop-filter: blur(var(--tabbar-glass-blur)) saturate(150%);
+  backdrop-filter: blur(var(--tabbar-glass-blur)) saturate(150%);
+}
+
+/* No backdrop-filter → a translucent pane would be an unreadable smear; keep
+   the opaque strip instead. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .profile-tabbar--stuck .profile-tabbar__bg {
+    background-color: hsl(var(--background));
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .profile-tabbar--stuck .profile-tabbar__bg {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: hsl(var(--background));
+  }
+}
+
+/* Weak hardware: same tier as the header (see utils/perfTier.ts). */
+html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
+  --tabbar-glass-blur: 6px;
+  -webkit-backdrop-filter: blur(var(--tabbar-glass-blur));
+  backdrop-filter: blur(var(--tabbar-glass-blur));
 }

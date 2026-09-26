@@ -262,6 +262,50 @@ export function ProfileTabs({
   const tabBodyWrapRef = useRef<HTMLDivElement | null>(null);
   const barSnapTargetRef = useRef<number | null>(null);
 
+  // ── Glass-on-stick ───────────────────────────────────────────────────────
+  // The tab bar pours glass in from the top the instant it pins under the app
+  // header, and pours it back out when it releases (see .profile-tabbar--stuck
+  // in index.css). "Stuck" is exactly when the bar's top has reached its own
+  // sticky offset, i.e. its computed `top` (which follows --app-header-pad as
+  // the header hides/shows), so no extra geometry bookkeeping is needed.
+  const [barStuck, setBarStuck] = useState(false);
+
+  useEffect(() => {
+    const bar = stickyBarRef.current;
+    if (!bar) return;
+
+    const update = () => {
+      // Read the offset straight from the inline custom property AppLayout keeps
+      // in sync: cheaper than getComputedStyle (no style recalc) and identical.
+      const pad =
+        parseFloat(document.documentElement.style.getPropertyValue("--app-header-pad")) || 0;
+      const stuck = bar.getBoundingClientRect().top <= pad + 1;
+      setBarStuck((prev) => (prev === stuck ? prev : stuck));
+    };
+
+    // No rAF throttling on purpose: rAF is paused in a background/occluded tab,
+    // which would leave the state stale exactly when content settles off-screen.
+    // The work is one cheap rect read plus a guarded state write, and scroll
+    // events already arrive at frame cadence.
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    // A tab that was hidden while the page settled can come back with the bar
+    // already pinned; refresh once on the way in (no scroll event fires then).
+    document.addEventListener("visibilitychange", update);
+    // Content above the bar (bio, stats, async posts) can change height without
+    // a scroll event, which would otherwise leave the state stale.
+    const ro = new ResizeObserver(update);
+    ro.observe(document.body);
+
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      document.removeEventListener("visibilitychange", update);
+      ro.disconnect();
+    };
+  }, []);
+
   const snapToBar = () => {
     const bar = stickyBarRef.current;
     const body = tabBodyWrapRef.current;
@@ -371,15 +415,22 @@ export function ProfileTabs({
     <>
       {/* Sticky bar: pins under the app header and follows its hide/show slide
           (offset comes from --app-header-pad, kept in sync by AppLayout). */}
-      {/* Solid background (no backdrop-blur): a blur layer on a sticky element
-          gets dropped by Chrome when a Radix portal (dropdown/dialog) mounts,
-          which made the whole tab bar vanish. The solid fill also keeps posts
-          from showing through the stuck bar. */}
       <div
         ref={stickyBarRef}
-        className="sticky z-30 border-b border-border overflow-x-auto bg-background"
+        className={`profile-tabbar sticky z-30 border-b border-border${barStuck ? " profile-tabbar--stuck" : ""}`}
         style={{ top: "var(--app-header-pad, 0px)" }}
       >
+        {/* One background layer behind the content: an opaque strip while the
+            bar travels with the page, frosted once it pins. It sits on the bar
+            itself (not in the scroller below) so a horizontal tab scroll can't
+            drag it sideways, and it is a child element rather than the sticky
+            bar itself because Chrome drops a backdrop-filter sitting on a
+            sticky element while a Radix portal is open — which used to make the
+            whole bar vanish. The switch is instant on purpose: the bar pins over
+            the profile header (a flat block of colour), so a wipe would not be
+            visible there and would only add per-frame cost. */}
+        <span className="profile-tabbar__bg" aria-hidden="true" />
+        <div className="relative z-10 overflow-x-auto">
         <div className="flex gap-1 min-w-max px-1.5 py-1">
           {wallTabVisible && (
             <WallTabButton
@@ -469,6 +520,7 @@ export function ProfileTabs({
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Create-album dialog — modal so it works on phones too (full-width

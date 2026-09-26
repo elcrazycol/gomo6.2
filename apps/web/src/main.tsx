@@ -7,12 +7,17 @@ import App from "./App.tsx";
 import { toast } from "@/components/ui/sonner";
 import { setupGlobalErrorHandlers } from "@/lib/logging";
 import { initMobileKeyboard } from "@/lib/mobileKeyboard";
+import { initPerfTier } from "@/utils/perfTier";
 import "./index.css";
 import "@/components/Lightbox.css";
 
 // Mobile virtual keyboard: tracks the visual viewport, publishes --app-vh /
 // --kb-inset CSS variables and keeps the focused input above the keyboard.
 const disposeMobileKeyboard = initMobileKeyboard();
+
+// Classify the device once and put weak hardware on the cheap glass tier
+// (html.perf-lite) before the header ever paints.
+initPerfTier();
 
 // Capture uncaught errors and unhandled promise rejections.
 const disposeGlobalErrorHandlers = setupGlobalErrorHandlers();
