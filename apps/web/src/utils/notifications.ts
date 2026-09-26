@@ -8,6 +8,15 @@ export interface NotificationParams {
   anonymous?: boolean;
   gift_name?: string;
   count?: number;
+  /** Achievements group key (milestones) / award key (hand-granted). */
+  group_key?: string;
+  award_key?: string;
+  /** Unlocked milestone level (1 for awards). */
+  level?: number;
+  /** Grant/revoke reason for award notifications. */
+  reason?: string;
+  /** Resolved display name (filled in by notificationTitle). */
+  name?: string;
 }
 
 /** Wall-event notification types (see backend CreateWallNotification). */
@@ -30,6 +39,11 @@ export function isWallNotification(type: string): boolean {
  */
 export function notificationLink(notif: Notification, threadSlug?: string): string {
   const { type } = notif;
+
+  // Achievement/award notifications point at the recipient's trophy hall.
+  if (type === "achievement_unlock" || type === "award_granted" || type === "award_revoked") {
+    return notif.user_id ? `/achievements/${notif.user_id}` : "#";
+  }
 
   if (isWallNotification(type)) {
     const ownerId = notif.related_wall_user_id || notif.user_id;
@@ -85,8 +99,36 @@ export function interpolateNotification(text: string, params: NotificationParams
     actor: params.actor ?? "",
     count: params.count == null ? "" : String(params.count),
     gift: params.gift_name ?? "",
+    name: params.name ?? "",
+    reason: params.reason ?? "",
   };
-  return text.replace(/\{\{\s*(actor|count|gift)\s*\}\}/g, (_, key: string) => values[key]);
+  return text.replace(/\{\{\s*(actor|count|gift|name|reason)\s*\}\}/g, (_, key: string) => values[key]);
+}
+
+/** Resolve a milestone's display name from the catalog i18n keys, or null. */
+function milestoneName(t: TFunction, params: NotificationParams): string | null {
+  const groupKey = params.group_key;
+  if (!groupKey) return null;
+  // Tenure is the one dynamic series: its name is the term on the site.
+  if (groupKey === "tenure") {
+    const level = params.level ?? 0;
+    if (level <= 0) return null;
+    return level === 1
+      ? t("achievements.tenure.half")
+      : t("achievements.tenure.years", { count: level - 1 });
+  }
+  const level = params.level ?? 1;
+  const i18nKey = `achievements.${groupKey}.${level}.name`;
+  const value = t(i18nKey);
+  return value === i18nKey ? null : value;
+}
+
+/** Resolve a hand-granted award's display name from the catalog, or null. */
+function awardName(t: TFunction, params: NotificationParams): string | null {
+  if (!params.award_key) return null;
+  const i18nKey = `achievements.${params.award_key}.title`;
+  const value = t(i18nKey);
+  return value === i18nKey ? null : value;
 }
 
 export function notificationTitle(notif: Notification, t: TFunction, actorName?: string): string {
@@ -144,6 +186,24 @@ export function notificationTitle(notif: Notification, t: TFunction, actorName?:
         key = params.anonymous ? "notif.giftReceivedAnonymous" : "notif.giftReceived";
         values = { actor: params.actor, gift: params.gift_name };
         break;
+      case "achievement_unlock": {
+        const name = milestoneName(t, params);
+        key = name ? "notif.achievementUnlock" : "notif.achievementUnlockGeneric";
+        values = { name: name ?? "" };
+        break;
+      }
+      case "award_granted": {
+        const name = awardName(t, params);
+        key = name ? "notif.awardGranted" : "notif.awardGrantedGeneric";
+        values = { name: name ?? "" };
+        break;
+      }
+      case "award_revoked": {
+        const name = awardName(t, params);
+        key = name ? "notif.awardRevoked" : "notif.awardRevokedGeneric";
+        values = { name: name ?? "" };
+        break;
+      }
     }
     if (key) return interpolateNotification(t(key, values), params);
   }

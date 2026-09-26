@@ -136,6 +136,55 @@ describe("notificationTitle", () => {
     expect(notificationTitle(n, t)).toBe("@bob хочет добавить вас в друзья");
   });
 
+  it("links achievement and award notifications to the trophy hall", () => {
+    expect(notificationLink({ ...base, type: "achievement_unlock" })).toBe("/achievements/me");
+    expect(notificationLink({ ...base, type: "award_granted" })).toBe("/achievements/me");
+    expect(notificationLink({ ...base, type: "award_revoked" })).toBe("/achievements/me");
+  });
+
+  it("names the unlocked milestone level from the catalog", () => {
+    const n: Notification = {
+      ...base,
+      type: "achievement_unlock",
+      params: { group_key: "entries", level: 2 },
+    };
+    expect(notificationTitle(n, t)).toBe("Новая веха: Хронист");
+  });
+
+  it("formats the dynamic tenure milestone name", () => {
+    const n: Notification = {
+      ...base,
+      type: "achievement_unlock",
+      params: { group_key: "tenure", level: 3 },
+    };
+    expect(notificationTitle(n, t)).toBe("Новая веха: 2 года на g6");
+  });
+
+  it("falls back to a generic milestone title for unknown groups", () => {
+    const n: Notification = {
+      ...base,
+      type: "achievement_unlock",
+      params: { group_key: "mystery", level: 1 },
+    };
+    expect(notificationTitle(n, t)).toBe("Открыта новая веха");
+  });
+
+  it("names a granted award and a revoked award", () => {
+    const granted: Notification = {
+      ...base,
+      type: "award_granted",
+      params: { award_key: "award_bughunter", reason: "Found it" },
+    };
+    expect(notificationTitle(granted, t)).toBe("Тебе вручили награду «Баг-хантер»");
+
+    const revoked: Notification = {
+      ...base,
+      type: "award_revoked",
+      params: { award_key: "award_bughunter" },
+    };
+    expect(notificationTitle(revoked, t)).toBe("Награда «Баг-хантер» отозвана");
+  });
+
   it("falls back to the baked title for legacy rows without params", () => {
     const n: Notification = { ...base, title: "legacy title" };
     expect(notificationTitle(n, t)).toBe("legacy title");

@@ -4290,6 +4290,10 @@ export interface components {
                 anonymous?: boolean;
                 gift_name?: string;
                 achievement_name?: string;
+                group_key?: string;
+                award_key?: string;
+                level?: number;
+                reason?: string;
                 count?: number;
             };
             created_at: string;
