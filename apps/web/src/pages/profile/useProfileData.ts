@@ -8,9 +8,7 @@ import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import type { AchievementData } from "@/components/AchievementCard";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { mapUserAchievementRaw } from "./utils";
-import type { AvatarHistoryItem, UserAchievementRaw } from "./types";
-
-const PINNED_ACHIEVEMENTS_LIMIT = 6;
+import type { AvatarHistoryItem } from "./types";
 
 export interface UseProfileDataParams {
   userId: string | undefined;
@@ -25,7 +23,6 @@ export interface UseProfileDataParams {
 
 export interface UseProfileDataResult {
   achievements: AchievementData[];
-  pinnedAchievements: AchievementData[];
   achievementsLoaded: boolean;
   userThreads: any[];
   profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
@@ -36,10 +33,8 @@ export interface UseProfileDataResult {
   giftCatalog: GiftCatalogItem[];
   giftCount: number;
   giftCountLoaded: boolean;
-  loadPinnedAchievements: () => Promise<void>;
   loadAchievements: () => Promise<void>;
   loadUserThreads: () => Promise<void>;
-  toggleAchievementPin: (achievementId: string) => Promise<void>;
   loadAvatarHistory: () => Promise<AvatarHistoryItem[]>;
   openAvatarGallery: () => Promise<void>;
   closeAvatarGallery: () => void;
@@ -64,24 +59,7 @@ export function useProfileData({
 
   // ── Achievements ───────────────────────────────────────────────────────────
   const [achievements, setAchievements] = useState<AchievementData[]>([]);
-  const [pinnedAchievements, setPinnedAchievements] = useState<AchievementData[]>([]);
   const [achievementsLoaded, setAchievementsLoaded] = useState(false);
-
-  // Pinned achievements (max 6) render on the wall tab, but the full list is a
-  // heavy payload (every level/description/icon embedded) — fetch only the
-  // pinned rows on mount and defer the full list to the achievements tab.
-  const loadPinnedAchievements = useCallback(async () => {
-    try {
-      const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc&limit=${PINNED_ACHIEVEMENTS_LIMIT}`);
-      const achResult = await achRes.json();
-      const data = achResult.data || [];
-      if (Array.isArray(data)) {
-        setPinnedAchievements(data.filter((ua: UserAchievementRaw) => ua.is_pinned).map(mapUserAchievementRaw));
-      }
-    } catch {
-      // Ignore — the wall just renders without the pinned section.
-    }
-  }, [userId]);
 
   const loadAchievements = useCallback(async () => {
     try {
@@ -90,9 +68,7 @@ export function useProfileData({
       const data = achResult.data || [];
 
       if (data) {
-        const processedAchievements: AchievementData[] = data.map(mapUserAchievementRaw);
-        setPinnedAchievements(processedAchievements.filter((a) => a.is_pinned));
-        setAchievements(processedAchievements);
+        setAchievements(data.map(mapUserAchievementRaw));
       }
     } catch (error) {
       // Guests or transient failures must never surface as unhandled
@@ -111,21 +87,6 @@ export function useProfileData({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, achievementsLoaded]);
-
-  const toggleAchievementPin = useCallback(async (achievementId: string) => {
-    try {
-      const { error } = await api.rpc('toggle_achievement_pin', {
-        _user_id: userId,
-        _achievement_id: achievementId,
-      });
-      if (error) throw new Error(error.message || 'Failed to toggle pin');
-
-      // Reload achievements to reflect changes.
-      await loadAchievements();
-    } catch (error) {
-      console.error('Error toggling achievement pin:', error);
-    }
-  }, [userId, loadAchievements]);
 
   // ── User threads + likes ───────────────────────────────────────────────────
   const [userThreads, setUserThreads] = useState<any[]>([]);
@@ -316,7 +277,6 @@ export function useProfileData({
 
   return {
     achievements,
-    pinnedAchievements,
     achievementsLoaded,
     userThreads,
     profileLikesMap,
@@ -327,10 +287,8 @@ export function useProfileData({
     giftCatalog,
     giftCount,
     giftCountLoaded,
-    loadPinnedAchievements,
     loadAchievements,
     loadUserThreads,
-    toggleAchievementPin,
     loadAvatarHistory,
     openAvatarGallery,
     closeAvatarGallery,

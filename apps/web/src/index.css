@@ -1053,3 +1053,84 @@ main.is-app-surface {
     filter: hue-rotate(55deg);
   }
 }
+
+/* ── Trophy showcase (profile achievements tab) ────────────────────────────
+   The glint span is masked by the trophy PNG itself (see TrophyShowcase.tsx),
+   so the diagonal streak of light only ever paints the badge's own opaque
+   pixels — the transparent background stays untouched. It sweeps one way and
+   back while hovered (`alternate`), and `screen` blending makes it read as
+   light *added* onto the artwork, which gives the flat PNG a sense of volume.
+   The badge itself sways gently, as if it turns into the light. The halo color
+   comes from --trophy-glow (rarity), set inline. */
+
+.trophy-badge img {
+  transform-origin: 50% 55%;
+  transition: transform 0.35s ease-out, filter 0.35s ease-out;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28));
+}
+
+.trophy-badge:hover img,
+.trophy-badge:focus-within img {
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28))
+    drop-shadow(0 0 14px rgba(var(--trophy-glow, 148 163 184) / 0.45));
+  animation: trophy-turn 3.6s ease-in-out infinite alternate;
+}
+
+@keyframes trophy-turn {
+  from {
+    transform: perspective(700px) translateY(-2px) scale(1.03) rotateY(-6deg)
+      rotateX(1.5deg);
+  }
+  to {
+    transform: perspective(700px) translateY(-2px) scale(1.03) rotateY(6deg)
+      rotateX(-1.5deg);
+  }
+}
+
+.trophy-glint {
+  opacity: 0;
+  mix-blend-mode: screen;
+  transition: opacity 0.25s ease-out;
+  background-image: linear-gradient(
+    115deg,
+    transparent 38%,
+    rgba(170, 215, 255, 0.28) 45%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(255, 236, 205, 0.4) 55%,
+    transparent 62%
+  );
+  background-size: 280% 280%;
+  background-repeat: no-repeat;
+  background-position: 145% 145%;
+}
+
+.trophy-badge:hover .trophy-glint,
+.trophy-badge:focus-within .trophy-glint {
+  opacity: 1;
+  animation: trophy-glint-sweep 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes trophy-glint-sweep {
+  from {
+    background-position: 145% 145%;
+  }
+  to {
+    background-position: -45% -45%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trophy-badge img {
+    transition: none;
+  }
+  .trophy-badge:hover img,
+  .trophy-badge:focus-within img {
+    animation: none;
+    transform: none;
+  }
+  .trophy-badge:hover .trophy-glint,
+  .trophy-badge:focus-within .trophy-glint {
+    opacity: 0;
+    animation: none;
+  }
+}

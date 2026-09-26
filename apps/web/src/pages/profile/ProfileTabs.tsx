@@ -2,7 +2,7 @@ import { lazy, Suspense, useLayoutEffect, useRef, useEffect, useState } from "re
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ChevronDown, Gift, LayoutGrid, MessageSquareText, Pin, Plus, Trophy, Users, type LucideIcon } from "lucide-react";
+import { ChevronDown, Gift, LayoutGrid, MessageSquareText, Plus, Trophy, Users, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,13 +12,13 @@ import { ProfileAlbumView } from "@/components/ProfileAlbumView";
 import { useFriendsStore } from "@/stores/friendsStore";
 import { useProfileAlbums } from "./useProfileAlbums";
 import type { AchievementData } from "@/components/AchievementCard";
+import { TrophyShowcase } from "@/components/TrophyShowcase";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import type { Profile } from "./types";
 
 // Heavy interaction-only components — split into separate chunks so the
 // profile page's initial JS is small on mobile. Loaded on first use (dialogs,
 // non-default tabs) instead of on every visit.
-const AchievementCard = lazy(() => import("@/components/AchievementCard").then((m) => ({ default: m.AchievementCard })));
 const GiftsTab = lazy(() => import("@/components/GiftsTab").then((m) => ({ default: m.GiftsTab })));
 const FriendsList = lazy(() => import("@/components/FriendsList").then((m) => ({ default: m.FriendsList })));
 const FriendRequestsList = lazy(() => import("@/components/FriendRequestsList").then((m) => ({ default: m.FriendRequestsList })));
@@ -53,9 +53,7 @@ export interface ProfileTabsProps {
   onWallCreateOpenChange: (open: boolean) => void;
   // Achievements
   achievements: AchievementData[];
-  pinnedAchievements: AchievementData[];
   achievementsLoaded: boolean;
-  onTogglePin: (achievementId: string) => void;
   // Threads
   userThreads: any[];
   profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
@@ -237,9 +235,7 @@ export function ProfileTabs({
   wallCreateOpen,
   onWallCreateOpenChange,
   achievements,
-  pinnedAchievements,
   achievementsLoaded,
-  onTogglePin,
   userThreads,
   profileLikesMap,
   threadsLoading,
@@ -565,29 +561,10 @@ export function ProfileTabs({
             <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
           ) : (
             <div className="space-y-6">
-              {/* Pinned achievements */}
-              {pinnedAchievements.length > 0 && (
-                <div className={isEditing ? "" : "mb-8"}>
-                  {isEditing && (
-                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                      <Pin className="w-4 h-4" />
-                      {t("profile.pinned")} ({pinnedAchievements.length}/6)
-                    </h3>
-                  )}
-                  <div className="grid grid-cols-3 gap-x-4 gap-y-6">
-                    {pinnedAchievements.map((achievement) => (
-                      <Suspense key={achievement.id} fallback={<div className="h-12 animate-pulse rounded bg-muted" />}>
-                        <AchievementCard
-                          achievement={achievement}
-                          onTogglePin={onTogglePin}
-                          isEditing={isEditing}
-                          compact
-                        />
-                      </Suspense>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Trophy case — hand-drawn trophies, rarest first. Replaces the
+                  old pinned-achievements grid; pinning now lives on the full
+                  achievements page. */}
+              <TrophyShowcase achievements={achievements} />
 
               {/* Link to full achievements page */}
               <div className="pt-2">

@@ -342,11 +342,10 @@ const Profile = () => {
         setPageLoading(true);
         try {
           // Only the profile row + privacy/friendship/customization are needed
-          // for the first paint. Pinned achievements (wall tab) come with a
-          // cheap limit-4 fetch; the full achievement list, avatar history,
-          // gift counts and friends lists load lazily when their tab/action
-          // is first used.
-          await Promise.all([loadProfile(), data.loadPinnedAchievements()]);
+          // for the first paint. The achievement list, avatar history, gift
+          // counts and friends lists load lazily when their tab/action is
+          // first used.
+          await loadProfile();
         } catch (error) {
           console.error('Error loading profile data:', error);
         } finally {
@@ -548,9 +547,7 @@ const Profile = () => {
                 wallCreateOpen={wallCreateOpen}
                 onWallCreateOpenChange={setWallCreateOpen}
                 achievements={data.achievements}
-                pinnedAchievements={data.pinnedAchievements}
                 achievementsLoaded={data.achievementsLoaded}
-                onTogglePin={data.toggleAchievementPin}
                 userThreads={data.userThreads}
                 profileLikesMap={data.profileLikesMap}
                 threadsLoading={data.threadsLoading}
