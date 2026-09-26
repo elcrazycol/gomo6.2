@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { motion, useMotionValue, animate } from "framer-motion";
+import { motion, useMotionValue, useDragControls, animate } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { canStartOverlayDrag } from "@/utils/overlaySwipeGesture";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
 
 const SWIPE_THRESHOLD = 90;
@@ -34,6 +35,10 @@ const WallPost = () => {
   const [loading, setLoading] = useState(true);
   const [isClosing, setIsClosing] = useState(false);
   const x = useMotionValue(window.innerWidth);
+  // Drag is driven manually (see the overlay below) so gestures that belong to
+  // inner controls — most importantly the "до/после" compare handle — never
+  // start a swipe that would close the post.
+  const dragControls = useDragControls();
 
   // Slide the overlay in from the right on mount.
   useEffect(() => {
@@ -204,8 +209,28 @@ const WallPost = () => {
       drag="x"
       dragConstraints={{ left: 0 }}
       dragElastic={{ left: 0 }}
+      dragControls={dragControls}
+      // `dragListener={false}` disables framer-motion's own pointerdown listener,
+      // which is attached natively on this element and therefore bypasses React's
+      // stopPropagation — that is what previously let a compare-handle drag drag
+      // the whole page. We start the gesture manually instead.
+      dragListener={false}
+      // Vertical scrolling wins unless the swipe is clearly horizontal, so a
+      // wobbly scroll can't nudge the post off screen.
+      dragDirectionLock
+      onPointerDown={(event) => {
+        if (event.button !== 0 && event.pointerType !== "touch") return;
+        if (!canStartOverlayDrag(event.target)) return;
+        dragControls.start(event);
+      }}
       onDragEnd={(_, info) => {
-        if (info.offset.x > SWIPE_THRESHOLD || info.velocity.x > 500) {
+        // Use the rendered offset: with `dragDirectionLock` a mostly-vertical
+        // scroll leaves `x` at 0 even though the raw pointer drifted sideways,
+        // and that must not count as a close.
+        const movedRight = x.get() > 0;
+        const intentional =
+          movedRight && (info.offset.x > SWIPE_THRESHOLD || info.velocity.x > 500);
+        if (intentional) {
           close();
         } else {
           animate(x, 0, { type: "spring", stiffness: 300, damping: 30 });
