@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/privacy"
 	"github.com/redis/go-redis/v9"
-	"strconv"
 )
 
 const (
