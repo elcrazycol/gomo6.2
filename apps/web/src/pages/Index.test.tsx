@@ -46,12 +46,6 @@ vi.mock("@/components/ThreadFeed", () => ({
   ThreadFeed: () => <div data-testid="thread-feed">ThreadFeed</div>,
 }));
 
-vi.mock("@/components/FeedThreadCard", () => ({
-  FeedThreadCard: ({ thread }: { thread: { id: string; title: string } }) => (
-    <div data-testid="thread-card">{thread.title}</div>
-  ),
-}));
-
 vi.mock("@/components/PentagramLoader", () => ({
   PentagramLoader: () => <div data-testid="pentagram-loader">Loading...</div>,
 }));
@@ -152,8 +146,6 @@ function setupLoggedIn() {
         return makePromiseChain({ data: { user_id: "user-1" }, error: null });
       case "gomosub_memberships":
         return makePromiseChain({ data: [], error: null });
-      case "thread_subscriptions":
-        return makePromiseChain({ data: [], error: null });
       default:
         return makePromiseChain({ data: [], error: null });
     }
@@ -217,15 +209,16 @@ describe("Index", () => {
     });
   });
 
-  it("shows subscription/promo tab switcher", async () => {
+  it("renders the feed without the recommendations/subscriptions switcher", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      const recommendBtns = screen.getAllByText("Рекомендации");
-      expect(recommendBtns.length).toBeGreaterThanOrEqual(1);
-      const subBtns = screen.getAllByText("Подписки");
-      expect(subBtns.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId("thread-feed")).toBeInTheDocument();
     });
+    // The feed is recommendations-only now: the toggle (and the subscriptions
+    // view behind it) has been removed.
+    expect(screen.queryByText("Рекомендации")).not.toBeInTheDocument();
+    expect(screen.queryByText("Новые записи из подписок")).not.toBeInTheDocument();
   });
 
   it("renders sidebar navigation buttons", async () => {

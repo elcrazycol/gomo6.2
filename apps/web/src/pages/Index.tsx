@@ -1,10 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
@@ -13,18 +12,11 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Users } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
-import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
-import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
-import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
-import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { formatDistanceToNow } from "date-fns";
-import { useDateLocale } from "@/i18n/dateLocale";
-import { safeDate } from "@/utils/safeDate";
 
 interface Board {
   id: string;
@@ -40,34 +32,12 @@ interface GomoSub {
   description: string | null;
 }
 
-interface SubscribedPostUpdate {
-  id: string;
-  content: string;
-  created_at: string;
-  thread_id: string;
-  user_id: string | null;
-  thread_title: string;
-  board_slug: string;
-  board_is_gomosub: boolean;
-  author_username: string;
-  author_display_name?: string | null;
-  author_nickname_emoji_id?: string | null;
-}
-
 const Index = () => {
   const { loadProfile } = useProfileCache();
-  const dateLocale = useDateLocale();
   const [boards, setBoards] = useState<Board[]>([]);
   const [gomoSubs, setGomoSubs] = useState<GomoSub[]>([]);
   const [gomoSubsMembers, setGomoSubsMembers] = useState<Record<string, number>>({});
   const [joinedGomoSubs, setJoinedGomoSubs] = useState<GomoSub[]>([]);
-  const [subscriptionsFeed, setSubscriptionsFeed] = useState<FeedThread[]>([]);
-  const [feedLikesMap, setFeedLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
-  const [subscribedPostUpdates, setSubscribedPostUpdates] = useState<SubscribedPostUpdate[]>([]);
-  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
-  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
-  const [galleryIndex, setGalleryIndex] = useState(0);
-  const [activeFeed, setActiveFeed] = useState<"recommended" | "subscriptions">("recommended");
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -76,9 +46,6 @@ const Index = () => {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  // Always-current handle to the subscriptions loader so the profile
-  // invalidation listener can reload the feed from outside the effect closure.
-  const loadSubscriptionsRef = useRef<() => void>(() => {});
   
   useSessionTime(user?.id);
 
@@ -178,21 +145,17 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    const loadSubscriptions = async () => {
+    // The sidebar lists the g-subs this user joined. The subscriptions FEED that
+    // used to load here (thread_subscriptions → threads + posts, behind the
+    // «Рекомендации / Подписки» toggle) has been removed.
+    const loadJoinedGomoSubs = async () => {
       if (!user?.id) {
         setJoinedGomoSubs([]);
-        setSubscriptionsFeed([]);
-        setSubscribedPostUpdates([]);
         return;
       }
-
-      setSubscriptionsLoading(true);
 
       const fromResult = api.from("gomosub_memberships");
-      if (!fromResult) {
-        setSubscriptionsLoading(false);
-        return;
-      }
+      if (!fromResult) return;
       const { data: memberships } = await fromResult
         .select("board_id")
         .eq("user_id", user.id);
@@ -206,142 +169,10 @@ const Index = () => {
             .order("created_at", { ascending: false })
         : { data: [] as GomoSub[] };
       setJoinedGomoSubs((joinedBoardsData as GomoSub[]) ?? []);
-
-      const { data: threadSubs } = await api
-        .from("thread_subscriptions")
-        .select("thread_id")
-        .eq("user_id", user.id);
-      const subscribedThreadIds = (threadSubs ?? []).map((t: { thread_id: string }) => t.thread_id);
-
-      let threadsQuery = api
-        .from("threads")
-        .select(`
-          id,
-          title,
-          content,
-          content_json,
-          image_url,
-          image_urls,
-          attachments,
-          created_at,
-          updated_at,
-          user_id,
-          board_id,
-          post_count,
-          tags,
-          boards!inner(slug, name, is_gomosub)
-        `)
-        .order("updated_at", { ascending: false })
-        .limit(80);
-
-      if (joinedBoardIds.length > 0 && subscribedThreadIds.length > 0) {
-        threadsQuery = threadsQuery.or(`board_id.in.(${joinedBoardIds.join(",")}),id.in.(${subscribedThreadIds.join(",")})`);
-      } else if (joinedBoardIds.length > 0) {
-        threadsQuery = threadsQuery.in("board_id", joinedBoardIds);
-      } else if (subscribedThreadIds.length > 0) {
-        threadsQuery = threadsQuery.in("id", subscribedThreadIds);
-      } else {
-        setSubscriptionsFeed([]);
-        setSubscribedPostUpdates([]);
-        setSubscriptionsLoading(false);
-        return;
-      }
-
-      const { data: rawThreadsData } = await threadsQuery;
-      const threadsData = (rawThreadsData ?? []) as Record<string, unknown>[];
-      const dedupThreads = Array.from(new Map(threadsData.map((t: Record<string, unknown>) => [t.id as string, t])).values());
-      const threadAuthorIds = dedupThreads.map((t: Record<string, unknown>) => t.user_id as string).filter(Boolean);
-      const { data: threadAuthors } = threadAuthorIds.length
-        ? await api
-            .from("profiles")
-            .select("id, username, display_name, nickname_emoji_id, is_anonymous, avatar_url")
-            .in("id", threadAuthorIds)
-        : { data: [] as { id: string; username: string; display_name?: string | null; nickname_emoji_id?: string | null; is_anonymous: boolean; avatar_url?: string | null }[] };
-
-      const feedThreads = dedupThreads.map((thread: Record<string, unknown>) => ({
-        ...thread,
-        profiles: (threadAuthors ?? []).find((p: { id: string }) => p.id === thread.user_id) || null,
-      })) as FeedThread[];
-      setSubscriptionsFeed(feedThreads);
-
-      // Batch fetch likes for all subscription feed threads
-      if (feedThreads.length > 0 && user?.id) {
-        const idsParam = feedThreads.map(t => t.id).join(",");
-        try {
-          const likesResp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${idsParam}&user_uuid=${user.id}`);
-          const likesResult = await likesResp.json();
-          if (likesResult.data && Array.isArray(likesResult.data)) {
-            const newMap = new Map<string, { count: number; isLiked: boolean }>();
-            for (const item of likesResult.data) {
-              newMap.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
-            }
-            setFeedLikesMap(newMap);
-          }
-        } catch { /* ignore */ }
-      }
-
-      if (subscribedThreadIds.length > 0) {
-        const { data: postsData } = await api
-          .from("posts")
-          .select("id, content, created_at, thread_id, user_id")
-          .in("thread_id", subscribedThreadIds)
-          .neq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(12);
-
-        if (postsData && postsData.length > 0) {
-          const threadIds = Array.from(new Set(postsData.map((p: { thread_id: string; user_id: string | null }) => p.thread_id)));
-          const authorIds = Array.from(new Set(postsData.map((p: { thread_id: string; user_id: string | null }) => p.user_id).filter(Boolean)));
-
-          const [{ data: postThreads }, { data: postAuthors }] = await Promise.all([
-            api
-              .from("threads")
-              .select("id, title, board_id, boards!inner(slug, is_gomosub)")
-              .in("id", threadIds),
-            authorIds.length
-              ? api
-                  .from("profiles")
-                  .select("id, username, display_name, nickname_emoji_id")
-                  .in("id", authorIds)
-              : Promise.resolve({ data: [] as { id: string; username: string; display_name?: string | null; nickname_emoji_id?: string | null }[] }),
-          ]);
-
-          const postUpdates: SubscribedPostUpdate[] = postsData.map((post: { id: string; content: string; created_at: string; thread_id: string; user_id: string | null }) => {
-            const thread = ((postThreads as { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }[]) ?? []).find((t: { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }) => t.id === post.thread_id);
-            const author = (postAuthors ?? []).find((a: { id: string; username: string; display_name?: string | null; nickname_emoji_id?: string | null }) => a.id === post.user_id);
-            return {
-              id: post.id,
-              content: post.content,
-              created_at: post.created_at,
-              thread_id: post.thread_id,
-              user_id: post.user_id,
-              thread_title: thread?.title || "Запись",
-              board_slug: thread?.boards?.slug || "b",
-              board_is_gomosub: Boolean(thread?.boards?.is_gomosub),
-              author_username: author?.username || "Аноним",
-              author_display_name: author?.display_name,
-              author_nickname_emoji_id: author?.nickname_emoji_id,
-            };
-          });
-          setSubscribedPostUpdates(postUpdates);
-        } else {
-          setSubscribedPostUpdates([]);
-        }
-      } else {
-        setSubscribedPostUpdates([]);
-      }
-
-      setSubscriptionsLoading(false);
     };
 
-    loadSubscriptionsRef.current = loadSubscriptions;
-    loadSubscriptions();
+    loadJoinedGomoSubs();
   }, [user?.id]);
-
-  // Reload the subscriptions feed when the current user edits their profile:
-  // the nickname emoji is embedded in the feed payload and would otherwise
-  // stay stale until the next page load.
-  useProfileInvalidation(() => { loadSubscriptionsRef.current(); });
 
   const handleLogout = async () => {
     await api.auth.signOut();
@@ -388,113 +219,14 @@ const Index = () => {
     <div className="bg-background min-h-screen">
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6">
-          {/* Main Feed */}
+          {/* Main Feed — recommendations only: the «Рекомендации / Подписки»
+              toggle and the subscriptions view behind it were removed. */}
           <div className="lg:col-span-3">
-            <div className="mb-6">
-              <div className="inline-flex items-center rounded-xl border border-border bg-card/80 p-1 shadow-sm backdrop-blur">
-                <div className="relative grid grid-cols-2">
-                  <span
-                    className={`absolute top-0 bottom-0 w-1/2 rounded-lg bg-primary/15 border border-primary/25 transition-transform duration-200 ${
-                      activeFeed === "subscriptions" ? "translate-x-full" : "translate-x-0"
-                    }`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setActiveFeed("recommended")}
-                    className={`relative z-10 px-4 py-2 text-sm font-medium transition-colors ${
-                      activeFeed === "recommended" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Рекомендации
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveFeed("subscriptions")}
-                    className={`relative z-10 px-4 py-2 text-sm font-medium transition-colors ${
-                      activeFeed === "subscriptions" ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Подписки
-                  </button>
-                </div>
-              </div>
-        </div>
-
-            {activeFeed === "recommended" ? (
-              <ThreadFeed
-                currentUserId={user?.id}
-                currentUsername={currentUserUsername}
-                currentUserColor={currentUserColor}
-              />
-            ) : !user ? (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">Войди в аккаунт, чтобы видеть поток подписок</p>
-                </CardContent>
-              </Card>
-            ) : subscriptionsLoading ? (
-              <div className="flex justify-center py-8">
-                <PentagramLoader size="md" />
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <Card className="border-primary/30">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Новые записи из подписок</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {subscribedPostUpdates.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Пока нет новых постов</p>
-                    ) : (
-                      subscribedPostUpdates.map((item) => (
-                        <PrefetchLink
-                          key={item.id}
-                          to={`${item.board_is_gomosub ? "/g" : ""}/${item.board_slug}/thread/${item.thread_id}`}
-                          className="block rounded-lg border border-border p-3 hover:bg-thread-hover transition-colors"
-                        >
-                          <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                            <span>
-                              @{item.author_display_name?.trim() || item.author_username}
-                            </span>
-                            {item.author_nickname_emoji_id && <NicknameEmoji emojiId={item.author_nickname_emoji_id} />}
-                            <span>- {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: dateLocale })}</span>
-                          </div>
-                          <div className="font-medium text-sm">{item.thread_title}</div>
-                          <div className="text-sm text-muted-foreground line-clamp-2 mt-1">{item.content}</div>
-                        </PrefetchLink>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-
-                {subscriptionsFeed.length === 0 ? (
-                  <Card>
-                    <CardContent className="py-8 text-center">
-                      <p className="text-muted-foreground">Подпишись на g-сабы и записи, чтобы собрать свою ленту</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  subscriptionsFeed.map((thread) => {
-                    const likes = feedLikesMap.get(thread.id);
-                    return (
-                      <FeedThreadCard
-                        key={thread.id}
-                        thread={thread}
-                        currentUserId={user?.id ?? null}
-                        currentUsername={currentUserUsername}
-                        currentUserColor={currentUserColor}
-                        initialLikesCount={likes?.count ?? 0}
-                        initialUserLiked={likes?.isLiked ?? false}
-                        onImageClick={(items, idx) => {
-                          setGalleryItems(items);
-                          setGalleryIndex(idx);
-                        }}
-                      />
-                    );
-                  })
-                )}
-              </div>
-            )}
+            <ThreadFeed
+              currentUserId={user?.id}
+              currentUsername={currentUserUsername}
+              currentUserColor={currentUserColor}
+            />
           </div>
 
           {/* Sidebar - Desktop */}
@@ -602,14 +334,6 @@ const Index = () => {
         onDecline={handleDeclineTerms}
         canDecline={true}
       />
-
-      {!!galleryItems && (
-        <Lightbox
-          items={galleryItems}
-          initialIndex={galleryIndex}
-          onClose={() => setGalleryItems(null)}
-        />
-      )}
     </div>
   );
 };
