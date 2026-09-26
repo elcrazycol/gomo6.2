@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { Award } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAchievementIcon } from "@/components/AchievementIcons";
 import { getIntlLanguage } from "@/i18n/dateLocale";
@@ -69,15 +68,6 @@ export function TrophyBadge({
         <div className="flex h-full w-full items-center justify-center rounded-xl border border-border/60 bg-muted/40 text-muted-foreground">
           <Icon size={52} />
         </div>
-      )}
-
-      {trophy.kind === "award" && (
-        <span
-          className="absolute right-1 top-1 z-30 inline-flex h-5 w-5 items-center justify-center rounded-full bg-background/85 text-amber-500 shadow-sm backdrop-blur"
-          title={label}
-        >
-          <Award className="h-3 w-3" />
-        </span>
       )}
     </div>
   );
