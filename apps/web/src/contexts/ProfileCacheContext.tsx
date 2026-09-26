@@ -122,7 +122,17 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
           ),
           rolesResPromise,
           toFallback(
-            () => api.from('profile_customization').select('*').eq('user_id', uid).single(),
+            // Profile appearance for the viewed user. NOT the generic
+            // /profile_customization surface: that table is read-scoped to the
+            // caller's own user_id (TableMeta.UserScopedRead), so a foreign
+            // profile always came back empty and no nickname colour or badge
+            // ever rendered for anyone but its owner. The public display
+            // endpoint works for the owner too, so no branch is needed here.
+            async () => {
+              const res = await fetch(`/api/v1/users/${uid}/customization`);
+              const json = await res.json();
+              return { data: json?.data ?? null, error: null };
+            },
             { data: null, error: null }
           ),
         ]);
