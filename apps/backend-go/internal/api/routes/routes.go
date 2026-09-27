@@ -175,7 +175,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	feedHandler := handlers.NewFeedHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
 	favoritesHandler := handlers.NewFavoritesHandler(db)
-	randomHandler := handlers.NewRandomHandler(db)
+	randomHandler := handlers.NewRandomHandler(db, redis)
 	sidebarTabsHandler := handlers.NewSidebarTabsHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
@@ -368,8 +368,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/feed", feedHandler.GetUserFeed)
 
 		// «Mr. рандомность» — a mixed handful of random PUBLIC content for the
-		// sidebar. Everything it returns is already public, so guests get it too.
-		rest.GET("/random", randomHandler.GetRandom)
+		// sidebar. The candidate pool is cached in Redis (see RandomHandler), and
+		// a per-IP limit keeps this public endpoint from being hammered.
+		randomRateLimiter := middleware.NewAuthRateLimiterWithPrefix("random", redis, 60, time.Minute)
+		rest.GET("/random", middleware.IPRateLimitMiddleware(randomRateLimiter), randomHandler.GetRandom)
 
 		// Public endpoints (no auth required)
 		rest.GET("/profiles", profilesHandler.GetProfiles)

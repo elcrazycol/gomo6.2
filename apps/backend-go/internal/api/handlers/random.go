@@ -7,21 +7,30 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/redis/go-redis/v9"
 )
 
 // RandomHandler serves «Mr. рандомность»: a mixed handful of random public
 // content — a thread, a wall post, a profile, a wall comment, a g-sub — for the
-// feed sidebar. Everything returned is already public (private profiles/walls
-// and private boards are excluded), so guests get the same block.
+// feed sidebar.
+//
+// `ORDER BY random()` is a full scan + sort, and this endpoint is public, so the
+// pool of candidates is built at most once per TTL and cached in Redis; every
+// request then just shuffles the cached pool (O(1), no DB work). The pool is
+// refreshed lazily (first request after expiry, guarded by a short lock so a
+// burst does not stampede the DB). Without Redis it falls back to building the
+// pool per request.
 type RandomHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	redis *redis.Client
 }
 
-func NewRandomHandler(db *sql.DB) *RandomHandler {
-	return &RandomHandler{db: db}
+func NewRandomHandler(db *sql.DB, redisClient *redis.Client) *RandomHandler {
+	return &RandomHandler{db: db, redis: redisClient}
 }
 
 // randomItem is one row of the random block. The frontend turns it into a link;
@@ -43,9 +52,14 @@ type randomItem struct {
 }
 
 const (
-	randomPerType = 3
-	randomDefault = 6
-	randomMax     = 20
+	// Candidates fetched per type when (re)building the cached pool.
+	randomPoolPerType = 12
+	randomDefault     = 6
+	randomMax         = 20
+	randomCacheTTL    = 5 * time.Minute
+	randomLockTTL     = 30 * time.Second
+	randomCacheKey    = "random:pool:v1"
+	randomLockKey     = "random:pool:v1:lock"
 )
 
 // GetRandom godoc
@@ -62,13 +76,7 @@ func (h *RandomHandler) GetRandom(c *gin.Context) {
 		}
 	}
 
-	items := []randomItem{}
-	items = append(items, h.randomThreads()...)
-	items = append(items, h.randomWallPosts()...)
-	items = append(items, h.randomProfiles()...)
-	items = append(items, h.randomWallComments()...)
-	items = append(items, h.randomGomosubs()...)
-
+	items := h.pool(c)
 	rand.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
 	if len(items) > limit {
 		items = items[:limit]
@@ -78,7 +86,46 @@ func (h *RandomHandler) GetRandom(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: items, Count: &count})
 }
 
-func (h *RandomHandler) randomThreads() []randomItem {
+// pool returns the cached candidate pool, refreshing it on a miss.
+func (h *RandomHandler) pool(c *gin.Context) []randomItem {
+	if h.redis == nil {
+		return h.buildPool()
+	}
+	ctx := c.Request.Context()
+
+	if raw, err := h.redis.Get(ctx, randomCacheKey).Result(); err == nil && raw != "" {
+		var cached []randomItem
+		if json.Unmarshal([]byte(raw), &cached) == nil && len(cached) > 0 {
+			return cached
+		}
+	}
+
+	// Miss: only one request refreshes (short lock); the rest build directly so
+	// they still answer without waiting on a full scan.
+	locked, err := h.redis.SetNX(ctx, randomLockKey, "1", randomLockTTL).Result()
+	if err == nil && locked {
+		defer h.redis.Del(ctx, randomLockKey)
+		items := h.buildPool()
+		if data, mErr := json.Marshal(items); mErr == nil {
+			h.redis.Set(ctx, randomCacheKey, data, randomCacheTTL)
+		}
+		return items
+	}
+	return h.buildPool()
+}
+
+// buildPool runs the (expensive) random sampling once per refresh.
+func (h *RandomHandler) buildPool() []randomItem {
+	items := []randomItem{}
+	items = append(items, h.randomThreads(randomPoolPerType)...)
+	items = append(items, h.randomWallPosts(randomPoolPerType)...)
+	items = append(items, h.randomProfiles(randomPoolPerType)...)
+	items = append(items, h.randomWallComments(randomPoolPerType)...)
+	items = append(items, h.randomGomosubs(randomPoolPerType)...)
+	return items
+}
+
+func (h *RandomHandler) randomThreads(n int) []randomItem {
 	rows, err := h.db.Query(`
 		SELECT t.id, COALESCE(t.title, ''), COALESCE(t.content, ''), COALESCE(b.slug, ''), COALESCE(b.is_gomosub, false),
 		       t.image_url, t.image_urls, t.attachments
@@ -88,7 +135,7 @@ func (h *RandomHandler) randomThreads() []randomItem {
 		  AND NOT COALESCE(b.is_rules_board, false)
 		  AND (t.board_id IS NULL OR COALESCE(b.visibility, 'public') <> 'private')
 		ORDER BY random()
-		LIMIT $1`, randomPerType)
+		LIMIT $1`, n)
 	if err != nil {
 		return nil
 	}
@@ -109,7 +156,6 @@ func (h *RandomHandler) randomThreads() []randomItem {
 			label = truncate(content, 90)
 		}
 		if strings.TrimSpace(label) == "" && kind == "" {
-			// Nothing at all to show — skip.
 			continue
 		}
 		label = placeholderFor(label, kind)
@@ -129,7 +175,7 @@ func (h *RandomHandler) randomThreads() []randomItem {
 	return out
 }
 
-func (h *RandomHandler) randomWallPosts() []randomItem {
+func (h *RandomHandler) randomWallPosts(n int) []randomItem {
 	rows, err := h.db.Query(`
 		SELECT p.id, COALESCE(p.user_id::text, ''), COALESCE(p.content, ''),
 		       COALESCE(u.username, ''), COALESCE(u.is_anonymous, false),
@@ -141,7 +187,7 @@ func (h *RandomHandler) randomWallPosts() []randomItem {
 		  AND NOT COALESCE(ps.private_hide_wall, false)
 		  AND u.username NOT LIKE '\_\_%'
 		ORDER BY random()
-		LIMIT $1`, randomPerType)
+		LIMIT $1`, n)
 	if err != nil {
 		return nil
 	}
@@ -177,7 +223,7 @@ func (h *RandomHandler) randomWallPosts() []randomItem {
 	return out
 }
 
-func (h *RandomHandler) randomProfiles() []randomItem {
+func (h *RandomHandler) randomProfiles(n int) []randomItem {
 	rows, err := h.db.Query(`
 		SELECT u.id, COALESCE(u.username, ''), u.avatar_url
 		FROM users u
@@ -188,7 +234,7 @@ func (h *RandomHandler) randomProfiles() []randomItem {
 		  AND COALESCE(u.username, '') <> ''
 		  AND u.username NOT LIKE '\_\_%'
 		ORDER BY random()
-		LIMIT $1`, randomPerType)
+		LIMIT $1`, n)
 	if err != nil {
 		return nil
 	}
@@ -209,7 +255,7 @@ func (h *RandomHandler) randomProfiles() []randomItem {
 	return out
 }
 
-func (h *RandomHandler) randomWallComments() []randomItem {
+func (h *RandomHandler) randomWallComments(n int) []randomItem {
 	rows, err := h.db.Query(`
 		SELECT c.id, COALESCE(c.post_id::text, ''), COALESCE(p.user_id::text, ''),
 		       COALESCE(c.content, ''), COALESCE(u.username, ''), COALESCE(u.is_anonymous, false)
@@ -223,7 +269,7 @@ func (h *RandomHandler) randomWallComments() []randomItem {
 		  AND COALESCE(c.content, '') <> ''
 		  AND u.username NOT LIKE '\_\_%'
 		ORDER BY random()
-		LIMIT $1`, randomPerType)
+		LIMIT $1`, n)
 	if err != nil {
 		return nil
 	}
@@ -250,13 +296,13 @@ func (h *RandomHandler) randomWallComments() []randomItem {
 	return out
 }
 
-func (h *RandomHandler) randomGomosubs() []randomItem {
+func (h *RandomHandler) randomGomosubs(n int) []randomItem {
 	rows, err := h.db.Query(`
 		SELECT id, slug, COALESCE(name, '')
 		FROM boards
 		WHERE is_gomosub = true AND visibility = 'public'
 		ORDER BY random()
-		LIMIT $1`, randomPerType)
+		LIMIT $1`, n)
 	if err != nil {
 		return nil
 	}
@@ -286,8 +332,8 @@ func truncate(s string, max int) string {
 }
 
 // mediaFromColumns picks the first media of a thread/post for the small square:
-// a compressed preview key for images (falling back to the original URL), or a
-// bare "video" marker. Rich `attachments` win over the legacy image columns.
+// a compressed preview key for images (falling back to the original URL), or the
+// video poster. Rich `attachments` win over the legacy image columns.
 func mediaFromColumns(imageURL sql.NullString, imageURLs, attachments []byte) (thumb, kind string) {
 	if len(attachments) > 0 {
 		var list []struct {
