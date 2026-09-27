@@ -309,6 +309,7 @@ var expectedRoutes = []string{
 	"POST /api/v1/history",
 	"GET /api/v1/history",
 	"DELETE /api/v1/history",
+	"GET /api/v1/random",
 	"POST /api/v1/favorites",
 	"GET /api/v1/favorites",
 	"GET /api/v1/favorites/ids",

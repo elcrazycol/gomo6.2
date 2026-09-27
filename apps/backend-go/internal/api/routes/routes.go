@@ -175,6 +175,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	feedHandler := handlers.NewFeedHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
 	favoritesHandler := handlers.NewFavoritesHandler(db)
+	randomHandler := handlers.NewRandomHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
@@ -364,6 +365,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Rides the optional-auth + data-cache middleware above, so personalized
 		// responses are cached per viewer identity (see data_cache.go).
 		rest.GET("/feed", feedHandler.GetUserFeed)
+
+		// «Mr. рандомность» — a mixed handful of random PUBLIC content for the
+		// sidebar. Everything it returns is already public, so guests get it too.
+		rest.GET("/random", randomHandler.GetRandom)
 
 		// Public endpoints (no auth required)
 		rest.GET("/profiles", profilesHandler.GetProfiles)

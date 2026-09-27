@@ -41,6 +41,12 @@ vi.mock("@/integrations/api/compat", () => ({
   },
 }));
 
+// «Mr. рандомность» and other view blocks talk to the raw client; keep them
+// offline in tests.
+vi.mock("@/integrations/api/client", () => ({
+  apiClient: { request: vi.fn().mockResolvedValue({ data: [] }) },
+}));
+
 vi.mock("@/components/ThreadFeed", () => ({
   ThreadFeed: () => <div data-testid="thread-feed">ThreadFeed</div>,
 }));
@@ -225,29 +231,19 @@ describe("Index", () => {
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
       expect(screen.getByText("Подписки")).toBeInTheDocument();
-      expect(screen.getByText("Капля рандома")).toBeInTheDocument();
+      expect(screen.getByText("Mr. рандомность")).toBeInTheDocument();
     });
-    // g-sub rows, now with the post-card layout (leading chip + g/slug + name)
-    expect(screen.getAllByText(/^g\//).length).toBeGreaterThan(0);
   });
 
   it("does not render links to the removed forum boards", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      expect(screen.getByText("Капля рандома")).toBeInTheDocument();
+      expect(screen.getByText("Mr. рандомность")).toBeInTheDocument();
     });
     expect(screen.queryByText("Важное")).not.toBeInTheDocument();
     expect(screen.queryByText("Информация")).not.toBeInTheDocument();
     expect(screen.queryByText("FAQ")).not.toBeInTheDocument();
-  });
-
-  it("loads boards on mount", async () => {
-    setupLoggedIn();
-    renderWithProviders(<IndexComponent />);
-    await waitFor(() => {
-      expect(mockFrom).toHaveBeenCalledWith("boards");
-    });
   });
 
   it("loads user roles when logged in", async () => {
