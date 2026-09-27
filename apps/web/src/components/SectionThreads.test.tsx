@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { SectionThreads } from "@/components/SectionThreads";
@@ -29,6 +30,17 @@ const section: SectionWithSubsections = {
   subsections: [],
 };
 
+const thread = {
+  id: "t1",
+  title: "Тема раздела",
+  content: "текст",
+  created_at: "2026-01-01T10:00:00Z",
+  updated_at: "2026-01-01T10:00:00Z",
+  user_id: "u1",
+  username: "bob",
+  is_anonymous: false,
+};
+
 const mockFetch = (threads: unknown[]) => {
   vi.stubGlobal(
     "fetch",
@@ -40,35 +52,41 @@ const mockFetch = (threads: unknown[]) => {
   );
 };
 
+const renderSection = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
+
 describe("SectionThreads", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
   });
 
-  it("renders the section header and its threads", async () => {
-    mockFetch([
-      {
-        id: "t1",
-        title: "Тема раздела",
-        content: "текст",
-        created_at: "2026-01-01T10:00:00Z",
-        updated_at: "2026-01-01T10:00:00Z",
-        user_id: "u1",
-        username: "bob",
-        is_anonymous: false,
-      },
-    ]);
+  it("renders the section header and its threads in the compact list by default", async () => {
+    mockFetch([thread]);
 
-    render(<SectionThreads section={section} currentUserId="me" currentUsername="me" />);
+    renderSection(<SectionThreads section={section} currentUserId="me" currentUsername="me" />);
+
+    await waitFor(() => expect(screen.getByText("Тема раздела")).toBeInTheDocument());
+    expect(screen.getByText("Игры")).toBeInTheDocument();
+    // Compact view — the card renderer is not used until the toggle flips.
+    expect(screen.queryByTestId("thread-card")).not.toBeInTheDocument();
+  });
+
+  it("switches to the card feed via the view toggle and remembers the choice", async () => {
+    mockFetch([thread]);
+
+    renderSection(<SectionThreads section={section} currentUserId="me" currentUsername="me" />);
+    await waitFor(() => expect(screen.getByText("Тема раздела")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Лента" }));
 
     await waitFor(() => expect(screen.getByTestId("thread-card")).toHaveTextContent("Тема раздела"));
-    expect(screen.getByText("Игры")).toBeInTheDocument();
+    expect(localStorage.getItem("gomo6:section-view")).toBe("cards");
   });
 
   it("shows the empty state when the section has no threads", async () => {
     mockFetch([]);
 
-    render(
+    renderSection(
       <SectionThreads
         section={{ ...section, id: "s2", slug: "empty", name: "Пусто" }}
         currentUserId={null}
@@ -82,7 +100,7 @@ describe("SectionThreads", () => {
   it("filters the request by section_id and subsection_id", async () => {
     mockFetch([]);
 
-    render(
+    renderSection(
       <SectionThreads
         section={section}
         subsection={{ id: "sub1", section_id: "s1", slug: "pc", name: "ПК", description: null, sort_order: 10 }}

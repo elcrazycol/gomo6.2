@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { LayoutGrid, List } from "lucide-react";
 
+import { CompactThreadList, type ThreadLastPost } from "@/components/CompactThreadList";
 import { FeedThreadCard } from "@/components/FeedThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -10,12 +12,52 @@ import { fetchThreadLikesBatch, toFeedThread, type ThreadApiRow } from "@/utils/
 
 const PAGE_SIZE = 20;
 
+/** «Компактно» (dense forum list) vs «Лента» (the card feed). Cosmetic, so it
+ *  lives in localStorage rather than on the backend. */
+type SectionView = "compact" | "cards";
+const VIEW_KEY = "gomo6:section-view";
+
+const readView = (): SectionView => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "compact";
+  } catch {
+    return "compact";
+  }
+};
+
 interface DisplayedSection {
   section: SectionWithSubsections;
   subsection: ThreadSubsection | null;
   rows: ThreadApiRow[];
   likes: Map<string, { count: number; isLiked: boolean }>;
+  lastPosts: Map<string, ThreadLastPost>;
 }
+
+/** Latest reply per thread (right column of the compact list). One batch call. */
+const fetchLatestPosts = async (ids: string[]): Promise<Map<string, ThreadLastPost>> => {
+  const map = new Map<string, ThreadLastPost>();
+  if (ids.length === 0) return map;
+  try {
+    const res = await fetch(`/api/v1/posts?thread_id=in.(${ids.join(",")})&latest=true`);
+    if (!res.ok) return map;
+    const json = await res.json();
+    ((json.data || []) as Array<{
+      thread_id: string;
+      username: string | null;
+      avatar_url: string | null;
+      created_at: string;
+    }>).forEach((post) => {
+      map.set(post.thread_id, {
+        username: post.username,
+        avatar_url: post.avatar_url,
+        created_at: post.created_at,
+      });
+    });
+  } catch {
+    // Best-effort — rows simply fall back to the thread author + creation date.
+  }
+  return map;
+};
 
 /**
  * Last loaded page per section, kept across mounts so returning from the feed
@@ -80,7 +122,17 @@ export const SectionThreads = ({
   const [hasMore, setHasMore] = useState(false);
   const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [view, setView] = useState<SectionView>(readView);
   const offsetRef = useRef(0);
+
+  const changeView = useCallback((next: SectionView) => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // ignore (private mode / quota)
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,9 +148,19 @@ export const SectionThreads = ({
     (async () => {
       try {
         const rows = await fetchPage(section, subsection ?? null, 0);
-        const likes = await fetchThreadLikesBatch(rows.map((row) => row.id), currentUserId);
+        const ids = rows.map((row) => row.id);
+        const [likes, lastPosts] = await Promise.all([
+          fetchThreadLikesBatch(ids, currentUserId),
+          fetchLatestPosts(ids),
+        ]);
         if (cancelled) return;
-        const next: DisplayedSection = { section, subsection: subsection ?? null, rows, likes };
+        const next: DisplayedSection = {
+          section,
+          subsection: subsection ?? null,
+          rows,
+          likes,
+          lastPosts,
+        };
         sectionCache.set(targetKey, next);
         setDisplayed(next);
         offsetRef.current = rows.length;
@@ -114,6 +176,7 @@ export const SectionThreads = ({
             subsection: subsection ?? null,
             rows: [],
             likes: new Map(),
+            lastPosts: new Map(),
           };
           sectionCache.set(targetKey, next);
           setDisplayed(next);
@@ -147,12 +210,23 @@ export const SectionThreads = ({
     setLoadingMore(true);
     try {
       const page = await fetchPage(section, subsection ?? null, offsetRef.current);
-      const moreLikes = await fetchThreadLikesBatch(page.map((row) => row.id), currentUserId);
+      const ids = page.map((row) => row.id);
+      const [moreLikes, moreLast] = await Promise.all([
+        fetchThreadLikesBatch(ids, currentUserId),
+        fetchLatestPosts(ids),
+      ]);
       setDisplayed((prev) => {
         if (!prev) return prev;
         const likes = new Map(prev.likes);
         moreLikes.forEach((value, key) => likes.set(key, value));
-        const next: DisplayedSection = { ...prev, rows: [...prev.rows, ...page], likes };
+        const lastPosts = new Map(prev.lastPosts);
+        moreLast.forEach((value, key) => lastPosts.set(key, value));
+        const next: DisplayedSection = {
+          ...prev,
+          rows: [...prev.rows, ...page],
+          likes,
+          lastPosts,
+        };
         sectionCache.set(targetKey, next);
         return next;
       });
@@ -172,13 +246,47 @@ export const SectionThreads = ({
   // The shown list belongs to a previously picked target while the new one loads.
   const isStale = Boolean(displayed) && displayed!.section.id !== section.id;
 
+  const loadMoreButton = !isStale && hasMore ? (
+    <div className="flex justify-center pt-2">
+      <button
+        type="button"
+        onClick={loadMore}
+        disabled={loadingMore}
+        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface px-4 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/60 disabled:opacity-60"
+      >
+        {loadingMore ? <PentagramLoader size="sm" /> : "Показать ещё"}
+      </button>
+    </div>
+  ) : null;
+
   return (
     <div className="space-y-4">
-      <div className="min-w-0">
-        <h2 className="truncate text-lg font-semibold leading-tight">{headSection.name}</h2>
-        {headSubsection && (
-          <p className="truncate text-[13px] text-muted-foreground">{headSubsection.name}</p>
-        )}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold leading-tight">{headSection.name}</h2>
+          {headSubsection && (
+            <p className="truncate text-[13px] text-muted-foreground">{headSubsection.name}</p>
+          )}
+        </div>
+
+        <div
+          role="group"
+          aria-label="Вид списка тем"
+          className="flex shrink-0 items-center rounded-full border border-border/70 bg-surface p-0.5"
+        >
+          <ViewToggleButton
+            active={view === "compact"}
+            onClick={() => changeView("compact")}
+            icon={<List className="h-3.5 w-3.5" />}
+            label="Компактно"
+          />
+          <ViewToggleButton
+            active={view === "cards"}
+            onClick={() => changeView("cards")}
+            icon={<LayoutGrid className="h-3.5 w-3.5" />}
+            label="Лента"
+          />
+        </div>
       </div>
 
       {!displayed ? (
@@ -187,6 +295,18 @@ export const SectionThreads = ({
         <div className="rounded-[var(--card-radius)] border border-dashed border-border/70 bg-muted/20 py-12 text-center">
           <p className="text-lg font-medium">Здесь пока пусто</p>
           <p className="mt-2 text-sm text-muted-foreground">Стань первым — создай тему в этом разделе</p>
+        </div>
+      ) : view === "compact" ? (
+        <div
+          key={cacheKey(displayed.section.id, displayed.subsection?.id)}
+          className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+        >
+          <CompactThreadList
+            rows={rows}
+            likes={likes}
+            lastPosts={displayed.lastPosts}
+          />
+          {loadMoreButton}
         </div>
       ) : (
         <div
@@ -213,18 +333,7 @@ export const SectionThreads = ({
             );
           })}
 
-          {!isStale && hasMore && (
-            <div className="flex justify-center pt-2">
-              <button
-                type="button"
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface px-4 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/60 disabled:opacity-60"
-              >
-                {loadingMore ? <PentagramLoader size="sm" /> : "Показать ещё"}
-              </button>
-            </div>
-          )}
+          {loadMoreButton}
         </div>
       )}
 
@@ -238,3 +347,32 @@ export const SectionThreads = ({
     </div>
   );
 };
+
+/** One option of the section view switcher (compact ↔ cards). */
+const ViewToggleButton = ({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={active}
+    aria-label={label}
+    title={label}
+    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors ${
+      active
+        ? "bg-primary text-primary-foreground shadow-sm"
+        : "text-muted-foreground hover:text-foreground"
+    }`}
+  >
+    {icon}
+    <span className="hidden sm:inline">{label}</span>
+  </button>
+);
