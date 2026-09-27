@@ -5,7 +5,8 @@ import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { toast } from "sonner";
 import { Bookmark, ChevronRight, FileText, Hash, History, Home, Plus, Users, X } from "lucide-react";
-import { TermsOfService } from "@/components/TermsOfService";
+import { LegalConsentGate } from "@/components/legal/LegalConsentGate";
+import { LEGAL_VERSIONS } from "@/lib/legal/config";
 import { ThreadFeed } from "@/components/ThreadFeed";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useThreadSections, type SectionWithSubsections, type ThreadSubsection } from "@/hooks/useThreadSections";
@@ -21,6 +22,7 @@ import { Spotlight } from "@/components/Spotlight";
 import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
 import { usePendingView, pendingViewClass } from "@/hooks/usePendingView";
 import { useTransitionStyle } from "@/hooks/useTransitionStyle";
+import { isViewTransitionStyle, sectionTransitionName } from "@/lib/viewTransitions";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface GomoSub {
@@ -32,6 +34,18 @@ interface GomoSub {
 
 /** The mutually-exclusive views the main page can show. */
 type MainView = "feed" | "section" | "mine" | "history" | "favorites";
+
+/**
+ * Navigation depth per view. The slide transition turns a depth change into a
+ * direction (deeper = forward, shallower = back); see usePendingView.
+ */
+const MAIN_VIEW_DEPTH: Record<MainView, number> = {
+  feed: 0,
+  section: 1,
+  mine: 0,
+  history: 0,
+  favorites: 0,
+};
 
 const Index = () => {
   const { loadProfile } = useProfileCache();
@@ -45,6 +59,8 @@ const Index = () => {
   // prop means touching ProcessedContent + every card that threads it through.
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [showTerms, setShowTerms] = useState(false);
+  // Ранее принятая версия документов (null — записи нет).
+  const [acceptedTermsVersion, setAcceptedTermsVersion] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // Sidebar «Разделы»: which section is expanded to show its subsections.
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
@@ -128,8 +144,9 @@ const Index = () => {
   // The target is known synchronously from the path, so it is the initial view:
   // the feed never mounts (and never fetches) when landing straight on a раздел.
   const initialMode: MainView = isSectionRoute ? "section" : explicitView ?? "feed";
-  const view = usePendingView<MainView>(targetMode, initialMode);
+  const view = usePendingView<MainView>(targetMode, initialMode, MAIN_VIEW_DEPTH);
   const transitionStyle = useTransitionStyle();
+  const viewTransitionTarget = isViewTransitionStyle(transitionStyle);
   const navigate = useNavigate();
 
   // Remember the last resolved раздел so it stays on screen while the feed
@@ -201,7 +218,11 @@ const Index = () => {
           ]);
           setCurrentUserUsername(profileData.username);
 
-          if (!termsRes.data) {
+          // Запоминаем ранее принятую версию: по ней интерфейс поймёт, показать
+          // ли «документы обновились» вместо первого знакомства.
+          const accepted = (termsRes.data as { terms_version?: string } | null)?.terms_version ?? null;
+          setAcceptedTermsVersion(accepted);
+          if (accepted !== LEGAL_VERSIONS.terms) {
             setShowTerms(true);
           }
         }
@@ -259,13 +280,15 @@ const Index = () => {
   const handleAcceptTerms = async () => {
     if (!user) return;
 
-    // The backend accepts the write idempotently (ON CONFLICT upsert). Only
-    // close the dialog on success — otherwise the user would be told they
-    // accepted while the row was never stored and the dialog re-appears.
+    // The backend accepts the write idempotently (ON CONFLICT upsert) and stores
+    // the version, so a future document change can re-ask. Only close the dialog
+    // on success — otherwise the user would be told they accepted while the row
+    // was never stored and the dialog would re-appear.
     const { error } = await api
       .from("user_terms_acceptance")
       .insert({
         user_id: user.id,
+        terms_version: LEGAL_VERSIONS.terms,
       });
 
     if (error) {
@@ -273,15 +296,15 @@ const Index = () => {
       return;
     }
 
+    setAcceptedTermsVersion(LEGAL_VERSIONS.terms);
     setShowTerms(false);
-    toast.success("Спасибо за согласие с правилами");
+    toast.success("Спасибо, согласие сохранено");
   };
 
-  const handleDeclineTerms = async () => {
-    await api.auth.signOut();
-    navigate("/auth");
-    toast.info("Вы покинули сайт");
-  };
+  // «Позже» — просто закрываем. Чтение мы не блокируем, поэтому выход из
+  // аккаунта здесь был бы наказанием за отложенное решение. Подтверждение
+  // вернётся в следующей сессии.
+  const handleDismissTerms = () => setShowTerms(false);
 
   if (loading) {
     return (
@@ -298,9 +321,7 @@ const Index = () => {
           {/* Main Feed — recommendations only: the «Рекомендации / Подписки»
               toggle and the subscriptions view behind it were removed. */}
           <div
-            className={`lg:col-span-3 ${
-              transitionStyle === "view-transition" ? "view-transition-target" : ""
-            }`}
+            className={`lg:col-span-3 ${viewTransitionTarget ? "view-transition-target" : ""}`}
           >
             {/* The feed is mounted only for feed-ish views — on a раздел path it
                 is not fetched at all. During the feed→раздел transition it stays
@@ -503,7 +524,22 @@ const Index = () => {
                               }`}
                             >
                               <SectionIcon name={section.icon} className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                              <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
+                              <span
+                                className="min-w-0 flex-1 truncate text-left"
+                                // Shared element with the раздел header: while no
+                                // раздел is on screen this label owns the name, so
+                                // opening the раздел morphs the label into its title
+                                // (see SectionThreads). Once a раздел IS shown the
+                                // header owns it — two elements with one name would
+                                // abort the whole transition.
+                                style={
+                                  view.isShown("section")
+                                    ? undefined
+                                    : { viewTransitionName: sectionTransitionName(section.slug) }
+                                }
+                              >
+                                {section.name}
+                              </span>
                             </button>
                             {hasSubsections && (
                               <button
@@ -624,11 +660,12 @@ const Index = () => {
         loading={sections.length === 0}
       />
 
-      <TermsOfService
+      <LegalConsentGate
         open={showTerms}
+        version={LEGAL_VERSIONS.terms}
+        previousVersion={acceptedTermsVersion}
         onAccept={handleAcceptTerms}
-        onDecline={handleDeclineTerms}
-        canDecline={true}
+        onDismiss={handleDismissTerms}
       />
     </div>
   );

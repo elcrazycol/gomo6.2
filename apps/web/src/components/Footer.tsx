@@ -1,4 +1,10 @@
+import { Link } from "react-router-dom";
+
 import { openCookieSettings } from "@/lib/cookieConsent";
+import { BRAND } from "@/lib/legal/config";
+
+const linkClass =
+  "text-xs text-muted-foreground hover:text-foreground transition-colors";
 
 export const Footer = () => {
   // Use window.location.hostname so subdomain links work both locally
@@ -19,16 +25,32 @@ export const Footer = () => {
   return (
     <footer className="bg-card border-t border-border">
       <div className="max-w-6xl mx-auto px-4 py-3">
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
           <p className="text-xs sm:text-sm text-muted-foreground">
-            © 2026 gomo6
+            © {new Date().getFullYear()} {BRAND.name}
           </p>
           {versionLabel && <span className="text-xs text-muted-foreground/70 font-medium">{versionLabel}</span>}
+          <Link to="/legal/terms" className={linkClass}>
+            Соглашение
+          </Link>
+          <Link to="/legal/privacy" className={linkClass}>
+            Конфиденциальность
+          </Link>
+          <Link to="/legal/rules" className={linkClass}>
+            Правила
+          </Link>
+          <button
+            type="button"
+            onClick={openCookieSettings}
+            className={linkClass}
+          >
+            Куки
+          </button>
           <a
             href={`//dev.${rootDomain}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className={linkClass}
           >
             Dev
           </a>
@@ -36,17 +58,10 @@ export const Footer = () => {
             href={`//docs.${rootDomain}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className={linkClass}
           >
             Docs
           </a>
-          <button
-            type="button"
-            onClick={openCookieSettings}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Куки
-          </button>
           {shortHash && (
             <span className="text-xs text-muted-foreground/50 font-mono" title={`Deployed commit: ${commitHash}`}>
               {shortHash}

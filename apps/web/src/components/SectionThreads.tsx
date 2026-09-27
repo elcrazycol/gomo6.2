@@ -7,6 +7,7 @@ import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { QuietLoading } from "@/components/QuietLoading";
 import type { SectionWithSubsections, ThreadSubsection } from "@/hooks/useThreadSections";
+import { runViewTransition, sectionTransitionName, setTransitionDirection } from "@/lib/viewTransitions";
 import { useLoadingBarStore } from "@/stores/loadingBarStore";
 import { fetchThreadLikesBatch, toFeedThread, type ThreadApiRow } from "@/utils/threadFeedItem";
 
@@ -164,10 +165,33 @@ export const SectionThreads = ({
           likes,
           lastPosts,
         };
-        sectionCache.set(targetKey, next);
-        setDisplayed(next);
-        offsetRef.current = rows.length;
-        setHasMore(rows.length === PAGE_SIZE);
+        const commit = () => {
+          sectionCache.set(targetKey, next);
+          setDisplayed(next);
+          offsetRef.current = rows.length;
+          setHasMore(rows.length === PAGE_SIZE);
+        };
+        // All разделы (and their подразделы) share this one component instance,
+        // so switching between them does NOT change the parent's shown-mode —
+        // the swap below IS the navigation. Wrap it in a view transition (the
+        // inner `.view-fade-in` covers the fade style) so the swap is what
+        // animates, instead of the content popping in and an empty transition
+        // playing afterwards. The key compares подраздел too: two подразделы of
+        // one раздел share the section id.
+        const shownKey = displayed
+          ? cacheKey(displayed.section.id, displayed.subsection?.id)
+          : null;
+        const swapping = shownKey !== null && shownKey !== targetKey;
+        if (swapping) {
+          // Подраздел is one level deeper than its раздел, so the slide points
+          // the way the user is moving.
+          setTransitionDirection(
+            (subsection ? 2 : 1) >= (displayed?.subsection ? 2 : 1) ? "forward" : "back",
+          );
+          runViewTransition(commit);
+        } else {
+          commit();
+        }
       } catch (error) {
         if (cancelled) return;
         console.error("Error loading section threads:", error);
@@ -209,7 +233,7 @@ export const SectionThreads = ({
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || !displayed) return;
-    if (displayed.section.id !== section.id) return;
+    if (cacheKey(displayed.section.id, displayed.subsection?.id) !== targetKey) return;
     setLoadingMore(true);
     try {
       const page = await fetchPage(section, subsection ?? null, offsetRef.current);
@@ -246,8 +270,11 @@ export const SectionThreads = ({
   const headSubsection = displayed ? displayed.subsection : subsection ?? null;
   const rows = displayed?.rows ?? [];
   const likes = displayed?.likes;
-  // The shown list belongs to a previously picked target while the new one loads.
-  const isStale = Boolean(displayed) && displayed!.section.id !== section.id;
+  // The shown list belongs to a previously picked target while the new one loads
+  // (a different раздел OR a different подраздел of the same раздел).
+  const isStale =
+    Boolean(displayed) &&
+    cacheKey(displayed!.section.id, displayed!.subsection?.id) !== targetKey;
 
   // Auto-load: a sentinel at the end of the list pulls the next page as soon as
   // it scrolls near the viewport, so there is no «Показать ещё» to press.
@@ -280,7 +307,15 @@ export const SectionThreads = ({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate text-lg font-semibold leading-tight">{headSection.name}</h2>
+          <h2
+            className="truncate text-lg font-semibold leading-tight"
+            // Shared element with the sidebar label: the sidebar drops this name
+            // once a раздел is on screen, so exactly one element owns it and the
+            // label can morph into this title (see Index).
+            style={{ viewTransitionName: sectionTransitionName(headSection.slug) }}
+          >
+            {headSection.name}
+          </h2>
           {headSubsection && (
             <p className="truncate text-[13px] text-muted-foreground">{headSubsection.name}</p>
           )}

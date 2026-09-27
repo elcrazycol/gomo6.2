@@ -153,7 +153,10 @@ func upsertUserTermsAcceptance(data map[string]interface{}) (query string, args 
 	}
 	termsVersion := data["terms_version"]
 	if termsVersion == nil || termsVersion == "" {
-		termsVersion = "1.0"
+		// Базовая версия: так помечены записи без явной версии (см.
+		// migrations/120_terms_version_baseline.sql). Актуальные версии
+		// присылает клиент из apps/web/src/lib/legal/config.ts.
+		termsVersion = "0.1"
 	}
 	q := `INSERT INTO user_terms_acceptance (user_id, terms_version) VALUES ($1, $2)
 ON CONFLICT (user_id) DO UPDATE SET terms_version = EXCLUDED.terms_version

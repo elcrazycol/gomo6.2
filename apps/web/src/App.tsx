@@ -100,6 +100,8 @@ const OAuthConsent = lazyWithRetry(() => import("./pages/OAuthConsent"));
 const Achievements = lazyWithRetry(() => import("./pages/Achievements"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const Translate = lazyWithRetry(() => import("./pages/Translate"));
+// Правовые документы грузим лениво: это тексты, а не критичный путь.
+const Legal = lazyWithRetry(() => import("./pages/Legal"));
 
 // Prefetch critical routes on app start
 const prefetchRoutes = () => {
@@ -287,6 +289,9 @@ function AppRoutes() {
           <Route path="notify/wall-likes/:notificationId" element={<AuthGuard><LazyPage component={NotificationLikes} /></AuthGuard>} />
           <Route path="translate" element={<AuthGuard><LazyPage component={Translate} /></AuthGuard>} />
           <Route path="search" element={<LazyPage component={SearchResults} />} />
+          {/* Правовые документы: /legal и /legal/:docId */}
+          <Route path="legal" element={<LazyPage component={Legal} />} />
+          <Route path="legal/:docId" element={<LazyPage component={Legal} />} />
           <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
           <Route path="g" element={<LazyPage component={GomoSubs} />} />
           <Route path="g/create" element={<AuthGuard><LazyPage component={GomoSubCreate} /></AuthGuard>} />

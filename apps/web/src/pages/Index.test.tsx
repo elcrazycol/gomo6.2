@@ -86,7 +86,7 @@ vi.mock("@/components/ProfileHoverCard", () => ({ ProfileHoverCard: () => null }
 vi.mock("@/components/ThemeToggle", () => ({ ThemeToggle: () => null }));
 vi.mock("@/components/UserBadge", () => ({ UserBadge: () => null }));
 vi.mock("@/components/HeaderUsername", () => ({ HeaderUsername: () => null }));
-vi.mock("@/components/TermsOfService", () => ({ TermsOfService: () => null }));
+vi.mock("@/components/legal/LegalConsentGate", () => ({ LegalConsentGate: () => null }));
 vi.mock("@/components/PrefetchLink", () => ({
   PrefetchLink: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>

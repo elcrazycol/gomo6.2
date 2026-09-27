@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-import { runViewTransition, type TransitionStyle } from "@/lib/viewTransitions";
+import { runViewTransition, setTransitionDirection, transitionEnterClass, type TransitionStyle } from "@/lib/viewTransitions";
 
 /**
  * Stale-view retention for URL-driven view switching.
@@ -19,18 +19,14 @@ import { runViewTransition, type TransitionStyle } from "@/lib/viewTransitions";
  *   )}
  */
 
-/** Applied to the visible view so the swap reads as a soft fade. */
-export const PENDING_VIEW_VISIBLE =
-  "view-fade-in";
-
 export const pendingViewClass = (
   visible: boolean,
   style: TransitionStyle = "fade",
 ): string => {
   if (!visible) return "hidden";
-  // With the View Transitions API the browser animates the swap itself, so an
-  // extra CSS fade would double up.
-  return style === "view-transition" ? "" : PENDING_VIEW_VISIBLE;
+  // Styles the browser animates itself (or "none") get no extra CSS entrance —
+  // an inner fade would double up with the browser's swap.
+  return transitionEnterClass(style);
 };
 
 export interface PendingView<K extends string> {
@@ -47,18 +43,49 @@ export interface PendingView<K extends string> {
   readyFor: (view: K) => () => void;
 }
 
-export const usePendingView = <K extends string>(target: K, initial: K): PendingView<K> => {
-  const [shown, setShown] = useState<K>(initial);
+export const usePendingView = <K extends string>(
+  target: K,
+  initial: K,
+  /**
+   * Navigation depth per view (feed = 0, раздел = 1, …). Used only to give the
+   * slide transition its direction, computed at swap time — an effect would race
+   * the child that reports ready. Must be referentially stable.
+   */
+  depthOf?: Record<K, number>,
+): PendingView<K> => {
+  const [shown, setShownState] = useState<K>(initial);
   const readyCache = useRef(new Map<K, () => void>());
+  // Mirrors `shown` so the stable onReady callbacks can tell that their view is
+  // already on screen. Swapping to the view that is already shown changes no
+  // DOM, but the View Transitions API would still animate an empty old→new pair
+  // — and the content of that view (e.g. another раздел in the same component)
+  // may already have been swapped underneath by its own fetch.
+  const shownRef = useRef<K>(initial);
 
-  const readyFor = useCallback((view: K) => {
-    let fn = readyCache.current.get(view);
-    if (!fn) {
-      fn = () => runViewTransition(() => setShown(view));
-      readyCache.current.set(view, fn);
-    }
-    return fn;
+  const setShown = useCallback((view: K) => {
+    shownRef.current = view;
+    setShownState(view);
   }, []);
+
+  const readyFor = useCallback(
+    (view: K) => {
+      let fn = readyCache.current.get(view);
+      if (!fn) {
+        fn = () => {
+          if (shownRef.current === view) return;
+          if (depthOf) {
+            const from = depthOf[shownRef.current] ?? 0;
+            const to = depthOf[view] ?? 0;
+            setTransitionDirection(to >= from ? "forward" : "back");
+          }
+          runViewTransition(() => setShown(view));
+        };
+        readyCache.current.set(view, fn);
+      }
+      return fn;
+    },
+    [depthOf, setShown],
+  );
 
   return {
     shown,

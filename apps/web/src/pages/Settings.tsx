@@ -13,12 +13,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, Dices, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle, PanelTop, Blend } from "lucide-react";
+import { ChevronDown, Dices, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle, PanelTop, Blend, Scale } from "lucide-react";
 import { useAnimatedVideoStore, type AutoplayMode } from "@/stores/animatedVideoStore";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
 import NotificationsSettings from "@/components/NotificationsSettings";
+import { TransitionPreview } from "@/components/TransitionPreview";
+import { openCookieSettings } from "@/lib/cookieConsent";
+import { fillLegalText } from "@/lib/legal/config";
+import { LEGAL_DOCUMENTS, LEGAL_DOC_ORDER } from "@/lib/legal/documents";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { PublishButton } from "@/components/PublishButton";
@@ -27,6 +31,7 @@ import { HEADER_BEHAVIORS, getHeaderBehavior, setHeaderBehavior, type HeaderBeha
 import {
   TRANSITION_STYLES,
   getTransitionStyle,
+  isPerfLite,
   setTransitionStyle,
   supportsViewTransitions,
   type TransitionStyle,
@@ -129,8 +134,11 @@ const Settings = () => {
   const [headerExpanded, setHeaderExpanded] = useState(false);
   const [transitionExpanded, setTransitionExpanded] = useState(false);
   const [transitionStyle, setTransitionStyleState] = useState<TransitionStyle>(getTransitionStyle);
+  // Which style's inline preview is open (only one at a time).
+  const [transitionPreview, setTransitionPreview] = useState<TransitionStyle | null>(null);
   const [headerBehavior, setHeaderBehaviorState] = useState<HeaderBehavior>(getHeaderBehavior);
   const [mrRandomExpanded, setMrRandomExpanded] = useState(false);
+  const [legalExpanded, setLegalExpanded] = useState(false);
   const [mrRandomCount, setMrRandomCountState] = useState<number>(getMrRandomCount);
 
   const [customFont, setCustomFont] = useState(() => {
@@ -895,38 +903,68 @@ const Settings = () => {
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
                     <div className="bg-surface border border-border p-4 sm:p-6 space-y-4">
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
                         {TRANSITION_STYLES.map((s) => {
                           const isSelected = transitionStyle === s.id;
+                          const isPreviewing = transitionPreview === s.id;
                           return (
-                            <button
+                            <div
                               key={s.id}
-                              type="button"
-                              onClick={() => handleTransitionStyleChange(s.id)}
-                              className={`group relative rounded-2xl border p-3 text-left transition-all duration-200 ${
+                              className={`rounded-2xl border transition-all duration-200 ${
                                 isSelected
                                   ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_hsl(var(--primary)/0.22),0_10px_28px_hsl(var(--primary)/0.1)]"
-                                  : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md"
+                                  : "border-border bg-background/60"
                               }`}
                             >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="font-semibold leading-tight">{s.label}</div>
-                                  <div className="text-xs text-muted-foreground">{s.description}</div>
-                                </div>
-                                <span
-                                  className={`h-3 w-3 shrink-0 rounded-full border transition-all duration-200 ${
-                                    isSelected ? "scale-110 bg-primary ring-4 ring-primary/15" : "border-foreground/20"
+                              <div className="flex items-center gap-1 p-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTransitionStyleChange(s.id)}
+                                  aria-pressed={isSelected}
+                                  className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-muted/40"
+                                >
+                                  <span
+                                    className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-all duration-200 ${
+                                      isSelected ? "border-primary bg-primary" : "border-foreground/25"
+                                    }`}
+                                  >
+                                    {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
+                                  </span>
+                                  <span className="min-w-0">
+                                    <span className="block font-semibold leading-tight">{s.label}</span>
+                                    <span className="block text-xs text-muted-foreground">{s.description}</span>
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setTransitionPreview(isPreviewing ? null : s.id)}
+                                  aria-expanded={isPreviewing}
+                                  aria-label={isPreviewing ? "Скрыть пример" : `Показать пример: ${s.label}`}
+                                  title="Показать, как это выглядит"
+                                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground ${
+                                    isPreviewing ? "bg-muted/60" : ""
                                   }`}
-                                />
+                                >
+                                  <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isPreviewing ? "rotate-180" : ""}`} />
+                                </button>
                               </div>
-                            </button>
+                              {isPreviewing && (
+                                <div className="border-t border-border/60 p-3">
+                                  <TransitionPreview style={s.id} />
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
                       {!supportsViewTransitions() && (
                         <p className="text-xs text-muted-foreground">
-                          Ваш браузер не поддерживает View Transitions — будет использоваться плавное затухание.
+                          Ваш браузер не поддерживает View Transitions — «Слайд вперёд/назад» и «Наплыв» будут работать как плавное затухание. Примеры ниже всё равно показывают задуманное.
+                        </p>
+                      )}
+                      {isPerfLite() && (
+                        <p className="text-xs text-muted-foreground">
+                          Устройство в режиме экономии (слабый GPU/сеть) — переходы отключены, экран меняется мгновенно.
                         </p>
                       )}
                     </div>
@@ -1152,6 +1190,55 @@ const Settings = () => {
                       </p>
                       <TwoFASection userId={user.id} />
                     </div>
+
+                    {/* Правовая информация — документы и управление согласиями */}
+                    <Collapsible open={legalExpanded} onOpenChange={setLegalExpanded}>
+                      <CollapsibleTrigger asChild>
+                        <button className="w-full bg-surface border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <Scale className="h-5 w-5" />
+                            <div>
+                              <span className="text-lg font-semibold">Правовая информация</span>
+                              <p className="text-sm text-muted-foreground">
+                                Документы, правила и отзыв согласий
+                              </p>
+                            </div>
+                          </div>
+                          <ChevronDown className={`h-5 w-5 transition-transform ${legalExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
+                        <div className="bg-surface border border-border p-4 sm:p-6 space-y-1.5">
+                          {LEGAL_DOC_ORDER.map((id) => {
+                            const doc = LEGAL_DOCUMENTS[id];
+                            return (
+                              <Link
+                                key={id}
+                                to={`/legal/${id}`}
+                                className="flex items-center justify-between gap-3 rounded-xl px-2.5 py-2 transition-colors hover:bg-muted/50"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-medium">{fillLegalText(doc.title)}</span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {fillLegalText(doc.summary)}
+                                  </span>
+                                </span>
+                                <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" />
+                              </Link>
+                            );
+                          })}
+                          <div className="mt-3 border-t border-border/60 pt-3">
+                            <Button
+                              variant="outline"
+                              className="rounded-full"
+                              onClick={openCookieSettings}
+                            >
+                              Изменить решение по куки
+                            </Button>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </div>
                 </div>
               </TabsContent>

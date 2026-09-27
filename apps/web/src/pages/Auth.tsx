@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { z } from "zod";
-import { TermsOfService } from "@/components/TermsOfService";
+import { LEGAL_VERSIONS } from "@/lib/legal/config";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { useQueryClient } from "@tanstack/react-query";
 import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "@/services/passkeys";
@@ -34,7 +34,6 @@ const Auth = () => {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [showTerms, setShowTerms] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const navigate = useNavigate();
@@ -143,6 +142,7 @@ const Auth = () => {
             .from("user_terms_acceptance")
             .insert({
               user_id: newSession.session.user.id,
+              terms_version: LEGAL_VERSIONS.terms,
             });
         }
 
@@ -418,13 +418,23 @@ const Auth = () => {
                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                   >
                     {t('auth.termsAgree')}{" "}
-                    <button
-                      type="button"
-                      onClick={() => setShowTerms(true)}
+                    <Link
+                      to="/legal/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="text-link hover:underline"
                     >
                       {t('auth.termsLink')}
-                    </button>
+                    </Link>{" "}
+                    {t('auth.termsAnd')}{" "}
+                    <Link
+                      to="/legal/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-link hover:underline"
+                    >
+                      {t('auth.privacyLink')}
+                    </Link>
                   </label>
                 </div>
               </div>
@@ -484,16 +494,6 @@ const Auth = () => {
           </div>
         </div>
       </div>
-      
-      <TermsOfService 
-        open={showTerms} 
-        onAccept={() => {
-          setShowTerms(false);
-          setAgreedToTerms(true);
-        }}
-        onDecline={() => setShowTerms(false)}
-        canDecline={true}
-      />
     </div>
   );
 };
