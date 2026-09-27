@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
@@ -48,43 +48,65 @@ const Index = () => {
   const sidebarTabs = useSidebarTabsStore((state) => state.tabs);
   const removeSidebarTab = useSidebarTabsStore((state) => state.removeTab);
   const [addTabOpen, setAddTabOpen] = useState(false);
-  // Selected раздел / подраздел come from the URL so the view is shareable and
-  // survives a reload.
+  // ── URL → view ────────────────────────────────────────────────────────────
+  // Everything is path-driven:
+  //   /                       feed (or the pinned «домашняя» tab, if any)
+  //   /feed                   feed, explicitly
+  //   /mine /history /favorites
+  //   /c/<раздел>[/<подраздел>]
+  // Legacy ?section=&sub=&view=&tab= URLs are redirected below.
   const [searchParams] = useSearchParams();
+  const { pathname } = useLocation();
   const routeParams = useParams<{ sectionSlug?: string; subSlug?: string }>();
-  // Real paths: /<раздел> and /<раздел>/<подраздел>. The legacy ?section=&sub=
-  // pair still resolves and is redirected to the path form (see below).
   const routeSectionSlug = routeParams.sectionSlug ?? null;
   const routeSubSlug = routeParams.subSlug ?? null;
   const isSectionRoute = Boolean(routeSectionSlug);
-  const activeSectionSlug = routeSectionSlug ?? searchParams.get("section");
-  const activeSubSlug = routeSubSlug ?? searchParams.get("sub");
-  const activeSection = activeSectionSlug
-    ? sections.find((s) => s.slug === activeSectionSlug) ?? null
+
+  const explicitView: "feed" | "mine" | "history" | "favorites" | null =
+    pathname === "/feed"
+      ? "feed"
+      : pathname === "/mine"
+        ? "mine"
+        : pathname === "/history"
+          ? "history"
+          : pathname === "/favorites"
+            ? "favorites"
+            : null;
+
+  const activeSection = routeSectionSlug
+    ? sections.find((s) => s.slug === routeSectionSlug) ?? null
     : null;
   const activeSubsection =
-    activeSection && activeSubSlug
-      ? activeSection.subsections.find((ss) => ss.slug === activeSubSlug) ?? null
+    activeSection && routeSubSlug
+      ? activeSection.subsections.find((ss) => ss.slug === routeSubSlug) ?? null
       : null;
-  const viewParam = searchParams.get("view");
-  const tabParam = searchParams.get("tab");
 
-  // A custom tab is active when explicitly opened (?tab=), or — when nothing
-  // else is selected — when it is the "home" tab (opens instead of the feed).
-  const activeTab = tabParam ? sidebarTabs.find((t) => t.id === tabParam) ?? null : null;
+  // On the bare «/» a pinned «домашняя» tab opens instead of the feed.
   const homeTab = sidebarTabs.find((t) => t.isHome) ?? null;
-  const effectiveTab = activeTab ?? (!activeSectionSlug && !viewParam ? homeTab : null);
-  const tabSection = effectiveTab
-    ? sections.find((s) => s.slug === effectiveTab.sectionSlug) ?? null
-    : null;
+  const useHomeTab = pathname === "/" && !explicitView && !isSectionRoute;
+  const tabSection =
+    useHomeTab && homeTab
+      ? sections.find((s) => s.slug === homeTab.sectionSlug) ?? null
+      : null;
   const tabSubsection =
-    tabSection && effectiveTab?.subsectionSlug
-      ? tabSection.subsections.find((ss) => ss.slug === effectiveTab.subsectionSlug) ?? null
+    tabSection && homeTab?.subsectionSlug
+      ? tabSection.subsections.find((ss) => ss.slug === homeTab.subsectionSlug) ?? null
       : null;
 
   // The section view actually shown: an explicitly picked раздел, or a tab's.
   const displaySection = activeSection ?? tabSection;
   const displaySubsection = activeSection ? activeSubsection : tabSubsection;
+
+  // A custom tab is a shortcut to its target раздел, so the tab whose target
+  // matches the current path is the active one.
+  const matchedTab = isSectionRoute
+    ? sidebarTabs.find(
+        (t) =>
+          t.sectionSlug === routeSectionSlug && (t.subsectionSlug ?? null) === (routeSubSlug ?? null),
+      ) ?? null
+    : useHomeTab
+      ? homeTab
+      : null;
 
   // «Создать тему» keeps the текущий раздел/подраздел so the composer opens
   // already placed there.
@@ -98,15 +120,7 @@ const Index = () => {
   // picked we keep the previous view visible until the new one reports ready,
   // so switching never flashes a skeleton.
   const targetMode: "feed" | "section" | "mine" | "history" | "favorites" =
-    isSectionRoute || displaySection
-      ? "section"
-      : viewParam === "mine"
-        ? "mine"
-        : viewParam === "history"
-          ? "history"
-          : viewParam === "favorites"
-            ? "favorites"
-            : "feed";
+    isSectionRoute || displaySection ? "section" : explicitView ?? "feed";
   // A раздел path is known synchronously, so its view is the initial one — the
   // feed never mounts (and never fetches) when landing straight on a раздел.
   const [shownMode, setShownMode] = useState<"feed" | "section" | "mine" | "history" | "favorites">(
@@ -121,16 +135,40 @@ const Index = () => {
   const handleFavoritesReady = useCallback(() => setShownMode("favorites"), []);
   const navigate = useNavigate();
 
-  // Legacy /?section=x&sub=y → /x/y (old bookmarks and links).
+  // Legacy query URLs → path forms (old bookmarks and links).
   useEffect(() => {
-    if (isSectionRoute) return;
-    const legacy = searchParams.get("section");
-    if (!legacy) return;
-    const sub = searchParams.get("sub");
-    navigate(`/${encodeURIComponent(legacy)}${sub ? `/${encodeURIComponent(sub)}` : ""}`, {
-      replace: true,
-    });
-  }, [isSectionRoute, searchParams, navigate]);
+    if (isSectionRoute || explicitView) return;
+
+    const legacySection = searchParams.get("section");
+    if (legacySection) {
+      const sub = searchParams.get("sub");
+      navigate(
+        `/c/${encodeURIComponent(legacySection)}${sub ? `/${encodeURIComponent(sub)}` : ""}`,
+        { replace: true },
+      );
+      return;
+    }
+
+    const legacyView = searchParams.get("view");
+    if (legacyView) {
+      navigate(legacyView === "feed" ? "/feed" : `/${legacyView}`, { replace: true });
+      return;
+    }
+
+    // Re-runs once the tabs arrive, so a ?tab= link still resolves.
+    const legacyTab = searchParams.get("tab");
+    if (legacyTab) {
+      const tab = sidebarTabs.find((t) => t.id === legacyTab);
+      if (tab) {
+        navigate(
+          `/c/${encodeURIComponent(tab.sectionSlug)}${
+            tab.subsectionSlug ? `/${encodeURIComponent(tab.subsectionSlug)}` : ""
+          }`,
+          { replace: true },
+        );
+      }
+    }
+  }, [isSectionRoute, explicitView, searchParams, sidebarTabs, navigate]);
   
   useSessionTime(user?.id);
 
@@ -244,14 +282,10 @@ const Index = () => {
           {/* Main Feed — recommendations only: the «Рекомендации / Подписки»
               toggle and the subscriptions view behind it were removed. */}
           <div className="lg:col-span-3">
-            {/* The feed stays mounted (just hidden) while a section / «Мои
-                записи» is shown, so returning to it is instant. The other views
-                do their own loading and drive the header loading line; the
-                previous view stays visible until they report ready. */}
             {/* The feed is mounted only for feed-ish views — on a раздел path it
                 is not fetched at all. During the feed→раздел transition it stays
                 mounted (hidden by shownMode) until the section reports ready. */}
-            {(!isSectionRoute || shownMode === "feed") && (
+            {((!isSectionRoute && !displaySection) || shownMode === "feed") && (
               <div className={shownMode === "feed" ? undefined : "hidden"}>
                 <ThreadFeed
                   currentUserId={user?.id}
@@ -281,7 +315,7 @@ const Index = () => {
                 )}
               </div>
             )}
-            {viewParam === "mine" && (
+            {explicitView === "mine" && (
               <div className={shownMode === "mine" ? undefined : "hidden"}>
                 <MyPosts
                   currentUserId={user?.id ?? null}
@@ -291,7 +325,7 @@ const Index = () => {
                 />
               </div>
             )}
-            {viewParam === "history" && (
+            {explicitView === "history" && (
               <div className={shownMode === "history" ? undefined : "hidden"}>
                 <HistoryView
                   currentUserId={user?.id ?? null}
@@ -301,7 +335,7 @@ const Index = () => {
                 />
               </div>
             )}
-            {viewParam === "favorites" && (
+            {explicitView === "favorites" && (
               <div className={shownMode === "favorites" ? undefined : "hidden"}>
                 <FavoritesView
                   currentUserId={user?.id ?? null}
@@ -346,7 +380,7 @@ const Index = () => {
                     <button
                       type="button"
                       aria-current={active ? "page" : undefined}
-                      onClick={() => navigate(key === "feed" ? "/?view=feed" : `/?view=${key}`)}
+                      onClick={() => navigate(key === "feed" ? "/feed" : `/${key}`)}
                       className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
                         active
                           ? "bg-primary/10 font-semibold text-primary"
@@ -361,7 +395,7 @@ const Index = () => {
 
                 {/* Custom tabs (localStorage) + the add button. */}
                 {sidebarTabs.map((tab) => {
-                  const isActiveTab = effectiveTab?.id === tab.id;
+                  const isActiveTab = matchedTab?.id === tab.id;
                   return (
                     <Spotlight
                       key={tab.id}
@@ -372,7 +406,11 @@ const Index = () => {
                       <button
                         type="button"
                         aria-current={isActiveTab ? "page" : undefined}
-                        onClick={() => navigate(`/?tab=${tab.id}`)}
+                        onClick={() =>
+                          navigate(
+                            `/c/${tab.sectionSlug}${tab.subsectionSlug ? `/${tab.subsectionSlug}` : ""}`,
+                          )
+                        }
                         className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm transition-colors ${
                           isActiveTab
                             ? "font-semibold text-primary"
@@ -432,7 +470,7 @@ const Index = () => {
                             <button
                               type="button"
                               aria-current={isActive ? "page" : undefined}
-                              onClick={() => navigate(`/${section.slug}`)}
+                              onClick={() => navigate(`/c/${section.slug}`)}
                               className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm transition-colors ${
                                 isActive
                                   ? "font-semibold text-primary"
@@ -477,7 +515,7 @@ const Index = () => {
                                         <button
                                           type="button"
                                           aria-current={subActive ? "page" : undefined}
-                                          onClick={() => navigate(`/${section.slug}/${subsection.slug}`)}
+                                          onClick={() => navigate(`/c/${section.slug}/${subsection.slug}`)}
                                           className={`flex w-full items-center rounded-lg px-2.5 py-1.5 text-[13px] transition-colors ${
                                             subActive
                                               ? "bg-primary/10 font-semibold text-primary"

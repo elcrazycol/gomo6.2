@@ -253,12 +253,15 @@ function AppRoutes() {
         {/* Pages with layout */}
         <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
           <Route index element={<LazyPage component={Index} />} />
-          {/* Разделы / подразделы as real paths: /<раздел> and /<раздел>/<подраздел>.
-              Static routes win by specificity, so /search, /create, /g/… are
-              unaffected; Index validates the slug and shows «не найден» for
-              unknown ones. */}
-          <Route path=":sectionSlug" element={<LazyPage component={Index} />} />
-          <Route path=":sectionSlug/:subSlug" element={<LazyPage component={Index} />} />
+          {/* App views and разделы as real paths. The /c/ prefix keeps раздел
+              slugs out of the reserved top-level namespace (/search, /create,
+              /settings, /thread, …), so no slug can shadow a route. */}
+          <Route path="feed" element={<LazyPage component={Index} />} />
+          <Route path="mine" element={<LazyPage component={Index} />} />
+          <Route path="history" element={<LazyPage component={Index} />} />
+          <Route path="favorites" element={<LazyPage component={Index} />} />
+          <Route path="c/:sectionSlug" element={<LazyPage component={Index} />} />
+          <Route path="c/:sectionSlug/:subSlug" element={<LazyPage component={Index} />} />
           <Route path="messages" element={<AuthGuard><LazyPage component={Messages} /></AuthGuard>} />
           <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
           <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />

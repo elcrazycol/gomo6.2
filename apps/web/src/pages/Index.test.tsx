@@ -58,6 +58,16 @@ vi.mock("@/components/SectionThreads", () => ({
   ),
 }));
 
+vi.mock("@/components/MyPosts", () => ({
+  MyPosts: () => <div data-testid="my-posts">MyPosts</div>,
+}));
+vi.mock("@/components/HistoryView", () => ({
+  HistoryView: () => <div data-testid="history-view">History</div>,
+}));
+vi.mock("@/components/FavoritesView", () => ({
+  FavoritesView: () => <div data-testid="favorites-view">Favorites</div>,
+}));
+
 vi.mock("@/components/PentagramLoader", () => ({
   PentagramLoader: () => <div data-testid="pentagram-loader">Loading...</div>,
 }));
@@ -302,11 +312,29 @@ describe("Index", () => {
     expect(screen.queryByTestId("thread-feed")).not.toBeInTheDocument();
   });
 
-  it("redirects the legacy ?section= URL to the path form", async () => {
+  it("redirects the legacy ?section= URL to the /c/ path form", async () => {
     setupLoggedIn();
-    window.history.pushState({}, "", "/?section=general");
+    window.history.pushState({}, "", "/?section=general&sub=dating");
     renderWithProviders(<IndexComponent />);
 
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/general", { replace: true }));
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("/c/general/dating", { replace: true }),
+    );
+  });
+
+  it("redirects the legacy ?view= URL to its path", async () => {
+    setupLoggedIn();
+    window.history.pushState({}, "", "/?view=favorites");
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/favorites", { replace: true }));
+  });
+
+  it("renders «Мои записи» on /mine", async () => {
+    setupLoggedIn();
+    window.history.pushState({}, "", "/mine");
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() => expect(screen.getByTestId("my-posts")).toBeInTheDocument());
   });
 });

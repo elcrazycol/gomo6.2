@@ -64,18 +64,21 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
 
   const isOwnProfile = location.pathname === `/profile/${user?.id}`;
 
-  // Which sidebar view is currently shown (the main page is URL-driven).
-  const params = new URLSearchParams(location.search);
+  // Everything is path-driven now:
+  //   /feed /mine /history /favorites   app views
+  //   /c/<раздел>[/<подраздел>]         sections
   const onHome = location.pathname === "/";
-  const viewParam = onHome ? params.get("view") : null;
-  const tabParam = onHome ? params.get("tab") : null;
-  // Разделы live in the path now (/general, /general/dating); ?section= is the
-  // legacy form. Only the first path segment that matches a known slug counts,
-  // so /messages, /profile/… don't masquerade as a раздел.
   const pathParts = location.pathname.split("/").filter(Boolean);
-  const routeSection = sections.find((s) => s.slug === pathParts[0]);
-  const sectionSlug = routeSection?.slug ?? (onHome ? params.get("section") : null);
-  const subSlug = routeSection && pathParts[1] ? pathParts[1] : onHome ? params.get("sub") : null;
+  const isSectionPath = pathParts[0] === "c";
+  const routeSection = isSectionPath ? sections.find((s) => s.slug === pathParts[1]) : undefined;
+  const sectionSlug = routeSection?.slug ?? null;
+  const subSlug = routeSection && pathParts[2] ? pathParts[2] : null;
+
+  const explicitView =
+    pathParts[0] === "feed" || pathParts[0] === "mine" || pathParts[0] === "history" || pathParts[0] === "favorites"
+      ? pathParts[0]
+      : null;
+
   // Keep the текущий раздел when opening the composer from inside one.
   const createTopicHref = sectionSlug
     ? `/create?section=${encodeURIComponent(sectionSlug)}${
@@ -83,9 +86,15 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
       }`
     : "/create";
   const homeTab = sidebarTabs.find((tab) => tab.isHome) ?? null;
-  const effectiveTabId = tabParam ?? (!sectionSlug && !viewParam ? homeTab?.id ?? null : null);
-  const feedActive =
-    onHome && (viewParam === "feed" || (!viewParam && !sectionSlug && !tabParam && !homeTab));
+  // A tab is a shortcut to its target раздел — active when the path matches it.
+  const matchedTab = sectionSlug
+    ? sidebarTabs.find(
+        (tab) => tab.sectionSlug === sectionSlug && (tab.subsectionSlug ?? null) === subSlug,
+      ) ?? null
+    : onHome
+      ? homeTab
+      : null;
+  const feedActive = explicitView === "feed" || (onHome && !homeTab);
 
   const go = (to: string) => {
     navigate(to);
@@ -228,10 +237,10 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             {/* Primary nav + custom tabs */}
             <nav className="overflow-clip rounded-[var(--card-radius)] border border-border/70 bg-surface p-1.5">
               {([
-                { key: "feed", label: "Feed", icon: Home, active: feedActive, to: "/?view=feed" },
-                { key: "mine", label: "Мои записи", icon: FileText, active: viewParam === "mine", to: "/?view=mine" },
-                { key: "history", label: "История", icon: History, active: viewParam === "history", to: "/?view=history" },
-                { key: "favorites", label: "Избранное", icon: Bookmark, active: viewParam === "favorites", to: "/?view=favorites" },
+                { key: "feed", label: "Feed", icon: Home, active: feedActive, to: "/feed" },
+                { key: "mine", label: "Мои записи", icon: FileText, active: explicitView === "mine", to: "/mine" },
+                { key: "history", label: "История", icon: History, active: explicitView === "history", to: "/history" },
+                { key: "favorites", label: "Избранное", icon: Bookmark, active: explicitView === "favorites", to: "/favorites" },
               ] as const).map(({ key, label, icon: Icon, active, to }) => (
                 <button
                   key={key}
@@ -246,7 +255,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               ))}
 
               {sidebarTabs.map((tab) => {
-                const isActiveTab = effectiveTabId === tab.id;
+                const isActiveTab = matchedTab?.id === tab.id;
                 return (
                   <div
                     key={tab.id}
@@ -255,7 +264,11 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     <button
                       type="button"
                       aria-current={isActiveTab ? "page" : undefined}
-                      onClick={() => go(`/?tab=${tab.id}`)}
+                      onClick={() =>
+                        go(
+                          `/c/${tab.sectionSlug}${tab.subsectionSlug ? `/${tab.subsectionSlug}` : ""}`,
+                        )
+                      }
                       className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2.5 text-sm transition-colors ${isActiveTab ? "font-semibold text-primary" : ROW_IDLE}`}
                     >
                       {tab.isHome && <Home className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />}
@@ -305,7 +318,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                           <button
                             type="button"
                             aria-current={isActive ? "page" : undefined}
-                            onClick={() => go(`/${section.slug}`)}
+                            onClick={() => go(`/c/${section.slug}`)}
                             className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm transition-colors ${isActive ? ROW_ACTIVE : ROW_IDLE}`}
                           >
                             <SectionIcon name={section.icon} className="h-4 w-4 shrink-0 text-muted-foreground/40" />
@@ -334,7 +347,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                                   key={subsection.id}
                                   type="button"
                                   aria-current={subActive ? "page" : undefined}
-                                  onClick={() => go(`/${section.slug}/${subsection.slug}`)}
+                                  onClick={() => go(`/c/${section.slug}/${subsection.slug}`)}
                                   className={`flex w-full items-center rounded-lg px-2.5 py-2 text-[13px] transition-colors ${subActive ? ROW_ACTIVE : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
                                 >
                                   <span className="truncate">{subsection.name}</span>
