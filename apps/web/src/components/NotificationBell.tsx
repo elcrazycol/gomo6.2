@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Bell } from "lucide-react";
 import { useNotificationStore } from "@/stores/notificationStore";
@@ -19,6 +19,10 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 export const NotificationBell = ({ userId }: { userId: string }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  // On the notifications page itself the preview is pointless — hovering the
+  // bell there used to pop the mini panel over the very list it duplicates.
+  const onNotificationsPage = pathname.startsWith("/notify");
   const [showCard, setShowCard] = useState(false);
   // Hover preview only makes sense with a fine pointer (mouse). On touch
   // devices a tap must go straight to the /notify page.
@@ -47,6 +51,11 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
     init(userId);
   }, [userId, init]);
 
+  // Landing on /notify must drop the panel even if it was open.
+  useEffect(() => {
+    if (onNotificationsPage) setShowCard(false);
+  }, [onNotificationsPage]);
+
   useEffect(() => {
     if (!showCard) return;
     const onPointerDown = (event: MouseEvent) => {
@@ -74,19 +83,21 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
     <div
       className="relative"
       ref={rootRef}
-      onMouseEnter={canHover ? () => setShowCard(true) : undefined}
+      onMouseEnter={canHover && !onNotificationsPage ? () => setShowCard(true) : undefined}
     >
       <Button
         variant="ghost"
         className="relative h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors group"
-        onClick={() => navigate("/notify")}
+        onClick={() => {
+          if (!onNotificationsPage) navigate("/notify");
+        }}
       >
         <Bell className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
         <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
         <UnreadBadge count={unreadCount} />
       </Button>
 
-      {canHover && showCard && (
+      {canHover && !onNotificationsPage && showCard && (
         <div className="absolute top-full right-0 mt-2 z-50 w-[22rem] max-w-[calc(100vw-2rem)] bg-background text-foreground border border-border rounded-2xl shadow-lg overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
             <h3 className="font-bold">{t("nav.notifications")}</h3>

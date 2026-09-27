@@ -35,9 +35,9 @@ vi.mock("@/components/ui/button", () => ({
   ),
 }));
 
-const renderBell = () =>
+const renderBell = (initialPath = "/") =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialPath]}>
       <NotificationBell userId="user-1" />
     </MemoryRouter>,
   );
@@ -94,5 +94,13 @@ describe("NotificationBell", () => {
   it("initialises the store for the user", () => {
     renderBell();
     expect(mockStore.init).toHaveBeenCalledWith("user-1");
+  });
+
+  it("does not open the preview on the notifications page itself", () => {
+    mockStore.notifications = [{ id: "n1" }];
+    renderBell("/notify");
+
+    fireEvent.mouseOver(screen.getByRole("button"));
+    expect(screen.queryByTestId("notif-row")).not.toBeInTheDocument();
   });
 });
