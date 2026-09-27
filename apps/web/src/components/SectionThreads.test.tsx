@@ -1,6 +1,6 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SectionThreads } from "@/components/SectionThreads";
 import type { SectionWithSubsections } from "@/hooks/useThreadSections";
@@ -63,6 +63,10 @@ describe("SectionThreads", () => {
     localStorage.clear();
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the section header and its threads in the compact list by default", async () => {
     mockFetch([thread]);
 
@@ -116,5 +120,55 @@ describe("SectionThreads", () => {
     const calledUrl = String((fetch as unknown as { mock: { calls: string[][] } }).mock.calls[0][0]);
     expect(calledUrl).toContain("section_id=eq.s1");
     expect(calledUrl).toContain("subsection_id=eq.sub1");
+  });
+
+  it("auto-loads the next page when the sentinel scrolls into view", async () => {
+    let ioCallback: IntersectionObserverCallback | null = null;
+    class MockIntersectionObserver {
+      root = null;
+      rootMargin = "";
+      thresholds: number[] = [];
+      constructor(cb: IntersectionObserverCallback) {
+        ioCallback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (!u.includes("/api/v1/threads")) return { ok: true, json: async () => ({ data: [] }) };
+      const offset = Number(new URL(u, "http://x").searchParams.get("offset") ?? 0);
+      const page = Array.from({ length: 20 }, (_, i) => ({
+        id: `t${offset + i}`,
+        title: `Тема ${offset + i}`,
+        content: "текст",
+        created_at: "2026-01-01T10:00:00Z",
+        updated_at: "2026-01-01T10:00:00Z",
+        user_id: "u1",
+        username: "bob",
+        is_anonymous: false,
+      }));
+      return { ok: true, json: async () => ({ data: page }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSection(<SectionThreads section={section} currentUserId="me" currentUsername="me" />);
+    await waitFor(() => expect(screen.getByText("Тема 0")).toBeInTheDocument());
+    await waitFor(() => expect(ioCallback).not.toBeNull());
+
+    act(() => {
+      ioCallback!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([u]) => String(u));
+      expect(urls.some((u) => u.includes("offset=20"))).toBe(true);
+    });
   });
 });

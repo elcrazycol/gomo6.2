@@ -126,6 +126,7 @@ export const SectionThreads = ({
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [view, setView] = useState<SectionView>(readView);
   const offsetRef = useRef(0);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const changeView = useCallback((next: SectionView) => {
     setView(next);
@@ -248,18 +249,32 @@ export const SectionThreads = ({
   // The shown list belongs to a previously picked target while the new one loads.
   const isStale = Boolean(displayed) && displayed!.section.id !== section.id;
 
-  const loadMoreButton = !isStale && hasMore ? (
-    <div className="flex justify-center pt-2">
-      <button
-        type="button"
-        onClick={loadMore}
-        disabled={loadingMore}
-        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface px-4 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/60 disabled:opacity-60"
-      >
-        {loadingMore ? <PentagramLoader size="sm" /> : "Показать ещё"}
-      </button>
+  // Auto-load: a sentinel at the end of the list pulls the next page as soon as
+  // it scrolls near the viewport, so there is no «Показать ещё» to press.
+  useEffect(() => {
+    if (isStale) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { rootMargin: "400px 0px", threshold: 0 },
+    );
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [isStale, loadMore]);
+
+  const loadMoreSentinel = (
+    <div ref={loadMoreRef} className="py-4">
+      {!isStale && loadingMore && (
+        <div className="flex justify-center">
+          <PentagramLoader size="md" />
+        </div>
+      )}
+      {!isStale && !hasMore && rows.length > 0 && (
+        <div className="py-2 text-center text-sm text-muted-foreground">Больше тем нет</div>
+      )}
     </div>
-  ) : null;
+  );
 
   return (
     <div className="space-y-4">
@@ -311,7 +326,7 @@ export const SectionThreads = ({
             lastPosts={displayed.lastPosts}
             currentUserId={currentUserId}
           />
-          {loadMoreButton}
+          {loadMoreSentinel}
         </div>
       ) : (
         <div
@@ -338,7 +353,7 @@ export const SectionThreads = ({
             );
           })}
 
-          {loadMoreButton}
+          {loadMoreSentinel}
         </div>
       )}
 
