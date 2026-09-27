@@ -3,6 +3,7 @@ import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
 import { FeedWallPostCard } from "@/components/FeedWallPostCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { QuietLoading } from "@/components/QuietLoading";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
 import { wsService, type WebSocketMessageType } from "@/services/websocket";
@@ -104,6 +105,9 @@ export const ThreadFeed = ({
   const loadingRef = useRef(true);
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
+  // Kept in a ref so `onReady` is never a loadInitial dependency — a fresh
+  // callback identity each render would re-run the load effect forever.
+  const onReadyRef = useRef(onReady);
 
   const observerRef = useRef<IntersectionObserver>();
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -119,6 +123,7 @@ export const ThreadFeed = ({
   useEffect(() => { loadingRef.current = loading; }, [loading]);
   useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
   useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
   useEffect(() => {
     newestMsRef.current = items.length ? Math.max(...items.map(createdMs)) : null;
   }, [items, createdMs]);
@@ -215,10 +220,10 @@ export const ThreadFeed = ({
       // data landed.
       if (abortRef.current === controller) {
         setLoading(false);
-        onReady?.();
+        onReadyRef.current?.();
       }
     }
-  }, [limit, advanceSeen, createdMs, onReady]);
+  }, [limit, advanceSeen, createdMs]);
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
@@ -390,7 +395,7 @@ export const ThreadFeed = ({
   // skeleton. Once there is content, a background revalidation must not replace
   // it either.
   if (loading && items.length === 0) {
-    return <div className="min-h-[45vh]" aria-busy="true" />;
+    return <QuietLoading />;
   }
 
   return (

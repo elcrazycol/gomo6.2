@@ -5,7 +5,7 @@ import { CompactThreadList, type ThreadLastPost } from "@/components/CompactThre
 import { FeedThreadCard } from "@/components/FeedThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
+import { QuietLoading } from "@/components/QuietLoading";
 import type { SectionWithSubsections, ThreadSubsection } from "@/hooks/useThreadSections";
 import { useLoadingBarStore } from "@/stores/loadingBarStore";
 import { fetchThreadLikesBatch, toFeedThread, type ThreadApiRow } from "@/utils/threadFeedItem";
@@ -309,7 +309,7 @@ export const SectionThreads = ({
       </div>
 
       {!displayed ? (
-        <ThreadFeedSkeleton count={5} />
+        <QuietLoading />
       ) : rows.length === 0 ? (
         <div className="rounded-[var(--card-radius)] border border-dashed border-border/70 bg-muted/20 py-12 text-center">
           <p className="text-lg font-medium">Здесь пока пусто</p>

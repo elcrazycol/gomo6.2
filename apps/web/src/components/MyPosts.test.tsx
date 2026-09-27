@@ -11,9 +11,6 @@ vi.mock("@/components/FeedWallPostCard", () => ({
 }));
 vi.mock("@/components/Lightbox", () => ({ Lightbox: () => null }));
 vi.mock("@/components/PentagramLoader", () => ({ PentagramLoader: () => <span /> }));
-vi.mock("@/components/skeletons/ContentSkeletons", () => ({
-  ThreadFeedSkeleton: () => <div data-testid="skeleton" />,
-}));
 
 const mockFrom = vi.fn();
 vi.mock("@/integrations/api/compat", () => ({

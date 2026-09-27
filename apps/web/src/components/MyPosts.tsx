@@ -5,7 +5,7 @@ import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
 import { FeedWallPostCard } from "@/components/FeedWallPostCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
+import { QuietLoading } from "@/components/QuietLoading";
 import { useLoadingBarStore } from "@/stores/loadingBarStore";
 import {
   normalizeWallPostRecord,
@@ -166,7 +166,7 @@ export const MyPosts = ({
       <h2 className="text-xl font-bold leading-tight sm:text-2xl">Мои записи</h2>
 
       {!items ? (
-        <ThreadFeedSkeleton count={5} />
+        <QuietLoading />
       ) : items.length === 0 ? (
         <div className="rounded-[var(--card-radius)] border border-dashed border-border/70 bg-muted/20 py-12 text-center">
           <p className="text-lg font-medium">Пока нет записей</p>

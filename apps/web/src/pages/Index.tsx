@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
@@ -11,7 +11,7 @@ import { useSessionTime } from "@/hooks/useSessionTime";
 import { useThreadSections, type SectionWithSubsections, type ThreadSubsection } from "@/hooks/useThreadSections";
 import { SectionIcon } from "@/components/topic/sectionIcons";
 import { SectionThreads } from "@/components/SectionThreads";
-import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
+import { QuietLoading } from "@/components/QuietLoading";
 import { MyPosts } from "@/components/MyPosts";
 import { HistoryView } from "@/components/HistoryView";
 import { FavoritesView } from "@/components/FavoritesView";
@@ -19,6 +19,7 @@ import { MrRandom } from "@/components/MrRandom";
 import { AddTabDialog } from "@/components/AddTabDialog";
 import { Spotlight } from "@/components/Spotlight";
 import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
+import { usePendingView, pendingViewClass } from "@/hooks/usePendingView";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface GomoSub {
@@ -27,6 +28,9 @@ interface GomoSub {
   name: string;
   description: string | null;
 }
+
+/** The mutually-exclusive views the main page can show. */
+type MainView = "feed" | "section" | "mine" | "history" | "favorites";
 
 const Index = () => {
   const { loadProfile } = useProfileCache();
@@ -116,21 +120,14 @@ const Index = () => {
       }`
     : "/create";
 
-  // Which view is actually on screen. When a section / tab / «Мои записи» /
-  // the feed is picked we keep the previous view visible until the new one
-  // reports ready, so switching never flashes a skeleton.
-  const targetMode: "feed" | "section" | "mine" | "history" | "favorites" =
-    isSectionRoute || displaySection ? "section" : explicitView ?? "feed";
+  // Which view is actually on screen. The URL names the target; the previous
+  // view stays visible until the new one reports ready (see usePendingView), so
+  // switching never flashes a skeleton — the header's loading bar is the cue.
+  const targetMode: MainView = isSectionRoute || displaySection ? "section" : explicitView ?? "feed";
   // The target is known synchronously from the path, so it is the initial view:
   // the feed never mounts (and never fetches) when landing straight on a раздел.
-  const [shownMode, setShownMode] = useState<"feed" | "section" | "mine" | "history" | "favorites">(
-    () => (isSectionRoute ? "section" : explicitView ?? "feed"),
-  );
-  const handleFeedReady = useCallback(() => setShownMode("feed"), []);
-  const handleSectionReady = useCallback(() => setShownMode("section"), []);
-  const handleMineReady = useCallback(() => setShownMode("mine"), []);
-  const handleHistoryReady = useCallback(() => setShownMode("history"), []);
-  const handleFavoritesReady = useCallback(() => setShownMode("favorites"), []);
+  const initialMode: MainView = isSectionRoute ? "section" : explicitView ?? "feed";
+  const view = usePendingView<MainView>(targetMode, initialMode);
   const navigate = useNavigate();
 
   // Remember the last resolved раздел so it stays on screen while the feed
@@ -143,7 +140,8 @@ const Index = () => {
   useEffect(() => {
     if (displaySection) setLastSection({ section: displaySection, subsection: displaySubsection });
   }, [displaySection, displaySubsection]);
-  const keepLastSection = !displaySection && shownMode === "section" && targetMode !== "section";
+  const keepLastSection =
+    !displaySection && view.shown === "section" && targetMode !== "section";
   const renderedSection = displaySection ?? (keepLastSection ? lastSection?.section ?? null : null);
   const renderedSubsection = displaySection
     ? displaySubsection
@@ -305,30 +303,18 @@ const Index = () => {
                 returning to it never fetches while a раздел is on screen. It
                 stays hidden until it reports ready, so the previous view
                 remains visible instead of a skeleton. */}
-            {(targetMode === "feed" || shownMode === "feed") && (
-              <div
-                className={
-                  shownMode === "feed"
-                    ? "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
-                    : "hidden"
-                }
-              >
+            {view.isRendered("feed") && (
+              <div className={pendingViewClass(view.isShown("feed"))}>
                 <ThreadFeed
                   currentUserId={user?.id}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
-                  onReady={handleFeedReady}
+                  onReady={view.readyFor("feed")}
                 />
               </div>
             )}
-            {(targetMode === "section" || shownMode === "section") && (
-              <div
-                className={
-                  shownMode === "section"
-                    ? "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
-                    : "hidden"
-                }
-              >
+            {view.isRendered("section") && (
+              <div className={pendingViewClass(view.isShown("section"))}>
                 {renderedSection ? (
                   <SectionThreads
                     section={renderedSection}
@@ -336,10 +322,10 @@ const Index = () => {
                     currentUserId={user?.id ?? null}
                     currentUsername={currentUserUsername}
                     currentUserColor={currentUserColor}
-                    onReady={handleSectionReady}
+                    onReady={view.readyFor("section")}
                   />
                 ) : sectionsLoading ? (
-                  <ThreadFeedSkeleton count={5} />
+                  <QuietLoading />
                 ) : (
                   <div className="rounded-[var(--card-radius)] border border-dashed border-border/70 bg-muted/20 py-12 text-center">
                     <p className="text-lg font-medium">Раздел не найден</p>
@@ -348,33 +334,33 @@ const Index = () => {
                 )}
               </div>
             )}
-            {(explicitView === "mine" || shownMode === "mine") && (
-              <div className={shownMode === "mine" ? undefined : "hidden"}>
+            {view.isRendered("mine") && (
+              <div className={pendingViewClass(view.isShown("mine"))}>
                 <MyPosts
                   currentUserId={user?.id ?? null}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
-                  onReady={handleMineReady}
+                  onReady={view.readyFor("mine")}
                 />
               </div>
             )}
-            {(explicitView === "history" || shownMode === "history") && (
-              <div className={shownMode === "history" ? undefined : "hidden"}>
+            {view.isRendered("history") && (
+              <div className={pendingViewClass(view.isShown("history"))}>
                 <HistoryView
                   currentUserId={user?.id ?? null}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
-                  onReady={handleHistoryReady}
+                  onReady={view.readyFor("history")}
                 />
               </div>
             )}
-            {(explicitView === "favorites" || shownMode === "favorites") && (
-              <div className={shownMode === "favorites" ? undefined : "hidden"}>
+            {view.isRendered("favorites") && (
+              <div className={pendingViewClass(view.isShown("favorites"))}>
                 <FavoritesView
                   currentUserId={user?.id ?? null}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
-                  onReady={handleFavoritesReady}
+                  onReady={view.readyFor("favorites")}
                 />
               </div>
             )}
