@@ -1256,21 +1256,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             </Link>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
-            {user ? (
-              <>
-                <div className="hidden lg:flex gap-1 sm:gap-2 items-center ml-2">
-                  <HeaderUsername userId={user.id} />
-                </div>
-                <MobileMenu
-                  user={user}
-                  isModerator={isModerator}
-                />
-              </>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="h-8 text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
-                {t('auth.login')}
-              </Button>
+            {user && (
+              <div className="hidden lg:flex gap-1 sm:gap-2 items-center ml-2">
+                <HeaderUsername userId={user.id} />
+              </div>
             )}
+            {/* The login CTA lives inside the menu's profile block, so guests
+                get the hamburger instead of a separate header button. */}
+            <MobileMenu user={user} isModerator={isModerator} />
           </div>
         </div>
         {mobileSearchOpen && (

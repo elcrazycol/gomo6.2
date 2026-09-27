@@ -192,16 +192,12 @@ describe("AppLayout", () => {
   });
 
   describe("authentication", () => {
-    it("shows 'Войти' button for guests", () => {
+    it("shows the menu (the login entry lives inside it) for guests", () => {
       renderLayout();
-      expect(screen.getByRole("button", { name: "Войти" })).toBeInTheDocument();
+      expect(screen.getByTestId("mobile-menu")).toBeInTheDocument();
       expect(screen.queryByTestId("notification-bell")).not.toBeInTheDocument();
-    });
-
-    it("navigates to /auth when guest clicks login", () => {
-      renderLayout();
-      fireEvent.click(screen.getByRole("button", { name: "Войти" }));
-      expect(mockNavigate).toHaveBeenCalledWith("/auth");
+      // No separate header login button any more.
+      expect(screen.queryByRole("button", { name: "Войти" })).not.toBeInTheDocument();
     });
 
     it("shows user chrome when authenticated", async () => {

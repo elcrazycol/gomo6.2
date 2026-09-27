@@ -168,13 +168,15 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
     setOpen(false);
   };
 
-  if (!user) return null;
-
   return (
     <>
       <Button
         variant="ghost"
-        className="lg:hidden h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors"
+        aria-label={t('nav.menu')}
+        data-testid="mobile-menu-trigger"
+        // Logged in: mobile-only (desktop shows the username in the header).
+        // Guest: shown at every size — this menu holds the only login entry.
+        className={`${user ? "lg:hidden " : ""}h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors`}
         onClick={() => setOpen(true)}
       >
         <Menu className="h-5 w-5" />
@@ -187,32 +189,57 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
           </SheetHeader>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4">
-            {/* User profile panel */}
-            <Link
-              to={`/profile/${user.id}`}
-              onClick={() => setOpen(false)}
-              className="block"
-            >
-              <div className="p-4 bg-surface border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
-                <div className="flex items-start gap-3">
-                  <UserAvatar
-                    src={avatarUrl}
-                    userId={user.id}
-                    alt={username || t('common.user')}
-                    className="w-12 h-12 flex-shrink-0"
-                  />
+            {/* Profile panel: the account for a logged-in user, the login CTA
+                for a guest (the header has no separate «Войти» button). */}
+            {user ? (
+              <Link
+                to={`/profile/${user.id}`}
+                onClick={() => setOpen(false)}
+                className="block"
+              >
+                <div className="p-4 bg-surface border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
+                  <div className="flex items-start gap-3">
+                    <UserAvatar
+                      src={avatarUrl}
+                      userId={user.id}
+                      alt={username || t('common.user')}
+                      className="w-12 h-12 flex-shrink-0"
+                    />
 
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold truncate">
-                      <HeaderUsername userId={user.id} className="text-base font-semibold" />
-                    </div>
-                    <div className="text-sm text-muted-foreground mt-0.5">
-                      @{username}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold truncate">
+                        <HeaderUsername userId={user.id} className="text-base font-semibold" />
+                      </div>
+                      <div className="text-sm text-muted-foreground mt-0.5">
+                        @{username}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            ) : (
+              <button
+                type="button"
+                aria-label="Войти"
+                onClick={() => go("/auth")}
+                className="block w-full text-left"
+              >
+                <div className="p-4 bg-surface border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <UserAvatar alt="" className="w-12 h-12 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold truncate">Войдите, чтобы увидеть профиль</div>
+                      <div className="text-sm text-muted-foreground mt-0.5">
+                        Подписки, избранное и уведомления
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
+                      Войти
+                    </span>
+                  </div>
+                </div>
+              </button>
+            )}
 
             {/* Create topic + g-subs */}
             <div className="flex items-center gap-2">
