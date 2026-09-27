@@ -1,3 +1,5 @@
+import { openCookieSettings } from "@/lib/cookieConsent";
+
 export const Footer = () => {
   // Use window.location.hostname so subdomain links work both locally
   // (dev.localhost, docs.localhost) and in production (dev.example.com, docs.example.com)
@@ -38,6 +40,13 @@ export const Footer = () => {
           >
             Docs
           </a>
+          <button
+            type="button"
+            onClick={openCookieSettings}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Куки
+          </button>
           {shortHash && (
             <span className="text-xs text-muted-foreground/50 font-mono" title={`Deployed commit: ${commitHash}`}>
               {shortHash}

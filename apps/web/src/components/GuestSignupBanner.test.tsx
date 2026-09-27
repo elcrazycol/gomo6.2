@@ -19,6 +19,7 @@ describe("GuestSignupBanner", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    localStorage.removeItem("gomo6:cookie-consent");
     localStorage.removeItem("cookies-accepted");
   });
 
@@ -59,18 +60,25 @@ describe("GuestSignupBanner", () => {
     expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("z-[60]");
   });
 
-  it("settles to the bottom edge after cookies are accepted", () => {
-    localStorage.setItem("cookies-accepted", "true");
+  it("settles to the bottom edge once a cookie choice is made", () => {
+    localStorage.setItem(
+      "gomo6:cookie-consent",
+      JSON.stringify({ version: 1, necessary: true, analytics: false, ts: 1 }),
+    );
     render(<GuestSignupBanner />);
     expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-3");
   });
 
-  it("moves down when the cookies-banner-hidden event fires", () => {
+  it("moves down when the cookie consent changes", () => {
     render(<GuestSignupBanner />);
     expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-24");
 
     act(() => {
-      window.dispatchEvent(new Event("cookies-banner-hidden"));
+      localStorage.setItem(
+        "gomo6:cookie-consent",
+        JSON.stringify({ version: 1, necessary: true, analytics: false, ts: 1 }),
+      );
+      window.dispatchEvent(new Event("gomo6:cookie-consent-changed"));
     });
     expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-3");
   });

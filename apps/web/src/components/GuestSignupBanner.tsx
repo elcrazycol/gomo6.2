@@ -2,22 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sparkles, X } from "lucide-react";
+import { CONSENT_EVENT, hasDecided } from "@/lib/cookieConsent";
 
 // Dismissal is per-tab-session: once a guest closes the banner it stays hidden
 // until they open a new tab. sessionStorage (not localStorage) so a shared
 // device never remembers the dismissal for the next visitor.
 const DISMISS_KEY = "guest-signup-banner-dismissed";
-
-// While the cookie banner is still shown (bottom strip, z-50) this CTA sits
-// ABOVE it so the registration offer stays visible; once cookies are accepted
-// the strip disappears and the CTA settles back to the very bottom.
-function cookiesAccepted() {
-  try {
-    return localStorage.getItem("cookies-accepted") === "true";
-  } catch {
-    return true;
-  }
-}
 
 /**
  * Small, collapsible CTA shown to anonymous visitors: invites them to create
@@ -33,12 +23,14 @@ export const GuestSignupBanner = () => {
       return false;
     }
   });
-  const [cookiesDone, setCookiesDone] = useState(cookiesAccepted);
+  // While the cookie banner is up (bottom, z-70) this CTA floats above it;
+  // once the visitor has made a cookie choice it settles to the bottom edge.
+  const [cookiesDone, setCookiesDone] = useState(hasDecided);
 
   useEffect(() => {
-    const onHidden = () => setCookiesDone(true);
-    window.addEventListener("cookies-banner-hidden", onHidden);
-    return () => window.removeEventListener("cookies-banner-hidden", onHidden);
+    const onConsent = () => setCookiesDone(hasDecided());
+    window.addEventListener(CONSENT_EVENT, onConsent);
+    return () => window.removeEventListener(CONSENT_EVENT, onConsent);
   }, []);
 
   if (dismissed) return null;
