@@ -4,7 +4,7 @@ import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { toast } from "sonner";
-import { Bookmark, ChevronRight, FileText, Hash, History, Home, Plus, Users } from "lucide-react";
+import { Bookmark, ChevronRight, FileText, Hash, History, Home, Plus, Users, X } from "lucide-react";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -15,7 +15,9 @@ import { MyPosts } from "@/components/MyPosts";
 import { HistoryView } from "@/components/HistoryView";
 import { FavoritesView } from "@/components/FavoritesView";
 import { MrRandom } from "@/components/MrRandom";
+import { AddTabDialog } from "@/components/AddTabDialog";
 import { Spotlight } from "@/components/Spotlight";
+import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface GomoSub {
@@ -41,6 +43,10 @@ const Index = () => {
   // Sidebar «Разделы»: which section is expanded to show its subsections.
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const { sections } = useThreadSections();
+  // Custom sidebar tabs (localStorage-backed) + their add-panel.
+  const sidebarTabs = useSidebarTabsStore((state) => state.tabs);
+  const removeSidebarTab = useSidebarTabsStore((state) => state.removeTab);
+  const [addTabOpen, setAddTabOpen] = useState(false);
   // Selected раздел / подраздел come from the URL so the view is shareable and
   // survives a reload.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -53,11 +59,30 @@ const Index = () => {
     activeSection && activeSubSlug
       ? activeSection.subsections.find((ss) => ss.slug === activeSubSlug) ?? null
       : null;
-  // Which view is actually on screen. When a section or «Мои записи» is picked
-  // we keep the previous view visible until the new one reports ready, so
-  // switching never flashes a skeleton.
   const viewParam = searchParams.get("view");
-  const targetMode: "feed" | "section" | "mine" | "history" | "favorites" = activeSection
+  const tabParam = searchParams.get("tab");
+
+  // A custom tab is active when explicitly opened (?tab=), or — when nothing
+  // else is selected — when it is the "home" tab (opens instead of the feed).
+  const activeTab = tabParam ? sidebarTabs.find((t) => t.id === tabParam) ?? null : null;
+  const homeTab = sidebarTabs.find((t) => t.isHome) ?? null;
+  const effectiveTab = activeTab ?? (!activeSectionSlug && !viewParam ? homeTab : null);
+  const tabSection = effectiveTab
+    ? sections.find((s) => s.slug === effectiveTab.sectionSlug) ?? null
+    : null;
+  const tabSubsection =
+    tabSection && effectiveTab?.subsectionSlug
+      ? tabSection.subsections.find((ss) => ss.slug === effectiveTab.subsectionSlug) ?? null
+      : null;
+
+  // The section view actually shown: an explicitly picked раздел, or a tab's.
+  const displaySection = activeSection ?? tabSection;
+  const displaySubsection = activeSection ? activeSubsection : tabSubsection;
+
+  // Which view is actually on screen. When a section / tab / «Мои записи» is
+  // picked we keep the previous view visible until the new one reports ready,
+  // so switching never flashes a skeleton.
+  const targetMode: "feed" | "section" | "mine" | "history" | "favorites" = displaySection
     ? "section"
     : viewParam === "mine"
       ? "mine"
@@ -199,11 +224,11 @@ const Index = () => {
                 currentUserColor={currentUserColor}
               />
             </div>
-            {activeSection && (
+            {displaySection && (
               <div className={shownMode === "section" ? undefined : "hidden"}>
                 <SectionThreads
-                  section={activeSection}
-                  subsection={activeSubsection}
+                  section={displaySection}
+                  subsection={displaySubsection}
                   currentUserId={user?.id ?? null}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
@@ -278,7 +303,7 @@ const Index = () => {
                       aria-current={active ? "page" : undefined}
                       onClick={
                         key === "feed"
-                          ? () => setSearchParams({})
+                          ? () => setSearchParams({ view: "feed" })
                           : key === "mine"
                             ? () => setSearchParams({ view: "mine" })
                             : key === "history"
@@ -298,6 +323,52 @@ const Index = () => {
                     </button>
                   </Spotlight>
                 ))}
+
+                {/* Custom tabs (localStorage) + the add button. */}
+                {sidebarTabs.map((tab) => {
+                  const isActiveTab = effectiveTab?.id === tab.id;
+                  return (
+                    <Spotlight
+                      key={tab.id}
+                      className={`flex items-center gap-0.5 rounded-lg transition-colors ${
+                        isActiveTab ? "bg-primary/10" : "hover:bg-muted/60"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        aria-current={isActiveTab ? "page" : undefined}
+                        onClick={() => setSearchParams({ tab: tab.id })}
+                        className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm transition-colors ${
+                          isActiveTab
+                            ? "font-semibold text-primary"
+                            : "text-foreground/80 hover:text-foreground"
+                        }`}
+                      >
+                        {tab.isHome && <Home className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />}
+                        <span className="min-w-0 flex-1 truncate text-left">{tab.label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Удалить вкладку"
+                        onClick={() => removeSidebarTab(tab.id)}
+                        className="pointer-events-none grid h-8 w-8 shrink-0 place-items-center text-muted-foreground opacity-0 transition-[opacity,color] duration-200 hover:text-destructive group-hover/spot:pointer-events-auto group-hover/spot:opacity-100 group-focus-within/spot:pointer-events-auto group-focus-within/spot:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 motion-reduce:transition-none"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </Spotlight>
+                  );
+                })}
+
+                <Spotlight className="block">
+                  <button
+                    type="button"
+                    onClick={() => setAddTabOpen(true)}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  >
+                    <Plus className="h-4 w-4 shrink-0" />
+                    вкладка
+                  </button>
+                </Spotlight>
               </nav>
 
               {/* Разделы тредов — click loads the section's threads below; the
@@ -445,6 +516,13 @@ const Index = () => {
 
           </div>
         </div>
+
+      <AddTabDialog
+        open={addTabOpen}
+        onOpenChange={setAddTabOpen}
+        sections={sections}
+        loading={sections.length === 0}
+      />
 
       <TermsOfService
         open={showTerms}
