@@ -1106,12 +1106,12 @@ describe("ProfileWall", () => {
     expect(mockFrom).toHaveBeenCalledWith("profile_wall_posts");
 
     // 5 likes, 2 comments, 1 repost rendered in the action row.
-    const likeButton = screen.getByText("Нравится").closest("button");
+    const likeButton = screen.getByRole("button", { name: /Нравится/i }).closest("button");
     expect(likeButton).toHaveTextContent("5");
-    const commentButton = screen.getByText("Комментировать").closest("button");
+    const commentButton = screen.getByRole("button", { name: /Комментировать/i }).closest("button");
     expect(commentButton).toHaveTextContent("2");
     // Viewer already reposted → the label flips to "Убрать".
-    const repostButton = screen.getByText("Убрать").closest("button");
+    const repostButton = screen.getByRole("button", { name: /Убрать/i }).closest("button");
     expect(repostButton).toHaveTextContent("1");
     // Liked by viewer → button is in active state (text-primary class).
     expect(likeButton?.className).toContain("text-primary");
@@ -1159,7 +1159,7 @@ describe("ProfileWall", () => {
     });
 
     // Click "Нравится" (like button)
-    await userEvent.click(screen.getByText("Нравится"));
+    await userEvent.click(screen.getByRole("button", { name: /Нравится/i }));
 
     await waitFor(() => {
       expect(mockFrom).toHaveBeenCalledWith("profile_wall_post_likes");
@@ -1188,7 +1188,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
@@ -1235,12 +1235,12 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
 
     // Fetch is still in flight → the section must NOT show the empty state yet,
     // and the "Комментировать" button shows a spinner instead of its icon.
     expect(screen.queryByText("Тут пока пусто, но это можно исправить.")).not.toBeInTheDocument();
-    const commentButton = screen.getByText("Комментировать").closest("button");
+    const commentButton = screen.getByRole("button", { name: /Комментировать/i }).closest("button");
     expect(commentButton?.querySelector(".animate-spin")).toBeTruthy();
 
     await act(async () => {
@@ -1274,7 +1274,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
     });
@@ -1282,8 +1282,8 @@ describe("ProfileWall", () => {
     const fetchesAfterFirstOpen = mockFrom.mock.calls.filter(([t]) => t === "profile_wall_post_comments").length;
 
     // Close and reopen — the tree stays mounted, so no second fetch.
-    await userEvent.click(screen.getByText("Комментировать"));
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
     });
@@ -1313,7 +1313,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
 
     // The nudge fires immediately once the fetch settles — no artificial delay
     // (the mock fetch resolves in a microtask, so this runs right after click).
@@ -1345,7 +1345,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
@@ -1400,7 +1400,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
 
     await waitFor(() => {
       expect(screen.getByText("First comment")).toBeInTheDocument();
@@ -1460,18 +1460,10 @@ describe("ProfileWall", () => {
     });
     expect(screen.queryByTestId("share-sheet")).not.toBeInTheDocument();
 
-    // Share ActionButton has showLabel=false — no visible label text, only the Share2 icon.
-    // Exclude the "Написать на стене" plus button and the post-menu trigger
-    // ("Меню поста") which are also icon-only.
-    const buttons = screen.getAllByRole("button");
-    const shareButton = buttons.find((btn) => {
-      const hasNoText = btn.textContent?.trim() === "";
-      const title = btn.getAttribute("title");
-      const isNotOtherIconButton = title !== "Написать на стене" && title !== "Меню поста";
-      return hasNoText && isNotOtherIconButton;
-    });
-    expect(shareButton).toBeTruthy();
-    await userEvent.click(shareButton!);
+    // Share ActionButton is icon-only (no visible label) — find it by its
+    // accessible name.
+    const shareButton = screen.getByRole("button", { name: /share|оделиться/i });
+    await userEvent.click(shareButton);
 
     await waitFor(() => {
       expect(screen.getByTestId("share-sheet")).toBeInTheDocument();
@@ -1563,7 +1555,7 @@ describe("ProfileWall", () => {
     });
 
     // Click "Репост" button
-    await userEvent.click(screen.getByText("Репост"));
+    await userEvent.click(screen.getByRole("button", { name: /^Репост$/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Репост записи")).toBeInTheDocument();
@@ -1805,7 +1797,7 @@ describe("ProfileWall", () => {
 
     mockNavigate.mockClear();
     // The bottom interaction bar opens the post as well.
-    await userEvent.click(screen.getByTestId("post-views-count"));
+    await userEvent.click(screen.getByTestId("post-actions"));
     expect(mockNavigate).toHaveBeenCalledWith("/profile/profile-user-1/wall/post-open", expect.anything());
   });
 
@@ -1966,7 +1958,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Hello wall!")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByRole("button", { name: /Комментировать/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Delete this")).toBeInTheDocument();

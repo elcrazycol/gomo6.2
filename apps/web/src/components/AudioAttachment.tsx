@@ -41,7 +41,7 @@ export const AudioAttachment = ({
   // Компактная версия для превью (без плеера)
   if (!showPlayer) {
     return (
-      <div className={`border border-border bg-card rounded-lg p-3 max-w-xs ${className}`}>
+      <div className={`border border-border bg-surface rounded-lg p-3 max-w-xs ${className}`}>
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
             <Music className="w-5 h-5 text-muted-foreground" />
@@ -72,7 +72,7 @@ export const AudioAttachment = ({
 
   // Полная версия с плеером
   return (
-    <div className={`border border-border bg-card rounded-lg shadow-sm ${className}`}>
+    <div className={`border border-border bg-surface rounded-lg shadow-sm ${className}`}>
       <div className="p-4">
         <div className="flex items-start gap-4">
           {/* Обложка */}

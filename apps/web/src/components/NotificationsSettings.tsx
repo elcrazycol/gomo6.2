@@ -112,7 +112,7 @@ const NotificationsSettings = () => {
   }
 
   return (
-    <div className="bg-card p-4 sm:p-6 border border-border">
+    <div className="bg-surface p-4 sm:p-6 border border-border">
       <div className="flex items-center gap-2 mb-4">
         <Bell className="h-5 w-5" />
         <h2 className="text-lg font-semibold">{t("notifTypes.pushTitle")}</h2>

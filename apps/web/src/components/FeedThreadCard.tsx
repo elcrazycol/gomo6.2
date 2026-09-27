@@ -1,25 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { formatDistanceToNow } from "date-fns";
-import { useDateLocale } from "@/i18n/dateLocale";
 import { ExternalLink, Heart, MessageCircle, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/integrations/api/compat";
-import { Card, CardContent } from "@/components/ui/card";
-import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
+import { FavoriteButton } from "@/components/FavoriteButton";
+import {
+  PostCardShell,
+  PostCardHeader,
+  PostCardHeading,
+  PostCardActions,
+  PostSourceChip,
+} from "@/components/post/PostCardChrome";
 import { renderTags } from "@/components/ThreadCard";
 import { SectionIcon } from "@/components/topic/sectionIcons";
-import { parseAttachments } from "@/components/ThreadAttachments";
-import { safeDate } from "@/utils/safeDate";
+import { buildThreadAttachments } from "@/utils/threadAttachments";
 import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
-import { isInteractiveTarget } from "@/utils/wallNormalizers";
-import type { AttachmentMeta } from "@/types/forum";
 import type { LightboxItem } from "@/components/Lightbox";
 
 /** Thread shape the unified feed hands to the card (derived from a feed item
@@ -76,49 +77,12 @@ interface FeedThreadCardProps {
 
 /**
  * Thread card for the unified feed, styled exactly like FeedWallPostCard so
- * threads and wall posts read as one design. Reuses the same primitives:
- * UserBadge header, processed content, progressive WallAttachments (LQIP →
- * compressed preview → full original in the lightbox) and the ActionButton row.
- * New threads carry attachment meta (preview_key/lqip); legacy threads fall
- * back to plain image URLs, which render without the progressive fade.
+ * threads and wall posts read as one design. Reuses the shared post chrome
+ * (header with avatar + source chip + short time, progressive WallAttachments
+ * and the icon-only action row). New threads carry attachment meta
+ * (preview_key/lqip); legacy threads fall back to plain image URLs, which
+ * render without the progressive fade.
  */
-const legacyImageUrls = (thread: FeedThread): string[] =>
-  Array.isArray(thread.image_urls) && thread.image_urls.length > 0
-    ? thread.image_urls
-    : thread.image_url
-      ? [thread.image_url]
-      : [];
-
-const buildAttachments = (thread: FeedThread): AttachmentMeta[] => {
-  // Rich attachments (may come as a JSON array, a JSON string, or null) carry
-  // the preview_key/lqip meta needed for progressive loading.
-  const parsed = parseAttachments(thread.attachments);
-  if (parsed.length > 0) {
-    // Some legacy threads have both: merge any image_urls not already covered
-    // by the rich list so no photo silently disappears.
-    const known = new Set(
-      parsed.filter((att) => att.type === "image").map((att) => att.url),
-    );
-    const extra = legacyImageUrls(thread)
-      .filter((url) => !known.has(url))
-      .map((url) => ({
-        url,
-        type: "image" as const,
-        mime: "image/*",
-        name: "image",
-        size: 0,
-      }));
-    return [...parsed, ...extra];
-  }
-  return legacyImageUrls(thread).map((url) => ({
-    url,
-    type: "image" as const,
-    mime: "image/*",
-    name: "image",
-    size: 0,
-  }));
-};
-
 export const FeedThreadCard = ({
   thread,
   currentUserId,
@@ -128,10 +92,9 @@ export const FeedThreadCard = ({
   initialUserLiked = false,
   onImageClick,
 }: FeedThreadCardProps) => {
-  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const attachments = useMemo(() => buildAttachments(thread), [thread]);
+  const attachments = useMemo(() => buildThreadAttachments(thread), [thread]);
 
   const isGlobalTopic = !thread.boards?.slug;
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
@@ -185,130 +148,101 @@ export const FeedThreadCard = ({
     }
   };
 
+  // Source marker: a global topic shows its section (· subsection); a g-sub
+  // thread shows a link to its board. Both render through the same chip as
+  // the wall post's "стена".
+  const sourceChip = thread.section ? (
+    <PostSourceChip
+      icon={<SectionIcon name={thread.section.icon} className="h-3.5 w-3.5 shrink-0 text-primary" />}
+      label={thread.subsection ? `${thread.section.name} · ${thread.subsection.name}` : thread.section.name}
+    />
+  ) : boardSlug ? (
+    <PostSourceChip to={`${boardPrefix}/${boardSlug}`} label={`в ${boardPrefix || ""}/${boardSlug}/`} />
+  ) : null;
+
   return (
     <>
-    <Card
-      className="overflow-clip border-border/70 shadow-none bg-background"
-      onClick={(e) => {
-        if (!isInteractiveTarget(e.target, e.currentTarget)) {
-          handleOpenThread();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleOpenThread();
-        }
-      }}
+    <PostCardShell
+      onOpen={handleOpenThread}
+      cornerAction={currentUserId ? <FavoriteButton itemType="thread" itemId={thread.id} /> : undefined}
     >
-      <CardContent className="space-y-4 p-3 sm:p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <UserBadge
-                  userId={thread.user_id}
-                  username={thread.profiles?.username || "Аноним"}
-                  displayName={thread.profiles?.display_name}
-                  emojiId={thread.profiles?.nickname_emoji_id}
-                  isAnonymous={thread.profiles?.is_anonymous}
-                  disableLink={false}
-                  stopPropagationOnClick
-                />
-                <span className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(safeDate(thread.created_at), {
-                    locale: dateLocale,
-                    addSuffix: true,
-                  })}
-                </span>
-                {thread.section ? (
-                  <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
-                    <SectionIcon name={thread.section.icon} className="h-3 w-3" />
-                    {thread.section.name}
-                    {thread.subsection ? ` · ${thread.subsection.name}` : ""}
-                  </span>
-                ) : (
-                  <Link
-                    to={`${boardPrefix}/${boardSlug}`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
-                  >
-                    в {boardPrefix || ""}/{boardSlug}/
-                  </Link>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+      <PostCardHeading>
+        <PostCardHeader
+          userId={thread.user_id}
+          username={thread.profiles?.username || "Аноним"}
+          displayName={thread.profiles?.display_name}
+          emojiId={thread.profiles?.nickname_emoji_id}
+          isAnonymous={thread.profiles?.is_anonymous}
+          avatarUrl={thread.profiles?.avatar_url}
+          createdAt={thread.created_at}
+          chips={sourceChip}
+        />
 
         <h3 className="break-words text-base font-semibold leading-6 sm:text-[17px] sm:leading-7">
           {thread.title}
         </h3>
 
-        {thread.tags && Object.keys(thread.tags).length > 0 && (
-          <div className="-mt-1 flex flex-wrap gap-1.5">
-            {renderTags(thread.tags, "inline")}
-          </div>
-        )}
+        {thread.tags && Object.keys(thread.tags).length > 0 &&
+          renderTags(thread.tags, "inline")}
+      </PostCardHeading>
 
-        {thread.content?.trim() && (
-          <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-            <ProcessedContent
-              content={thread.content || ""}
-              contentJson={thread.content_json}
-              currentUserId={currentUserId}
-              isAdmin={false}
-              currentUsername={currentUsername}
-              currentUserColor={currentUserColor}
-              postAuthorId={thread.user_id}
-              authorUsername={thread.profiles?.username}
-              showHiddenIndicators={false}
-            />
-          </div>
-        )}
-
-        {attachments.length > 0 && (
-          <WallAttachments
-            attachments={attachments}
-            galleryKey={`feed-thread-${thread.id}`}
-            onImageClick={onImageClick}
-          />
-        )}
-
-        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-          <ActionButton
-            icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />}
-            label="Нравится"
-            count={likesCount}
-            active={isLiked}
-            disabled={!currentUserId}
-            loading={isLiking}
-            onClick={handleLikeToggle}
-          />
-          <ActionButton
-            icon={<MessageCircle className="h-4 w-4" />}
-            label="Ответы"
-            count={thread.post_count ?? 0}
-            onClick={handleOpenThread}
-          />
-          <ActionButton
-            icon={<ExternalLink className="h-4 w-4" />}
-            label="Открыть запись"
-            showLabel={false}
-            onClick={handleOpenThread}
-          />
-          <ActionButton
-            icon={<Share2 className="h-4 w-4" />}
-            label={t("share.title")}
-            showLabel={false}
-            disabled={!currentUserId}
-            onClick={() => setShareOpen(true)}
+      {thread.content?.trim() && (
+        <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+          <ProcessedContent
+            content={thread.content || ""}
+            contentJson={thread.content_json}
+            currentUserId={currentUserId}
+            isAdmin={false}
+            currentUsername={currentUsername}
+            currentUserColor={currentUserColor}
+            postAuthorId={thread.user_id}
+            authorUsername={thread.profiles?.username}
+            showHiddenIndicators={false}
           />
         </div>
-      </CardContent>
-    </Card>
+      )}
+
+      {attachments.length > 0 && (
+        <WallAttachments
+          attachments={attachments}
+          galleryKey={`feed-thread-${thread.id}`}
+          onImageClick={onImageClick}
+        />
+      )}
+
+      <PostCardActions>
+        <ActionButton
+          minimal
+          icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />}
+          label="Нравится"
+          count={likesCount}
+          active={isLiked}
+          disabled={!currentUserId}
+          loading={isLiking}
+          onClick={handleLikeToggle}
+        />
+        <ActionButton
+          minimal
+          icon={<MessageCircle className="h-4 w-4" />}
+          label="Ответы"
+          count={thread.post_count ?? 0}
+          onClick={handleOpenThread}
+        />
+        <ActionButton
+          minimal
+          icon={<ExternalLink className="h-4 w-4" />}
+          label="Открыть запись"
+          onClick={handleOpenThread}
+        />
+        <ActionButton
+          minimal
+          icon={<Share2 className="h-4 w-4" />}
+          label={t("share.title")}
+          disabled={!currentUserId}
+          onClick={() => setShareOpen(true)}
+        />
+      </PostCardActions>
+    </PostCardShell>
     {/* Rendered outside the Card so clicks inside the sheet can never bubble
         into the card's navigate-on-click handler. */}
     <ShareSheet

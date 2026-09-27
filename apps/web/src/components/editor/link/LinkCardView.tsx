@@ -5,7 +5,7 @@
 import type { LinkCardAttrs } from "./linkCardSchema";
 
 const cardClass =
-  "link-card group/card flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border/70 bg-card text-left shadow-sm transition-colors";
+  "link-card group/card flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-border/70 bg-surface text-left shadow-sm transition-colors";
 
 export const LinkCardView = ({ attrs, editable = false }: { attrs: LinkCardAttrs; editable?: boolean }) => {
   const body = (

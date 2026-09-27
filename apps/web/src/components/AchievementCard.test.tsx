@@ -229,7 +229,7 @@ describe("AchievementCard", () => {
     );
     const card = container.firstChild as HTMLElement;
     expect(card.className).toContain("aspect-square");
-    expect(card.className).toContain("bg-card");
+    expect(card.className).toContain("bg-surface");
     // No trophy badge on compact tiles.
     expect(card.querySelector(".text-amber-500\\/70")).not.toBeInTheDocument();
   });

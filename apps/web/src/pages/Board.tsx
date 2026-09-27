@@ -1032,7 +1032,7 @@ const Board = () => {
             Discord-style channel bar above the chat carries name + actions) */}
         {!isTextChannel && (<div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
-            <Card className="overflow-hidden border-primary/20 bg-card">
+            <Card className="overflow-hidden border-primary/20 bg-surface">
               <div className="relative">
                 <div className="h-40 sm:h-52">
                   {board.cover_image_url ? (
@@ -1492,7 +1492,7 @@ const Board = () => {
             {sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="hidden md:flex shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
+                className="hidden md:flex shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-surface items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
                 title={t("board.showChannels")}
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1510,7 +1510,7 @@ const Board = () => {
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
-                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
                     title={t("board.channels")}
                   >
                     {activeChannelId ? (
@@ -1584,7 +1584,7 @@ const Board = () => {
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
-                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
                     title={t("board.channels")}
                   >
                     {activeChannelId ? (
@@ -1643,7 +1643,7 @@ const Board = () => {
                     {[1, 2, 3, 4, 5].map((i) => (
                       <div
                         key={`placeholder-${i}`}
-                        className="block border border-border bg-card p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
+                        className="block border border-border bg-surface p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
                       >
                         <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
                           <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded flex-shrink-0" />
@@ -1682,6 +1682,7 @@ const Board = () => {
                         currentUsername={currentUsername}
                         currentUserColor={currentUserColor}
                         boardPath={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`}
+                        sourceLabel={activeChannelName || board?.name || undefined}
                         onImageClick={(items, idx) => {
                           setGalleryItems(items);
                           setGalleryIndex(idx);
@@ -1895,7 +1896,7 @@ const Board = () => {
               {[1, 2, 3, 4, 5].map((i) => (
                 <div
                   key={`placeholder-${i}`}
-                  className="block border border-border bg-card p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
+                  className="block border border-border bg-surface p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
                 >
                   <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
                     <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded flex-shrink-0" />
@@ -2029,7 +2030,7 @@ const Board = () => {
                 <Link
                   key={thread.id}
                   to={`${pathPrefix}/${slug}/thread/${thread.id}`}
-                  className="block border border-border bg-card p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
+                  className="block border border-border bg-surface p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
                 >
                   {/* Mobile Layout */}
                   <div className="md:hidden">

@@ -203,7 +203,7 @@ const Placeholders = () => {
 
   return (
     <main className="max-w-4xl mx-auto p-4 space-y-6">
-          <div className="bg-card border border-border p-6">
+          <div className="bg-surface border border-border p-6">
             <h2 className="text-lg font-semibold mb-4">{t("settings.placeholderSettingsTitle")}</h2>
             <p className="text-sm text-muted-foreground mb-6">
               {t("settings.placeholderSettingsDescription")}

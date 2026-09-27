@@ -197,7 +197,7 @@ export function ProfileStudioPreview({
 
       {/* ── Sample post ─────────────────────────────────────────────────── */}
       {!compact && (
-        <div className="bg-card border border-border p-3 space-y-2">
+        <div className="bg-surface border border-border p-3 space-y-2">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0">
               {avatarSrc ? (

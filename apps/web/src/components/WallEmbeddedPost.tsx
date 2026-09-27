@@ -1,19 +1,16 @@
 import { type MouseEvent as ReactMouseEvent } from "react";
-import { formatDistanceToNow } from "date-fns";
-import { useDateLocale } from "@/i18n/dateLocale";
 import { useNavigate } from "react-router-dom";
 import { Repeat2 } from "lucide-react";
 
-import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
+import { PostCardHeader } from "@/components/post/PostCardChrome";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
 import { docHasMediaNodes } from "@/components/editor/media/mediaSchema";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import { normalizeAttachments, isInteractiveTarget, getWallPostPath } from "@/utils/wallNormalizers";
 import type { WallPost } from "@/utils/wallNormalizers";
 import type { LightboxItem } from "@/components/Lightbox";
-import { safeDate } from "@/utils/safeDate";
 
 interface EmbeddedWallPostProps {
   post: WallPost;
@@ -31,7 +28,6 @@ export const EmbeddedWallPost = ({
   onImageClick,
   hideHeader = false,
 }: EmbeddedWallPostProps) => {
-  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const attachments = normalizeAttachments(post);
   const hasMediaNodes = docHasMediaNodes(post.content_json);
@@ -44,7 +40,7 @@ export const EmbeddedWallPost = ({
 
   return (
     <div
-      className="rounded-[1.1rem] border border-border/70 bg-muted/[0.12] p-3 transition-colors hover:bg-muted/[0.18] sm:p-4"
+      className="rounded-lg border border-border/70 bg-muted/[0.12] p-3 transition-colors hover:bg-muted/[0.18] sm:p-4"
       onClick={handleOpenPost}
       role="button"
       tabIndex={0}
@@ -56,22 +52,16 @@ export const EmbeddedWallPost = ({
         </div>
       )}
 
-      <div className={`${hideHeader ? "" : "mb-2"} flex flex-wrap items-center gap-2`}>
-        <UserBadge
+      <div className={hideHeader ? "" : "mb-3"}>
+        <PostCardHeader
           userId={post.author_id}
           username={post.author.username}
           displayName={post.author.display_name}
           emojiId={post.author.nickname_emoji_id}
           isAnonymous={post.author.is_anonymous}
-          disableLink={false}
-          stopPropagationOnClick
+          avatarUrl={post.author.avatar_url}
+          createdAt={post.created_at}
         />
-        <span className="text-xs text-muted-foreground">
-          {formatDistanceToNow(safeDate(post.created_at), {
-            locale: dateLocale,
-            addSuffix: true,
-          })}
-        </span>
       </div>
 
       <MediaAttachmentsProvider

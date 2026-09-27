@@ -1,15 +1,25 @@
-import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { formatDistanceToNow } from "date-fns";
-import { useDateLocale } from "@/i18n/dateLocale";
-import { safeDate } from "@/utils/safeDate";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Heart, MessageCircle, Share2 } from "lucide-react";
+
+import { api } from "@/integrations/api/compat";
 import { UserBadge } from "@/components/UserBadge";
-import { UserAvatar } from "@/components/UserAvatar";
 import { storageUrl } from "@/utils/storage";
 import { ProcessedContent } from "@/components/ProcessedContent";
-import { Heart, MessageCircle, Eye } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { api } from "@/integrations/api/compat";
+import { WallAttachments } from "@/components/WallAttachments";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
+import { ActionButton } from "@/components/WallActionButton";
+import { ShareSheet } from "@/components/share/ShareSheet";
+import {
+  PostCardShell,
+  PostCardHeader,
+  PostCardHeading,
+  PostCardActions,
+  PostSourceChip,
+} from "@/components/post/PostCardChrome";
+import { SectionIcon } from "@/components/topic/sectionIcons";
+import { buildThreadAttachments } from "@/utils/threadAttachments";
+import { formatShortRelativeTime } from "@/utils/relativeTimeShort";
 
 interface ThreadCardProps {
   thread: {
@@ -19,6 +29,7 @@ interface ThreadCardProps {
     content_json?: unknown;
     image_url: string | null;
     image_urls?: string[] | null;
+    attachments?: unknown;
     created_at: string;
     updated_at: string;
     user_id: string | null;
@@ -38,6 +49,18 @@ interface ThreadCardProps {
       name: string;
       is_gomosub?: boolean | null;
     };
+    section?: {
+      id: string;
+      slug: string;
+      name: string;
+      icon?: string | null;
+      is_nsfw?: boolean;
+    } | null;
+    subsection?: {
+      id: string;
+      slug: string;
+      name: string;
+    } | null;
     post_count?: number;
   };
   currentUserId: string | null;
@@ -158,6 +181,14 @@ export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'blo
   );
 };
 
+/**
+ * Thread card for board/profile listings, in the same design language as the
+ * feed wall card: compact header (avatar + author + source chip + short time),
+ * themed title/tags, and the icon-only action row. Long content keeps its
+ * "Раскрыть" affordance and the hover tooltip with recent likers; legacy photo
+ * threads keep the inline expand grid, while rich-attachment threads render
+ * through the shared progressive gallery.
+ */
 const ThreadCard = ({
   thread,
   currentUserId,
@@ -170,29 +201,23 @@ const ThreadCard = ({
   initialRecentLikers = [],
   initialRecentPost = null,
 }: ThreadCardProps) => {
-  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const [likesCount, setLikesCount] = useState(initialLikesCount);
   const [userLiked, setUserLiked] = useState(initialUserLiked);
   const [isExpanded, setIsExpanded] = useState(false);
   const [imagesExpanded, setImagesExpanded] = useState(false);
-  const [hasOverflowImages, setHasOverflowImages] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
-  const lastPostDate = thread.updated_at && thread.updated_at !== thread.created_at
-    ? thread.updated_at
-    : null;
-
-  useEffect(() => {
-    setLikesCount(initialLikesCount);
-    setUserLiked(initialUserLiked);
-    setHasOverflowImages(false);
-  }, [thread.id, initialLikesCount, initialUserLiked]);
-
-  useEffect(() => {
-    if (imagesExpanded) {
-      setHasOverflowImages(false);
-    }
-  }, [imagesExpanded]);
+  // Rich attachments (new composer) render through the shared gallery; legacy
+  // threads keep their plain image_url grid + "Раскрыть" behaviour.
+  const richAttachments = useMemo(() => buildThreadAttachments(thread), [thread]);
+  const hasRichAttachments = useMemo(
+    () => Array.isArray(thread.attachments) || typeof thread.attachments === "string",
+    [thread.attachments],
+  );
+  const legacyImages = Array.isArray(thread.image_urls) ? thread.image_urls : [];
 
   const handleLike = async () => {
     if (!currentUserId) return;
@@ -234,272 +259,211 @@ const ThreadCard = ({
     ? `${boardPrefix}/${boardSlug}/thread/${thread.id}`
     : `/thread/${thread.id}`;
 
+  const sourceChip = thread.section ? (
+    <PostSourceChip
+      icon={<SectionIcon name={thread.section.icon} className="h-3.5 w-3.5 shrink-0 text-primary" />}
+      label={thread.subsection ? `${thread.section.name} · ${thread.subsection.name}` : thread.section.name}
+    />
+  ) : boardSlug ? (
+    <PostSourceChip to={`${boardPrefix}/${boardSlug}`} label={`в ${boardPrefix || ""}/${boardSlug}/`} />
+  ) : null;
+
   return (
-    <article
-      className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-all duration-200 cursor-pointer"
-      onClick={() => navigate(threadPath)}
-    >
-        <div className="flex items-start gap-3 mb-3">
-          <UserAvatar
-            src={thread.profiles?.avatar_url}
-            userId={thread.user_id}
-            alt={thread.profiles?.username || "Пользователь"}
-            className="w-10 h-10"
-            fallback={
-              <span className="flex h-full w-full items-center justify-center text-sm font-medium">
-                {(thread.profiles?.username || "А").charAt(0).toUpperCase()}
-              </span>
-            }
+    <>
+    <PostCardShell onOpen={() => navigate(threadPath)}>
+      <PostCardHeading>
+        <PostCardHeader
+          userId={thread.user_id}
+          username={thread.profiles?.username || "Аноним"}
+          displayName={thread.profiles?.display_name}
+          emojiId={thread.profiles?.nickname_emoji_id}
+          isAnonymous={thread.profiles?.is_anonymous}
+          avatarUrl={thread.profiles?.avatar_url}
+          createdAt={thread.created_at}
+          hideTimestampOnCompactMobile={hideTimestampOnCompactMobile}
+          chips={sourceChip}
+        />
+
+        <h3 className="break-words text-base font-semibold leading-6 sm:text-[17px] sm:leading-7">
+          {thread.title}
+          {thread.ephemeral_type && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-700">
+              {thread.ephemeral_type === 'time'
+                ? `${thread.ephemeral_value}ч`
+                : `${thread.ephemeral_value}сообщ.`
+              }
+            </span>
+          )}
+          {thread.tags?.flag === 'night' && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600">
+              Ночной
+            </span>
+          )}
+        </h3>
+
+        {thread.tags && Object.keys(thread.tags).length > 0 &&
+          renderTags(thread.tags, 'inline', thread)}
+      </PostCardHeading>
+
+      <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+        <div className={`relative ${!isExpanded && thread.content.length > 300 ? 'max-h-20 overflow-hidden' : ''}`}>
+          <ProcessedContent
+            content={thread.content}
+            contentJson={thread.content_json}
+            currentUserId={currentUserId}
+            isAdmin={false}
+            currentUsername={currentUsername}
+            currentUserColor={currentUserColor}
+            postAuthorId={thread.user_id}
+            authorUsername={thread.profiles?.username}
+            showHiddenIndicators={false}
           />
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <UserBadge
-                userId={thread.user_id}
-                username={thread.profiles?.username || "Аноним"}
-                displayName={thread.profiles?.display_name}
-                emojiId={thread.profiles?.nickname_emoji_id}
-                isAnonymous={thread.profiles?.is_anonymous}
-                disableLink={false}
-                stopPropagationOnClick={true}
-              />
-              {boardSlug && (
-                <Link
-                  to={`${boardPrefix}/${boardSlug}`}
-                  className="text-xs text-muted-foreground hover:text-primary transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  в {boardPrefix || ""}/{boardSlug}/
-                </Link>
-              )}
-              <span className={`text-xs text-muted-foreground ${hideTimestampOnCompactMobile ? "compact-mobile-hide" : ""}`}>
-                {formatDistanceToNow(safeDate(thread.created_at), {
-                  locale: dateLocale,
-                  addSuffix: true,
-                })}
-                {lastPostDate && (
-                  <span className="hidden group-hover/title:inline">
-                    {' | '}{formatDistanceToNow(safeDate(lastPostDate), {
-                      locale: dateLocale,
-                      addSuffix: true,
-                    })}
-                  </span>
-                )}
-              </span>
-            </div>
-
-            <h3 className="font-bold text-lg mb-2 break-words relative group/title">
-              <span className="relative">
-                {thread.title}
-                {thread.ephemeral_type && (
-                  <span className="ml-2 inline-flex items-center px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 rounded-full">
-                    {thread.ephemeral_type === 'time'
-                      ? `${thread.ephemeral_value}ч`
-                      : `${thread.ephemeral_value}сообщ.`
-                    }
-                  </span>
-                )}
-                {thread.tags?.flag === 'night' && (
-                  <span className="ml-2 inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
-                    Ночной
-                  </span>
-                )}
-                <span className="absolute bottom-0 left-0 w-0 h-[1.5px]
-                  bg-current transition-all duration-300
-                  group-hover/title:w-full">
-                </span>
-              </span>
-              <div className="hidden md:inline ml-2">
-                {renderTags(thread.tags, 'inline', thread)}
-              </div>
-            </h3>
-
-            <div className="md:hidden">
-              {renderTags(thread.tags, 'block', thread)}
-            </div>
-          </div>
-
-        </div>
-
-        <div className="mb-3">
-          <div className={`text-sm break-words relative ${!isExpanded && thread.content.length > 300 ? 'max-h-20 overflow-hidden' : ''}`}>
-            <ProcessedContent
-              content={thread.content}
-              contentJson={thread.content_json}
-              currentUserId={currentUserId}
-              isAdmin={false}
-              currentUsername={currentUsername}
-              currentUserColor={currentUserColor}
-              postAuthorId={thread.user_id}
-              authorUsername={thread.profiles?.username}
-              showHiddenIndicators={false}
-            />
-            {!isExpanded && thread.content.length > 300 && (
-              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-card to-transparent flex items-end justify-center pb-1">
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsExpanded(true);
-                  }}
-                  className="text-xs text-muted-foreground hover:text-primary transition-colors bg-card/80 px-2 py-0.5 rounded"
-                >
-                  Раскрыть
-                </button>
-              </div>
-            )}
-          </div>
-
-            {thread.image_urls && thread.image_urls.length > 0 && (
-            <div className="mt-3 relative">
-              <div className={`grid grid-cols-2 gap-2 ${!imagesExpanded ? 'max-h-32 overflow-hidden' : ''}`}>
-                {thread.image_urls.map((url, index) => (
-                  <img
-                    key={index}
-                    src={storageUrl("content", url) || url}
-                    alt={`Изображение ${index + 1}`}
-                    className={`w-full ${imagesExpanded ? 'h-auto max-h-96' : 'h-32'} object-cover object-top rounded border border-border`}
-                    onLoad={(e) => {
-                      const img = e.currentTarget;
-                      if (!imagesExpanded && img.naturalHeight > 128) {
-                        setHasOverflowImages(true);
-                      }
-                    }}
-                  />
-                ))}
-              </div>
-              {!imagesExpanded && (
-                <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-card to-transparent flex items-end justify-center pb-1">
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setImagesExpanded(true);
-                    }}
-                    className="text-xs text-muted-foreground hover:text-primary transition-colors bg-card/80 px-2 py-0.5 rounded"
-                  >
-                    Раскрыть
-                  </button>
-                </div>
-              )}
-            </div>
-            )}
-        </div>
-
-        {initialRecentPost && (
-          <div className="border-t border-border pt-3">
-            <div className="bg-muted/20 rounded p-3 text-xs ml-4 border-l-2 border-primary/30">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="font-medium text-xs">
-                  {initialRecentPost.profiles?.username || "Аноним"}:
-                </span>
-                <span className="text-muted-foreground text-xs">
-                  {formatDistanceToNow(safeDate(initialRecentPost.created_at), {
-                    locale: dateLocale,
-                    addSuffix: true,
-                  })}
-                </span>
-              </div>
-              <div className="text-xs break-words line-clamp-3">
-                {initialRecentPost.content.substring(0, 150)}
-                {initialRecentPost.content.length > 150 && '...'}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between mt-3 pt-2 border-t border-border">
-          <div className="flex items-center gap-2">
-            <div className="relative group/likes">
-              <Button
-                variant="ghost"
-                size="sm"
+          {!isExpanded && thread.content.length > 300 && (
+            <div className="absolute bottom-0 left-0 right-0 flex items-end justify-center bg-gradient-to-t from-background to-transparent pb-1 h-8">
+              <button
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  handleLike();
+                  setIsExpanded(true);
                 }}
-                className={`p-1 h-auto flex items-center gap-1 !bg-transparent hover:!bg-transparent ${
-                  userLiked
-                    ? 'text-primary hover:text-primary/80'
-                    : 'text-muted-foreground hover:text-primary'
-                }`}
-                disabled={!currentUserId}
+                className="rounded bg-background/80 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-primary"
               >
-                <Heart className={`h-4 w-4 transition-all duration-200 ${
-                  userLiked
-                    ? 'fill-current'
-                    : 'hover:stroke-primary hover:stroke-2'
-                }`} />
-                <span className="text-xs">{likesCount}</span>
-              </Button>
+                Раскрыть
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
 
-              <div className="
-                absolute bottom-full left-1/2 -translate-x-1/2
-                opacity-0 pointer-events-none
-                transition-opacity duration-200
-                group-hover/likes:opacity-100
-              ">
-                <div className="bg-card border border-border rounded-md px-3 py-2 text-xs shadow-lg whitespace-nowrap">
-                  <div className="text-muted-foreground mb-2">
-                    {likesCount > 3 ? `+${likesCount - 3} других` : `${likesCount} лайков`}
-                  </div>
-                  <div className="space-y-2">
-                    {initialRecentLikers.length > 0 ? (
-                      initialRecentLikers.slice(0, 3).map((liker) => (
-                        <div key={liker.id} className="flex items-center">
-                          <UserBadge
-                            userId={liker.id}
-                            username={liker.is_anonymous ? "Аноним" : liker.username}
-                            displayName={liker.is_anonymous ? undefined : liker.display_name}
-                            emojiId={liker.is_anonymous ? undefined : liker.nickname_emoji_id}
-                            isAnonymous={liker.is_anonymous}
-                            className="text-xs"
-                          />
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-muted-foreground text-xs">Пока нет лайков</div>
-                    )}
-                  </div>
+      {hasRichAttachments && richAttachments.length > 0 ? (
+        <WallAttachments
+          attachments={richAttachments}
+          galleryKey={`thread-card-${thread.id}`}
+          onImageClick={(items, idx) => {
+            setGalleryItems(items);
+            setGalleryIndex(idx);
+          }}
+        />
+      ) : legacyImages.length > 0 ? (
+        <div className="relative">
+          <div className={`grid grid-cols-2 gap-2 ${!imagesExpanded ? 'max-h-32 overflow-hidden' : ''}`}>
+            {legacyImages.map((url, index) => (
+              <img
+                key={index}
+                src={storageUrl("content", url) || url}
+                alt={`Изображение ${index + 1}`}
+                className={`w-full rounded-md border border-border/70 ${imagesExpanded ? 'h-auto max-h-96' : 'h-32'} object-cover object-top`}
+              />
+            ))}
+          </div>
+          {!imagesExpanded && (
+            <div className="absolute bottom-0 left-0 right-0 flex items-end justify-center bg-gradient-to-t from-background to-transparent pb-1 h-8">
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setImagesExpanded(true);
+                }}
+                className="rounded bg-background/80 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-primary"
+              >
+                Раскрыть
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {initialRecentPost && (
+        <div className="rounded-md border-l-2 border-primary/30 bg-muted/20 p-3 text-xs">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-xs font-medium">
+              {initialRecentPost.profiles?.username || "Аноним"}:
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {formatShortRelativeTime(initialRecentPost.created_at)}
+            </span>
+          </div>
+          <div className="line-clamp-3 break-words text-xs">
+            {initialRecentPost.content.substring(0, 150)}
+            {initialRecentPost.content.length > 150 && '...'}
+          </div>
+        </div>
+      )}
+
+      <PostCardActions>
+        <div className="relative group/likes">
+          <ActionButton
+            minimal
+            icon={<Heart className={`h-4 w-4 ${userLiked ? "fill-current" : ""}`} />}
+            label="Нравится"
+            count={likesCount}
+            active={userLiked}
+            disabled={!currentUserId}
+            onClick={handleLike}
+          />
+
+          {likesCount > 0 && (
+            <div className="pointer-events-none absolute bottom-full left-1/2 z-20 -translate-x-1/2 pb-2 opacity-0 transition-opacity duration-200 group-hover/likes:opacity-100">
+              <div className="whitespace-nowrap rounded-md border border-border bg-card px-3 py-2 text-xs shadow-lg">
+                <div className="mb-2 text-muted-foreground">
+                  {likesCount > 3 ? `+${likesCount - 3} других` : `${likesCount} лайков`}
+                </div>
+                <div className="space-y-2">
+                  {initialRecentLikers.length > 0 ? (
+                    initialRecentLikers.slice(0, 3).map((liker) => (
+                      <div key={liker.id} className="flex items-center">
+                        <UserBadge
+                          userId={liker.id}
+                          username={liker.is_anonymous ? "Аноним" : liker.username}
+                          displayName={liker.is_anonymous ? undefined : liker.display_name}
+                          emojiId={liker.is_anonymous ? undefined : liker.nickname_emoji_id}
+                          isAnonymous={liker.is_anonymous}
+                          className="text-xs"
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Пока нет лайков</div>
+                  )}
                 </div>
               </div>
             </div>
+          )}
+        </div>
 
-          <div className="text-xs text-muted-foreground">
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                navigate(threadPath);
-              }}
-              className="
-                flex items-center gap-1
-                text-xs text-muted-foreground
-                hover:text-primary
-                transition-colors
-                group/replies
-              "
-            >
-              <MessageCircle className="h-3 w-3" />
-              {thread.post_count || 0}{' '}
-              <span className="relative">
-                ответов
-                <span className="
-                  absolute bottom-0 left-0 w-0 h-[1.5px]
-                  bg-current transition-all duration-300
-                  group-hover/replies:w-full
-                " />
-              </span>
-            </button>
-          </div>
-        </div>
-        <div className="text-xs text-muted-foreground flex items-center gap-1">
-          <Eye className="h-3 w-3" />
-          <span>{thread.updated_at !== thread.created_at ? "Активен" : "Новый"}</span>
-        </div>
-      </div>
-    </article>
+        <ActionButton
+          minimal
+          icon={<MessageCircle className="h-4 w-4" />}
+          label="Ответы"
+          count={thread.post_count || 0}
+          onClick={() => navigate(threadPath)}
+        />
+        <ActionButton
+          minimal
+          icon={<Share2 className="h-4 w-4" />}
+          label="Поделиться"
+          disabled={!currentUserId}
+          onClick={() => setShareOpen(true)}
+        />
+      </PostCardActions>
+    </PostCardShell>
+
+    {galleryItems && (
+      <Lightbox
+        items={galleryItems}
+        initialIndex={galleryIndex}
+        onClose={() => setGalleryItems(null)}
+      />
+    )}
+
+    <ShareSheet
+      open={shareOpen}
+      onOpenChange={setShareOpen}
+      target={{ type: "thread", id: thread.id }}
+      url={`${window.location.origin}${threadPath}`}
+      title={thread.title || thread.content || "Запись"}
+    />
+    </>
   );
 };
 

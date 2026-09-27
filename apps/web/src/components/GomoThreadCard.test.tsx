@@ -122,13 +122,13 @@ beforeEach(() => {
 });
 
 describe("GomoThreadCard", () => {
-  it("renders author, title and content (no channel chips)", () => {
+  it("renders author, title, content and the source chip", () => {
     renderCard(baseThread());
     expect(screen.getByTestId("user-badge")).toHaveTextContent("lesha");
     expect(screen.getByText("Заголовок записи")).toBeInTheDocument();
     expect(screen.getByTestId("processed-content")).toHaveTextContent("Текст записи");
     expect(screen.queryByText("# Разработка")).not.toBeInTheDocument();
-    expect(screen.queryByText("в g/test/")).not.toBeInTheDocument();
+    expect(screen.getByText("в g/test/")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument(); // post_count
   });
 

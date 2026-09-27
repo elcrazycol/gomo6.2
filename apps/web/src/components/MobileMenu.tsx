@@ -146,7 +146,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               onClick={() => setOpen(false)}
               className="block"
             >
-              <div className="p-4 bg-card border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
+              <div className="p-4 bg-surface border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
                 <div className="flex items-start gap-3">
                   {/* Avatar */}
                   <UserAvatar
@@ -178,7 +178,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     navigate("/create");
                     setOpen(false);
                   }}
-                  className="h-10 rounded-xl border border-primary/40 bg-primary/10 px-3 text-xs shrink-0 text-primary"
+                  className="h-8 shrink-0 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/30 hover:bg-primary/90 hover:text-primary-foreground"
                 >
                   <Plus className="w-3.5 h-3.5 mr-1.5" />
                   Создать тему
@@ -189,7 +189,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     navigate("/g");
                     setOpen(false);
                   }}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-xs shrink-0"
+                  className="h-10 rounded-xl border border-border bg-surface px-3 text-xs shrink-0"
                 >
                   <Users className="w-3.5 h-3.5 mr-1.5" />
                   {t('nav.gomosubs')}

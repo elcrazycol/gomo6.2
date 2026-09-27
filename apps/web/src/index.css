@@ -302,6 +302,8 @@ html {
     --ring: 142 70% 25%;
 
     --radius: 0.25rem;
+    /* Card / sidebar / panel corners — a touch rounder than the base radius. */
+    --card-radius: calc(var(--radius) + 2px);
 
     --board-header: 142 70% 25%;
     --board-header-foreground: 0 0% 98%;
@@ -1272,4 +1274,35 @@ html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
   --tabbar-glass-blur: 6px;
   -webkit-backdrop-filter: blur(var(--tabbar-glass-blur));
   backdrop-filter: blur(var(--tabbar-glass-blur));
+}
+
+/* Soft content surface for cards, the feed sidebar and panels: `--card` at
+   40% over the page background. Mixed to an OPAQUE colour so the surface is
+   identical everywhere — a translucent fill would read lighter on pages with
+   their own background image (e.g. the profile wall). Used as `bg-surface`
+   (see components/ui/card.tsx and components/post/PostCardChrome.tsx). */
+@layer utilities {
+  .bg-surface {
+    background-color: color-mix(in srgb, hsl(var(--card)) 40%, hsl(var(--background)));
+  }
+}
+
+/* Indeterminate segment for the header loading bar (components/TopLoadingBar). */
+@keyframes gomo-loading-bar {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+
+.loading-bar-segment {
+  animation: gomo-loading-bar 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar-segment {
+    animation-duration: 2.2s;
+  }
 }

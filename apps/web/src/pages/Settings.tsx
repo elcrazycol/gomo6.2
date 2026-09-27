@@ -564,7 +564,7 @@ const Settings = () => {
               <TabsContent value="appearance" className="space-y-4">
                 {/* Язык интерфейса */}
                 <LanguageSelector userId={user?.id ?? null} />
-                <div className="bg-card border border-border p-4 sm:p-6">
+                <div className="bg-surface border border-border p-4 sm:p-6">
                   <h2 className="text-lg font-semibold mb-2">{t("settings.translations")}</h2>
                   <p className="text-sm text-muted-foreground mb-3">
                     {t("settings.translationsDescription")}
@@ -575,7 +575,7 @@ const Settings = () => {
                 </div>
 
                 {/* Автовоспроизведение GIF / коротких клипов */}
-                <div className="bg-card border border-border p-4 sm:p-6 space-y-3">
+                <div className="bg-surface border border-border p-4 sm:p-6 space-y-3">
                   <div className="flex items-center gap-2">
                     <PlayCircle className="h-5 w-5" />
                     <div>
@@ -601,7 +601,7 @@ const Settings = () => {
                 {/* Темы — сворачиваемая секция */}
                 <Collapsible open={themesExpanded} onOpenChange={setThemesExpanded}>
                   <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                    <button className="w-full bg-surface border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
                       <div className="flex items-center gap-2">
                         <Palette className="h-5 w-5" />
                         <div>
@@ -613,7 +613,7 @@ const Settings = () => {
                     </button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-4 pt-4">
-                    <div className="bg-card border border-border p-4 sm:p-6 space-y-6">
+                    <div className="bg-surface border border-border p-4 sm:p-6 space-y-6">
                   <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-3 py-2 sm:min-w-[220px]">
                     <Label htmlFor="dark-mode" className="text-sm font-semibold">
                       {t("settings.darkMode")}
@@ -690,7 +690,7 @@ const Settings = () => {
                 {/* Font Panel */}
                     <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
                       <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                    <button className="w-full bg-surface border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
                           <div className="flex items-center gap-2">
                         <Type className="h-5 w-5" />
                         <span className="text-lg font-semibold">{t("settings.font")}</span>
@@ -700,7 +700,7 @@ const Settings = () => {
                       </CollapsibleTrigger>
 
                   <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
-                    <div className="bg-card border border-border p-4 sm:p-6">
+                    <div className="bg-surface border border-border p-4 sm:p-6">
                         <div>
                           <Label htmlFor="google-font" className="text-sm font-medium">
                             {t("settings.googleFont")}
@@ -738,7 +738,7 @@ const Settings = () => {
                 {/* Publish button style */}
                 <Collapsible open={publishButtonExpanded} onOpenChange={setPublishButtonExpanded}>
                   <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                    <button className="w-full bg-surface border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
                       <div className="flex items-center gap-2">
                         <Send className="h-5 w-5" />
                         <span className="text-lg font-semibold">Кнопка публикации</span>
@@ -747,7 +747,7 @@ const Settings = () => {
                     </button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
-                    <div className="bg-card border border-border p-4 sm:p-6 space-y-4">
+                    <div className="bg-surface border border-border p-4 sm:p-6 space-y-4">
                       <p className="text-sm text-muted-foreground">
                         Стиль кнопки «Опубликовать» в редакторе записи g-саба.
                       </p>
@@ -790,7 +790,7 @@ const Settings = () => {
                 {/* Header behaviour */}
                 <Collapsible open={headerExpanded} onOpenChange={setHeaderExpanded}>
                   <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                    <button className="w-full bg-surface border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
                       <div className="flex items-center gap-2">
                         <PanelTop className="h-5 w-5" />
                         <div>
@@ -802,7 +802,7 @@ const Settings = () => {
                     </button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
-                    <div className="bg-card border border-border p-4 sm:p-6 space-y-4">
+                    <div className="bg-surface border border-border p-4 sm:p-6 space-y-4">
                       <div className="grid gap-3 sm:grid-cols-2">
                         {HEADER_BEHAVIORS.map((b) => {
                           const isSelected = headerBehavior === b.id;
@@ -857,7 +857,7 @@ const Settings = () => {
 
               <TabsContent value="profile" className="space-y-4">
                 {/* Profile Customization */}
-                <div className="bg-card p-4 sm:p-6 border border-border">
+                <div className="bg-surface p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">{t("settings.profileCustomization")}</h2>
                   <div className="space-y-4">
                     <div>
@@ -882,7 +882,7 @@ const Settings = () => {
                 </div>
 
                 {/* Post Customization */}
-                <div className="bg-card p-4 sm:p-6 border border-border">
+                <div className="bg-surface p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">{t("settings.postCustomization")}</h2>
                   <div className="space-y-4">
                     <div>
@@ -898,7 +898,7 @@ const Settings = () => {
                 </div>
 
                 {/* Interface Settings */}
-                <div className="bg-card p-4 sm:p-6 border border-border">
+                <div className="bg-surface p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">{t("settings.postInterface")}</h2>
                           <div className="space-y-4">
                             <div>
@@ -937,7 +937,7 @@ const Settings = () => {
                   </div>
 
                 {/* Placeholders */}
-                <div className="bg-card p-4 sm:p-6 border border-border">
+                <div className="bg-surface p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">{t("settings.placeholders")}</h2>
                   <div className="space-y-4">
                     <div>
@@ -957,7 +957,7 @@ const Settings = () => {
               </TabsContent>
 
               <TabsContent value="account" className="space-y-4">
-                <div className="bg-card p-4 sm:p-6 border border-border">
+                <div className="bg-surface p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">{t("settings.account")}</h2>
                   <div className="space-y-4">
                     <div>
@@ -1039,7 +1039,7 @@ const Settings = () => {
 
               <TabsContent value="integrations" className="space-y-4">
                 {/* Spotify Integration */}
-                <div className="bg-card p-4 sm:p-6 border border-border">
+                <div className="bg-surface p-4 sm:p-6 border border-border">
                   <div className="flex items-center gap-2 mb-4">
                     <Music className="h-5 w-5 text-[#1DB954]" />
                     <div>
@@ -1119,7 +1119,7 @@ const Settings = () => {
 
               <TabsContent value="privacy" className="space-y-4">
                     {/* Private Profile */}
-                    <div className="bg-card p-4 sm:p-6 border border-border">
+                    <div className="bg-surface p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
                         <h2 className="text-lg font-semibold">{t("settings.privateProfile")}</h2>
                         <Tooltip>
@@ -1216,7 +1216,7 @@ const Settings = () => {
                     </div>
 
                     {/* Visibility */}
-                    <div className="bg-card p-4 sm:p-6 border border-border">
+                    <div className="bg-surface p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
                         <h2 className="text-lg font-semibold">{t("settings.visibility")}</h2>
                       </div>
@@ -1275,7 +1275,7 @@ const Settings = () => {
                     </div>
 
                     {/* Security */}
-                    <div className="bg-card p-4 sm:p-6 border border-border">
+                    <div className="bg-surface p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
                         <h2 className="text-lg font-semibold">{t("settings.security")}</h2>
                       </div>

@@ -149,7 +149,7 @@ export function AchievementCard({
   // icon and the name.
   if (compact) {
     return (
-      <div className="relative aspect-square p-2 bg-card border border-border rounded-lg flex flex-col items-center justify-center gap-1.5 text-center">
+      <div className="relative aspect-square p-2 bg-surface border border-border rounded-[var(--card-radius)] flex flex-col items-center justify-center gap-1.5 text-center">
         {isEditing && onTogglePin && (
           <button
             type="button"
@@ -219,7 +219,7 @@ export function AchievementCard({
   return (
     <div
       className={cn(
-        "p-4 bg-card border border-border rounded-lg",
+        "p-4 bg-surface border border-border rounded-[var(--card-radius)]",
         "transition-colors",
         isLocked && "opacity-60"
       )}

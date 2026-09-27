@@ -266,7 +266,7 @@ const Auth = () => {
             <p className="text-muted-foreground">{t('auth.twoFactorAuth')}</p>
           </div>
 
-          <div className="bg-card border border-border p-6 rounded">
+          <div className="bg-surface border border-border p-6 rounded">
             <h2 className="text-xl font-bold mb-4 text-center">
               {t('auth.confirmLogin')}
             </h2>
@@ -335,7 +335,7 @@ const Auth = () => {
           <p className="text-muted-foreground">{t('auth.imageboard')}</p>
         </div>
 
-        <div className="bg-card border border-border p-6 rounded">
+        <div className="bg-surface border border-border p-6 rounded">
           <h2 className="text-xl font-bold mb-4 text-center">
             {isLogin ? t('auth.loginTitle') : t('auth.registerTitle')}
           </h2>
@@ -451,7 +451,7 @@ const Auth = () => {
                     <span className="w-full border-t" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">{t('auth.or')}</span>
+                    <span className="bg-surface px-2 text-muted-foreground">{t('auth.or')}</span>
                   </div>
                 </div>
                 <Button
