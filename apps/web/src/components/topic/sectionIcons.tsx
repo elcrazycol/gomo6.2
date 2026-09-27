@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
+  hash: Hash,
   "messages-square": MessagesSquare,
   laugh: Laugh,
   "gamepad-2": Gamepad2,

@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_threads_subsection_id ON threads(subsection_id, u
 -- the matching vector icon. The upsert keeps the catalog in sync when this
 -- migration is re-applied (icons/names can be corrected without a new file).
 INSERT INTO thread_sections (slug, name, description, icon, is_nsfw, sort_order) VALUES
-    ('general',  'Общение',          'Свободное общение, знакомства, встречи',        'messages-square', FALSE, 10),
+    ('general',  'Общение',          'Свободное общение, знакомства, встречи',        'hash', FALSE, 10),
     ('humor',    'Юмор и мемы',      'Мемы, смешное, абсурд',                          'laugh',           FALSE, 20),
     ('games',    'Игры',             'Компьютерные, консольные, мобильные, настолки',  'gamepad-2',       FALSE, 30),
     ('tech',     'Технологии и IT',  'Программирование, ИИ, железо, гайды',            'cpu',             FALSE, 40),
@@ -78,7 +78,6 @@ INSERT INTO thread_subsections (section_id, slug, name, description, sort_order)
 SELECT s.id, v.slug, v.name, v.description, v.sort_order
 FROM (
     VALUES
-        ('general',  'flood',       'Оффтоп',         'Просто поболтать',            10),
         ('general',  'dating',      'Знакомства',     'Поиск друзей и не только',    20),
         ('general',  'meetups',     'Встречи',        'Собраться офлайн',            30),
         ('humor',    'memes',       'Мемы',           'Свежие мемы',                 10),
