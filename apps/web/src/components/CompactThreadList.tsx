@@ -145,6 +145,14 @@ export const CompactThreadList = ({
               </div>
 
               <div className="relative z-10 hidden w-[230px] shrink-0 items-center justify-end gap-2 text-right sm:flex">
+                {/* Bookmark: a reserved slot that fades in on hover, like the
+                    feed card's corner action — no layout shift, and always on
+                    for touch devices. */}
+                {currentUserId && (
+                  <div className="pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 motion-reduce:transition-none">
+                    <FavoriteButton itemType="thread" itemId={thread.id} />
+                  </div>
+                )}
                 <div className="pointer-events-none min-w-0">
                   <UserBadge
                     userId={lastUserId}
@@ -167,14 +175,6 @@ export const CompactThreadList = ({
                   className="h-8 w-8 shrink-0"
                   alt={lastUsername}
                 />
-                {/* Bookmark: a reserved slot that fades in on hover, like the
-                    feed card's corner action — no layout shift, and always on
-                    for touch devices. */}
-                {currentUserId && (
-                  <div className="pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 motion-reduce:transition-none">
-                    <FavoriteButton itemType="thread" itemId={thread.id} />
-                  </div>
-                )}
               </div>
             </div>
           );
