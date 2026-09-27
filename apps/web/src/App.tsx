@@ -253,9 +253,11 @@ function AppRoutes() {
         {/* Pages with layout */}
         <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
           <Route index element={<LazyPage component={Index} />} />
-          {/* App views and разделы as real paths. The /c/ prefix keeps раздел
-              slugs out of the reserved top-level namespace (/search, /create,
-              /settings, /thread, …), so no slug can shadow a route. */}
+          {/* App views and разделы as real paths. «c» = category, the
+              Discourse-style prefix for a category→subcategory hierarchy (our
+              раздел→подраздел). It also keeps раздел slugs out of the reserved
+              top-level namespace (/search, /create, /settings, /thread, …), so
+              no slug can ever shadow a route. */}
           <Route path="feed" element={<LazyPage component={Index} />} />
           <Route path="mine" element={<LazyPage component={Index} />} />
           <Route path="history" element={<LazyPage component={Index} />} />
