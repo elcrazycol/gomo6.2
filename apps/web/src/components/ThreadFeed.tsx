@@ -3,7 +3,6 @@ import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
 import { FeedWallPostCard } from "@/components/FeedWallPostCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
 import { wsService, type WebSocketMessageType } from "@/services/websocket";
@@ -385,16 +384,19 @@ export const ThreadFeed = ({
     }
   };
 
-  // Skeleton only before the first page lands. Once there is content, a
-  // background revalidation (profile edit) must not replace it with a skeleton.
+  // No skeleton before the first page lands: the header's loading bar is the
+  // progress cue (and for in-page switches Index keeps the previous view on
+  // screen), so the content simply fades in instead of a layout-shifting
+  // skeleton. Once there is content, a background revalidation must not replace
+  // it either.
   if (loading && items.length === 0) {
-    return <ThreadFeedSkeleton count={limit > 5 ? 5 : limit} />;
+    return <div className="min-h-[45vh]" aria-busy="true" />;
   }
 
   return (
     <>
       <div
-        className="space-y-4"
+        className="space-y-4 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}

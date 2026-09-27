@@ -173,7 +173,7 @@ describe("ThreadFeed", () => {
 
   // ─── Loading state ──────────────────────────────────────────────────────────
 
-  it("shows loading state initially", () => {
+  it("shows a quiet loading placeholder (no skeleton) before the first page", () => {
     // Never-resolving fetch
     mockFetch.mockImplementation(() => new Promise(() => {}));
 
@@ -184,8 +184,9 @@ describe("ThreadFeed", () => {
       />,
     );
 
-    // Skeleton loading state renders animated pulse divs
-    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+    // No skeleton any more — the header's loading bar is the progress cue.
+    expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
+    expect(container.querySelector("[aria-busy='true']")).toBeInTheDocument();
   });
 
   // ─── Feed rendering ─────────────────────────────────────────────────────────
