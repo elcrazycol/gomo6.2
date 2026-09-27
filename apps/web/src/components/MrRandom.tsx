@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Hash, MessageCircle, MessageSquare, StickyNote, User } from "lucide-react";
+import { Hash, MessageCircle, MessageSquare, Play, StickyNote, User } from "lucide-react";
 
 import { apiClient } from "@/integrations/api/client";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { Spotlight } from "@/components/Spotlight";
+import { storageUrl } from "@/utils/storage";
 
 interface RandomItem {
   type: "thread" | "wall_post" | "profile" | "wall_comment" | "gomosub";
@@ -16,6 +17,9 @@ interface RandomItem {
   post_id?: string;
   username?: string;
   avatar_url?: string | null;
+  /** Small square on the right for a thread/post with media. */
+  thumb_url?: string;
+  media_kind?: "image" | "video";
 }
 
 const hrefFor = (item: RandomItem): string => {
@@ -109,6 +113,25 @@ export const MrRandom = () => {
                       </span>
                     )}
                   </span>
+                  {item.media_kind && item.thumb_url ? (
+                    <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md border border-border/60">
+                      <img
+                        src={storageUrl("content", item.thumb_url) || item.thumb_url}
+                        alt=""
+                        aria-hidden="true"
+                        className="h-full w-full object-cover"
+                      />
+                      {item.media_kind === "video" && (
+                        <span className="absolute inset-0 grid place-items-center bg-black/30">
+                          <Play className="h-3.5 w-3.5 fill-current text-white" aria-hidden="true" />
+                        </span>
+                      )}
+                    </span>
+                  ) : item.media_kind === "video" ? (
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-border/60 bg-muted">
+                      <Play className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                    </span>
+                  ) : null}
                 </PrefetchLink>
               </Spotlight>
             );

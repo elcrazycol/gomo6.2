@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"math/rand"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
@@ -35,6 +37,9 @@ type randomItem struct {
 	PostID     string  `json:"post_id,omitempty"`
 	Username   string  `json:"username,omitempty"`
 	AvatarURL  *string `json:"avatar_url,omitempty"`
+	// Media preview for the small square on the right of a thread/post row.
+	ThumbURL  string `json:"thumb_url,omitempty"`
+	MediaKind string `json:"media_kind,omitempty"` // "image" | "video"
 }
 
 const (
@@ -75,13 +80,13 @@ func (h *RandomHandler) GetRandom(c *gin.Context) {
 
 func (h *RandomHandler) randomThreads() []randomItem {
 	rows, err := h.db.Query(`
-		SELECT t.id, COALESCE(t.title, ''), COALESCE(b.slug, ''), COALESCE(b.is_gomosub, false)
+		SELECT t.id, COALESCE(t.title, ''), COALESCE(t.content, ''), COALESCE(b.slug, ''), COALESCE(b.is_gomosub, false),
+		       t.image_url, t.image_urls, t.attachments
 		FROM threads t
 		LEFT JOIN boards b ON b.id = t.board_id
 		WHERE t.channel_id IS NULL
 		  AND NOT COALESCE(b.is_rules_board, false)
 		  AND (t.board_id IS NULL OR COALESCE(b.visibility, 'public') <> 'private')
-		  AND COALESCE(t.title, '') <> ''
 		ORDER BY random()
 		LIMIT $1`, randomPerType)
 	if err != nil {
@@ -91,11 +96,23 @@ func (h *RandomHandler) randomThreads() []randomItem {
 
 	out := []randomItem{}
 	for rows.Next() {
-		var id, title, slug string
+		var id, title, content, slug string
 		var isGomosub bool
-		if err := rows.Scan(&id, &title, &slug, &isGomosub); err != nil {
+		var imageURL sql.NullString
+		var imageURLs, attachments []byte
+		if err := rows.Scan(&id, &title, &content, &slug, &isGomosub, &imageURL, &imageURLs, &attachments); err != nil {
 			continue
 		}
+		thumb, kind := mediaFromColumns(imageURL, imageURLs, attachments)
+		label := title
+		if strings.TrimSpace(label) == "" {
+			label = truncate(content, 90)
+		}
+		if strings.TrimSpace(label) == "" && kind == "" {
+			// Nothing at all to show — skip.
+			continue
+		}
+		label = placeholderFor(label, kind)
 		sublabel := "тема"
 		if slug != "" {
 			if isGomosub {
@@ -105,8 +122,8 @@ func (h *RandomHandler) randomThreads() []randomItem {
 			}
 		}
 		out = append(out, randomItem{
-			Type: "thread", ID: id, Label: title, Sublabel: sublabel,
-			BoardSlug: slug, IsGomosub: isGomosub,
+			Type: "thread", ID: id, Label: label, Sublabel: sublabel,
+			BoardSlug: slug, IsGomosub: isGomosub, ThumbURL: thumb, MediaKind: kind,
 		})
 	}
 	return out
@@ -115,13 +132,13 @@ func (h *RandomHandler) randomThreads() []randomItem {
 func (h *RandomHandler) randomWallPosts() []randomItem {
 	rows, err := h.db.Query(`
 		SELECT p.id, COALESCE(p.user_id::text, ''), COALESCE(p.content, ''),
-		       COALESCE(u.username, ''), COALESCE(u.is_anonymous, false)
+		       COALESCE(u.username, ''), COALESCE(u.is_anonymous, false),
+		       p.image_url, p.attachments
 		FROM profile_wall_posts p
 		JOIN users u ON u.id = p.author_id
 		LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 		WHERE NOT COALESCE(ps.private_profile, false)
 		  AND NOT COALESCE(ps.private_hide_wall, false)
-		  AND COALESCE(p.content, '') <> ''
 		  AND u.username NOT LIKE '\_\_%'
 		ORDER BY random()
 		LIMIT $1`, randomPerType)
@@ -134,9 +151,17 @@ func (h *RandomHandler) randomWallPosts() []randomItem {
 	for rows.Next() {
 		var id, wallUserID, content, username string
 		var isAnonymous bool
-		if err := rows.Scan(&id, &wallUserID, &content, &username, &isAnonymous); err != nil {
+		var imageURL sql.NullString
+		var attachments []byte
+		if err := rows.Scan(&id, &wallUserID, &content, &username, &isAnonymous, &imageURL, &attachments); err != nil {
 			continue
 		}
+		thumb, kind := mediaFromColumns(imageURL, nil, attachments)
+		label := truncate(content, 90)
+		if strings.TrimSpace(label) == "" && kind == "" {
+			continue
+		}
+		label = placeholderFor(label, kind)
 		sublabel := "пост на стене"
 		if isAnonymous {
 			sublabel = "Аноним · пост"
@@ -144,8 +169,9 @@ func (h *RandomHandler) randomWallPosts() []randomItem {
 			sublabel = "@" + username
 		}
 		out = append(out, randomItem{
-			Type: "wall_post", ID: id, Label: truncate(content, 90),
+			Type: "wall_post", ID: id, Label: label,
 			Sublabel: sublabel, WallUserID: wallUserID, Username: username,
+			ThumbURL: thumb, MediaKind: kind,
 		})
 	}
 	return out
@@ -257,4 +283,59 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return string(r[:max]) + "…"
+}
+
+// mediaFromColumns picks the first media of a thread/post for the small square:
+// a compressed preview key for images (falling back to the original URL), or a
+// bare "video" marker. Rich `attachments` win over the legacy image columns.
+func mediaFromColumns(imageURL sql.NullString, imageURLs, attachments []byte) (thumb, kind string) {
+	if len(attachments) > 0 {
+		var list []struct {
+			URL    string `json:"url"`
+			Type   string `json:"type"`
+			Poster string `json:"poster"`
+			Meta   *struct {
+				PreviewKey string `json:"preview_key"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal(attachments, &list); err == nil {
+			for _, a := range list {
+				switch a.Type {
+				case "image":
+					key := a.URL
+					if a.Meta != nil && a.Meta.PreviewKey != "" {
+						key = a.Meta.PreviewKey
+					}
+					if key != "" {
+						return key, "image"
+					}
+				case "video":
+					// The poster is the video's still frame — a perfect square thumb.
+					return a.Poster, "video"
+				}
+			}
+		}
+	}
+	if len(imageURLs) > 0 {
+		var urls []string
+		if err := json.Unmarshal(imageURLs, &urls); err == nil && len(urls) > 0 && urls[0] != "" {
+			return urls[0], "image"
+		}
+	}
+	if imageURL.Valid && imageURL.String != "" {
+		return imageURL.String, "image"
+	}
+	return "", ""
+}
+
+// placeholderFor substitutes «Фото.» / «Видео.» when an item has media but no
+// text of its own.
+func placeholderFor(label, kind string) string {
+	if strings.TrimSpace(label) != "" || kind == "" {
+		return label
+	}
+	if kind == "video" {
+		return "Видео."
+	}
+	return "Фото."
 }

@@ -121,6 +121,12 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Skip caching for «Mr. рандомность» — it must be random on every call.
+		if strings.HasPrefix(path, "/api/v1/random") {
+			c.Next()
+			return
+		}
+
 		// Determine TTL based on path (threads/posts=30s, boards/profiles=5min)
 		effectiveTTL := cacheTTLByPath(c.Request.URL.Path, ttl)
 
