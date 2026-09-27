@@ -5,6 +5,11 @@ import { apiClient } from "@/integrations/api/client";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { Spotlight } from "@/components/Spotlight";
 import { storageUrl } from "@/utils/storage";
+import {
+  DEFAULT_MR_RANDOM_COUNT,
+  MR_RANDOM_COUNT_EVENT,
+  getMrRandomCount,
+} from "@/lib/mrRandom";
 
 interface RandomItem {
   type: "thread" | "wall_post" | "profile" | "wall_comment" | "gomosub";
@@ -48,12 +53,23 @@ const hrefFor = (item: RandomItem): string => {
  */
 export const MrRandom = () => {
   const [items, setItems] = useState<RandomItem[] | null>(null);
+  const [count, setCount] = useState<number>(() => getMrRandomCount());
+
+  // React live to the Settings choice (localStorage + event).
+  useEffect(() => {
+    const onCount = (event: Event) => {
+      const detail = (event as CustomEvent<{ count?: number }>).detail;
+      setCount(typeof detail?.count === "number" ? detail.count : getMrRandomCount());
+    };
+    window.addEventListener(MR_RANDOM_COUNT_EVENT, onCount);
+    return () => window.removeEventListener(MR_RANDOM_COUNT_EVENT, onCount);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const resp = await apiClient.request<RandomItem[]>("/api/v1/random?limit=6");
+        const resp = await apiClient.request<RandomItem[]>(`/api/v1/random?limit=${count}`);
         if (cancelled) return;
         setItems((resp.data as RandomItem[]) ?? []);
       } catch {
@@ -63,7 +79,9 @@ export const MrRandom = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [count]);
+
+  const skeletonRows = Math.min(Math.max(count, DEFAULT_MR_RANDOM_COUNT), 3);
 
   return (
     <div className="overflow-clip rounded-[var(--card-radius)] border border-border/70 bg-surface">
@@ -72,7 +90,7 @@ export const MrRandom = () => {
       </h3>
       <div className="p-2 sm:p-2.5">
         {items === null ? (
-          [0, 1, 2].map((i) => (
+          [0, 1, 2].slice(0, skeletonRows).map((i) => (
             <div key={i} className="flex items-center gap-2.5 px-2.5 py-2">
               <span className="flex-1 space-y-1.5">
                 <span className="block h-3.5 w-2/3 animate-pulse rounded bg-muted" />

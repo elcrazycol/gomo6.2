@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle, PanelTop } from "lucide-react";
+import { ChevronDown, Dices, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle, PanelTop } from "lucide-react";
 import { useAnimatedVideoStore, type AutoplayMode } from "@/stores/animatedVideoStore";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
@@ -24,6 +24,11 @@ import { LanguageSelector } from "@/components/LanguageSelector";
 import { PublishButton } from "@/components/PublishButton";
 import { PUBLISH_BUTTON_STYLES, getPublishButtonStyle, setPublishButtonStyle, type PublishButtonStyle } from "@/lib/publishButtonStyle";
 import { HEADER_BEHAVIORS, getHeaderBehavior, setHeaderBehavior, type HeaderBehavior } from "@/lib/headerBehavior";
+import {
+  MR_RANDOM_COUNT_OPTIONS,
+  getMrRandomCount,
+  setMrRandomCount,
+} from "@/lib/mrRandom";
 
 
 const defaultPrivacySettings = {
@@ -116,6 +121,8 @@ const Settings = () => {
   const [publishButtonStyle, setPublishButtonStyleState] = useState<PublishButtonStyle>(getPublishButtonStyle);
   const [headerExpanded, setHeaderExpanded] = useState(false);
   const [headerBehavior, setHeaderBehaviorState] = useState<HeaderBehavior>(getHeaderBehavior);
+  const [mrRandomExpanded, setMrRandomExpanded] = useState(false);
+  const [mrRandomCount, setMrRandomCountState] = useState<number>(getMrRandomCount);
 
   const [customFont, setCustomFont] = useState(() => {
     return localStorage.getItem('custom_font') || '';
@@ -411,6 +418,11 @@ const Settings = () => {
   const handleHeaderBehaviorChange = (behavior: HeaderBehavior) => {
     setHeaderBehaviorState(behavior);
     setHeaderBehavior(behavior);
+  };
+
+  const handleMrRandomCountChange = (count: number) => {
+    setMrRandomCountState(count);
+    setMrRandomCount(count);
   };
 
   const handleTabChange = (value: string) => {
@@ -849,6 +861,49 @@ const Settings = () => {
                           );
                         })}
                       </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Mr. рандомность */}
+                <Collapsible open={mrRandomExpanded} onOpenChange={setMrRandomExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <button className="w-full bg-surface border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <Dices className="h-5 w-5" />
+                        <div>
+                          <span className="text-lg font-semibold">Mr. рандомность</span>
+                          <p className="text-sm text-muted-foreground">Сколько случайных записей показывать в сайдбаре</p>
+                        </div>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 transition-transform ${mrRandomExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
+                    <div className="bg-surface border border-border p-4 sm:p-6 space-y-4">
+                      <div className="flex flex-wrap gap-2">
+                        {MR_RANDOM_COUNT_OPTIONS.map((n) => {
+                          const isSelected = mrRandomCount === n;
+                          return (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => handleMrRandomCountChange(n)}
+                              aria-pressed={isSelected}
+                              className={`h-10 w-10 rounded-xl border text-sm font-semibold transition-all duration-200 ${
+                                isSelected
+                                  ? "border-primary/70 bg-primary/10 text-primary"
+                                  : "border-border bg-background/60 text-foreground/80 hover:border-primary/30 hover:bg-muted/30"
+                              }`}
+                            >
+                              {n}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        По умолчанию — 1. Применяется сразу, без перезагрузки.
+                      </p>
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
