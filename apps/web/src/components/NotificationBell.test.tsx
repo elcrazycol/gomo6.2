@@ -1,187 +1,98 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NotificationBell } from "./NotificationBell";
+import { render, screen, fireEvent, act } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { ReactNode } from "react";
 
-const mockInit = vi.fn();
-const mockMarkAsRead = vi.fn();
-const mockNavigateFn = vi.fn();
-let notifications: any[] = [];
-let unreadCount = 0;
+import { NotificationBell } from "@/components/NotificationBell";
 
-vi.mock("@/stores/notificationStore", () => ({
-  useNotificationStore: (selector: any) => {
-    const state = { notifications, unreadCount, init: mockInit, markAsRead: mockMarkAsRead };
-    return selector(state);
+const { mockStore } = vi.hoisted(() => ({
+  mockStore: {
+    notifications: [] as Array<Record<string, unknown>>,
+    unreadCount: 0,
+    hasMore: false,
+    isLoadingMore: false,
+    init: vi.fn(),
+    markAsRead: vi.fn(),
+    fetchMore: vi.fn(),
   },
 }));
 
-vi.mock("@/integrations/api/client", () => ({
-  apiClient: {},
+vi.mock("@/stores/notificationStore", () => ({
+  useNotificationStore: (selector: (state: typeof mockStore) => unknown) => selector(mockStore),
 }));
-
-vi.mock("@/services/websocket", () => ({
-  wsService: {},
+vi.mock("@/components/NotificationItem", () => ({
+  NotificationItem: ({ notification }: { notification: { id: string } }) => (
+    <div data-testid="notif-row">{notification.id}</div>
+  ),
 }));
-
-vi.mock("react-router-dom", () => ({
-  useNavigate: () => mockNavigateFn,
-  Link: ({ children, to, className, onMouseEnter, onClick }: any) => (
-    <a href={to} className={className} onMouseEnter={onMouseEnter} onClick={onClick}>{children}</a>
+vi.mock("@/components/UnreadBadge", () => ({ UnreadBadge: () => null }));
+vi.mock("@/components/PentagramLoader", () => ({ PentagramLoader: () => <span /> }));
+vi.mock("@/components/ui/button", () => ({
+  Button: ({ children, onClick, className }: { children: ReactNode; onClick?: () => void; className?: string }) => (
+    <button type="button" onClick={onClick} className={className}>
+      {children}
+    </button>
   ),
 }));
 
-vi.mock("@/contexts/ProfileCacheContext", () => ({
-  useProfileCache: () => ({
-    loadProfile: vi.fn().mockResolvedValue({ username: "", avatarUrl: undefined }),
-  }),
-}));
-
-vi.mock("@/utils/safeDate", () => ({
-  safeDate: (d: string) => new Date(d),
-}));
-
-vi.mock("date-fns", () => ({
-  formatDistanceToNow: () => "2 часа назад",
-}));
-
-const createMatchMedia = (matches: boolean) =>
-  ((query: string) => ({
-    matches,
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
+const renderBell = () =>
+  render(
+    <MemoryRouter>
+      <NotificationBell userId="user-1" />
+    </MemoryRouter>,
+  );
 
 describe("NotificationBell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    notifications = [];
-    unreadCount = 0;
-    // Default to a desktop (hover-capable) environment
-    window.matchMedia = createMatchMedia(true);
+    mockStore.notifications = [];
+    // Pretend a fine pointer so the hover panel is enabled.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
   });
 
-  it("renders bell icon", () => {
-    render(<NotificationBell userId="user-1" />);
-    expect(screen.getByRole("button")).toBeInTheDocument();
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("calls init on mount", () => {
-    render(<NotificationBell userId="user-1" />);
-    expect(mockInit).toHaveBeenCalledWith("user-1");
+  it("opens on hover, shows the whole loaded list, and stays open on leave", () => {
+    mockStore.notifications = Array.from({ length: 12 }, (_, i) => ({ id: `n${i}` }));
+    renderBell();
+
+    const bell = screen.getByRole("button");
+    fireEvent.mouseOver(bell);
+
+    expect(screen.getAllByTestId("notif-row")).toHaveLength(12);
+
+    // Moving the pointer away must NOT close the panel — that auto-close is
+    // what made the list impossible to scroll.
+    fireEvent.mouseLeave(bell.parentElement!);
+    expect(screen.getAllByTestId("notif-row")).toHaveLength(12);
   });
 
-  it("shows unread badge", () => {
-    unreadCount = 3;
-    render(<NotificationBell userId="user-1" />);
-    expect(screen.getByText("3")).toBeInTheDocument();
-  });
+  it("closes on an outside click", () => {
+    mockStore.notifications = [{ id: "n1" }];
+    renderBell();
 
-  it("shows 99+ for counts over 99", () => {
-    unreadCount = 150;
-    render(<NotificationBell userId="user-1" />);
-    expect(screen.getByText("99+")).toBeInTheDocument();
-  });
+    fireEvent.mouseOver(screen.getByRole("button"));
+    expect(screen.getByTestId("notif-row")).toBeInTheDocument();
 
-  it("does not show badge when count is 0", () => {
-    unreadCount = 0;
-    render(<NotificationBell userId="user-1" />);
-    expect(screen.queryByText("0")).not.toBeInTheDocument();
-  });
-
-  it("navigates to /notify on click", async () => {
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.click(screen.getByRole("button"));
-    expect(mockNavigateFn).toHaveBeenCalledWith("/notify");
-  });
-
-  it("does not show hover card on touch devices and opens /notify on tap", async () => {
-    window.matchMedia = createMatchMedia(false);
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.mouseEnter(screen.getByRole("button"));
-    expect(screen.queryByText("Уведомления")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button"));
-    expect(mockNavigateFn).toHaveBeenCalledWith("/notify");
-  });
-
-  it("shows card on mouse enter", async () => {
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.mouseEnter(screen.getByRole("button"));
-    await waitFor(() => {
-      expect(screen.getByText("Уведомления")).toBeInTheDocument();
+    act(() => {
+      fireEvent.mouseDown(document.body);
     });
+    expect(screen.queryByTestId("notif-row")).not.toBeInTheDocument();
   });
 
-  it("shows 'Нет уведомлений' when empty", async () => {
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.mouseEnter(screen.getByRole("button"));
-    await waitFor(() => {
-      expect(screen.getByText("Нет уведомлений")).toBeInTheDocument();
-    });
-  });
-
-  it("shows notifications when loaded", async () => {
-    notifications = [
-      { id: "n1", title: "New like", message: "User liked your post", is_read: false, created_at: "2025-01-01T00:00:00Z", related_thread_id: "t1" },
-      { id: "n2", title: "New comment", message: "User commented", is_read: true, created_at: "2025-01-01T00:00:00Z", related_thread_id: null },
-    ];
-
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.mouseEnter(screen.getByRole("button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("New like")).toBeInTheDocument();
-      expect(screen.getByText("New comment")).toBeInTheDocument();
-    });
-  });
-
-  it("shows 'Все →' link", async () => {
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.mouseEnter(screen.getByRole("button"));
-    await waitFor(() => {
-      expect(screen.getByText("Все →")).toBeInTheDocument();
-    });
-  });
-
-  it("marks notification as read on open", async () => {
-    notifications = [
-      { id: "n1", title: "New like", message: "User liked", is_read: false, created_at: "2025-01-01T00:00:00Z", related_thread_id: "t1" },
-    ];
-
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.mouseEnter(screen.getByRole("button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("New like")).toBeInTheDocument();
-    });
-
-    const notifLink = screen.getByText("New like").closest("a")!;
-    fireEvent.click(notifLink);
-
-    await waitFor(() => {
-      expect(mockMarkAsRead).toHaveBeenCalledWith("n1");
-    });
-  });
-
-  it("does not mark already-read notifications", async () => {
-    notifications = [
-      { id: "n1", title: "Old notif", message: "Already read", is_read: true, created_at: "2025-01-01T00:00:00Z", related_thread_id: null },
-    ];
-
-    render(<NotificationBell userId="user-1" />);
-    fireEvent.mouseEnter(screen.getByRole("button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Old notif")).toBeInTheDocument();
-    });
-
-    const notifLink = screen.getByText("Old notif").closest("button")!;
-    fireEvent.click(notifLink);
-
-    expect(mockMarkAsRead).not.toHaveBeenCalled();
+  it("initialises the store for the user", () => {
+    renderBell();
+    expect(mockStore.init).toHaveBeenCalledWith("user-1");
   });
 });

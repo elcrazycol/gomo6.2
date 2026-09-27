@@ -355,6 +355,8 @@ const en: LocaleResources = {
     unread: "Unread",
     noUnreadNotifications: "No unread notifications",
     allLoaded: "All notifications loaded",
+    today: "Today",
+    yesterday: "Yesterday",
     backToNotifications: "Back to notifications",
     likedThesePosts: "@{{actor}} liked these posts",
     postsTheyLiked: "Posts they liked",

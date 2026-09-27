@@ -374,6 +374,8 @@ const ru: LocaleResources = {
     unread: "Непрочитанные",
     noUnreadNotifications: "Нет непрочитанных уведомлений",
     allLoaded: "Все уведомления загружены",
+    today: "Сегодня",
+    yesterday: "Вчера",
     backToNotifications: "Назад к уведомлениям",
     likedThesePosts: "@{{actor}} оценил(а) эти записи",
     postsTheyLiked: "Записи, которые понравились",
