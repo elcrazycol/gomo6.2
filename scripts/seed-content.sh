@@ -21,7 +21,8 @@ SECTION_SLUG="${SECTION_SLUG:-general}"
 
 command -v jq >/dev/null || { echo "jq is required"; exit 1; }
 
-IMG_KEY="bad9ccbf-8f72-4c7e-a3ed-9c269474ddbd/seed/wall.png"
+# Full storage paths (the bare key alone does not resolve in the frontend).
+IMG_URL="/storage/v1/object/wall/45166086-8e4f-4abe-91f6-6cd61d88a6d6/1790287370617_4lu3peosxt3.webp"
 VIDEO_URL="/storage/v1/object/wall/45166086-8e4f-4abe-91f6-6cd61d88a6d6/1790319421383_jgogbxhd4uf.mp4"
 VIDEO_POSTER="/storage/v1/object/wall/45166086-8e4f-4abe-91f6-6cd61d88a6d6/1790319421383_jgogbxhd4uf.mp4.poster.jpg"
 
@@ -131,7 +132,7 @@ for _ in $(seq 1 "$WALLPOSTS"); do
   ui=$((RANDOM % N)); tok="${U_TOKEN[$ui]}"; uid="${U_ID[$ui]}"
   if [ $((RANDOM % 3)) -eq 0 ]; then
     if [ $((RANDOM % 2)) -eq 0 ]; then
-      att="$(jq -nc --arg k "$IMG_KEY" '[{url:$k,type:"image",mime:"image/png",name:"photo.png",size:0}]')"
+      att="$(jq -nc --arg k "$IMG_URL" '[{url:$k,type:"image",mime:"image/webp",name:"photo.webp",size:0}]')"
     else
       att="$(jq -nc --arg u "$VIDEO_URL" --arg p "$VIDEO_POSTER" '[{url:$u,type:"video",mime:"video/mp4",name:"clip.mp4",size:0,poster:$p}]')"
     fi
