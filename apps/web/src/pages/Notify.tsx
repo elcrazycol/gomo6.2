@@ -58,6 +58,21 @@ const ReadOnViewRow = ({
   );
 };
 
+/** Placeholder rows shown while the first page (or a tab switch) is loading. */
+const NotificationListSkeleton = () => (
+  <div className="divide-y divide-border/60">
+    {Array.from({ length: 6 }).map((_, i) => (
+      <div key={i} className="flex items-start gap-3 px-4 py-3">
+        <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-muted" />
+        <div className="flex-1 space-y-2 pt-0.5">
+          <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          <div className="h-2.5 w-1/4 animate-pulse rounded bg-muted" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 const Notify = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -71,6 +86,8 @@ const Notify = () => {
   const notifications = useNotificationStore((s) => s.notifications);
   const hasMore = useNotificationStore((s) => s.hasMore);
   const isLoadingMore = useNotificationStore((s) => s.isLoadingMore);
+  const isLoading = useNotificationStore((s) => s.isLoading);
+  const activeFilter = useNotificationStore((s) => s.activeFilter);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const fetchMore = useNotificationStore((s) => s.fetchMore);
   const resetAndFetch = useNotificationStore((s) => s.resetAndFetch);
@@ -134,9 +151,12 @@ const Notify = () => {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      resetAndFetch(tab === "unread" ? "false" : undefined);
-    }
+    if (!user) return;
+    const filter = tab === "unread" ? "false" : undefined;
+    // The bell usually preloaded this exact list — resetting it would clear the
+    // rows and flash «нет уведомлений» for a frame.
+    if (activeFilter === filter && notifications.length > 0) return;
+    resetAndFetch(filter);
   }, [tab, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -148,6 +168,10 @@ const Notify = () => {
     () => groupByDay(slugifiedNotifs, new Date(), t, dateLocale),
     [slugifiedNotifs, t, dateLocale],
   );
+  // Pending while the store loads, and for the tick between the store list
+  // arriving and attachSlugs resolving it into `slugifiedNotifs` — without this
+  // the empty state flashed for a frame before the rows appeared.
+  const listPending = isLoading || (notifications.length > 0 && slugifiedNotifs.length === 0);
 
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
@@ -228,7 +252,9 @@ const Notify = () => {
         </div>
       </header>
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && listPending ? (
+        <NotificationListSkeleton />
+      ) : groups.length === 0 ? (
         <div className="px-4 py-16 text-center">
           <p className="text-sm text-muted-foreground">
             {tab === "unread" ? t("notif.noUnreadNotifications") : t("notif.noNotifications")}

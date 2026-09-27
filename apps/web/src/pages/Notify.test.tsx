@@ -8,7 +8,9 @@ const { mockStore } = vi.hoisted(() => ({
     notifications: [] as Array<Record<string, unknown>>,
     unreadCount: 0,
     hasMore: false,
+    isLoading: false,
     isLoadingMore: false,
+    activeFilter: undefined as string | undefined,
     fetchMore: vi.fn(),
     resetAndFetch: vi.fn(),
     markAsRead: vi.fn(),
@@ -107,5 +109,15 @@ describe("Notify", () => {
     });
 
     expect(mockStore.fetchMore).toHaveBeenCalled();
+  });
+
+  it("shows a skeleton, not «нет уведомлений», while the first page loads", async () => {
+    mockStore.notifications = [];
+    mockStore.isLoading = true;
+    render(<Notify />);
+
+    await waitFor(() => expect(screen.getByText("Все")).toBeInTheDocument());
+    expect(screen.queryByText("Нет уведомлений")).not.toBeInTheDocument();
+    expect(document.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 });

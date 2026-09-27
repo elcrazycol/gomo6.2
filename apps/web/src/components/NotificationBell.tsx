@@ -118,7 +118,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
             <div
               ref={listRef}
               onScroll={onListScroll}
-              className="max-h-[min(70vh,34rem)] divide-y divide-border/60 overflow-y-auto overscroll-contain"
+              className="max-h-[min(35vh,17rem)] divide-y divide-border/60 overflow-y-auto overscroll-contain"
             >
               {notifications.map((notif) => (
                 <NotificationItem
