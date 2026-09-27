@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
+import { runViewTransition, type TransitionStyle } from "@/lib/viewTransitions";
+
 /**
  * Stale-view retention for URL-driven view switching.
  *
@@ -21,8 +23,15 @@ import { useCallback, useRef, useState } from "react";
 export const PENDING_VIEW_VISIBLE =
   "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none";
 
-export const pendingViewClass = (visible: boolean) =>
-  visible ? PENDING_VIEW_VISIBLE : "hidden";
+export const pendingViewClass = (
+  visible: boolean,
+  style: TransitionStyle = "fade",
+): string => {
+  if (!visible) return "hidden";
+  // With the View Transitions API the browser animates the swap itself, so an
+  // extra CSS fade would double up.
+  return style === "view-transition" ? "" : PENDING_VIEW_VISIBLE;
+};
 
 export interface PendingView<K extends string> {
   /** The view currently on screen. */
@@ -45,7 +54,7 @@ export const usePendingView = <K extends string>(target: K, initial: K): Pending
   const readyFor = useCallback((view: K) => {
     let fn = readyCache.current.get(view);
     if (!fn) {
-      fn = () => setShown(view);
+      fn = () => runViewTransition(() => setShown(view));
       readyCache.current.set(view, fn);
     }
     return fn;

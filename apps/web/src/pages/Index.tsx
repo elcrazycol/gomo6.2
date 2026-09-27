@@ -20,6 +20,7 @@ import { AddTabDialog } from "@/components/AddTabDialog";
 import { Spotlight } from "@/components/Spotlight";
 import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
 import { usePendingView, pendingViewClass } from "@/hooks/usePendingView";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface GomoSub {
@@ -128,6 +129,7 @@ const Index = () => {
   // the feed never mounts (and never fetches) when landing straight on a раздел.
   const initialMode: MainView = isSectionRoute ? "section" : explicitView ?? "feed";
   const view = usePendingView<MainView>(targetMode, initialMode);
+  const transitionStyle = useTransitionStyle();
   const navigate = useNavigate();
 
   // Remember the last resolved раздел so it stays on screen while the feed
@@ -295,7 +297,11 @@ const Index = () => {
         <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6">
           {/* Main Feed — recommendations only: the «Рекомендации / Подписки»
               toggle and the subscriptions view behind it were removed. */}
-          <div className="lg:col-span-3">
+          <div
+            className={`lg:col-span-3 ${
+              transitionStyle === "view-transition" ? "view-transition-target" : ""
+            }`}
+          >
             {/* The feed is mounted only for feed-ish views — on a раздел path it
                 is not fetched at all. During the feed→раздел transition it stays
                 mounted (hidden by shownMode) until the section reports ready. */}
@@ -304,7 +310,7 @@ const Index = () => {
                 stays hidden until it reports ready, so the previous view
                 remains visible instead of a skeleton. */}
             {view.isRendered("feed") && (
-              <div className={pendingViewClass(view.isShown("feed"))}>
+              <div className={pendingViewClass(view.isShown("feed"), transitionStyle)}>
                 <ThreadFeed
                   currentUserId={user?.id}
                   currentUsername={currentUserUsername}
@@ -314,7 +320,7 @@ const Index = () => {
               </div>
             )}
             {view.isRendered("section") && (
-              <div className={pendingViewClass(view.isShown("section"))}>
+              <div className={pendingViewClass(view.isShown("section"), transitionStyle)}>
                 {renderedSection ? (
                   <SectionThreads
                     section={renderedSection}
@@ -335,7 +341,7 @@ const Index = () => {
               </div>
             )}
             {view.isRendered("mine") && (
-              <div className={pendingViewClass(view.isShown("mine"))}>
+              <div className={pendingViewClass(view.isShown("mine"), transitionStyle)}>
                 <MyPosts
                   currentUserId={user?.id ?? null}
                   currentUsername={currentUserUsername}
@@ -345,7 +351,7 @@ const Index = () => {
               </div>
             )}
             {view.isRendered("history") && (
-              <div className={pendingViewClass(view.isShown("history"))}>
+              <div className={pendingViewClass(view.isShown("history"), transitionStyle)}>
                 <HistoryView
                   currentUserId={user?.id ?? null}
                   currentUsername={currentUserUsername}
@@ -355,7 +361,7 @@ const Index = () => {
               </div>
             )}
             {view.isRendered("favorites") && (
-              <div className={pendingViewClass(view.isShown("favorites"))}>
+              <div className={pendingViewClass(view.isShown("favorites"), transitionStyle)}>
                 <FavoritesView
                   currentUserId={user?.id ?? null}
                   currentUsername={currentUserUsername}

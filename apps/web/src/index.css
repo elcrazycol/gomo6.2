@@ -1306,3 +1306,40 @@ html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
     animation-duration: 2.2s;
   }
 }
+
+/* ── View Transitions (Settings → Appearance → Анимация переходов) ───────────
+   Only the content column animates, not the whole chrome: the root transition
+   is disabled and the main column carries `view-transition-name: view-content`
+   (see hooks/usePendingView + pages/Index). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+.view-transition-target {
+  view-transition-name: view-content;
+}
+
+::view-transition-group(view-content) {
+  animation-duration: 220ms;
+}
+
+::view-transition-old(view-content) {
+  animation: 140ms ease-out both gomo-vt-out;
+}
+
+::view-transition-new(view-content) {
+  animation: 200ms ease-out both gomo-vt-in;
+}
+
+@keyframes gomo-vt-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes gomo-vt-in {
+  from {
+    opacity: 0;
+  }
+}

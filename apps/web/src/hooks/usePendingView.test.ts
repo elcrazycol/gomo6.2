@@ -47,4 +47,10 @@ describe("pendingViewClass", () => {
     expect(pendingViewClass(false)).toBe("hidden");
     expect(pendingViewClass(true)).toContain("animate-in");
   });
+
+  it("does not add a fade when the View Transitions API animates the swap", () => {
+    expect(pendingViewClass(true, "view-transition")).toBe("");
+    // Still hidden when it is not the shown view.
+    expect(pendingViewClass(false, "view-transition")).toBe("hidden");
+  });
 });

@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, Dices, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle, PanelTop } from "lucide-react";
+import { ChevronDown, Dices, HelpCircle, Type, Palette, Music, Trash2, Send, PlayCircle, PanelTop, Blend } from "lucide-react";
 import { useAnimatedVideoStore, type AutoplayMode } from "@/stores/animatedVideoStore";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
@@ -24,6 +24,13 @@ import { LanguageSelector } from "@/components/LanguageSelector";
 import { PublishButton } from "@/components/PublishButton";
 import { PUBLISH_BUTTON_STYLES, getPublishButtonStyle, setPublishButtonStyle, type PublishButtonStyle } from "@/lib/publishButtonStyle";
 import { HEADER_BEHAVIORS, getHeaderBehavior, setHeaderBehavior, type HeaderBehavior } from "@/lib/headerBehavior";
+import {
+  TRANSITION_STYLES,
+  getTransitionStyle,
+  setTransitionStyle,
+  supportsViewTransitions,
+  type TransitionStyle,
+} from "@/lib/viewTransitions";
 import {
   MR_RANDOM_COUNT_OPTIONS,
   getMrRandomCount,
@@ -120,6 +127,8 @@ const Settings = () => {
   const [publishButtonExpanded, setPublishButtonExpanded] = useState(false);
   const [publishButtonStyle, setPublishButtonStyleState] = useState<PublishButtonStyle>(getPublishButtonStyle);
   const [headerExpanded, setHeaderExpanded] = useState(false);
+  const [transitionExpanded, setTransitionExpanded] = useState(false);
+  const [transitionStyle, setTransitionStyleState] = useState<TransitionStyle>(getTransitionStyle);
   const [headerBehavior, setHeaderBehaviorState] = useState<HeaderBehavior>(getHeaderBehavior);
   const [mrRandomExpanded, setMrRandomExpanded] = useState(false);
   const [mrRandomCount, setMrRandomCountState] = useState<number>(getMrRandomCount);
@@ -418,6 +427,11 @@ const Settings = () => {
   const handleHeaderBehaviorChange = (behavior: HeaderBehavior) => {
     setHeaderBehaviorState(behavior);
     setHeaderBehavior(behavior);
+  };
+
+  const handleTransitionStyleChange = (style: TransitionStyle) => {
+    setTransitionStyleState(style);
+    setTransitionStyle(style);
   };
 
   const handleMrRandomCountChange = (count: number) => {
@@ -861,6 +875,60 @@ const Settings = () => {
                           );
                         })}
                       </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Transition animation */}
+                <Collapsible open={transitionExpanded} onOpenChange={setTransitionExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <button className="w-full bg-surface border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <Blend className="h-5 w-5" />
+                        <div>
+                          <span className="text-lg font-semibold">Анимация переходов</span>
+                          <p className="text-sm text-muted-foreground">Как сменяются экраны при переходах</p>
+                        </div>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 transition-transform ${transitionExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
+                    <div className="bg-surface border border-border p-4 sm:p-6 space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {TRANSITION_STYLES.map((s) => {
+                          const isSelected = transitionStyle === s.id;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => handleTransitionStyleChange(s.id)}
+                              className={`group relative rounded-2xl border p-3 text-left transition-all duration-200 ${
+                                isSelected
+                                  ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_hsl(var(--primary)/0.22),0_10px_28px_hsl(var(--primary)/0.1)]"
+                                  : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="font-semibold leading-tight">{s.label}</div>
+                                  <div className="text-xs text-muted-foreground">{s.description}</div>
+                                </div>
+                                <span
+                                  className={`h-3 w-3 shrink-0 rounded-full border transition-all duration-200 ${
+                                    isSelected ? "scale-110 bg-primary ring-4 ring-primary/15" : "border-foreground/20"
+                                  }`}
+                                />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {!supportsViewTransitions() && (
+                        <p className="text-xs text-muted-foreground">
+                          Ваш браузер не поддерживает View Transitions — будет использоваться плавное затухание.
+                        </p>
+                      )}
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
