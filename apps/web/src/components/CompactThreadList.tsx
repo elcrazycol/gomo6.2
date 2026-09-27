@@ -5,6 +5,7 @@ import { MessageCircle, ThumbsUp } from "lucide-react";
 
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserBadge } from "@/components/UserBadge";
+import { FavoriteButton } from "@/components/FavoriteButton";
 import { formatShortRelativeTime } from "@/utils/relativeTimeShort";
 import { toFeedThread, type ThreadApiRow } from "@/utils/threadFeedItem";
 
@@ -31,6 +32,7 @@ interface CompactThreadListProps {
   likes?: Map<string, { count: number; isLiked: boolean }>;
   /** threadId → latest reply, when the thread has any. */
   lastPosts?: Map<string, ThreadLastPost>;
+  currentUserId: string | null;
 }
 
 /**
@@ -43,6 +45,7 @@ export const CompactThreadList = ({
   rows,
   likes,
   lastPosts,
+  currentUserId,
 }: CompactThreadListProps) => {
   const [preview, setPreview] = useState<{
     row: ThreadApiRow;
@@ -141,7 +144,7 @@ export const CompactThreadList = ({
                 </div>
               </div>
 
-              <div className="relative z-10 hidden w-[190px] shrink-0 items-center justify-end gap-2 text-right sm:flex">
+              <div className="relative z-10 hidden w-[230px] shrink-0 items-center justify-end gap-2 text-right sm:flex">
                 <div className="pointer-events-none min-w-0">
                   <UserBadge
                     userId={lastUserId}
@@ -164,6 +167,14 @@ export const CompactThreadList = ({
                   className="h-8 w-8 shrink-0"
                   alt={lastUsername}
                 />
+                {/* Bookmark: a reserved slot that fades in on hover, like the
+                    feed card's corner action — no layout shift, and always on
+                    for touch devices. */}
+                {currentUserId && (
+                  <div className="pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 motion-reduce:transition-none">
+                    <FavoriteButton itemType="thread" itemId={thread.id} />
+                  </div>
+                )}
               </div>
             </div>
           );

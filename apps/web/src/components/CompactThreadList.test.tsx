@@ -56,6 +56,7 @@ describe("CompactThreadList", () => {
             ],
           ])
         }
+        currentUserId="me"
       />,
     );
 
@@ -67,13 +68,18 @@ describe("CompactThreadList", () => {
   });
 
   it("falls back to the thread author when there are no replies", () => {
-    renderList(<CompactThreadList rows={[row]} />);
+    renderList(<CompactThreadList rows={[row]} currentUserId="me" />);
     // Author shows in both the meta line and the right column.
     expect(screen.getAllByText("bob").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("offers a bookmark action for the thread", () => {
+    renderList(<CompactThreadList rows={[row]} currentUserId="me" />);
+    expect(screen.getByRole("button", { name: "В избранное" })).toBeInTheDocument();
+  });
+
   it("shows the mini preview on hover after the delay, and hides on leave", () => {
-    renderList(<CompactThreadList rows={[row]} />);
+    renderList(<CompactThreadList rows={[row]} currentUserId="me" />);
 
     const link = screen.getByRole("link");
     fireEvent.mouseOver(link);

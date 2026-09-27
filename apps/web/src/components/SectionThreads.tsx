@@ -309,6 +309,7 @@ export const SectionThreads = ({
             rows={rows}
             likes={likes}
             lastPosts={displayed.lastPosts}
+            currentUserId={currentUserId}
           />
           {loadMoreButton}
         </div>
