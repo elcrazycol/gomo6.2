@@ -82,6 +82,17 @@ describe("storageUrl", () => {
       expect(storageUrl("content", "/storage/v1/object/post-images/u1/av.jpg"))
         .toBe("/storage/v1/object/post-images/u1/av.jpg");
     });
+
+    it("leaves an already-resolved /og/wall path untouched (no double prefix)", () => {
+      // Regression: re-resolving /og/wall/… used to become
+      // /storage/v1/object/content/og/wall/… → 404.
+      expect(storageUrl("content", "/og/wall/u1/photo.jpg")).toBe("/og/wall/u1/photo.jpg");
+    });
+
+    it("leaves an /og path untouched when signed in too", () => {
+      document.cookie = "gomo6_csrf=abc123";
+      expect(storageUrl("content", "/og/wall/u1/photo.jpg")).toBe("/og/wall/u1/photo.jpg");
+    });
   });
 
   it("encodes key segments", () => {

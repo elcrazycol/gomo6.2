@@ -42,6 +42,12 @@ export default defineConfig(() => ({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      // Public proxy for the private `wall` bucket — guest media is served
+      // from /og/wall/…, so it must reach the backend in dev too.
+      "/og": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
       "/federation": {
         target: "http://localhost:8080",
         changeOrigin: true,
