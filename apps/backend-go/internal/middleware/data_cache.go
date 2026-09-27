@@ -116,7 +116,9 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 		// Skip caching for the viewing history / favorites — per-viewer, change
 		// on every action, and their writes have no generic CRUD invalidator
 		// (the endpoints are custom, not registry tables).
-		if strings.HasPrefix(path, "/api/v1/history") || strings.HasPrefix(path, "/api/v1/favorites") {
+		if strings.HasPrefix(path, "/api/v1/history") ||
+			strings.HasPrefix(path, "/api/v1/favorites") ||
+			strings.HasPrefix(path, "/api/v1/sidebar_tabs") {
 			c.Next()
 			return
 		}

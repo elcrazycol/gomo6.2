@@ -25,6 +25,7 @@ import { useTabTitle } from "@/hooks/useTabTitle";
 import { useProfileRealtimeInvalidation } from "@/hooks/useProfileRealtimeInvalidation";
 import { getHeaderBehavior, HEADER_BEHAVIOR_EVENT, type HeaderBehavior } from "@/lib/headerBehavior";
 import { useFavoritesStore } from "@/stores/favoritesStore";
+import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -938,8 +939,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     if (user?.id) {
       void useFavoritesStore.getState().load();
+      void useSidebarTabsStore.getState().load();
     } else {
       useFavoritesStore.getState().reset();
+      useSidebarTabsStore.getState().reset();
     }
   }, [user?.id]);
 

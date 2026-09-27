@@ -176,6 +176,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	historyHandler := handlers.NewHistoryHandler(db)
 	favoritesHandler := handlers.NewFavoritesHandler(db)
 	randomHandler := handlers.NewRandomHandler(db)
+	sidebarTabsHandler := handlers.NewSidebarTabsHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
@@ -523,6 +524,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/favorites", favoritesHandler.GetFavorites)
 			protected.GET("/favorites/ids", favoritesHandler.GetFavoriteIds)
 			protected.DELETE("/favorites/:itemType/:itemId", favoritesHandler.RemoveFavorite)
+
+			// Custom sidebar tabs (synced across devices).
+			protected.GET("/sidebar_tabs", sidebarTabsHandler.GetTabs)
+			protected.POST("/sidebar_tabs", sidebarTabsHandler.CreateTab)
+			protected.PUT("/sidebar_tabs/:id", sidebarTabsHandler.UpdateTab)
+			protected.DELETE("/sidebar_tabs/:id", sidebarTabsHandler.DeleteTab)
 
 			// Notifications
 			protected.GET("/notifications", notificationsHandler.GetNotifications)

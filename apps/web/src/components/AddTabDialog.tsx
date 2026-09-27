@@ -64,7 +64,7 @@ export const AddTabDialog = ({ open, onOpenChange, sections, loading }: AddTabDi
 
   const handleAdd = () => {
     if (!sectionSlug) return;
-    addTab({
+    void addTab({
       sectionSlug,
       subsectionSlug,
       label: label.trim() || sectionSlug,

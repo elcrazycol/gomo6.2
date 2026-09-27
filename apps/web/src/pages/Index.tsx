@@ -350,7 +350,9 @@ const Index = () => {
                       <button
                         type="button"
                         aria-label="Удалить вкладку"
-                        onClick={() => removeSidebarTab(tab.id)}
+                        onClick={() => {
+                          void removeSidebarTab(tab.id);
+                        }}
                         className="pointer-events-none grid h-8 w-8 shrink-0 place-items-center text-muted-foreground opacity-0 transition-[opacity,color] duration-200 hover:text-destructive group-hover/spot:pointer-events-auto group-hover/spot:opacity-100 group-focus-within/spot:pointer-events-auto group-focus-within/spot:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 motion-reduce:transition-none"
                       >
                         <X className="h-4 w-4" />
