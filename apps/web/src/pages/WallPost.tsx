@@ -6,6 +6,7 @@ import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { recordContentView } from "@/utils/viewHistory";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
 
 const SWIPE_THRESHOLD = 90;
@@ -96,6 +97,12 @@ const WallPost = () => {
 
     void loadPageContext();
   }, [userId, loadProfile]);
+
+  // Record the open in the viewer's «История» once the post + viewer are known.
+  useEffect(() => {
+    if (!postId || !currentUserId) return;
+    recordContentView("wall_post", postId);
+  }, [postId, currentUserId]);
 
   const goToPrevious = useCallback(() => {
     if (window.history.length > 1) {

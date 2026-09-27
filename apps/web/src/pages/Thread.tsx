@@ -25,6 +25,7 @@ import { ProcessedContent } from "@/components/ProcessedContent";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { recordContentView } from "@/utils/viewHistory";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import type { Thread as ThreadModel } from "@/types/forum";
 import { WallAttachments } from "@/components/WallAttachments";
@@ -121,6 +122,12 @@ const Thread = () => {
   const [shareOpen, setShareOpen] = useState(false);
 
   const { data: isSubscribed = false } = useThreadSubscription(threadId, user?.id);
+
+  // Record the open in the viewer's «История» (once the id + viewer are known).
+  useEffect(() => {
+    if (!threadId || !user?.id) return;
+    recordContentView("thread", threadId);
+  }, [threadId, user?.id]);
 
   // Sync the visible post count with the loaded thread + live changes.
   useEffect(() => {
@@ -336,7 +343,7 @@ const Thread = () => {
         </div>
 
         {/* Thread card — wall style */}
-        <div className="overflow-clip border border-border/70 shadow-none bg-background rounded-xl mb-4">
+        <div className="overflow-clip border border-border/70 shadow-none bg-surface rounded-[var(--card-radius)] mb-4">
           <div className="space-y-4 p-3 sm:p-4">
             {/* Header */}
             <div className="flex items-start justify-between gap-3">
