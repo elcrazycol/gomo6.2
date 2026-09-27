@@ -173,7 +173,7 @@ func TestGetPosts_PrivateBoard_AnonymousEmpty(t *testing.T) {
 
 	// Anonymous → predicate collapses to `b.visibility != 'private'`, no extra
 	// args beyond the privacy gate ("", "") + limit/offset.
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*b\.visibility != 'private'.*t\.channel_id IS NULL.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*t\.channel_id IS NULL.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
 		WithArgs("t1", "", "", 100, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "thread_id", "user_id", "content", "content_json",
@@ -223,7 +223,7 @@ func TestGetPosts_PrivateBoard_MemberVisible(t *testing.T) {
 
 	// Authenticated → the predicate references b.owner_id + gomosub_memberships,
 	// with the viewer bound twice (args: thread, privacy x2, visibility x2).
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*b\.visibility != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id AND gm\.user_id::text = \$5.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id AND gm\.user_id::text = \$5.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
 		WithArgs("t1", "member", "member", "member", "member", 100, 0).
 		WillReturnRows(rows)
 

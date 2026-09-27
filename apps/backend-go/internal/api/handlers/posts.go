@@ -162,7 +162,10 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	if viewerID != "" {
 		p1 := strconv.Itoa(len(args) + 1)
 		p2 := strconv.Itoa(len(args) + 2)
-		boardCond := "(b.visibility != 'private' OR b.owner_id::text = $" + p1 +
+		// COALESCE keeps board-less (global) topics visible: their b.visibility is
+		// NULL, and `NULL != 'private'` is NULL (not true), which silently hid
+		// every reply to a global topic from everyone.
+		boardCond := "(COALESCE(b.visibility, 'public') != 'private' OR b.owner_id::text = $" + p1 +
 			" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $" + p2 + "))"
 		channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $" + p1 +
 			" OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $" + p2 + "))"
@@ -170,7 +173,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		args = append(args, viewerID, viewerID)
 	} else {
 		conditions = append(conditions,
-			"b.visibility != 'private'",
+			"COALESCE(b.visibility, 'public') != 'private'",
 			"(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false)")
 	}
 	// Apply WHERE conditions to non-latest query.
