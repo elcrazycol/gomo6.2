@@ -36,15 +36,19 @@ interface UseThreadSectionsResult {
   reload: () => void;
 }
 
-export const useThreadSections = (): UseThreadSectionsResult => {
+export const useThreadSections = (enabled = true): UseThreadSectionsResult => {
   const [sections, setSections] = useState<SectionWithSubsections[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
 
     const load = async () => {
@@ -84,7 +88,7 @@ export const useThreadSections = (): UseThreadSectionsResult => {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, enabled]);
 
   return { sections, loading, error, reload };
 };

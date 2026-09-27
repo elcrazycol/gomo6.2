@@ -5,12 +5,31 @@ import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Menu, Settings, Hammer, LogOut, Users, Droplets, Plus } from "lucide-react";
+import {
+  Menu,
+  Settings,
+  Hammer,
+  LogOut,
+  Users,
+  Droplets,
+  Plus,
+  Bookmark,
+  ChevronRight,
+  FileText,
+  History,
+  Home,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
 import { useQuery } from "@tanstack/react-query";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { SectionIcon } from "@/components/topic/sectionIcons";
+import { MrRandom } from "@/components/MrRandom";
+import { AddTabDialog } from "@/components/AddTabDialog";
+import { useThreadSections } from "@/hooks/useThreadSections";
+import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
 
 import type { User as UserFromClient } from "@/integrations/api/client";
 
@@ -25,20 +44,44 @@ interface GomoSubItem {
   name: string;
 }
 
+const ROW_ACTIVE = "bg-primary/10 font-semibold text-primary";
+const ROW_IDLE = "text-foreground/80 hover:bg-muted/60 hover:text-foreground";
+
 export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [joinedSubs, setJoinedSubs] = useState<GomoSubItem[]>([]);
-  const [randomSubs, setRandomSubs] = useState<GomoSubItem[]>([]);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [addTabOpen, setAddTabOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // Check if we're on own profile page
+
+  // Sidebar data (fetched lazily — only while the sheet is open).
+  const { sections, loading: sectionsLoading } = useThreadSections(open);
+  const sidebarTabs = useSidebarTabsStore((state) => state.tabs);
+  const removeSidebarTab = useSidebarTabsStore((state) => state.removeTab);
+
   const isOwnProfile = location.pathname === `/profile/${user?.id}`;
 
-  // Fetch drops balance
+  // Which sidebar view is currently shown (the main page is URL-driven).
+  const params = new URLSearchParams(location.search);
+  const onHome = location.pathname === "/";
+  const viewParam = onHome ? params.get("view") : null;
+  const tabParam = onHome ? params.get("tab") : null;
+  const sectionSlug = onHome ? params.get("section") : null;
+  const subSlug = onHome ? params.get("sub") : null;
+  const homeTab = sidebarTabs.find((tab) => tab.isHome) ?? null;
+  const effectiveTabId = tabParam ?? (!sectionSlug && !viewParam ? homeTab?.id ?? null : null);
+  const feedActive =
+    onHome && (viewParam === "feed" || (!viewParam && !sectionSlug && !tabParam && !homeTab));
+
+  const go = (to: string) => {
+    navigate(to);
+    setOpen(false);
+  };
+
   const { data: dropsData } = useQuery({
     queryKey: ['user-drops-mobile', user?.id],
     queryFn: async () => {
@@ -57,7 +100,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   });
 
   useEffect(() => {
-    // Always load own user profile
     if (user) {
       const loadProfile = async () => {
         const { data } = await api
@@ -65,7 +107,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
           .select("username, avatar_url")
           .eq("id", user.id)
           .single();
-        
+
         if (data) {
           setUsername(data.username as string);
           setAvatarUrl(storageUrl("post-images", data.avatar_url as string | null));
@@ -96,20 +138,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
       } else {
         setJoinedSubs([]);
       }
-
-      const { data: allGSubs } = await api
-        .from("boards")
-        .select("id, slug, name")
-        .eq("is_gomosub", true)
-        .eq("visibility", "public")
-        .limit(30);
-
-      if (allGSubs && allGSubs.length > 0) {
-        const picked = [...allGSubs].sort(() => Math.random() - 0.5).slice(0, 3);
-        setRandomSubs(picked as unknown as GomoSubItem[]);
-      } else {
-        setRandomSubs([]);
-      }
     };
 
     loadSubSections();
@@ -134,7 +162,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-[280px] sm:w-[320px] p-0 flex flex-col">
+        <SheetContent side="right" className="w-[300px] sm:w-[340px] p-0 flex flex-col">
           <SheetHeader className="px-4 pt-4 pb-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-10">
             <SheetTitle className="text-left">{t('nav.menu')}</SheetTitle>
           </SheetHeader>
@@ -148,7 +176,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             >
               <div className="p-4 bg-surface border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
                 <div className="flex items-start gap-3">
-                  {/* Avatar */}
                   <UserAvatar
                     src={avatarUrl}
                     userId={user.id}
@@ -156,7 +183,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     className="w-12 h-12 flex-shrink-0"
                   />
 
-                  {/* User info */}
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold truncate">
                       <HeaderUsername userId={user.id} className="text-base font-semibold" />
@@ -169,78 +195,155 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               </div>
             </Link>
 
-            {/* Compact nav row */}
-            <div className="-mx-1 pb-1">
-              <div className="flex items-center gap-2 px-1">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    navigate("/create");
-                    setOpen(false);
-                  }}
-                  className="h-8 shrink-0 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/30 hover:bg-primary/90 hover:text-primary-foreground"
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1.5" />
-                  Создать тему
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    navigate("/g");
-                    setOpen(false);
-                  }}
-                  className="h-10 rounded-xl border border-border bg-surface px-3 text-xs shrink-0"
-                >
-                  <Users className="w-3.5 h-3.5 mr-1.5" />
-                  {t('nav.gomosubs')}
-                </Button>
-              </div>
+            {/* Create topic + g-subs */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => go("/create")}
+                className="h-8 shrink-0 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/30 hover:bg-primary/90 hover:text-primary-foreground"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Создать тему
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => go("/g")}
+                className="h-8 shrink-0 rounded-full border border-border bg-surface px-3 text-xs"
+              >
+                <Users className="w-3.5 h-3.5 mr-1.5" />
+                {t('nav.gomosubs')}
+              </Button>
             </div>
 
-            {/* Drops */}
-            {dropsData && (
-              <Link
-                to="/wallet"
-                onClick={() => setOpen(false)}
-                className="block"
+            {/* Primary nav + custom tabs */}
+            <nav className="overflow-clip rounded-[var(--card-radius)] border border-border/70 bg-surface p-1.5">
+              {([
+                { key: "feed", label: "Feed", icon: Home, active: feedActive, to: "/?view=feed" },
+                { key: "mine", label: "Мои записи", icon: FileText, active: viewParam === "mine", to: "/?view=mine" },
+                { key: "history", label: "История", icon: History, active: viewParam === "history", to: "/?view=history" },
+                { key: "favorites", label: "Избранное", icon: Bookmark, active: viewParam === "favorites", to: "/?view=favorites" },
+              ] as const).map(({ key, label, icon: Icon, active, to }) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => go(to)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm transition-colors ${active ? ROW_ACTIVE : ROW_IDLE}`}
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                  {label}
+                </button>
+              ))}
+
+              {sidebarTabs.map((tab) => {
+                const isActiveTab = effectiveTabId === tab.id;
+                return (
+                  <div
+                    key={tab.id}
+                    className={`flex items-center gap-0.5 rounded-lg transition-colors ${isActiveTab ? "bg-primary/10" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      aria-current={isActiveTab ? "page" : undefined}
+                      onClick={() => go(`/?tab=${tab.id}`)}
+                      className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2.5 text-sm transition-colors ${isActiveTab ? "font-semibold text-primary" : ROW_IDLE}`}
+                    >
+                      {tab.isHome && <Home className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />}
+                      <span className="min-w-0 flex-1 truncate text-left">{tab.label}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Удалить вкладку"
+                      onClick={() => {
+                        void removeSidebarTab(tab.id);
+                      }}
+                      className="grid h-8 w-8 shrink-0 place-items-center text-muted-foreground transition-colors hover:text-destructive"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  setAddTabOpen(true);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
               >
-                <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
-                  <Droplets className="w-4 h-4 mr-2" />
-                  {t('nav.drops')}
-                  <span className="ml-auto text-sm text-muted-foreground">{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
-                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                </Button>
-              </Link>
+                <Plus className="h-4 w-4 shrink-0" />
+                вкладка
+              </button>
+            </nav>
+
+            {/* Разделы */}
+            {sections.length > 0 && (
+              <div className="overflow-clip rounded-[var(--card-radius)] border border-border/70 bg-surface">
+                <h3 className="px-3 pt-3 text-[13px] font-semibold text-muted-foreground sm:px-4 sm:pt-4">
+                  Разделы
+                </h3>
+                <div className="p-1.5">
+                  {sections.map((section) => {
+                    const hasSubsections = section.subsections.length > 0;
+                    const expanded = expandedSection === section.id;
+                    const isActive = sectionSlug === section.slug && !subSlug;
+                    return (
+                      <div key={section.id}>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            aria-current={isActive ? "page" : undefined}
+                            onClick={() => go(`/?section=${section.slug}`)}
+                            className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm transition-colors ${isActive ? ROW_ACTIVE : ROW_IDLE}`}
+                          >
+                            <SectionIcon name={section.icon} className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                            <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
+                          </button>
+                          {hasSubsections && (
+                            <button
+                              type="button"
+                              aria-label={expanded ? "Свернуть подразделы" : "Показать подразделы"}
+                              aria-expanded={expanded}
+                              onClick={() => setExpandedSection(expanded ? null : section.id)}
+                              className="grid h-8 w-8 shrink-0 place-items-center text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              <ChevronRight
+                                className={`h-4 w-4 transition-transform duration-300 ${expanded ? "rotate-90" : ""}`}
+                              />
+                            </button>
+                          )}
+                        </div>
+                        {expanded && hasSubsections && (
+                          <div className="mb-1 ml-[22px] border-l border-border/60 pl-2">
+                            {section.subsections.map((subsection) => {
+                              const subActive = sectionSlug === section.slug && subSlug === subsection.slug;
+                              return (
+                                <button
+                                  key={subsection.id}
+                                  type="button"
+                                  aria-current={subActive ? "page" : undefined}
+                                  onClick={() => go(`/?section=${section.slug}&sub=${subsection.slug}`)}
+                                  className={`flex w-full items-center rounded-lg px-2.5 py-2 text-[13px] transition-colors ${subActive ? ROW_ACTIVE : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+                                >
+                                  <span className="truncate">{subsection.name}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
-            {/* Settings link */}
-            <Link
-              to="/settings/appearance"
-              onClick={() => setOpen(false)}
-              className="block"
-            >
-              <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
-                <Settings className="w-4 h-4 mr-2" />
-                {t('nav.settings')}
-                <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-              </Button>
-            </Link>
+            {/* Mr. рандомность */}
+            <MrRandom />
 
-            {/* Moderation link */}
-            {isModerator && (
-              <Link
-                to="/moderation"
-                onClick={() => setOpen(false)}
-                className="block"
-              >
-                <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
-                  <Hammer className="w-4 h-4 mr-2" />
-                  {t('nav.moderation')}
-                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                </Button>
-              </Link>
-            )}
-
+            {/* Подписки */}
             <div className="space-y-2 pt-2">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('nav.subscriptions')}</div>
               {joinedSubs.length === 0 ? (
@@ -260,38 +363,57 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               )}
             </div>
 
-            <div className="space-y-2 pt-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('nav.randomDrop')}</div>
-              {randomSubs.map((sub) => (
-                <Link
-                  key={sub.id}
-                  to={`/g/${sub.slug}`}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors"
-                >
-                  <div className="font-medium text-primary">g/{sub.slug}</div>
-                  <div className="text-xs text-muted-foreground line-clamp-1">{sub.name}</div>
-                </Link>
-              ))}
-            </div>
+            {/* Drops */}
+            {dropsData && (
+              <Link to="/wallet" onClick={() => setOpen(false)} className="block">
+                <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
+                  <Droplets className="w-4 h-4 mr-2" />
+                  {t('nav.drops')}
+                  <span className="ml-auto text-sm text-muted-foreground">{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
+                </Button>
+              </Link>
+            )}
 
+            {/* Settings */}
+            <Link to="/settings/appearance" onClick={() => setOpen(false)} className="block">
+              <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
+                <Settings className="w-4 h-4 mr-2" />
+                {t('nav.settings')}
+              </Button>
+            </Link>
+
+            {/* Moderation */}
+            {isModerator && (
+              <Link to="/moderation" onClick={() => setOpen(false)} className="block">
+                <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
+                  <Hammer className="w-4 h-4 mr-2" />
+                  {t('nav.moderation')}
+                </Button>
+              </Link>
+            )}
           </div>
 
           {isOwnProfile && (
             <div className="border-t border-border p-4 bg-background/95 backdrop-blur">
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 className="w-full justify-start relative group !hover:bg-red-500/10 !hover:text-red-500"
                 onClick={handleLogout}
               >
                 <LogOut className="w-4 h-4 mr-2" />
                 {t('nav.logoutFull')}
-                <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>
             </div>
           )}
         </SheetContent>
       </Sheet>
+
+      <AddTabDialog
+        open={addTabOpen}
+        onOpenChange={setAddTabOpen}
+        sections={sections}
+        loading={sectionsLoading}
+      />
     </>
   );
 };
