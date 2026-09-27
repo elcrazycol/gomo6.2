@@ -35,12 +35,15 @@ func rpcLikesViewerID(c *gin.Context) string {
 // parameter. Returns the SQL clause plus the viewer args to append (nil for
 // anonymous callers).
 func rpcLikesVisibilityPredicate(viewerID string, argIndex int) (string, []interface{}) {
+	// COALESCE keeps board-less (global) topics visible: their b.visibility is
+	// NULL, and `NULL != 'private'` is NULL (not true), which silently zeroed
+	// every like count on global topics.
 	if viewerID == "" {
-		return "(b.visibility != 'private' AND (t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false))", nil
+		return "(COALESCE(b.visibility, 'public') != 'private' AND (t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false))", nil
 	}
 	p1 := strconv.Itoa(argIndex)
 	p2 := strconv.Itoa(argIndex + 1)
-	boardCond := "(b.visibility != 'private' OR b.owner_id::text = $" + p1 +
+	boardCond := "(COALESCE(b.visibility, 'public') != 'private' OR b.owner_id::text = $" + p1 +
 		" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $" + p2 + "))"
 	channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $" + p1 +
 		" OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $" + p2 + "))"

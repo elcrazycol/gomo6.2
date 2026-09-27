@@ -403,7 +403,7 @@ func TestGetPost_PrivateBoard_StrangerNotFound(t *testing.T) {
 	// The query must join the thread's board and gate it: for a non-member the
 	// row is filtered out → 404. The regex pins the join + visibility predicate
 	// so the SQL cannot silently drop the gate.
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*b\.visibility != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id`).
 		WithArgs("p1", "stranger", "stranger").
 		WillReturnError(sql.ErrNoRows)
 
@@ -423,7 +423,7 @@ func TestGetPost_PrivateBoard_AnonymousNotFound(t *testing.T) {
 
 	// Anonymous → the predicate collapses to `b.visibility != 'private'` with
 	// no extra args; a private-board row is filtered out → 404.
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*b\.visibility != 'private'.*t\.channel_id IS NULL`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*t\.channel_id IS NULL`).
 		WithArgs("p1", "").
 		WillReturnError(sql.ErrNoRows)
 

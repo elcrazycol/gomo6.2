@@ -389,10 +389,10 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	// threads.go GetThread: owner or gomosub member may read; guests and
 	// non-members cannot. The ::text casts keep the empty anonymous viewerID
 	// from tripping the uuid type.
-	visibilityCond := "b.visibility != 'private'"
+	visibilityCond := "COALESCE(b.visibility, 'public') != 'private'"
 	channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false)"
 	if viewerID != "" {
-		visibilityCond = "(b.visibility != 'private' OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $3))"
+		visibilityCond = "(COALESCE(b.visibility, 'public') != 'private' OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $3))"
 		channelCond = "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $3))"
 	}
 
