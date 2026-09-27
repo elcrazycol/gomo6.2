@@ -21,7 +21,7 @@ import { runViewTransition, type TransitionStyle } from "@/lib/viewTransitions";
 
 /** Applied to the visible view so the swap reads as a soft fade. */
 export const PENDING_VIEW_VISIBLE =
-  "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none";
+  "view-fade-in";
 
 export const pendingViewClass = (
   visible: boolean,

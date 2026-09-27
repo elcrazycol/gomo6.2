@@ -401,7 +401,7 @@ export const ThreadFeed = ({
   return (
     <>
       <div
-        className="space-y-4 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+        className="space-y-4 view-fade-in"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}

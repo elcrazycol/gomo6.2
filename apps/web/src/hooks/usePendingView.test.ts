@@ -45,7 +45,7 @@ describe("usePendingView", () => {
 describe("pendingViewClass", () => {
   it("hides non-shown views and fades in the shown one", () => {
     expect(pendingViewClass(false)).toBe("hidden");
-    expect(pendingViewClass(true)).toContain("animate-in");
+    expect(pendingViewClass(true)).toBe("view-fade-in");
   });
 
   it("does not add a fade when the View Transitions API animates the swap", () => {

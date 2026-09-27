@@ -318,7 +318,7 @@ export const SectionThreads = ({
       ) : view === "compact" ? (
         <div
           key={cacheKey(displayed.section.id, displayed.subsection?.id)}
-          className="animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+          className="view-fade-in"
         >
           <CompactThreadList
             rows={rows}
@@ -331,7 +331,7 @@ export const SectionThreads = ({
       ) : (
         <div
           key={cacheKey(displayed.section.id, displayed.subsection?.id)}
-          className="space-y-4 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+          className="space-y-4 view-fade-in"
         >
           {rows.map((row) => {
             const thread = toFeedThread(row);

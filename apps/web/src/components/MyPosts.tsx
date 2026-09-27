@@ -175,7 +175,7 @@ export const MyPosts = ({
           </p>
         </div>
       ) : (
-        <div className="space-y-4 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+        <div className="space-y-4 view-fade-in">
           {body}
 
           {hasMore && (
