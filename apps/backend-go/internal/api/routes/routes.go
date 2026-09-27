@@ -173,6 +173,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	engine.SetWall(wallService)
 	searchHandler := handlers.NewSearchHandler(db)
 	feedHandler := handlers.NewFeedHandler(db)
+	historyHandler := handlers.NewHistoryHandler(db)
+	favoritesHandler := handlers.NewFavoritesHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
@@ -504,6 +506,18 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.DELETE("/posts/:id/like", likesHandler.UnlikePost)
 			protected.DELETE("/posts/:id", postsHandler.DeletePost)
 			protected.GET("/threads/:id/likes", likesHandler.GetThreadLikes)
+
+			// Viewing history («История») — record an opened item, list it,
+			// or clear the whole history.
+			protected.POST("/history", historyHandler.RecordView)
+			protected.GET("/history", historyHandler.GetHistory)
+			protected.DELETE("/history", historyHandler.ClearHistory)
+
+			// Favorites («Избранное») — bookmark threads and wall posts.
+			protected.POST("/favorites", favoritesHandler.AddFavorite)
+			protected.GET("/favorites", favoritesHandler.GetFavorites)
+			protected.GET("/favorites/ids", favoritesHandler.GetFavoriteIds)
+			protected.DELETE("/favorites/:itemType/:itemId", favoritesHandler.RemoveFavorite)
 
 			// Notifications
 			protected.GET("/notifications", notificationsHandler.GetNotifications)

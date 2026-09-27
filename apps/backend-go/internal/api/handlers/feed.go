@@ -54,6 +54,10 @@ type feedItem struct {
 	RepostsCount  int64           `json:"reposts_count"`
 	LikedByViewer bool            `json:"liked_by_viewer"`
 	ViewsCount    int64           `json:"views_count"`
+	// Set only by the history endpoint (the unified feed leaves it nil).
+	ViewedAt *time.Time `json:"viewed_at,omitempty"`
+	// Set only by the favorites endpoint.
+	SavedAt *time.Time `json:"saved_at,omitempty"`
 }
 
 type feedAuthor struct {

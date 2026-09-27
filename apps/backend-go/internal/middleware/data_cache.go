@@ -113,6 +113,14 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Skip caching for the viewing history / favorites — per-viewer, change
+		// on every action, and their writes have no generic CRUD invalidator
+		// (the endpoints are custom, not registry tables).
+		if strings.HasPrefix(path, "/api/v1/history") || strings.HasPrefix(path, "/api/v1/favorites") {
+			c.Next()
+			return
+		}
+
 		// Determine TTL based on path (threads/posts=30s, boards/profiles=5min)
 		effectiveTTL := cacheTTLByPath(c.Request.URL.Path, ttl)
 
