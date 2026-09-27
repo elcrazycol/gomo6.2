@@ -147,7 +147,10 @@ export const CompactThreadList = ({
         })}
       </div>
 
-      {preview && <ThreadHoverPreview row={preview.row} rect={preview.rect} />}
+      {preview && (
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define -- hoisted renderer, defined below for readability
+        <ThreadHoverPreview row={preview.row} rect={preview.rect} />
+      )}
     </>
   );
 };
@@ -163,33 +166,31 @@ const ThreadHoverPreview = ({
   const thread = toFeedThread(row);
   const content = (thread.content || "").trim();
 
-  // Right of the row when there's room, then left, otherwise drop below it —
-  // never cover the row the preview describes.
-  const spaceRight = window.innerWidth - rect.right - PREVIEW_MARGIN;
-  const spaceLeft = rect.left - PREVIEW_MARGIN;
-  let left: number;
-  let top = rect.top;
-  if (spaceRight >= PREVIEW_WIDTH) {
-    left = rect.right + PREVIEW_MARGIN;
-  } else if (spaceLeft >= PREVIEW_WIDTH) {
-    left = rect.left - PREVIEW_WIDTH - PREVIEW_MARGIN;
-  } else {
-    left = rect.left;
-    top = rect.bottom + 8;
-  }
-  left = Math.min(
-    Math.max(PREVIEW_MARGIN, left),
+  // Open upward, above the row itself. Anchoring by `bottom` (instead of `top`)
+  // keeps the card glued just over the row's top edge whatever its height is;
+  // when there is no room above, it drops below instead.
+  const gap = 8;
+  const estimatedHeight = 240;
+  const left = Math.min(
+    Math.max(PREVIEW_MARGIN, rect.left),
     Math.max(PREVIEW_MARGIN, window.innerWidth - PREVIEW_WIDTH - PREVIEW_MARGIN),
   );
-  top = Math.min(
-    Math.max(PREVIEW_MARGIN, top),
-    Math.max(PREVIEW_MARGIN, window.innerHeight - 220),
-  );
+  let top: number | null = null;
+  let bottom: number | null = null;
+  if (rect.top >= estimatedHeight + PREVIEW_MARGIN) {
+    bottom = window.innerHeight - rect.top + gap;
+  } else {
+    top = Math.min(rect.bottom + gap, window.innerHeight - estimatedHeight - PREVIEW_MARGIN);
+  }
 
   return createPortal(
     <div
       role="tooltip"
-      style={{ left, top, width: PREVIEW_WIDTH }}
+      style={{
+        left,
+        width: PREVIEW_WIDTH,
+        ...(top != null ? { top } : { bottom: bottom ?? 0 }),
+      }}
       className="pointer-events-none fixed z-50 animate-in fade-in-0 zoom-in-95 duration-150 motion-reduce:animate-none"
     >
       <div className="rounded-[var(--card-radius)] border border-border/70 bg-card p-3.5 shadow-xl shadow-black/20">
