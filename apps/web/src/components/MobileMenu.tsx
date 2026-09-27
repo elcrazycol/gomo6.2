@@ -220,7 +220,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             ) : (
               <button
                 type="button"
-                aria-label="Войти"
+                aria-label="Войдите, чтобы увидеть профиль"
                 onClick={() => go("/auth")}
                 className="block w-full text-left"
               >
@@ -233,9 +233,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                         Подписки, избранное и уведомления
                       </div>
                     </div>
-                    <span className="shrink-0 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
-                      Войти
-                    </span>
                   </div>
                 </div>
               </button>

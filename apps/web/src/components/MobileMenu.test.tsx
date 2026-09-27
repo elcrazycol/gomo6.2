@@ -58,7 +58,7 @@ describe("MobileMenu", () => {
 
     await waitFor(() => expect(screen.getByText("Создать тему")).toBeInTheDocument());
     expect(screen.getByText("Войдите, чтобы увидеть профиль")).toBeInTheDocument();
-    expect(screen.getByText("Войти")).toBeInTheDocument();
+    expect(screen.queryByText("Войти")).not.toBeInTheDocument();
   });
 
   it("shows the account panel instead of the login CTA for a logged-in user", async () => {
@@ -68,6 +68,5 @@ describe("MobileMenu", () => {
 
     await waitFor(() => expect(screen.getByText("Создать тему")).toBeInTheDocument());
     expect(screen.queryByText("Войдите, чтобы увидеть профиль")).not.toBeInTheDocument();
-    expect(screen.queryByText("Войти")).not.toBeInTheDocument();
   });
 });
