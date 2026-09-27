@@ -27,10 +27,11 @@ function makePromiseChain(resolvedValue: any): any {
   return chain;
 }
 
-const { mockFrom, mockRpc, mockAuth } = vi.hoisted(() => ({
+const { mockFrom, mockRpc, mockAuth, mockParams } = vi.hoisted(() => ({
   mockFrom: vi.fn<any>().mockImplementation(() => makePromiseChain({ data: [], error: null })),
   mockRpc: vi.fn<any>().mockResolvedValue({ data: null, error: null }),
   mockAuth: { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn() },
+  mockParams: { current: {} as Record<string, string> },
 }));
 
 vi.mock("@/integrations/api/compat", () => ({
@@ -49,6 +50,12 @@ vi.mock("@/integrations/api/client", () => ({
 
 vi.mock("@/components/ThreadFeed", () => ({
   ThreadFeed: () => <div data-testid="thread-feed">ThreadFeed</div>,
+}));
+
+vi.mock("@/components/SectionThreads", () => ({
+  SectionThreads: ({ section }: { section: { name: string } }) => (
+    <div data-testid="section-threads">{section.name}</div>
+  ),
 }));
 
 vi.mock("@/components/PentagramLoader", () => ({
@@ -116,6 +123,7 @@ vi.mock("react-router-dom", async () => {
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useParams: () => mockParams.current,
     Link: ({ children, to, className }: { children: React.ReactNode; to: string; className?: string }) => (
       <a href={to} className={className}>{children}</a>
     ),
@@ -151,6 +159,35 @@ function setupLoggedIn() {
         return makePromiseChain({ data: { user_id: "user-1" }, error: null });
       case "gomosub_memberships":
         return makePromiseChain({ data: [], error: null });
+      case "thread_sections":
+        return makePromiseChain({
+          data: [
+            {
+              id: "sec-1",
+              slug: "general",
+              name: "Общение",
+              description: null,
+              icon: "message-circle",
+              is_nsfw: false,
+              sort_order: 10,
+            },
+          ],
+          error: null,
+        });
+      case "thread_subsections":
+        return makePromiseChain({
+          data: [
+            {
+              id: "sub-1",
+              section_id: "sec-1",
+              slug: "dating",
+              name: "Знакомства",
+              description: null,
+              sort_order: 10,
+            },
+          ],
+          error: null,
+        });
       default:
         return makePromiseChain({ data: [], error: null });
     }
@@ -184,6 +221,8 @@ describe("Index", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockParams.current = {};
+    window.history.pushState({}, "", "/");
   });
 
   afterEach(() => {});
@@ -252,5 +291,22 @@ describe("Index", () => {
     await waitFor(() => {
       expect(mockFrom).toHaveBeenCalled();
     });
+  });
+
+  it("on a раздел path renders the section and never mounts the feed", async () => {
+    setupLoggedIn();
+    mockParams.current = { sectionSlug: "general" };
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() => expect(screen.getByTestId("section-threads")).toHaveTextContent("Общение"));
+    expect(screen.queryByTestId("thread-feed")).not.toBeInTheDocument();
+  });
+
+  it("redirects the legacy ?section= URL to the path form", async () => {
+    setupLoggedIn();
+    window.history.pushState({}, "", "/?section=general");
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/general", { replace: true }));
   });
 });

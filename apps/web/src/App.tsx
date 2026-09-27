@@ -253,6 +253,12 @@ function AppRoutes() {
         {/* Pages with layout */}
         <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
           <Route index element={<LazyPage component={Index} />} />
+          {/* Разделы / подразделы as real paths: /<раздел> and /<раздел>/<подраздел>.
+              Static routes win by specificity, so /search, /create, /g/… are
+              unaffected; Index validates the slug and shows «не найден» for
+              unknown ones. */}
+          <Route path=":sectionSlug" element={<LazyPage component={Index} />} />
+          <Route path=":sectionSlug/:subSlug" element={<LazyPage component={Index} />} />
           <Route path="messages" element={<AuthGuard><LazyPage component={Messages} /></AuthGuard>} />
           <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
           <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />

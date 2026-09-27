@@ -69,8 +69,13 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const onHome = location.pathname === "/";
   const viewParam = onHome ? params.get("view") : null;
   const tabParam = onHome ? params.get("tab") : null;
-  const sectionSlug = onHome ? params.get("section") : null;
-  const subSlug = onHome ? params.get("sub") : null;
+  // Разделы live in the path now (/general, /general/dating); ?section= is the
+  // legacy form. Only the first path segment that matches a known slug counts,
+  // so /messages, /profile/… don't masquerade as a раздел.
+  const pathParts = location.pathname.split("/").filter(Boolean);
+  const routeSection = sections.find((s) => s.slug === pathParts[0]);
+  const sectionSlug = routeSection?.slug ?? (onHome ? params.get("section") : null);
+  const subSlug = routeSection && pathParts[1] ? pathParts[1] : onHome ? params.get("sub") : null;
   // Keep the текущий раздел when opening the composer from inside one.
   const createTopicHref = sectionSlug
     ? `/create?section=${encodeURIComponent(sectionSlug)}${
@@ -300,7 +305,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                           <button
                             type="button"
                             aria-current={isActive ? "page" : undefined}
-                            onClick={() => go(`/?section=${section.slug}`)}
+                            onClick={() => go(`/${section.slug}`)}
                             className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm transition-colors ${isActive ? ROW_ACTIVE : ROW_IDLE}`}
                           >
                             <SectionIcon name={section.icon} className="h-4 w-4 shrink-0 text-muted-foreground/40" />
@@ -329,7 +334,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                                   key={subsection.id}
                                   type="button"
                                   aria-current={subActive ? "page" : undefined}
-                                  onClick={() => go(`/?section=${section.slug}&sub=${subsection.slug}`)}
+                                  onClick={() => go(`/${section.slug}/${subsection.slug}`)}
                                   className={`flex w-full items-center rounded-lg px-2.5 py-2 text-[13px] transition-colors ${subActive ? ROW_ACTIVE : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
                                 >
                                   <span className="truncate">{subsection.name}</span>

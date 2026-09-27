@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
@@ -11,6 +11,7 @@ import { useSessionTime } from "@/hooks/useSessionTime";
 import { useThreadSections } from "@/hooks/useThreadSections";
 import { SectionIcon } from "@/components/topic/sectionIcons";
 import { SectionThreads } from "@/components/SectionThreads";
+import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
 import { MyPosts } from "@/components/MyPosts";
 import { HistoryView } from "@/components/HistoryView";
 import { FavoritesView } from "@/components/FavoritesView";
@@ -42,16 +43,22 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
   // Sidebar «Разделы»: which section is expanded to show its subsections.
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
-  const { sections } = useThreadSections();
+  const { sections, loading: sectionsLoading } = useThreadSections();
   // Custom sidebar tabs (localStorage-backed) + their add-panel.
   const sidebarTabs = useSidebarTabsStore((state) => state.tabs);
   const removeSidebarTab = useSidebarTabsStore((state) => state.removeTab);
   const [addTabOpen, setAddTabOpen] = useState(false);
   // Selected раздел / подраздел come from the URL so the view is shareable and
   // survives a reload.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeSectionSlug = searchParams.get("section");
-  const activeSubSlug = searchParams.get("sub");
+  const [searchParams] = useSearchParams();
+  const routeParams = useParams<{ sectionSlug?: string; subSlug?: string }>();
+  // Real paths: /<раздел> and /<раздел>/<подраздел>. The legacy ?section=&sub=
+  // pair still resolves and is redirected to the path form (see below).
+  const routeSectionSlug = routeParams.sectionSlug ?? null;
+  const routeSubSlug = routeParams.subSlug ?? null;
+  const isSectionRoute = Boolean(routeSectionSlug);
+  const activeSectionSlug = routeSectionSlug ?? searchParams.get("section");
+  const activeSubSlug = routeSubSlug ?? searchParams.get("sub");
   const activeSection = activeSectionSlug
     ? sections.find((s) => s.slug === activeSectionSlug) ?? null
     : null;
@@ -90,16 +97,21 @@ const Index = () => {
   // Which view is actually on screen. When a section / tab / «Мои записи» is
   // picked we keep the previous view visible until the new one reports ready,
   // so switching never flashes a skeleton.
-  const targetMode: "feed" | "section" | "mine" | "history" | "favorites" = displaySection
-    ? "section"
-    : viewParam === "mine"
-      ? "mine"
-      : viewParam === "history"
-        ? "history"
-        : viewParam === "favorites"
-          ? "favorites"
-          : "feed";
-  const [shownMode, setShownMode] = useState<"feed" | "section" | "mine" | "history" | "favorites">("feed");
+  const targetMode: "feed" | "section" | "mine" | "history" | "favorites" =
+    isSectionRoute || displaySection
+      ? "section"
+      : viewParam === "mine"
+        ? "mine"
+        : viewParam === "history"
+          ? "history"
+          : viewParam === "favorites"
+            ? "favorites"
+            : "feed";
+  // A раздел path is known synchronously, so its view is the initial one — the
+  // feed never mounts (and never fetches) when landing straight on a раздел.
+  const [shownMode, setShownMode] = useState<"feed" | "section" | "mine" | "history" | "favorites">(
+    () => (isSectionRoute ? "section" : "feed"),
+  );
   useEffect(() => {
     if (targetMode === "feed") setShownMode("feed");
   }, [targetMode]);
@@ -108,6 +120,17 @@ const Index = () => {
   const handleHistoryReady = useCallback(() => setShownMode("history"), []);
   const handleFavoritesReady = useCallback(() => setShownMode("favorites"), []);
   const navigate = useNavigate();
+
+  // Legacy /?section=x&sub=y → /x/y (old bookmarks and links).
+  useEffect(() => {
+    if (isSectionRoute) return;
+    const legacy = searchParams.get("section");
+    if (!legacy) return;
+    const sub = searchParams.get("sub");
+    navigate(`/${encodeURIComponent(legacy)}${sub ? `/${encodeURIComponent(sub)}` : ""}`, {
+      replace: true,
+    });
+  }, [isSectionRoute, searchParams, navigate]);
   
   useSessionTime(user?.id);
 
@@ -225,23 +248,37 @@ const Index = () => {
                 записи» is shown, so returning to it is instant. The other views
                 do their own loading and drive the header loading line; the
                 previous view stays visible until they report ready. */}
-            <div className={shownMode === "feed" ? undefined : "hidden"}>
-              <ThreadFeed
-                currentUserId={user?.id}
-                currentUsername={currentUserUsername}
-                currentUserColor={currentUserColor}
-              />
-            </div>
-            {displaySection && (
-              <div className={shownMode === "section" ? undefined : "hidden"}>
-                <SectionThreads
-                  section={displaySection}
-                  subsection={displaySubsection}
-                  currentUserId={user?.id ?? null}
+            {/* The feed is mounted only for feed-ish views — on a раздел path it
+                is not fetched at all. During the feed→раздел transition it stays
+                mounted (hidden by shownMode) until the section reports ready. */}
+            {(!isSectionRoute || shownMode === "feed") && (
+              <div className={shownMode === "feed" ? undefined : "hidden"}>
+                <ThreadFeed
+                  currentUserId={user?.id}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
-                  onReady={handleSectionReady}
                 />
+              </div>
+            )}
+            {(isSectionRoute || displaySection) && (
+              <div className={shownMode === "section" ? undefined : "hidden"}>
+                {displaySection ? (
+                  <SectionThreads
+                    section={displaySection}
+                    subsection={displaySubsection}
+                    currentUserId={user?.id ?? null}
+                    currentUsername={currentUserUsername}
+                    currentUserColor={currentUserColor}
+                    onReady={handleSectionReady}
+                  />
+                ) : sectionsLoading ? (
+                  <ThreadFeedSkeleton count={5} />
+                ) : (
+                  <div className="rounded-[var(--card-radius)] border border-dashed border-border/70 bg-muted/20 py-12 text-center">
+                    <p className="text-lg font-medium">Раздел не найден</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Возможно, ссылка устарела.</p>
+                  </div>
+                )}
               </div>
             )}
             {viewParam === "mine" && (
@@ -309,17 +346,7 @@ const Index = () => {
                     <button
                       type="button"
                       aria-current={active ? "page" : undefined}
-                      onClick={
-                        key === "feed"
-                          ? () => setSearchParams({ view: "feed" })
-                          : key === "mine"
-                            ? () => setSearchParams({ view: "mine" })
-                            : key === "history"
-                              ? () => setSearchParams({ view: "history" })
-                              : key === "favorites"
-                                ? () => setSearchParams({ view: "favorites" })
-                                : undefined
-                      }
+                      onClick={() => navigate(key === "feed" ? "/?view=feed" : `/?view=${key}`)}
                       className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
                         active
                           ? "bg-primary/10 font-semibold text-primary"
@@ -345,7 +372,7 @@ const Index = () => {
                       <button
                         type="button"
                         aria-current={isActiveTab ? "page" : undefined}
-                        onClick={() => setSearchParams({ tab: tab.id })}
+                        onClick={() => navigate(`/?tab=${tab.id}`)}
                         className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm transition-colors ${
                           isActiveTab
                             ? "font-semibold text-primary"
@@ -405,7 +432,7 @@ const Index = () => {
                             <button
                               type="button"
                               aria-current={isActive ? "page" : undefined}
-                              onClick={() => setSearchParams({ section: section.slug })}
+                              onClick={() => navigate(`/${section.slug}`)}
                               className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm transition-colors ${
                                 isActive
                                   ? "font-semibold text-primary"
@@ -450,7 +477,7 @@ const Index = () => {
                                         <button
                                           type="button"
                                           aria-current={subActive ? "page" : undefined}
-                                          onClick={() => setSearchParams({ section: section.slug, sub: subsection.slug })}
+                                          onClick={() => navigate(`/${section.slug}/${subsection.slug}`)}
                                           className={`flex w-full items-center rounded-lg px-2.5 py-1.5 text-[13px] transition-colors ${
                                             subActive
                                               ? "bg-primary/10 font-semibold text-primary"
