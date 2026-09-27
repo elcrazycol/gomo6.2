@@ -5,6 +5,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { CompactThreadList, type ThreadLastPost } from "@/components/CompactThreadList";
 import type { ThreadApiRow } from "@/utils/threadFeedItem";
 
+// UserBadge pulls in ProfileHoverCard (react-query); a plain span keeps this
+// test focused on the list itself.
+vi.mock("@/components/UserBadge", () => ({
+  UserBadge: ({ username }: any) => <span data-testid="user-badge">{username}</span>,
+}));
+
 const row: ThreadApiRow = {
   id: "t1",
   title: "Как дела",
@@ -39,7 +45,15 @@ describe("CompactThreadList", () => {
         likes={new Map([["t1", { count: 2, isLiked: false }]])}
         lastPosts={
           new Map<string, ThreadLastPost>([
-            ["t1", { username: "alice", avatar_url: null, created_at: "2026-01-02T10:00:00Z" }],
+            [
+              "t1",
+              {
+                user_id: "u2",
+                username: "alice",
+                avatar_url: null,
+                created_at: "2026-01-02T10:00:00Z",
+              },
+            ],
           ])
         }
       />,
@@ -62,7 +76,7 @@ describe("CompactThreadList", () => {
     renderList(<CompactThreadList rows={[row]} />);
 
     const link = screen.getByRole("link");
-    fireEvent.mouseEnter(link);
+    fireEvent.mouseOver(link);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
     act(() => {
@@ -71,7 +85,7 @@ describe("CompactThreadList", () => {
 
     expect(screen.getByRole("tooltip")).toHaveTextContent("Как дела что делаете");
 
-    fireEvent.mouseLeave(link);
+    fireEvent.mouseOut(link);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });

@@ -43,11 +43,13 @@ const fetchLatestPosts = async (ids: string[]): Promise<Map<string, ThreadLastPo
     const json = await res.json();
     ((json.data || []) as Array<{
       thread_id: string;
+      user_id: string | null;
       username: string | null;
       avatar_url: string | null;
       created_at: string;
     }>).forEach((post) => {
       map.set(post.thread_id, {
+        user_id: post.user_id,
         username: post.username,
         avatar_url: post.avatar_url,
         created_at: post.created_at,
@@ -274,12 +276,14 @@ export const SectionThreads = ({
           aria-label="Вид списка тем"
           className="flex shrink-0 items-center rounded-full border border-border/70 bg-surface p-0.5"
         >
+          {/* eslint-disable-next-line @typescript-eslint/no-use-before-define -- small renderer, defined below for readability */}
           <ViewToggleButton
             active={view === "compact"}
             onClick={() => changeView("compact")}
             icon={<List className="h-3.5 w-3.5" />}
             label="Компактно"
           />
+          {/* eslint-disable-next-line @typescript-eslint/no-use-before-define -- small renderer, defined below for readability */}
           <ViewToggleButton
             active={view === "cards"}
             onClick={() => changeView("cards")}

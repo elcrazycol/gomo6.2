@@ -15,6 +15,9 @@ vi.mock("@/components/FeedThreadCard", () => ({
 
 vi.mock("@/components/Lightbox", () => ({ Lightbox: () => null }));
 vi.mock("@/components/PentagramLoader", () => ({ PentagramLoader: () => <span /> }));
+vi.mock("@/components/UserBadge", () => ({
+  UserBadge: ({ username }: any) => <span data-testid="user-badge">{username}</span>,
+}));
 vi.mock("@/components/skeletons/ContentSkeletons", () => ({
   ThreadFeedSkeleton: () => <div data-testid="skeleton" />,
 }));

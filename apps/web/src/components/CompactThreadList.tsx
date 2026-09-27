@@ -4,11 +4,13 @@ import { Link } from "react-router-dom";
 import { MessageCircle, ThumbsUp } from "lucide-react";
 
 import { UserAvatar } from "@/components/UserAvatar";
+import { UserBadge } from "@/components/UserBadge";
 import { formatShortRelativeTime } from "@/utils/relativeTimeShort";
 import { toFeedThread, type ThreadApiRow } from "@/utils/threadFeedItem";
 
 /** Latest reply of a thread (right column + hover preview). */
 export interface ThreadLastPost {
+  user_id: string | null;
   username: string | null;
   avatar_url?: string | null;
   created_at: string;
@@ -79,22 +81,31 @@ export const CompactThreadList = ({
           const thread = toFeedThread(row);
           const like = likes?.get(thread.id);
           const last = lastPosts?.get(thread.id);
-          const lastName = last?.username || thread.profiles?.username || "Аноним";
-          const lastAvatar = last ? last.avatar_url : thread.profiles?.avatar_url;
           const lastAt = last?.created_at || thread.created_at;
           const isNsfw = Boolean(thread.section?.is_nsfw);
+          const lastUserId = last ? last.user_id : thread.user_id;
+          const lastUsername = last?.username || thread.profiles?.username || "Аноним";
+          const lastAvatar = last ? last.avatar_url : thread.profiles?.avatar_url;
 
           return (
-            <Link
+            <div
               key={thread.id}
-              to={threadPath(row)}
               onMouseEnter={(event) => showPreview(row, event.currentTarget)}
               onMouseLeave={hidePreview}
               onFocus={(event) => showPreview(row, event.currentTarget)}
               onBlur={hidePreview}
-              className="group flex items-start gap-3 border-b border-border/50 px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none sm:px-4"
+              className="group relative flex items-start gap-3 border-b border-border/50 px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/40 focus-within:bg-muted/40 sm:px-4"
             >
-              <div className="min-w-0 flex-1">
+              {/* Stretched link: the row opens the thread. The author links in
+                  the content sit above it, so a nickname click goes to the
+                  profile — an <a> nested in an <a> would be invalid. */}
+              <Link
+                to={threadPath(row)}
+                aria-label={thread.title || "Открыть тему"}
+                className="absolute inset-0 z-0 focus-visible:outline-none"
+              />
+
+              <div className="pointer-events-none relative z-10 min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <h3 className="truncate text-[15px] font-semibold leading-6 text-foreground transition-colors group-hover:text-primary">
                     {thread.title || "Без названия"}
@@ -107,9 +118,14 @@ export const CompactThreadList = ({
                 </div>
 
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-muted-foreground">
-                  <span className="max-w-[12rem] truncate text-foreground/75">
-                    {thread.profiles?.username || "Аноним"}
-                  </span>
+                  <UserBadge
+                    userId={thread.user_id}
+                    username={thread.profiles?.username || "Аноним"}
+                    displayName={thread.profiles?.display_name}
+                    emojiId={thread.profiles?.nickname_emoji_id}
+                    isAnonymous={thread.profiles?.is_anonymous}
+                    className="pointer-events-auto max-w-[12rem] text-foreground"
+                  />
                   <span aria-hidden="true">·</span>
                   <time dateTime={thread.created_at}>
                     {formatShortRelativeTime(thread.created_at)}
@@ -125,9 +141,16 @@ export const CompactThreadList = ({
                 </div>
               </div>
 
-              <div className="hidden w-[190px] shrink-0 items-center justify-end gap-2 text-right sm:flex">
-                <div className="min-w-0">
-                  <div className="truncate text-[13px] text-foreground/80">{lastName}</div>
+              <div className="relative z-10 hidden w-[190px] shrink-0 items-center justify-end gap-2 text-right sm:flex">
+                <div className="pointer-events-none min-w-0">
+                  <UserBadge
+                    userId={lastUserId}
+                    username={lastUsername}
+                    displayName={last ? undefined : thread.profiles?.display_name}
+                    emojiId={last ? undefined : thread.profiles?.nickname_emoji_id}
+                    isAnonymous={last ? false : thread.profiles?.is_anonymous}
+                    className="pointer-events-auto block max-w-full overflow-hidden text-foreground"
+                  />
                   <time
                     dateTime={lastAt}
                     className="block text-[12px] text-muted-foreground"
@@ -139,10 +162,10 @@ export const CompactThreadList = ({
                   src={lastAvatar}
                   userId={last ? undefined : thread.user_id}
                   className="h-8 w-8 shrink-0"
-                  alt={lastName}
+                  alt={lastUsername}
                 />
               </div>
-            </Link>
+            </div>
           );
         })}
       </div>
