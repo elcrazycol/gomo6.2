@@ -119,6 +119,25 @@ export const ThreadFeed = ({
     newestMsRef.current = items.length ? Math.max(...items.map(createdMs)) : null;
   }, [items, createdMs]);
 
+  // The newest item the viewer has actually been shown, persisted per user. A
+  // stale (cached) feed page can be older than what they already saw; without
+  // this the "N новых постов" pill keeps re-offering items already seen.
+  const seenKey = `gomo6:feed-last-seen:${currentUserId ?? "anon"}`;
+  const seenRef = useRef(0);
+  useEffect(() => {
+    const raw = Number(localStorage.getItem(seenKey));
+    seenRef.current = Number.isFinite(raw) ? raw : 0;
+  }, [seenKey]);
+  const advanceSeen = useCallback((ms: number) => {
+    if (!Number.isFinite(ms) || ms <= seenRef.current) return;
+    seenRef.current = ms;
+    try {
+      localStorage.setItem(seenKey, String(ms));
+    } catch {
+      // ignore (private mode / quota)
+    }
+  }, [seenKey]);
+
   const feedToThread = (item: FeedItem): FeedThread => ({
     id: item.item_id,
     title: item.title || "",
@@ -179,6 +198,7 @@ export const ThreadFeed = ({
 
       setItems(feedItems);
       setHasMore(hasMoreData);
+      if (feedItems.length > 0) advanceSeen(Math.max(...feedItems.map(createdMs)));
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       console.error("Error loading feed:", error);
@@ -186,7 +206,7 @@ export const ThreadFeed = ({
       setLoading(false);
       end();
     }
-  }, [limit]);
+  }, [limit, advanceSeen, createdMs]);
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
@@ -231,8 +251,9 @@ export const ThreadFeed = ({
   // / focus / websocket "new posts" check). Results are parked in `pendingNew`
   // and shown as an X-style pill instead of jumping the scroll position.
   const checkForNew = useCallback(async () => {
-    const newest = newestMsRef.current;
-    if (newest == null) return;
+    // Never re-offer items already shown to the viewer (see seenRef).
+    const newest = Math.max(newestMsRef.current ?? 0, seenRef.current);
+    if (newest <= 0) return;
     const since = new Date(newest).toISOString();
     try {
       const response = await fetch(`/api/v1/feed?limit=50&since=${encodeURIComponent(since)}`);
@@ -253,13 +274,16 @@ export const ThreadFeed = ({
     const pending = pendingRef.current;
     if (pending.length === 0) return;
 
+    // Mark everything about to be shown as seen so it never re-appears.
+    advanceSeen(Math.max(...pending.map(createdMs)));
+
     setItems(prev => {
       const seen = new Set(prev.map(p => p.item_id));
       const added = pending.filter(p => !seen.has(p.item_id));
       return [...added, ...prev];
     });
     setPendingNew([]);
-  }, []);
+  }, [advanceSeen, createdMs]);
 
   useEffect(() => {
     loadInitial();
