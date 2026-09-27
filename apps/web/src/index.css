@@ -1321,15 +1321,18 @@ html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
 }
 
 ::view-transition-group(view-content) {
-  animation-duration: 220ms;
+  animation-duration: 320ms;
 }
 
+/* Fade through, not a crossfade: the outgoing view fades out first, then the
+   incoming one fades in. A crossfade ghosts two different layouts (the old list
+   shows through the new one), which reads as «double content». */
 ::view-transition-old(view-content) {
-  animation: 140ms ease-out both gomo-vt-out;
+  animation: 120ms cubic-bezier(0.4, 0, 1, 1) both gomo-vt-out;
 }
 
 ::view-transition-new(view-content) {
-  animation: 200ms ease-out both gomo-vt-in;
+  animation: 200ms cubic-bezier(0, 0, 0.2, 1) 110ms both gomo-vt-in;
 }
 
 @keyframes gomo-vt-out {
