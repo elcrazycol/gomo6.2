@@ -149,7 +149,7 @@ export const CompactThreadList = ({
                     feed card's corner action — no layout shift, and always on
                     for touch devices. */}
                 {currentUserId && (
-                  <div className="pointer-events-none self-end translate-y-1.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 motion-reduce:transition-none">
+                  <div className="pointer-events-none self-end translate-y-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 motion-reduce:transition-none">
                     <FavoriteButton itemType="thread" itemId={thread.id} />
                   </div>
                 )}
