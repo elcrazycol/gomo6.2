@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
+import { TopLoadingBar } from "@/components/TopLoadingBar";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
@@ -23,6 +24,7 @@ import { eventManager } from "@/services/eventManager";
 import { useTabTitle } from "@/hooks/useTabTitle";
 import { useProfileRealtimeInvalidation } from "@/hooks/useProfileRealtimeInvalidation";
 import { getHeaderBehavior, HEADER_BEHAVIOR_EVENT, type HeaderBehavior } from "@/lib/headerBehavior";
+import { useFavoritesStore } from "@/stores/favoritesStore";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -931,6 +933,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => eventManager.cleanup();
   }, [user?.id]);
 
+  // Favorites: load the viewer's bookmarked ids once per session so every card
+  // can show its bookmark state without a request of its own.
+  useEffect(() => {
+    if (user?.id) {
+      void useFavoritesStore.getState().load();
+    } else {
+      useFavoritesStore.getState().reset();
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     const term = searchQuery.trim();
     if (term.length < 2) {
@@ -1312,6 +1324,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           </div>
         )}
         </div>
+        <TopLoadingBar />
       </motion.header>
       ) : null}
 

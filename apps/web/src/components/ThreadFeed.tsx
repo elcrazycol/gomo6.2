@@ -7,6 +7,7 @@ import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
 import { wsService, type WebSocketMessageType } from "@/services/websocket";
+import { useLoadingBarStore } from "@/stores/loadingBarStore";
 
 /** One unified feed item as returned by GET /api/v1/feed. */
 interface FeedItem {
@@ -163,6 +164,8 @@ export const ThreadFeed = ({
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    const { begin, end } = useLoadingBarStore.getState();
+    begin();
     try {
       const response = await fetch(`/api/v1/feed?limit=${limit + 1}`, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -181,6 +184,7 @@ export const ThreadFeed = ({
       console.error("Error loading feed:", error);
     } finally {
       setLoading(false);
+      end();
     }
   }, [limit]);
 
