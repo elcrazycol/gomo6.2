@@ -95,9 +95,15 @@ vi.mock("@/components/EmojiPicker", () => ({ EmojiPicker: ({ children }: any) =>
 vi.mock("@/components/Lightbox", () => ({ Lightbox: () => null }));
 
 const mockNavigate = vi.fn();
+// Set per-test to simulate «Создать тему» from inside a раздел (?section=&sub=).
+let currentSearchParams = new URLSearchParams();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
-  return { ...actual, useNavigate: () => mockNavigate };
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+    useSearchParams: () => [currentSearchParams, vi.fn()],
+  };
 });
 
 let Component: any;
@@ -111,6 +117,7 @@ describe("CreateThread (global topic)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    currentSearchParams = new URLSearchParams();
     mockAuth.getSession.mockResolvedValue({ data: { session: { access_token: "token-abc" } }, error: null });
     mockFetch.mockImplementation((url: string) => {
       if (String(url).startsWith("/api/rpc/create_thread")) {
@@ -168,5 +175,16 @@ describe("CreateThread (global topic)", () => {
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/thread/topic-1", { replace: true }));
     expect(localStorage.getItem("gomo6:topic-draft:new")).toBeNull();
+  });
+
+  it("preselects the раздел/подраздел from the URL and opens the editor directly", async () => {
+    currentSearchParams = new URLSearchParams("section=games&sub=pc");
+    render(<Component />);
+
+    // No picker: the composer is already up with the placement applied.
+    await waitFor(() => expect(screen.getByPlaceholderText("Заголовок темы")).toBeTruthy());
+    expect(screen.getByTestId("topic-composer")).toBeTruthy();
+    expect(screen.queryByText("Выберите раздел")).toBeNull();
+    expect(screen.getByText("Игры · ПК")).toBeTruthy();
   });
 });

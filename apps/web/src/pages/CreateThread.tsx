@@ -8,7 +8,7 @@
 //   3. Then the title + body editor (the shared RichComposer) is shown.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { toast } from "sonner";
@@ -31,6 +31,12 @@ interface TopicDraft {
 const CreateThread = () => {
   const navigate = useNavigate();
   const { sections, loading } = useThreadSections();
+  const [searchParams] = useSearchParams();
+  // «Создать тему» clicked inside a раздел passes it in the URL (?section=&sub=)
+  // so the editor opens straight away with the right placement — no picker.
+  const presetSectionSlug = searchParams.get("section");
+  const presetSubSlug = searchParams.get("sub");
+  const presetAppliedRef = useRef(false);
 
   const [section, setSection] = useState<ThreadSection | null>(null);
   const [subsection, setSubsection] = useState<ThreadSubsection | null>(null);
@@ -42,10 +48,26 @@ const CreateThread = () => {
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftKey = DRAFT_PREFIX + "new";
 
-  // The panel is the first thing the user sees on the create page.
+  // Apply the раздел/подраздел from the URL once the catalog is loaded.
   useEffect(() => {
-    if (!loading && !section) setPickerOpen(true);
-  }, [loading, section]);
+    if (presetAppliedRef.current || loading || !presetSectionSlug) return;
+    const match = sections.find((s) => s.slug === presetSectionSlug);
+    if (!match) return;
+    presetAppliedRef.current = true;
+    setSection(match);
+    if (presetSubSlug) {
+      const sub = match.subsections.find((ss) => ss.slug === presetSubSlug);
+      if (sub) setSubsection(sub);
+    }
+  }, [loading, sections, presetSectionSlug, presetSubSlug]);
+
+  // The panel is the first thing the user sees on the create page — unless a
+  // раздел was already picked from the URL, in which case the editor opens.
+  useEffect(() => {
+    if (loading || section) return;
+    if (presetSectionSlug && sections.some((s) => s.slug === presetSectionSlug)) return;
+    setPickerOpen(true);
+  }, [loading, section, presetSectionSlug, sections]);
 
   // Restore the autosaved draft (title + body).
   useEffect(() => {

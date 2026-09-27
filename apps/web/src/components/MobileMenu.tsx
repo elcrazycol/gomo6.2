@@ -71,6 +71,12 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const tabParam = onHome ? params.get("tab") : null;
   const sectionSlug = onHome ? params.get("section") : null;
   const subSlug = onHome ? params.get("sub") : null;
+  // Keep the текущий раздел when opening the composer from inside one.
+  const createTopicHref = sectionSlug
+    ? `/create?section=${encodeURIComponent(sectionSlug)}${
+        subSlug ? `&sub=${encodeURIComponent(subSlug)}` : ""
+      }`
+    : "/create";
   const homeTab = sidebarTabs.find((tab) => tab.isHome) ?? null;
   const effectiveTabId = tabParam ?? (!sectionSlug && !viewParam ? homeTab?.id ?? null : null);
   const feedActive =
@@ -198,7 +204,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
-                onClick={() => go("/create")}
+                onClick={() => go(createTopicHref)}
                 className="h-8 shrink-0 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm shadow-primary/30 hover:bg-primary/90 hover:text-primary-foreground"
               >
                 <Plus className="w-3.5 h-3.5 mr-1.5" />

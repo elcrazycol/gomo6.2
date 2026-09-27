@@ -79,6 +79,14 @@ const Index = () => {
   const displaySection = activeSection ?? tabSection;
   const displaySubsection = activeSection ? activeSubsection : tabSubsection;
 
+  // «Создать тему» keeps the текущий раздел/подраздел so the composer opens
+  // already placed there.
+  const createTopicHref = displaySection
+    ? `/create?section=${encodeURIComponent(displaySection.slug)}${
+        displaySubsection ? `&sub=${encodeURIComponent(displaySubsection.slug)}` : ""
+      }`
+    : "/create";
+
   // Which view is actually on screen. When a section / tab / «Мои записи» is
   // picked we keep the previous view visible until the new one reports ready,
   // so switching never flashes a skeleton.
@@ -280,7 +288,7 @@ const Index = () => {
                 color="hsl(var(--primary-foreground) / 0.35)"
               >
                 <PrefetchLink
-                  to="/create"
+                  to={createTopicHref}
                   className="inline-flex w-fit items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[13px] font-semibold text-primary-foreground shadow-md shadow-primary/30 transition-transform duration-150 hover:scale-[1.03] active:scale-95"
                 >
                   <Plus className="h-3.5 w-3.5" />
