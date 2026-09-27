@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll, afterAll } from "vitest";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
@@ -288,6 +288,52 @@ describe("ThreadFeed", () => {
     await waitFor(() => {
       expect(screen.getByText("В ленте пока пусто")).toBeInTheDocument();
     });
+  });
+
+  it("does not flash the empty state while a superseded request is aborted", async () => {
+    let call = 0;
+    let resolveSecond: (() => void) | null = null;
+
+    mockFetch.mockImplementation((_url: string, init?: RequestInit) => {
+      call += 1;
+      if (call === 1) {
+        // First request: stays pending until aborted (StrictMode's double
+        // mount / the auth session resolving), then rejects like a real fetch.
+        return new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          const onAbort = () =>
+            reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+          if (signal?.aborted) onAbort();
+          else signal?.addEventListener("abort", onAbort);
+        });
+      }
+      return new Promise((resolve) => {
+        resolveSecond = () =>
+          resolve({
+            ok: true,
+            json: async () => makeFeedResponse([createMockThreadItem({ id: "thread-1", title: "First Thread" })]),
+          });
+      });
+    });
+
+    const { rerender } = render(
+      <ThreadFeedComponent currentUserId={undefined} currentUsername="" />,
+    );
+    // A new currentUserId re-creates loadInitial → the effect re-runs → the
+    // first request is aborted.
+    rerender(<ThreadFeedComponent currentUserId="current-user" currentUsername="currentuser" />);
+
+    // The aborted request settles while the second is still in flight: the
+    // empty state must NOT appear (regression: it used to flash here).
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("В ленте пока пусто")).not.toBeInTheDocument();
+
+    act(() => {
+      resolveSecond?.();
+    });
+    await waitFor(() => expect(screen.getByText("First Thread")).toBeInTheDocument());
   });
 
   it("shows 'Больше контента нет' when no more data", async () => {

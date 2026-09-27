@@ -203,8 +203,13 @@ export const ThreadFeed = ({
       if ((error as Error).name === "AbortError") return;
       console.error("Error loading feed:", error);
     } finally {
-      setLoading(false);
       end();
+      // Only the LATEST request may end the loading state. A superseded one
+      // (StrictMode's double mount, or the auth session resolving and changing
+      // `loadInitial`'s identity) used to flip loading off while `items` was
+      // still empty — flashing «В ленте пока пусто» for a frame before the real
+      // data landed.
+      if (abortRef.current === controller) setLoading(false);
     }
   }, [limit, advanceSeen, createdMs]);
 
@@ -372,7 +377,9 @@ export const ThreadFeed = ({
     }
   };
 
-  if (loading) {
+  // Skeleton only before the first page lands. Once there is content, a
+  // background revalidation (profile edit) must not replace it with a skeleton.
+  if (loading && items.length === 0) {
     return <ThreadFeedSkeleton count={limit > 5 ? 5 : limit} />;
   }
 
