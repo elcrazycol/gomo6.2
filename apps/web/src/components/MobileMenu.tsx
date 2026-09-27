@@ -7,7 +7,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   Menu,
-  Settings,
   Hammer,
   LogOut,
   Users,
@@ -373,14 +372,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 </Button>
               </Link>
             )}
-
-            {/* Settings */}
-            <Link to="/settings/appearance" onClick={() => setOpen(false)} className="block">
-              <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
-                <Settings className="w-4 h-4 mr-2" />
-                {t('nav.settings')}
-              </Button>
-            </Link>
 
             {/* Moderation */}
             {isModerator && (
