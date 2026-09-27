@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { BrowserRouter } from "react-router-dom";
@@ -49,7 +49,14 @@ vi.mock("@/integrations/api/client", () => ({
 }));
 
 vi.mock("@/components/ThreadFeed", () => ({
-  ThreadFeed: () => <div data-testid="thread-feed">ThreadFeed</div>,
+  ThreadFeed: ({ onReady }: { onReady?: () => void }) => (
+    <div data-testid="thread-feed">
+      ThreadFeed
+      <button type="button" data-testid="feed-ready" onClick={() => onReady?.()}>
+        ready
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/SectionThreads", () => ({
@@ -219,6 +226,19 @@ function renderWithProviders(ui: React.ReactElement) {
   );
 }
 
+function rerenderWithProviders(
+  result: { rerender: (ui: React.ReactElement) => void },
+  ui: React.ReactElement,
+) {
+  result.rerender(
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        {ui}
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}
+
 let IndexComponent: any;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -336,5 +356,26 @@ describe("Index", () => {
     renderWithProviders(<IndexComponent />);
 
     await waitFor(() => expect(screen.getByTestId("my-posts")).toBeInTheDocument());
+  });
+
+  it("keeps the раздел on screen until the feed reports ready", async () => {
+    setupLoggedIn();
+    mockParams.current = { sectionSlug: "general" };
+    const result = renderWithProviders(<IndexComponent />);
+    await waitFor(() => expect(screen.getByTestId("section-threads")).toBeInTheDocument());
+
+    // Navigate to the feed: it mounts, but stays hidden until it is ready.
+    mockParams.current = {};
+    rerenderWithProviders(result, <IndexComponent />);
+    await waitFor(() => expect(screen.getByTestId("thread-feed")).toBeInTheDocument());
+    expect(screen.getByTestId("thread-feed").parentElement?.className).toContain("hidden");
+    // …so the раздел is still the visible view, not a skeleton.
+    expect(screen.getByTestId("section-threads").closest("div.hidden")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("feed-ready"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("thread-feed").parentElement?.className).not.toContain("hidden"),
+    );
   });
 });

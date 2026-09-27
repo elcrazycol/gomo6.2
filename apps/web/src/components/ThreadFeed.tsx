@@ -63,6 +63,10 @@ interface ThreadFeedProps {
   currentUsername: string;
   currentUserColor?: string;
   limit?: number;
+  /** Fired once the first page has settled (content or empty). Lets the parent
+   *  keep the previous view on screen until the feed is actually ready, so
+   *  switching to it never flashes a skeleton. */
+  onReady?: () => void;
 }
 
 const PULL_THRESHOLD = 60;
@@ -80,7 +84,8 @@ export const ThreadFeed = ({
   currentUserId,
   currentUsername,
   currentUserColor,
-  limit = 20
+  limit = 20,
+  onReady,
 }: ThreadFeedProps) => {
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,9 +214,12 @@ export const ThreadFeed = ({
       // `loadInitial`'s identity) used to flip loading off while `items` was
       // still empty — flashing «В ленте пока пусто» for a frame before the real
       // data landed.
-      if (abortRef.current === controller) setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+        onReady?.();
+      }
     }
-  }, [limit, advanceSeen, createdMs]);
+  }, [limit, advanceSeen, createdMs, onReady]);
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;

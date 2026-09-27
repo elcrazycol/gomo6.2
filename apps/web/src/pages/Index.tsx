@@ -8,7 +8,7 @@ import { Bookmark, ChevronRight, FileText, Hash, History, Home, Plus, Users, X }
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
 import { useSessionTime } from "@/hooks/useSessionTime";
-import { useThreadSections } from "@/hooks/useThreadSections";
+import { useThreadSections, type SectionWithSubsections, type ThreadSubsection } from "@/hooks/useThreadSections";
 import { SectionIcon } from "@/components/topic/sectionIcons";
 import { SectionThreads } from "@/components/SectionThreads";
 import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
@@ -116,24 +116,40 @@ const Index = () => {
       }`
     : "/create";
 
-  // Which view is actually on screen. When a section / tab / «Мои записи» is
-  // picked we keep the previous view visible until the new one reports ready,
-  // so switching never flashes a skeleton.
+  // Which view is actually on screen. When a section / tab / «Мои записи» /
+  // the feed is picked we keep the previous view visible until the new one
+  // reports ready, so switching never flashes a skeleton.
   const targetMode: "feed" | "section" | "mine" | "history" | "favorites" =
     isSectionRoute || displaySection ? "section" : explicitView ?? "feed";
-  // A раздел path is known synchronously, so its view is the initial one — the
-  // feed never mounts (and never fetches) when landing straight on a раздел.
+  // The target is known synchronously from the path, so it is the initial view:
+  // the feed never mounts (and never fetches) when landing straight on a раздел.
   const [shownMode, setShownMode] = useState<"feed" | "section" | "mine" | "history" | "favorites">(
-    () => (isSectionRoute ? "section" : "feed"),
+    () => (isSectionRoute ? "section" : explicitView ?? "feed"),
   );
-  useEffect(() => {
-    if (targetMode === "feed") setShownMode("feed");
-  }, [targetMode]);
+  const handleFeedReady = useCallback(() => setShownMode("feed"), []);
   const handleSectionReady = useCallback(() => setShownMode("section"), []);
   const handleMineReady = useCallback(() => setShownMode("mine"), []);
   const handleHistoryReady = useCallback(() => setShownMode("history"), []);
   const handleFavoritesReady = useCallback(() => setShownMode("favorites"), []);
   const navigate = useNavigate();
+
+  // Remember the last resolved раздел so it stays on screen while the feed
+  // loads behind it: on /feed the URL no longer names a раздел, and without
+  // this the transition would render «Раздел не найден» for a moment.
+  const [lastSection, setLastSection] = useState<{
+    section: SectionWithSubsections;
+    subsection: ThreadSubsection | null;
+  } | null>(null);
+  useEffect(() => {
+    if (displaySection) setLastSection({ section: displaySection, subsection: displaySubsection });
+  }, [displaySection, displaySubsection]);
+  const keepLastSection = !displaySection && shownMode === "section" && targetMode !== "section";
+  const renderedSection = displaySection ?? (keepLastSection ? lastSection?.section ?? null : null);
+  const renderedSubsection = displaySection
+    ? displaySubsection
+    : keepLastSection
+      ? lastSection?.subsection ?? null
+      : null;
 
   // Legacy query URLs → path forms (old bookmarks and links).
   useEffect(() => {
@@ -285,21 +301,38 @@ const Index = () => {
             {/* The feed is mounted only for feed-ish views — on a раздел path it
                 is not fetched at all. During the feed→раздел transition it stays
                 mounted (hidden by shownMode) until the section reports ready. */}
-            {((!isSectionRoute && !displaySection) || shownMode === "feed") && (
-              <div className={shownMode === "feed" ? undefined : "hidden"}>
+            {/* Feed. Mounted when it is the target or still the shown view, so
+                returning to it never fetches while a раздел is on screen. It
+                stays hidden until it reports ready, so the previous view
+                remains visible instead of a skeleton. */}
+            {(targetMode === "feed" || shownMode === "feed") && (
+              <div
+                className={
+                  shownMode === "feed"
+                    ? "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+                    : "hidden"
+                }
+              >
                 <ThreadFeed
                   currentUserId={user?.id}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
+                  onReady={handleFeedReady}
                 />
               </div>
             )}
-            {(isSectionRoute || displaySection) && (
-              <div className={shownMode === "section" ? undefined : "hidden"}>
-                {displaySection ? (
+            {(targetMode === "section" || shownMode === "section") && (
+              <div
+                className={
+                  shownMode === "section"
+                    ? "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none"
+                    : "hidden"
+                }
+              >
+                {renderedSection ? (
                   <SectionThreads
-                    section={displaySection}
-                    subsection={displaySubsection}
+                    section={renderedSection}
+                    subsection={renderedSubsection}
                     currentUserId={user?.id ?? null}
                     currentUsername={currentUserUsername}
                     currentUserColor={currentUserColor}
@@ -315,7 +348,7 @@ const Index = () => {
                 )}
               </div>
             )}
-            {explicitView === "mine" && (
+            {(explicitView === "mine" || shownMode === "mine") && (
               <div className={shownMode === "mine" ? undefined : "hidden"}>
                 <MyPosts
                   currentUserId={user?.id ?? null}
@@ -325,7 +358,7 @@ const Index = () => {
                 />
               </div>
             )}
-            {explicitView === "history" && (
+            {(explicitView === "history" || shownMode === "history") && (
               <div className={shownMode === "history" ? undefined : "hidden"}>
                 <HistoryView
                   currentUserId={user?.id ?? null}
@@ -335,7 +368,7 @@ const Index = () => {
                 />
               </div>
             )}
-            {explicitView === "favorites" && (
+            {(explicitView === "favorites" || shownMode === "favorites") && (
               <div className={shownMode === "favorites" ? undefined : "hidden"}>
                 <FavoritesView
                   currentUserId={user?.id ?? null}
