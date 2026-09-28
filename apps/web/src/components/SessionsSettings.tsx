@@ -64,7 +64,7 @@ function formatLocation(session: SessionInfo) {
   return pieces.join(" · ");
 }
 
-export function SessionsSettings() {
+export function SessionsSettings({ withHeader = true }: { withHeader?: boolean } = {}) {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -137,28 +137,41 @@ export function SessionsSettings() {
 
   const otherSessions = sessions.filter((s) => !s.is_current);
 
+  const refreshButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="shrink-0 text-muted-foreground"
+      onClick={loadSessions}
+      disabled={actionLoading !== null}
+      aria-label={t("settings.refreshSessions")}
+    >
+      <RefreshCw
+        className={`h-4 w-4 ${actionLoading ? "animate-spin" : ""}`}
+      />
+    </Button>
+  );
+
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="text-lg font-semibold">{t("settings.devicesAndSessions")}</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t("settings.sessionsDescription")}
-          </p>
+      {withHeader ? (
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="text-lg font-semibold">{t("settings.devicesAndSessions")}</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t("settings.sessionsDescription")}
+            </p>
+          </div>
+          {refreshButton}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-muted-foreground"
-          onClick={loadSessions}
-          disabled={actionLoading !== null}
-          aria-label={t("settings.refreshSessions")}
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${actionLoading ? "animate-spin" : ""}`}
-          />
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {sessions.length > 0 ? t("settings2.sessionsCount", { count: sessions.length }) : ""}
+          </p>
+          {refreshButton}
+        </div>
+      )}
 
       {sessions.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("settings.noActiveSessions")}</p>

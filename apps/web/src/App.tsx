@@ -103,9 +103,19 @@ const Translate = lazyWithRetry(() => import("./pages/Translate"));
 // Правовые документы грузим лениво: это тексты, а не критичный путь.
 const Legal = lazyWithRetry(() => import("./pages/Legal"));
 
+/**
+ * The reworked Settings page lived at /settings-v2 while it was a prototype.
+ * Keep those URLs working (bookmarks, open tabs) by forwarding to the real
+ * route with the same section and query string.
+ */
+const LegacySettingsRedirect = () => {
+  const location = useLocation();
+  const section = location.pathname.replace(/^\/settings-v2/, "");
+  return <Navigate to={`/settings${section}${location.search}`} replace />;
+};
+
 // Prefetch critical routes on app start
-const prefetchRoutes = () => {
-  // Prefetch main routes after initial load
+const prefetchRoutes = () => {  // Prefetch main routes after initial load
   setTimeout(() => {
     import("./pages/Auth").catch(() => {});
     import("./pages/Settings").catch(() => {});
@@ -281,6 +291,12 @@ function AppRoutes() {
           {/* Legacy URL — the studio replaced /settings/custom */}
           <Route path="settings/custom" element={<AuthGuard><Navigate to="/settings/prof-studio" replace /></AuthGuard>} />
           <Route path="settings/placeholders" element={<AuthGuard><LazyPage component={Placeholders} /></AuthGuard>} />
+          {/* Legacy section names from the old tabbed page */}
+          <Route path="settings/account" element={<AuthGuard><Navigate to="/settings/security" replace /></AuthGuard>} />
+          <Route path="settings/posts" element={<AuthGuard><Navigate to="/settings/profile" replace /></AuthGuard>} />
+          {/* The reworked page (was /settings-v2 during the rewrite) */}
+          <Route path="settings-v2" element={<LegacySettingsRedirect />} />
+          <Route path="settings-v2/:section" element={<LegacySettingsRedirect />} />
           <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
           <Route path="settings" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
           <Route path="stats" element={<AuthGuard><LazyPage component={Stats} /></AuthGuard>} />

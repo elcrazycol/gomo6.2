@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Bell, Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
-import { Bell, Loader2 } from "lucide-react";
+import { SETTING_BLOCK_CHROME, SettingBlock, SettingGroup, SettingRow } from "@/components/settings/SettingRow";
 import {
   enablePush,
   disablePush,
@@ -29,6 +30,11 @@ const TYPE_LABELS: Record<string, { key: string; icon: string }> = {
   message: { key: "notifTypes.message", icon: "💬" },
 };
 
+/**
+ * Settings → Уведомления. Push subscription master switch + the per-type
+ * toggles, in the shared settings row language (the old page rendered its own
+ * card with hand-rolled rows).
+ */
 const NotificationsSettings = () => {
   const { t } = useTranslation();
   const [supported] = useState(isPushSupported);
@@ -101,8 +107,6 @@ const NotificationsSettings = () => {
     }
   };
 
-  const vapidReady = Boolean(prefs?.vapid_public_key);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -111,56 +115,70 @@ const NotificationsSettings = () => {
     );
   }
 
+  const vapidReady = Boolean(prefs?.vapid_public_key);
+
   return (
-    <div className="bg-surface p-4 sm:p-6 border border-border">
-      <div className="flex items-center gap-2 mb-4">
-        <Bell className="h-5 w-5" />
-        <h2 className="text-lg font-semibold">{t("notifTypes.pushTitle")}</h2>
-      </div>
-
-      {!supported ? (
-        <p className="text-sm text-muted-foreground">{t("notifTypes.unsupported")}</p>
-      ) : (
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t("notifTypes.description")}</p>
-
-          {/* Master switch */}
-          <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-3 py-2">
-            <span className="text-sm font-medium">{t("notifTypes.enablePush")}</span>
-            <Switch checked={subscribed} onCheckedChange={toggleMaster} disabled={busy} />
-          </div>
-
-          {/* VAPID not configured on the server hint */}
-          {!vapidReady && (
-            <p className="text-xs text-muted-foreground">{t("notifTypes.notConfigured")}</p>
-          )}
-
-          {/* Per-type toggles */}
-          {subscribed && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">{t("notifTypes.whatReceive")}</p>
-              {availableTypes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("notifTypes.noneYet")}</p>
-              ) : (
-                availableTypes.map((type) => {
-                  const label = TYPE_LABELS[type];
-                  return (
-                    <div
-                      key={type}
-                      className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-3 py-2"
-                    >
-                      <span className="text-sm">
-                        {label?.icon ? <span className="mr-2">{label.icon}</span> : null}
-                        {label ? t(label.key) : type}
-                      </span>
-                      <Switch checked={isTypeEnabled(type)} onCheckedChange={(on) => toggleType(type, on)} />
-                    </div>
-                  );
-                })
+    <div className="space-y-5">
+      <SettingGroup divided={false}>
+        <SettingBlock
+          id="set-push"
+          title={t("notifTypes.pushTitle")}
+          description={t("notifTypes.description")}
+          icon={Bell}
+        >
+          {!supported ? (
+            <p className="text-sm text-muted-foreground">{t("notifTypes.unsupported")}</p>
+          ) : (
+            <>
+              <SettingRow
+                className={SETTING_BLOCK_CHROME}
+                title={t("notifTypes.enablePush")}
+                description={!vapidReady ? t("notifTypes.notConfigured") : undefined}
+              >
+                <Switch
+                  checked={subscribed}
+                  onCheckedChange={toggleMaster}
+                  disabled={busy}
+                  aria-label={t("notifTypes.enablePush")}
+                />
+              </SettingRow>
+              {subscribed && (
+                <p className="mt-3 text-xs leading-snug text-muted-foreground">{t("settings2.pushDeviceHint")}</p>
               )}
-            </div>
+            </>
           )}
-        </div>
+        </SettingBlock>
+      </SettingGroup>
+
+      {supported && subscribed && (
+        <SettingGroup divided={false}>
+          <SettingBlock
+            id="set-push-types"
+            title={t("notifTypes.whatReceive")}
+            description={t("settings2.pushTypesDesc")}
+            icon={Bell}
+          >
+            {availableTypes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("notifTypes.noneYet")}</p>
+            ) : (
+              <div className="divide-y divide-border/50">
+                {availableTypes.map((type) => {
+                  const label = TYPE_LABELS[type];
+                  const title = label ? t(label.key) : type;
+                  return (
+                    <SettingRow key={type} title={label?.icon ? `${label.icon} ${title}` : title}>
+                      <Switch
+                        checked={isTypeEnabled(type)}
+                        onCheckedChange={(on) => toggleType(type, on)}
+                        aria-label={title}
+                      />
+                    </SettingRow>
+                  );
+                })}
+              </div>
+            )}
+          </SettingBlock>
+        </SettingGroup>
       )}
     </div>
   );
