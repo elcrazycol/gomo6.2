@@ -3,6 +3,7 @@ package profiles
 import (
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -44,10 +45,10 @@ func SanitizeProfileBackgroundURL(s string) string {
 }
 
 // allowedThemeTokenVars is the allow-list of CSS variables a profile auto-
-// theme may override. It mirrors the tokens the frontend theme system emits
-// (theme.ts) — only these variables may come from profile_customization,
-// so a stored JSONB payload can never inject arbitrary CSS onto a viewer's
-// profile page. Any other --* key is dropped.
+// theme may override. It mirrors the tokens the frontend theme registry emits
+// (see apps/web/src/theme/tokens.ts) — only these variables may come from
+// profile_customization, so a stored JSONB payload can never inject arbitrary
+// CSS onto a viewer's profile page. Any other --* key is dropped.
 var allowedThemeTokenVars = map[string]bool{
 	"--background":              true,
 	"--foreground":              true,
@@ -59,10 +60,18 @@ var allowedThemeTokenVars = map[string]bool{
 	"--primary-foreground":      true,
 	"--secondary":               true,
 	"--secondary-foreground":    true,
-	"--muted":                   true,
-	"--muted-foreground":        true,
 	"--accent":                  true,
 	"--accent-foreground":       true,
+	"--destructive":             true,
+	"--destructive-foreground":  true,
+	"--success":                 true,
+	"--success-foreground":      true,
+	"--warning":                 true,
+	"--warning-foreground":      true,
+	"--info":                    true,
+	"--info-foreground":         true,
+	"--muted":                   true,
+	"--muted-foreground":        true,
 	"--border":                  true,
 	"--input":                   true,
 	"--ring":                    true,
@@ -75,11 +84,37 @@ var allowedThemeTokenVars = map[string]bool{
 	"--link":                    true,
 }
 
-// themeTokenHSLRE matches an HSL triplet in the exact format the app's theme
-// tokens use: "120 60% 35%" (hue 0-360, saturation/lightness 0-100%). Only
-// such self-contained color triplets are admitted — no url(), calc(), var(),
-// rgba() or anything that could smuggle CSS or escape the token value.
+// themeTokenHSLRE matches the legacy token format "120 60% 35%" (hue 0-360,
+// saturation/lightness 0-100%). Kept so profiles generated before the OKLCH
+// migration still render.
 var themeTokenHSLRE = regexp.MustCompile(`^[0-9]{1,3} [0-9]{1,3}% [0-9]{1,3}%$`)
+
+// themeTokenOklchRE matches the current bare-OKLCH triplet "0.627 0.131 145.2"
+// (lightness 0-1, chroma 0-0.5, hue 0-360). Digit-only parts make it impossible
+// to smuggle url(), calc(), var() or any other CSS through a token value.
+var themeTokenOklchRE = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)? [0-9]+(?:\.[0-9]+)? [0-9]+(?:\.[0-9]+)?$`)
+
+// isValidThemeTokenValue accepts either token format and enforces numeric
+// ranges so a forged payload cannot store an out-of-gamut or absurd value.
+func isValidThemeTokenValue(s string) bool {
+	if themeTokenHSLRE.MatchString(s) {
+		return true
+	}
+	if !themeTokenOklchRE.MatchString(s) {
+		return false
+	}
+	parts := strings.Split(s, " ")
+	if len(parts) != 3 {
+		return false
+	}
+	l, err1 := strconv.ParseFloat(parts[0], 64)
+	c, err2 := strconv.ParseFloat(parts[1], 64)
+	h, err3 := strconv.ParseFloat(parts[2], 64)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return false
+	}
+	return l >= 0 && l <= 1 && c >= 0 && c <= 0.5 && h >= 0 && h <= 360
+}
 
 // maxThemeTokens caps the number of variables in a profile theme payload.
 const maxThemeTokens = 64
@@ -102,7 +137,7 @@ func SanitizeProfileThemeTokens(v interface{}) map[string]string {
 			if len(out) >= maxThemeTokens {
 				break
 			}
-			if !allowedThemeTokenVars[key] || !themeTokenHSLRE.MatchString(val) {
+			if !allowedThemeTokenVars[key] || !isValidThemeTokenValue(val) {
 				continue
 			}
 			out[key] = val
@@ -127,7 +162,7 @@ func SanitizeProfileThemeTokens(v interface{}) map[string]string {
 			continue
 		}
 		s, ok := val.(string)
-		if !ok || !themeTokenHSLRE.MatchString(s) {
+		if !ok || !isValidThemeTokenValue(s) {
 			continue
 		}
 		out[key] = s
