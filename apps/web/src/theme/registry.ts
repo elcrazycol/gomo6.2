@@ -52,7 +52,7 @@ export const THEME_GROUP_LABEL_KEYS: Record<ThemeGroup, string> = {
   dark: "settings2.themeGroupDark",
 };
 
-export const THEME_GROUP_ORDER: ThemeGroup[] = ["custom", "calm", "pastel", "neutral", "vivid", "mineral", "neon", "retro", "a11y", "dark"];
+export const THEME_GROUP_ORDER: ThemeGroup[] = ["custom", "calm", "neutral", "vivid", "mineral", "neon", "retro", "a11y"];
 
 const DEFAULT_RADIUS = "0.25rem";
 

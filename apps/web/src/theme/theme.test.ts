@@ -74,9 +74,9 @@ describe("theme registry", () => {
     expect(THEMES.some((theme) => theme.supports.length === 2)).toBe(true);
   });
 
-  it("ships the pastel / mineral / retro / a11y groups", () => {
+  it("ships the calm / neutral / mineral / neon / retro / a11y groups", () => {
     const groups = new Set(THEMES.map((theme) => theme.group));
-    for (const group of ["calm", "pastel", "mineral", "retro", "a11y"]) {
+    for (const group of ["calm", "neutral", "mineral", "neon", "retro", "a11y"]) {
       expect(groups.has(group as never), group).toBe(true);
     }
   });
@@ -148,8 +148,8 @@ describe("preference storage", () => {
   });
 
   it("round-trips prefs", () => {
-    setStoredPrefs({ theme: "acid", mode: "system" });
-    expect(getStoredPrefs()).toEqual({ theme: "acid", mode: "system" });
+    setStoredPrefs({ theme: "mint", mode: "system" });
+    expect(getStoredPrefs()).toEqual({ theme: "mint", mode: "system" });
   });
 
   it("falls back to the default for an unknown theme", () => {
