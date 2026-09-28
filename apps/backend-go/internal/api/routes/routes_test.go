@@ -318,6 +318,8 @@ var expectedRoutes = []string{
 	"POST /api/v1/sidebar_tabs",
 	"PUT /api/v1/sidebar_tabs/:id",
 	"DELETE /api/v1/sidebar_tabs/:id",
+	"GET /api/v1/user/settings",
+	"PUT /api/v1/user/settings",
 	"GET /api/v1/notifications",
 	"GET /api/v1/notifications/:id",
 	"PUT /api/v1/notifications/:id/read",

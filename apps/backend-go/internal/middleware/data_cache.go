@@ -118,7 +118,8 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 		// (the endpoints are custom, not registry tables).
 		if strings.HasPrefix(path, "/api/v1/history") ||
 			strings.HasPrefix(path, "/api/v1/favorites") ||
-			strings.HasPrefix(path, "/api/v1/sidebar_tabs") {
+			strings.HasPrefix(path, "/api/v1/sidebar_tabs") ||
+			strings.HasPrefix(path, "/api/v1/user/settings") {
 			c.Next()
 			return
 		}

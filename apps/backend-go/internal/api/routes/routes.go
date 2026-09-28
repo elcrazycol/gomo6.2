@@ -177,6 +177,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	favoritesHandler := handlers.NewFavoritesHandler(db)
 	randomHandler := handlers.NewRandomHandler(db, redis)
 	sidebarTabsHandler := handlers.NewSidebarTabsHandler(db)
+	userSettingsHandler := handlers.NewUserSettingsHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
@@ -532,6 +533,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/sidebar_tabs", sidebarTabsHandler.CreateTab)
 			protected.PUT("/sidebar_tabs/:id", sidebarTabsHandler.UpdateTab)
 			protected.DELETE("/sidebar_tabs/:id", sidebarTabsHandler.DeleteTab)
+
+			// Appearance settings (theme/mode), synced across devices.
+			protected.GET("/user/settings", userSettingsHandler.Get)
+			protected.PUT("/user/settings", userSettingsHandler.Update)
 
 			// Notifications
 			protected.GET("/notifications", notificationsHandler.GetNotifications)
