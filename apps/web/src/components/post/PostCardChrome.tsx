@@ -35,7 +35,7 @@ import { useTranslation } from "react-i18next";
  * (chips and action hovers use it) so those stay readable inside the card.
  */
 export const POST_CARD_CLASS =
-  "relative overflow-clip rounded-[var(--card-radius)] border-border/70 shadow-none bg-surface transition-colors hover:border-border/80 hover:bg-card/50";
+  "relative overflow-clip rounded-[var(--card-radius)] border-border/70 bg-surface transition-colors hover:border-border/80";
 
 interface PostCardShellProps {
   children: ReactNode;

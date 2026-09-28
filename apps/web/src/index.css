@@ -290,6 +290,10 @@ html {
 
   body {
     @apply bg-background text-foreground;
+    background-image: var(--bg-image, none);
+    background-size: var(--bg-size, cover);
+    background-repeat: var(--bg-repeat, no-repeat);
+    background-attachment: fixed;
     width: 100%;
     max-width: 100%;
     margin: 0;
@@ -511,34 +515,23 @@ main.is-app-surface {
    Three progressively cheaper tiers live further down ("Cost tiers"): narrow
    screens, html.perf-lite, and the no-backdrop-filter fallback. */
 .app-header-glass {
-  --glass-alpha: 0.62;
-  --glass-blur: 18px;
-  --glass-saturate: 180%;
+  /* Driven by the theme's surface profile (see registry/theme.css): glass
+     themes blur, flat/outlined/paper/contrast themes stay opaque with no
+     blur, neon/terminal get a sheen-less flat pane with a glow elsewhere. */
+  --glass-alpha: var(--surface-alpha, 1);
+  --glass-blur: var(--surface-blur, 0px);
+  --glass-saturate: var(--surface-saturate, 100%);
 
-  /* Both read from the theme, so the pane is light glass on a light theme and
-     dark glass on a dark one without any per-theme selectors. */
   background-color: oklch(var(--background) / var(--glass-alpha));
   color: oklch(var(--foreground));
-  /* Ordered top-to-bottom: sheen, diagonal streak, then the thickness gradient
-     (a whisper of light at the top, a denser floor). All static, so they cost
-     nothing per frame here. */
-  background-image:
-    radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%),
-    linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%),
-    linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
+  background-image: var(--surface-sheen, none);
 
-  /* Exactly two passes: the blur and one colour matrix. Every extra function
-     is another full-width shader on every scroll frame, which is why there is
-     no brightness() here. */
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 
-  /* The theme border doubles as the pane's edge in both schemes — a white
-     hairline only worked on dark glass. */
   border-bottom: 1px solid oklch(var(--border) / 0.85);
   box-shadow:
-    inset 0 1px 0 hsl(0 0% 100% / 0.12),
-    inset 0 -1px 0 hsl(0 0% 0% / 0.1),
+    inset 0 1px 0 hsl(0 0% 100% / 0.1),
     0 10px 30px -14px hsl(0 0% 0% / 0.22);
 }
 
@@ -557,7 +550,7 @@ html[data-mode="light"] .app-header-logo {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.5;
+  opacity: calc(0.5 * var(--surface-grain, 1));
   mix-blend-mode: soft-light;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E");
   background-size: 200px 200px;
@@ -584,12 +577,12 @@ html[data-mode="light"] .app-header-logo {
        this tier smoothness is worth more than the frosting. */
 @media (max-width: 767px) {
   .app-header-glass {
-    --glass-blur: 8px;
-    --glass-saturate: 120%;
+    --glass-blur: calc(var(--surface-blur, 0px) * 0.5);
+    --glass-saturate: var(--surface-saturate, 100%);
   }
   .app-header-glass::before {
     mix-blend-mode: normal;
-    opacity: 0.1;
+    opacity: calc(0.2 * var(--surface-grain, 1));
   }
 }
 
@@ -688,7 +681,15 @@ html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
    (see components/ui/card.tsx and components/post/PostCardChrome.tsx). */
 @layer utilities {
   .bg-surface {
-    background-color: color-mix(in oklch, oklch(var(--card)) 40%, oklch(var(--background)));
+    background-color: color-mix(in oklch, oklch(var(--card)) var(--surface-tint, 100%), oklch(var(--background)));
+    box-shadow: var(--surface-shadow, none);
+  }
+  /* Panels: dialogs, popovers, menus, sheets. Glass themes blur + stay
+     translucent, flat/outlined/paper/contrast themes are opaque with no blur. */
+  .surface-panel {
+    background-color: oklch(var(--card) / var(--surface-alpha, 1));
+    -webkit-backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
+    backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
   }
 }
 

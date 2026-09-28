@@ -412,6 +412,8 @@ const ru: LocaleResources = {
     themeTerminalDescription: "Зелёный CRT, моно и сканлайны",
     themePaper: "Бумага",
     themePaperDescription: "Сепия, засечки, печатная страница",
+    themeGlass: "Стекло",
+    themeGlassDescription: "Матовое стекло, мягкие тени, цветной фон",
     themeContrast: "Максимальный контраст (тёмная)",
     themeContrastDescription: "Чистый чёрный и белый, без цвета",
     themeContrastLight: "Максимальный контраст (светлая)",

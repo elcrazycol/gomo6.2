@@ -411,6 +411,8 @@ const en: LocaleResources = {
     themeTerminalDescription: "Green CRT, mono, scanlines",
     themePaper: "Paper",
     themePaperDescription: "Sepia, serifs, a printed page",
+    themeGlass: "Glass",
+    themeGlassDescription: "Frosted glass, soft shadows, colourful backdrop",
     themeContrast: "Maximum contrast (dark)",
     themeContrastDescription: "Pure black and white, no colour",
     themeContrastLight: "Maximum contrast (light)",

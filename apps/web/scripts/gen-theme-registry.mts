@@ -37,6 +37,115 @@ interface Character {
   texture?: Texture;
 }
 
+/* ── Surface / material profiles ─────────────────────────────────────────── */
+
+/**
+ * A theme's "material": how panels, cards and the header are painted. This is
+ * what makes themes feel different beyond hue — glass blurs, flat/outlined stay
+ * opaque, neon glows, paper grains, contrast hardens.
+ */
+type SurfaceProfile = "glass" | "flat" | "outlined" | "elevated" | "neon" | "paper" | "terminal" | "contrast" | "mineral";
+
+interface Surface {
+  blur: string;
+  saturate: string;
+  /** Panel background alpha (1 = opaque). */
+  alpha: string;
+  /** How much of the card colour is kept vs. mixed with the background. */
+  tint: string;
+  borderWidth: string;
+  borderAlpha: string;
+  shadow: string;
+  glow: string;
+  /** 1 = keep the header's noise grain, 0 = none. */
+  grain: string;
+  /** Header sheen/streak layers (glass) or none (flat materials). */
+  sheen: string;
+}
+
+const GLASS_SHEEN =
+  "radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%), linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%), linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06))";
+
+const SURFACE_PRESETS: Record<SurfaceProfile, Surface> = {
+  glass: {
+    blur: "16px", saturate: "160%", alpha: "0.72", tint: "55%",
+    borderWidth: "1px", borderAlpha: "0.7",
+    shadow: "0 1px 2px rgb(0 0 0 / 0.08)", glow: "none", grain: "1", sheen: GLASS_SHEEN,
+  },
+  flat: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "100%",
+    borderWidth: "1px", borderAlpha: "0.9",
+    shadow: "none", glow: "none", grain: "0", sheen: "none",
+  },
+  outlined: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "100%",
+    borderWidth: "1px", borderAlpha: "1",
+    shadow: "none", glow: "none", grain: "0", sheen: "none",
+  },
+  elevated: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "100%",
+    borderWidth: "1px", borderAlpha: "0.6",
+    shadow: "0 12px 32px -16px rgb(0 0 0 / 0.45)", glow: "none", grain: "0", sheen: "none",
+  },
+  neon: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "100%",
+    borderWidth: "1px", borderAlpha: "0.8",
+    shadow: "none", glow: "0 0 18px oklch(var(--primary) / 0.45)", grain: "0", sheen: "none",
+  },
+  paper: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "100%",
+    borderWidth: "1px", borderAlpha: "1",
+    shadow: "none", glow: "none", grain: "1", sheen: "linear-gradient(to bottom, oklch(var(--card) / 0.5), transparent)",
+  },
+  terminal: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "100%",
+    borderWidth: "1px", borderAlpha: "0.9",
+    shadow: "none", glow: "0 0 14px oklch(var(--primary) / 0.35)", grain: "0", sheen: "none",
+  },
+  contrast: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "100%",
+    borderWidth: "2px", borderAlpha: "1",
+    shadow: "none", glow: "none", grain: "0", sheen: "none",
+  },
+  mineral: {
+    blur: "0px", saturate: "100%", alpha: "1", tint: "96%",
+    borderWidth: "1px", borderAlpha: "0.8",
+    shadow: "0 12px 30px -14px rgb(0 0 0 / 0.4)", glow: "none", grain: "0",
+    sheen: "linear-gradient(120deg, oklch(var(--card) / 0.7), transparent 45%)",
+  },
+};
+
+const SURFACE_BY_THEME: Record<string, SurfaceProfile> = {
+  void: "outlined",
+  glitch: "neon",
+  acid: "neon",
+  synthwave: "neon",
+  terminal: "terminal",
+  paper: "paper",
+  contrast: "contrast",
+  contrastLight: "contrast",
+  obsidian: "mineral",
+  quartz: "mineral",
+  jade: "mineral",
+};
+
+const DEFAULT_SURFACE_PROFILE: SurfaceProfile = "glass";
+
+/** Page background layers (fixed). Themes may add a gradient or pattern. */
+const BG_IMAGE_BY_THEME: Record<string, string> = {
+  glass:
+    "radial-gradient(60% 55% at 12% 0%, oklch(var(--primary) / 0.28), transparent 60%), radial-gradient(55% 50% at 88% 8%, oklch(var(--accent) / 0.24), transparent 55%), radial-gradient(70% 60% at 50% 110%, oklch(var(--secondary) / 0.2), transparent 60%)",
+  synthwave:
+    "linear-gradient(oklch(var(--primary) / 0.08) 1px, transparent 1px), linear-gradient(90deg, oklch(var(--primary) / 0.08) 1px, transparent 1px)",
+  paper:
+    "radial-gradient(120% 90% at 20% 0%, oklch(var(--card) / 0.6), transparent 55%), radial-gradient(100% 80% at 100% 100%, oklch(var(--muted) / 0.5), transparent 50%)",
+  obsidian:
+    "radial-gradient(90% 70% at 85% 0%, oklch(var(--primary) / 0.12), transparent 55%)",
+};
+const BG_SIZE_BY_THEME: Record<string, string> = { synthwave: "28px 28px" };
+const BG_REPEAT_BY_THEME: Record<string, string> = { synthwave: "repeat" };
+
+
 const DEFAULT_ID: ColorTheme = "graphite";
 
 interface LegacyMeta extends Character {
@@ -69,6 +178,8 @@ interface SeedTheme extends Character {
 }
 
 const SEED_THEMES: SeedTheme[] = [
+  // Material
+  { id: "glass", group: "calm", nameKey: "themeGlass", seed: { L: 0.62, C: 0.13, H: 275 }, style: "soft", modes: ["light", "dark"], radius: "1rem" },
   // Pastel
   { id: "blush", group: "pastel", nameKey: "themeBlush", seed: { L: 0.72, C: 0.11, H: 355 }, style: "pastel", modes: ["light", "dark"], radius: "1.25rem", font: "rounded" },
   { id: "sage", group: "pastel", nameKey: "themeSage", seed: { L: 0.72, C: 0.09, H: 150 }, style: "pastel", modes: ["light", "dark"], radius: "1.25rem", font: "rounded" },
@@ -225,7 +336,22 @@ const TEXTURES: Record<Exclude<Texture, "none">, string> = {
 };
 
 for (const theme of emitted) {
-  css.push(`[data-theme="${theme.id}"] { --radius: ${theme.radius}; }`);
+  const surface = SURFACE_PRESETS[SURFACE_BY_THEME[theme.id] ?? DEFAULT_SURFACE_PROFILE];
+  css.push(`[data-theme="${theme.id}"] {`);
+  css.push(`  --radius: ${theme.radius};`);
+  css.push(`  --surface-blur: ${surface.blur};`);
+  css.push(`  --surface-saturate: ${surface.saturate};`);
+  css.push(`  --surface-alpha: ${surface.alpha};`);
+  css.push(`  --surface-tint: ${surface.tint};`);
+  css.push(`  --surface-border-width: ${surface.borderWidth};`);
+  css.push(`  --surface-border-alpha: ${surface.borderAlpha};`);
+  css.push(`  --surface-shadow: ${[surface.glow, surface.shadow].filter((s) => s && s !== "none").join(", ") || "none"};`);
+  css.push(`  --surface-grain: ${surface.grain};`);
+  css.push(`  --surface-sheen: ${surface.sheen};`);
+  css.push(`  --bg-image: ${BG_IMAGE_BY_THEME[theme.id] ?? "none"};`);
+  css.push(`  --bg-size: ${BG_SIZE_BY_THEME[theme.id] ?? "cover"};`);
+  css.push(`  --bg-repeat: ${BG_REPEAT_BY_THEME[theme.id] ?? "no-repeat"};`);
+  css.push("}");
   if (theme.font) css.push(`[data-theme="${theme.id}"] body { font-family: ${FONT_STACKS[theme.font]}; }`);
   if (theme.texture && theme.texture !== "none") {
     css.push(`html[data-theme="${theme.id}"]::after {`);

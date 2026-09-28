@@ -207,4 +207,15 @@ describe("pre-boot script", () => {
       expect(map[theme.id], theme.id).toBe(theme.supports[0]);
     }
   });
+
+  it("generates a surface profile for every theme", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/theme/theme.css"), "utf8");
+    for (const theme of THEMES) {
+      const block = css.match(new RegExp(`\\[data-theme="${theme.id}"\\] \\{[^}]*\\}`));
+      expect(block, `${theme.id} surface block`).not.toBeNull();
+      expect(block![0]).toContain("--surface-blur:");
+      expect(block![0]).toContain("--surface-tint:");
+      expect(block![0]).toContain("--bg-image:");
+    }
+  });
 });
