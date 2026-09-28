@@ -1523,8 +1523,102 @@ html.perf-lite .view-rise-in {
   animation-name: gomo-vt-slide-in-back;
 }
 
+/* Timeline rail under the mock: a page dot at each end, the animation moment in
+   the CENTRE, and a head that travels page 1 ↔ page 2. The head crosses the
+   centre exactly when the scene swaps (the JS timer fires there), so the
+   durations are set inline from the same constant. */
+.vt-preview-track {
+  position: relative;
+  height: 2px;
+  margin: 0 5px;
+  border-radius: 999px;
+  background: hsl(var(--border));
+}
+
+/* page 1 / page 2 */
+.vt-preview-track-dot {
+  position: absolute;
+  top: 50%;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 999px;
+  background: hsl(var(--muted-foreground));
+  opacity: 0.45;
+}
+
+.vt-preview-track-dot--end {
+  left: auto;
+  right: -4px;
+}
+
+/* the moment the animation plays — the centre of the strip */
+.vt-preview-track-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 2px;
+  background: hsl(var(--primary));
+  transform: rotate(45deg);
+}
+
+.vt-preview-track-center::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 3px;
+  border: 1px solid hsl(var(--primary));
+  animation: vt-preview-center-pulse 2.2s linear infinite;
+}
+
+/* head travelling between the two pages */
+.vt-preview-track-head {
+  position: absolute;
+  top: 50%;
+  left: -4.5px;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 8px hsl(var(--primary) / 0.6);
+  animation: vt-preview-head 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+
+@keyframes vt-preview-head {
+  from {
+    left: -4.5px;
+  }
+  to {
+    left: calc(100% - 4.5px);
+  }
+}
+
+@keyframes vt-preview-center-pulse {
+  0%,
+  45% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+  55%,
+  100% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .vt-preview-layer {
+  .vt-preview-layer,
+  .vt-preview-track-head,
+  .vt-preview-track-center::after {
     animation: none !important;
   }
 }

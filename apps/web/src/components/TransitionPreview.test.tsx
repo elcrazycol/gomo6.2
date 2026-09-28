@@ -1,7 +1,10 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { TransitionPreview } from "./TransitionPreview";
+
+const HALF_LOOP = 1100;
+const LOOP = 2200;
 
 describe("TransitionPreview", () => {
   afterEach(() => {
@@ -18,19 +21,36 @@ describe("TransitionPreview", () => {
     expect(container.querySelectorAll(".vt-preview-layer")).toHaveLength(2);
   });
 
-  it("flips the slide direction on replay so both ways are shown", () => {
+  it("swaps the scene at the centre of the rail and alternates direction", () => {
     vi.useFakeTimers();
     const { container } = render(<TransitionPreview style="slide" />);
 
+    // Page 1 is on screen until the head reaches the centre.
+    expect(container.querySelector(".vt-preview-scene")?.getAttribute("data-direction")).toBe(
+      "back",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(HALF_LOOP);
+    });
     expect(container.querySelector(".vt-preview-scene")?.getAttribute("data-direction")).toBe(
       "forward",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /показать/i }));
-
+    act(() => {
+      vi.advanceTimersByTime(LOOP);
+    });
     expect(container.querySelector(".vt-preview-scene")?.getAttribute("data-direction")).toBe(
       "back",
     );
-    expect(screen.getByRole("button", { name: /ещё раз/i })).toBeInTheDocument();
+  });
+
+  it("renders the rail with a page dot at each end and a centre marker", () => {
+    vi.useFakeTimers();
+    const { container } = render(<TransitionPreview style="fade" />);
+
+    expect(container.querySelectorAll(".vt-preview-track-dot")).toHaveLength(2);
+    expect(container.querySelector(".vt-preview-track-center")).not.toBeNull();
+    expect(container.querySelector(".vt-preview-track-head")).not.toBeNull();
   });
 });
