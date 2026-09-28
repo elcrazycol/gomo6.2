@@ -16,6 +16,7 @@
 
 import { formatOklch, hslToOklch, parseOklch } from "@/theme/color";
 import { THEME_TOKEN_NAMES } from "@/theme/tokens";
+import { SEMANTIC_TOKENS } from "@/theme/derive";
 
 export type ThemeTokenMap = Record<string, string>;
 
@@ -34,6 +35,20 @@ export interface ThemeVariant {
 }
 
 const tok = (h: number, s: number, l: number): string => formatOklch(hslToOklch(h, s, l));
+
+/**
+ * Fixed status colours (destructive/success/warning/info), identical to the app
+ * theme registry. A profile theme carries the full token surface, but overlaying
+ * these changes nothing visually because every app theme uses the same values.
+ */
+const withSemanticTokens = (tokens: ThemeTokenMap, dark: boolean): ThemeTokenMap => {
+  const mode = dark ? "dark" : "light";
+  const out: ThemeTokenMap = { ...tokens };
+  for (const [key, val] of Object.entries(SEMANTIC_TOKENS)) {
+    out[key] = formatOklch(val[mode]);
+  }
+  return out;
+};
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -144,7 +159,7 @@ export const buildThemeTokens = (c: Hsl, mode: "color" | "neutral" = "color"): T
   // at ~5% saturation the hue is imperceptible and gray stays gray.
   const accentSat = n ? 5 : sat(c.s);
   if (dark) {
-    return {
+    return withSemanticTokens({
       "--background": tok(h, n ? 3 : 20, 9),
       "--foreground": tok(h, n ? 4 : 8, 90),
       "--card": tok(h, n ? 2 : 18, 11),
@@ -169,9 +184,9 @@ export const buildThemeTokens = (c: Hsl, mode: "color" | "neutral" = "color"): T
       "--quote-text": tok(h, n ? 4 : 100, 40),
       "--link-text": tok(h, accentSat, 60),
       "--link": tok(h, accentSat, 60),
-    };
+    }, true);
   }
-  return {
+  return withSemanticTokens({
     "--background": tok(h, n ? 3 : 22, 95),
     "--foreground": tok(h, n ? 4 : 10, 15),
     "--card": tok(h, n ? 2 : 18, 98),
@@ -196,7 +211,7 @@ export const buildThemeTokens = (c: Hsl, mode: "color" | "neutral" = "color"): T
     "--quote-text": tok(h, n ? 4 : 100, 25),
     "--link-text": tok(h, accentSat, 40),
     "--link": tok(h, accentSat, 40),
-  };
+  }, false);
 };
 
 const decodeImage = (image: Blob): Promise<HTMLImageElement> =>

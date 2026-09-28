@@ -8,7 +8,7 @@ import {
   normalizeTokenValue,
   rgbToHsl,
 } from "./profileTheme";
-import { parseOklch } from "@/theme/color";
+import { apcaContrast, parseOklch, wcagContrast } from "@/theme/color";
 
 /** Build an RGBA buffer filled with a single color repeated n times. */
 const solidBuffer = (r: number, g: number, b: number, n = 64): Uint8ClampedArray => {
@@ -242,5 +242,40 @@ describe("applyProfileThemeTokens", () => {
     expect(document.documentElement.style.getPropertyValue("--nope")).toBe("");
     expect(document.body.style.getPropertyValue("--nope")).toBe("");
     cleanup();
+  });
+});
+
+describe("profile theme regression + legibility", () => {
+  it("locks the generated variants for a coloured image", () => {
+    const stats = collectPixelStats(solidBuffer(0, 200, 0));
+    const variants = deriveVariantsFromStats(stats).map((v) => ({ id: v.id, tokens: v.tokens }));
+    expect(variants).toMatchSnapshot();
+  });
+
+  it("locks buildThemeTokens across hues and modes", () => {
+    const out: Record<string, unknown> = {};
+    for (const h of [0, 140, 265, 340]) {
+      for (const l of [15, 50, 85]) {
+        for (const mode of ["color", "neutral"] as const) {
+          out[`h${h}-l${l}-${mode}`] = buildThemeTokens({ h, s: 60, l }, mode);
+        }
+      }
+    }
+    expect(out).toMatchSnapshot();
+  });
+
+  it("keeps body text strong and AA across hues/modes", () => {
+    for (const h of [0, 140, 265, 340]) {
+      for (const l of [15, 50, 85]) {
+        for (const mode of ["color", "neutral"] as const) {
+          const tokens = buildThemeTokens({ h, s: 60, l }, mode);
+          const fg = parseOklch(tokens["--foreground"])!;
+          const bg = parseOklch(tokens["--background"])!;
+          const label = `h${h} l${l} ${mode}`;
+          expect(Math.abs(apcaContrast(fg, bg)), label).toBeGreaterThan(60);
+          expect(wcagContrast(fg, bg), label).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
   });
 });
