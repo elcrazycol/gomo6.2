@@ -5,3 +5,4 @@ export * from "./apply";
 export * from "./preferences";
 export * from "./derive";
 export * from "./custom";
+export * from "./sync";

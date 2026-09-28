@@ -12,6 +12,9 @@ export type ThemeModePref = "light" | "dark" | "system";
 
 export const DEFAULT_MODE_PREF: ThemeModePref = "dark";
 
+/** Fired whenever the applied theme/mode changes (used by the server sync). */
+export const APPEARANCE_CHANGED_EVENT = "gomo6:appearance-changed";
+
 const THEME_KEY = "color-theme";
 const MODE_KEY = "theme-mode";
 const LEGACY_DARK_KEY = "dark-mode";
@@ -171,5 +174,6 @@ export const applyTheme = (themeId: string, pref: ThemeModePref): AppliedTheme =
   }
 
   syncCookies(theme.id, pref, mode);
+  window.dispatchEvent(new CustomEvent(APPEARANCE_CHANGED_EVENT));
   return { theme, mode, pref };
 };

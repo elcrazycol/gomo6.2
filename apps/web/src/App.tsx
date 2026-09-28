@@ -8,7 +8,9 @@ import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
 import { AuthGuard } from "@/components/AuthGuard";
 import { VideoEditorHost } from "@/components/VideoEditorHost";
+import { ThemeSync } from "@/components/ThemeSync";
 import { applyTheme, getStoredPrefs, syncSharedAppearanceCookies, watchSystemMode } from "@/theme";
+import { applyCustomFont, getStoredCustomFont } from "@/lib/customFont";
 import { wsService } from "./services/websocket";
 import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
@@ -198,20 +200,8 @@ const App = () => {
     applyTheme(theme, mode);
 
     // Apply saved custom font
-    const savedFont = localStorage.getItem('custom_font');
-    if (savedFont) {
-      // Load Google Font
-      const link = document.createElement('link');
-      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(savedFont)}:wght@400;500;600;700&display=swap`;
-      link.rel = 'stylesheet';
-      link.setAttribute('data-google-font', 'true');
-      document.head.appendChild(link);
-
-      // Apply font
-      const fontFamily = `"${savedFont}", system-ui, -apple-system, sans-serif`;
-      document.documentElement.style.setProperty('--font-family', fontFamily);
-      document.body.style.fontFamily = fontFamily;
-    }
+    const savedFont = getStoredCustomFont();
+    if (savedFont) applyCustomFont(savedFont);
 
     const reapply = () => {
       const prefs = getStoredPrefs();
@@ -246,6 +236,7 @@ const App = () => {
                 <Toaster />
                 <Sonner />
                 <BrowserRouter>
+                  <ThemeSync />
                   <AppRoutes />
                 </BrowserRouter>
                 <VideoEditorHost />

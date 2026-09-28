@@ -54,6 +54,14 @@ export const toggleFavorite = (id: string): string[] => {
   return next;
 };
 
+/** Replace the favourites list wholesale (used by server sync). */
+export const setFavorites = (ids: string[]): string[] => {
+  const next = ids.filter((id) => resolveTheme(id).id === id);
+  safeSet(FAVORITES_KEY, JSON.stringify(next));
+  emit();
+  return next;
+};
+
 /* ── Time-of-day schedule ────────────────────────────────────────────────── */
 
 export const getTimeAuto = (): boolean => safeGet(TIME_AUTO_KEY) === "true";

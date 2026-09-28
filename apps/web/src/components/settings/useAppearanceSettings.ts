@@ -26,6 +26,7 @@ import {
 } from "@/lib/publishButtonStyle";
 import { getTransitionStyle, setTransitionStyle as persistTransitionStyle, type TransitionStyle } from "@/lib/viewTransitions";
 import { getMrRandomCount, setMrRandomCount as persistMrRandomCount } from "@/lib/mrRandom";
+import { applyCustomFont, getStoredCustomFont, storeCustomFont } from "@/lib/customFont";
 
 /**
  * All appearance preferences in one place. Every one of them is a client-side
@@ -34,38 +35,10 @@ import { getMrRandomCount, setMrRandomCount as persistMrRandomCount } from "@/li
  * theme system's own preference layer (src/theme/apply.ts).
  */
 
-const removeGoogleFontLink = () => {
-  document.querySelectorAll("link[data-google-font]").forEach((link) => link.remove());
-};
-
-const applyGoogleFont = (fontName: string) => {
-  removeGoogleFontLink();
-  if (!fontName.trim()) {
-    document.documentElement.style.removeProperty("--font-family");
-    document.body.style.fontFamily = "";
-    return;
-  }
-  const link = document.createElement("link");
-  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;500;600;700&display=swap`;
-  link.rel = "stylesheet";
-  link.setAttribute("data-google-font", "true");
-  document.head.appendChild(link);
-
-  const fontFamily = `"${fontName}", system-ui, -apple-system, sans-serif`;
-  document.documentElement.style.setProperty("--font-family", fontFamily);
-  document.body.style.fontFamily = fontFamily;
-};
-
 export const useAppearanceSettings = (userId?: string | null) => {
   const [prefs, setPrefs] = useState(() => getStoredPrefs());
   const [timeAuto, setTimeAutoState] = useState<boolean>(() => getTimeAuto());
-  const [customFont, setCustomFont] = useState(() => {
-    try {
-      return localStorage.getItem("custom_font") || "";
-    } catch {
-      return "";
-    }
-  });
+  const [customFont, setCustomFont] = useState(() => getStoredCustomFont());
   const [publishStyle, setPublishStyleState] = useState<PublishButtonStyle>(getPublishButtonStyle);
   const [headerBehavior, setHeaderBehaviorState] = useState<HeaderBehavior>(getHeaderBehavior);
   const [transitionStyle, setTransitionStyleState] = useState<TransitionStyle>(getTransitionStyle);
@@ -90,14 +63,8 @@ export const useAppearanceSettings = (userId?: string | null) => {
 
   // Restore the saved font on mount.
   useEffect(() => {
-    const saved = (() => {
-      try {
-        return localStorage.getItem("custom_font") || "";
-      } catch {
-        return "";
-      }
-    })();
-    if (saved) applyGoogleFont(saved);
+    const saved = getStoredCustomFont();
+    if (saved) applyCustomFont(saved);
   }, []);
 
   const setColorTheme = useCallback((next: string) => {
@@ -126,9 +93,8 @@ export const useAppearanceSettings = (userId?: string | null) => {
 
   const setFont = useCallback((fontName: string) => {
     setCustomFont(fontName);
-    applyGoogleFont(fontName);
+    storeCustomFont(fontName);
     if (fontName.trim()) {
-      localStorage.setItem("custom_font", fontName);
       syncSharedAppearanceCookies();
       if (userId) {
         void api.auth.getSession().then(({ data }) => {
@@ -141,7 +107,6 @@ export const useAppearanceSettings = (userId?: string | null) => {
         });
       }
     } else {
-      localStorage.removeItem("custom_font");
       syncSharedAppearanceCookies();
     }
   }, [userId]);
