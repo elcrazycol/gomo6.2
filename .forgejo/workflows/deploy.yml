@@ -136,10 +136,11 @@ jobs:
                   web|docs|dev-dashboard)
                     echo "$DIFF" | grep -qE '^(package\.json|package-lock\.json|turbo\.json)$|^apps/.*/package\.json$' && NEED=true ;;
                 esac
-                # Compose / Caddyfile / dockerignore at repo root + the deploy
-                # pipeline files themselves → everything (pipeline changes must
-                # re-ship every service).
-                echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore|\.forgejo/workflows/deploy\.yml|scripts/restart-service\.sh)$' && NEED=true
+                # Compose / Caddyfile / dockerignore / VERSION at repo root + the
+                # deploy pipeline files themselves → everything (VERSION is baked
+                # into both the web footer and the backend, so a release bump must
+                # re-ship every service; pipeline changes must re-ship too).
+                echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore|\.forgejo/workflows/deploy\.yml|scripts/restart-service\.sh|VERSION)$' && NEED=true
                 echo "$DIFF" | grep -qE '^Caddyfile$' && CADDY=true
               fi
             else
