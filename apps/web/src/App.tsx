@@ -8,7 +8,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
 import { AuthGuard } from "@/components/AuthGuard";
 import { VideoEditorHost } from "@/components/VideoEditorHost";
-import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
+import { applyTheme, getStoredPrefs, syncSharedAppearanceCookies, watchSystemMode } from "@/theme";
 import { wsService } from "./services/websocket";
 import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
@@ -192,9 +192,10 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    // Apply saved theme immediately to prevent layout flash
-    const { colorTheme, isDarkMode } = getStoredTheme();
-    applyTheme(colorTheme, isDarkMode);
+    // The pre-boot script already painted the theme; this keeps it in sync
+    // across tabs and follows the OS scheme when the preference is "system".
+    const { theme, mode } = getStoredPrefs();
+    applyTheme(theme, mode);
 
     // Apply saved custom font
     const savedFont = localStorage.getItem('custom_font');
@@ -212,16 +213,26 @@ const App = () => {
       document.body.style.fontFamily = fontFamily;
     }
 
-    syncSharedAppearanceCookies();
-
-    const handleStorage = () => {
+    const reapply = () => {
+      const prefs = getStoredPrefs();
+      applyTheme(prefs.theme, prefs.mode);
       syncSharedAppearanceCookies();
     };
 
+    syncSharedAppearanceCookies();
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key == null || event.key === "color-theme" || event.key === "theme-mode" || event.key === "dark-mode") {
+        reapply();
+      }
+    };
+
     window.addEventListener("storage", handleStorage);
+    const unwatchSystem = watchSystemMode(reapply);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
+      unwatchSystem();
     };
   }, []);
 

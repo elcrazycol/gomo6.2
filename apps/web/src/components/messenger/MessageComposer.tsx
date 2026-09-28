@@ -1220,7 +1220,7 @@ useEffect(() => {
     >
       {replyToMessage && (
         <div className="composer-reply-banner">
-          <CornerDownRight size={14} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />
+          <CornerDownRight size={14} style={{ color: "oklch(var(--primary))", flexShrink: 0 }} />
           <span className="reply-label">{replySenderLabel}</span>
           <span className="reply-text">
             {replyToMessage.is_deleted ? "Удалено" : messengerPlainPreview(replyToMessage.content, 120)}

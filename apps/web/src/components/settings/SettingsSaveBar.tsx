@@ -36,7 +36,7 @@ export const SettingsSaveBar = ({
       <div
         className={cn(
           "flex flex-col gap-3 rounded-2xl border p-3 backdrop-blur-xl transition-colors sm:flex-row sm:items-center sm:justify-between sm:px-4",
-          "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_18px_44px_-26px_hsl(var(--foreground)/0.35)]",
+          "shadow-[0_1px_2px_oklch(var(--foreground)/0.04),0_18px_44px_-26px_oklch(var(--foreground)/0.35)]",
           dirty ? "border-primary/40 bg-card/90" : "border-border/60 bg-card/75",
         )}
       >

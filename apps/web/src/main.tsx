@@ -9,6 +9,11 @@ import { setupGlobalErrorHandlers } from "@/lib/logging";
 import { initMobileKeyboard } from "@/lib/mobileKeyboard";
 import { initPerfTier } from "@/utils/perfTier";
 import "./index.css";
+import "@/theme/theme.css";
+import { initCustomThemes } from "@/theme";
+
+// Register stored custom themes before any component reads a theme preference.
+initCustomThemes();
 import "@/components/Lightbox.css";
 
 // Mobile virtual keyboard: tracks the visual viewport, publishes --app-vh /

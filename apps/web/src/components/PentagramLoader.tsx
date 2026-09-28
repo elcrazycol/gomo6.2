@@ -29,7 +29,7 @@ export const PentagramLoader = ({ size = "md", className }: PentagramLoaderProps
           stroke-dashoffset: 1200;
           animation: pentagram-draw 6s infinite cubic-bezier(0.77, 0, 0.175, 1);
           fill: none;
-          stroke: hsl(var(--primary));
+          stroke: oklch(var(--primary));
           stroke-width: 4;
           stroke-linejoin: round;
           stroke-linecap: round;
@@ -69,18 +69,18 @@ export const PentagramLoader = ({ size = "md", className }: PentagramLoaderProps
 
         @keyframes pentagram-pulse {
           0%, 100% {
-            filter: brightness(1) drop-shadow(0 0 15px hsl(var(--primary) / 0.8));
+            filter: brightness(1) drop-shadow(0 0 15px oklch(var(--primary) / 0.8));
             transform: scale(1) rotate(0deg);
           }
           25% {
-            filter: brightness(1.3) drop-shadow(0 0 20px hsl(var(--primary) / 0.9));
+            filter: brightness(1.3) drop-shadow(0 0 20px oklch(var(--primary) / 0.9));
           }
           50% {
-            filter: brightness(1.8) drop-shadow(0 0 30px hsl(var(--primary) / 1));
+            filter: brightness(1.8) drop-shadow(0 0 30px oklch(var(--primary) / 1));
             transform: scale(1.1) rotate(-4deg);
           }
           75% {
-            filter: brightness(1.3) drop-shadow(0 0 20px hsl(var(--primary) / 0.9));
+            filter: brightness(1.3) drop-shadow(0 0 20px oklch(var(--primary) / 0.9));
           }
         }
       `;

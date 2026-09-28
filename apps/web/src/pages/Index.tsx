@@ -402,7 +402,7 @@ const Index = () => {
               <Spotlight
                 className="block w-fit"
                 overlayClassName="rounded-full"
-                color="hsl(var(--primary-foreground) / 0.35)"
+                color="oklch(var(--primary-foreground) / 0.35)"
               >
                 <PrefetchLink
                   to={createTopicHref}

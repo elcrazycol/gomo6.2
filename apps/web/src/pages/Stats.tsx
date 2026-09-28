@@ -569,15 +569,15 @@ export default function Stats() {
                 <AreaChart data={currentSeries} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorA" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                      <stop offset="5%" stopColor="oklch(var(--primary))" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="oklch(var(--primary))" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                   <XAxis dataKey="ts" tickFormatter={(v) => formatDate(v as number, range)} tickMargin={8} type="number" domain={["dataMin", "dataMax"]} />
                   <YAxis tickMargin={8} width={60} allowDecimals={false} />
                   <RechartsTooltip formatter={(v: number) => v.toFixed(2)} labelFormatter={(d) => formatDate(d as number, range)} />
-                  <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="url(#colorA)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="value" stroke="oklch(var(--primary))" fill="url(#colorA)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

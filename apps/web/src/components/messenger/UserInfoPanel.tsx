@@ -209,9 +209,9 @@ export function UserInfoPanel({
                       gap: 4,
                       padding: "4px 8px",
                       borderRadius: 6,
-                      border: "1px solid hsl(var(--border))",
-                      background: "hsl(var(--card))",
-                      color: "hsl(var(--foreground))",
+                      border: "1px solid oklch(var(--border))",
+                      background: "oklch(var(--card))",
+                      color: "oklch(var(--foreground))",
                       fontSize: 11,
                       cursor: "pointer",
                     }}
@@ -224,7 +224,7 @@ export function UserInfoPanel({
                 {showAddMember && (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ position: "relative" }}>
-                      <Search size={14} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "hsl(var(--muted-foreground))" }} />
+                      <Search size={14} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "oklch(var(--muted-foreground))" }} />
                       <input
                         type="text"
                         value={addMemberQuery}
@@ -235,9 +235,9 @@ export function UserInfoPanel({
                           width: "100%",
                           padding: "6px 8px 6px 28px",
                           borderRadius: 6,
-                          border: "1px solid hsl(var(--input))",
-                          background: "hsl(var(--background))",
-                          color: "hsl(var(--foreground))",
+                          border: "1px solid oklch(var(--input))",
+                          background: "oklch(var(--background))",
+                          color: "oklch(var(--foreground))",
                           fontSize: 12,
                           outline: "none",
                           boxSizing: "border-box",
@@ -261,7 +261,7 @@ export function UserInfoPanel({
                           cursor: "pointer",
                           textAlign: "left",
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = "hsl(var(--thread-hover))"; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                       >
                         <div className="avatar" style={{ width: 24, height: 24, fontSize: 9 }}>
@@ -289,7 +289,7 @@ export function UserInfoPanel({
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <span style={{ fontSize: 13, fontWeight: 500 }}>{m.display_name || m.username}</span>
                       {m.nickname_emoji_id && <NicknameEmoji emojiId={m.nickname_emoji_id} />}
-                      {m.role === "admin" && <span style={{ fontSize: 11, color: "hsl(var(--primary))", marginLeft: 4 }}>admin</span>}
+                      {m.role === "admin" && <span style={{ fontSize: 11, color: "oklch(var(--primary))", marginLeft: 4 }}>admin</span>}
                     </div>
                     {m.is_online && <span className="online-dot" style={{ width: 8, height: 8 }} />}
                   </div>

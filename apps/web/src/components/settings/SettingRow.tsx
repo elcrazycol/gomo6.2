@@ -34,7 +34,7 @@ export const SettingGroup = ({ id, title, description, action, divided = true, c
     id={id}
     className={cn(
       "scroll-mt-28 overflow-hidden rounded-2xl border border-border/60 bg-card/60",
-      "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_16px_40px_-24px_hsl(var(--foreground)/0.22)] backdrop-blur-xl",
+      "shadow-[0_1px_2px_oklch(var(--foreground)/0.04),0_16px_40px_-24px_oklch(var(--foreground)/0.22)] backdrop-blur-xl",
       className,
     )}
   >
@@ -217,10 +217,12 @@ interface OptionCardProps {
   onClick: () => void;
   /** Preview slot rendered under the title. */
   children?: ReactNode;
+  /** Optional control rendered in the corner, next to the selected check. */
+  action?: ReactNode;
   className?: string;
 }
 
-export const OptionCard = ({ selected, title, description, onClick, children, className }: OptionCardProps) => (
+export const OptionCard = ({ selected, title, description, onClick, children, action, className }: OptionCardProps) => (
   // A div (not a button) so a live preview — which may contain its own
   // interactive elements, e.g. the publish button — can be nested safely.
   <div
@@ -239,7 +241,7 @@ export const OptionCard = ({ selected, title, description, onClick, children, cl
       "group/card relative cursor-pointer overflow-hidden rounded-2xl border p-3 text-left outline-none transition-all duration-200",
       "focus-visible:ring-2 focus-visible:ring-ring/60",
       selected
-        ? "border-primary/60 bg-primary/[0.06] ring-1 ring-primary/25 shadow-[0_10px_30px_-16px_hsl(var(--primary)/0.6)]"
+        ? "border-primary/60 bg-primary/[0.06] ring-1 ring-primary/25 shadow-[0_10px_30px_-16px_oklch(var(--primary)/0.6)]"
         : "border-border/60 bg-background/40 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-foreground/[0.03] hover:shadow-md",
       className,
     )}
@@ -249,13 +251,16 @@ export const OptionCard = ({ selected, title, description, onClick, children, cl
         <span className="block text-sm font-semibold leading-tight">{title}</span>
         {description && <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{description}</span>}
       </span>
-      <span
-        className={cn(
-          "mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-all duration-200",
-          selected ? "border-primary bg-primary text-primary-foreground" : "border-foreground/20",
-        )}
-      >
-        {selected && <Check className="h-3 w-3" strokeWidth={3} />}
+      <span className="flex shrink-0 items-start gap-1.5">
+        {action}
+        <span
+          className={cn(
+            "mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-all duration-200",
+            selected ? "border-primary bg-primary text-primary-foreground" : "border-foreground/20",
+          )}
+        >
+          {selected && <Check className="h-3 w-3" strokeWidth={3} />}
+        </span>
       </span>
     </span>
     {children && <span className="mt-3 block">{children}</span>}

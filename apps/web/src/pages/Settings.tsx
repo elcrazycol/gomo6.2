@@ -217,7 +217,7 @@ const Settings = () => {
                       "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-all",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
                       active
-                        ? "bg-primary/10 font-medium text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]"
+                        ? "bg-primary/10 font-medium text-primary shadow-[inset_0_0_0_1px_oklch(var(--primary)/0.2)]"
                         : "text-foreground/75 hover:bg-foreground/[0.04] hover:text-foreground",
                     )}
                   >

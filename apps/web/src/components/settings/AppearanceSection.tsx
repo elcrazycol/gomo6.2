@@ -1,16 +1,22 @@
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   Blend,
+  Clock,
   Dices,
   Globe,
   Languages,
+  Monitor,
   Moon,
   Palette,
   PanelTop,
   PlayCircle,
   RotateCcw,
   Send,
+  Shuffle,
+  Star,
+  Sun,
   Type,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,28 +30,103 @@ import { HEADER_BEHAVIORS, type HeaderBehavior } from "@/lib/headerBehavior";
 import { PUBLISH_BUTTON_STYLES, type PublishButtonStyle } from "@/lib/publishButtonStyle";
 import { TRANSITION_STYLES, isPerfLite, supportsViewTransitions, type TransitionStyle } from "@/lib/viewTransitions";
 import { MR_RANDOM_COUNT_OPTIONS } from "@/lib/mrRandom";
-import type { ColorTheme } from "@/utils/theme";
+import {
+  CUSTOM_THEMES_EVENT,
+  THEME_COLLECTIONS_EVENT,
+  THEME_GROUP_LABEL_KEYS,
+  THEME_GROUP_ORDER,
+  getAllThemes,
+  getFavorites,
+  prefersDarkSystem,
+  resolveTheme,
+  toggleFavorite,
+  type ThemeDef,
+  type ThemeGroup,
+  type ThemeModePref,
+} from "@/theme";
 import { OptionCard, Segmented, SETTING_BLOCK_CHROME, SettingBlock, SettingGroup, SettingRow } from "./SettingRow";
 import { handleNavArrowKeys } from "./navKeyboard";
+import { ThemeBuilder } from "./ThemeBuilder";
 import type { AppearanceSettings } from "./useAppearanceSettings";
 import { cn } from "@/lib/utils";
 
 /* ── Local data ──────────────────────────────────────────────────────────── */
 
-const THEME_OPTIONS: Array<{ id: ColorTheme; nameKey: string; accent: string; preview: string }> = [
-  { id: "graphite", nameKey: "themeGraphite", accent: "#0078D7", preview: "linear-gradient(135deg, #1E1E1E 0%, #2D2D2D 50%, #3C3C3C 100%)" },
-  { id: "lavender", nameKey: "themeLavender", accent: "#C6A9FF", preview: "linear-gradient(135deg, #1A1625 0%, #2D2440 55%, #B0FFE6 130%)" },
-  { id: "volcanic", nameKey: "themeVolcanic", accent: "#FF4D00", preview: "linear-gradient(135deg, #1F1F1F 0%, #2A2422 50%, #FF4D00 140%)" },
-  { id: "mint", nameKey: "themeMint", accent: "#00FFA3", preview: "linear-gradient(135deg, #F0FFF4 0%, #E6FFF1 55%, #F5FF7A 120%)" },
-  { id: "glitch", nameKey: "themeGlitch", accent: "#00FFFF", preview: "linear-gradient(135deg, #121212 0%, #1D1D1D 50%, #2A1030 100%)" },
-  { id: "acid", nameKey: "themeAcid", accent: "#39FF14", preview: "linear-gradient(135deg, #000000 0%, #081507 45%, #FF10F0 130%)" },
-  { id: "void", nameKey: "themeVoid", accent: "#FFFFFF", preview: "linear-gradient(135deg, #000000 0%, #101010 45%, #4A4A4A 100%)" },
-  { id: "cannabis", nameKey: "themeCannabis", accent: "#3FA34D", preview: "linear-gradient(135deg, #1E2A1E 0%, #315C31 100%)" },
-  { id: "pink", nameKey: "themePink", accent: "#FF4FA3", preview: "linear-gradient(135deg, #2A1722 0%, #7C2B5B 100%)" },
-  { id: "blue", nameKey: "themeBlue", accent: "#4D7CFE", preview: "linear-gradient(135deg, #172033 0%, #27496D 100%)" },
-  { id: "blood", nameKey: "themeBlood", accent: "#D62839", preview: "linear-gradient(135deg, #2A1113 0%, #701B26 100%)" },
-  { id: "pumpkin", nameKey: "themePumpkin", accent: "#FF8A00", preview: "linear-gradient(135deg, #2B190C 0%, #8C4A0F 100%)" },
+/**
+ * A miniature of the real UI painted with the theme's own tokens. The tokens
+ * are set as scoped CSS variables on the wrapper, so every Tailwind colour
+ * inside (`bg-background`, `bg-card`, `text-foreground`, …) resolves to that
+ * theme — no hand-drawn gradient. Single-mode themes render in their mode.
+ */
+const ThemeSwatch = ({ theme, dark }: { theme: ThemeDef; dark: boolean }) => {
+  const preferred = dark ? "dark" : "light";
+  const mode = theme.supports.includes(preferred) ? preferred : theme.supports[0];
+  const tokens = theme.tokens[mode];
+  if (!tokens) return null;
+  const vars: Record<string, string> = { ...tokens, "--radius": theme.radius };
+  return (
+    <span className="block overflow-hidden rounded-xl border border-border" style={vars as CSSProperties}>
+      <span className="flex h-[72px] flex-col justify-center gap-1.5 bg-background px-2.5">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+          <span className="h-1.5 w-10 rounded-full bg-foreground/80" />
+          <span className="ml-auto h-3 w-7 rounded-[calc(var(--radius)*0.7)] bg-primary/25" />
+        </span>
+        <span className="rounded-[var(--radius)] border border-border bg-card px-2 py-1.5">
+          <span className="block h-1.5 w-16 rounded-full bg-foreground/70" />
+          <span className="mt-1 block h-1.5 w-10 rounded-full bg-muted-foreground" />
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-1 w-6 rounded-full bg-link/70" />
+          <span className="h-1 w-4 rounded-full bg-success/70" />
+          <span className="h-1 w-4 rounded-full bg-warning/70" />
+        </span>
+      </span>
+    </span>
+  );
+};
+
+const MODE_OPTIONS: Array<{ value: ThemeModePref; labelKey: string; icon: typeof Sun }> = [
+  { value: "light", labelKey: "settings2.modeLight", icon: Sun },
+  { value: "dark", labelKey: "settings2.modeDark", icon: Moon },
+  { value: "system", labelKey: "settings2.modeSystem", icon: Monitor },
 ];
+
+/** Favourites, kept in sync across tabs and with the picker. */
+const useThemeFavorites = () => {
+  const [favorites, setFavorites] = useState<string[]>(() => getFavorites());
+
+  useEffect(() => {
+    const sync = () => setFavorites(getFavorites());
+    window.addEventListener(THEME_COLLECTIONS_EVENT, sync);
+    return () => window.removeEventListener(THEME_COLLECTIONS_EVENT, sync);
+  }, []);
+
+  const toggle = useCallback((id: string) => setFavorites(toggleFavorite(id)), []);
+
+  return { favorites, toggleFavorite: toggle };
+};
+
+interface ThemeItemSections {
+  key: string;
+  label: string;
+  ids: string[];
+}
+
+const buildThemeSections = (
+  themes: ThemeDef[],
+  favorites: string[],
+  labelFavorites: string,
+  labelGroup: (group: ThemeGroup) => string,
+): ThemeItemSections[] => {
+  const sections: ThemeItemSections[] = [];
+  if (favorites.length) sections.push({ key: "favorites", label: labelFavorites, ids: favorites });
+  for (const group of THEME_GROUP_ORDER) {
+    const ids = themes.filter((theme) => theme.group === group).map((theme) => theme.id);
+    if (ids.length) sections.push({ key: group, label: labelGroup(group), ids });
+  }
+  return sections;
+};
 
 const HEADER_KEYS: Record<HeaderBehavior, { label: string; desc: string }> = {
   fixed: { label: "settings2.headerFixed", desc: "settings2.headerFixedDesc" },
@@ -78,11 +159,72 @@ export const AppearanceSection = ({ appearance }: AppearanceSectionProps) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const {
-    colorTheme, isDarkMode, customFont, publishStyle, headerBehavior,
+    colorTheme, modePref, timeAuto, customFont, publishStyle, headerBehavior,
     transitionStyle, mrRandomCount, autoplayMode, language,
-    setColorTheme, setDarkMode, setFont, setPublishStyle,
+    setColorTheme, setModePref, setTimeAuto, randomTheme, setFont, setPublishStyle,
     setHeaderBehavior, setTransitionStyle, setMrRandomCount, setAutoplayMode, setLanguage, resetAppearance,
   } = appearance;
+
+  const { favorites, toggleFavorite: onToggleFavorite } = useThemeFavorites();
+  const [allThemes, setAllThemes] = useState<ThemeDef[]>(() => getAllThemes());
+
+  // Swatches (and the builder preview) follow the chosen mode button — not the
+  // current theme's resolved mode — so a single-mode theme can't force every
+  // preview into its own mode.
+  const previewDark = modePref === "dark" ? true : modePref === "light" ? false : prefersDarkSystem();
+
+  useEffect(() => {
+    const sync = () => setAllThemes(getAllThemes());
+    window.addEventListener(CUSTOM_THEMES_EVENT, sync);
+    return () => window.removeEventListener(CUSTOM_THEMES_EVENT, sync);
+  }, []);
+
+  const sections = buildThemeSections(
+    allThemes,
+    favorites,
+    t("settings2.themeFavorites"),
+    (group) => t(THEME_GROUP_LABEL_KEYS[group]),
+  );
+
+  const renderThemeCard = (id: string) => {
+    const theme = resolveTheme(id);
+    if (!theme) return null;
+    const favorite = favorites.includes(id);
+    const title = theme.custom ? theme.name || t("settings2.builderUntitled") : t(`settings.${theme.nameKey}`);
+    const description = theme.custom
+      ? t("settings2.builderCustomDesc")
+      : theme.descriptionKey
+        ? t(`settings.${theme.descriptionKey}`)
+        : undefined;
+    return (
+      <OptionCard
+        key={theme.id}
+        selected={colorTheme === theme.id}
+        title={title}
+        description={description}
+        onClick={() => setColorTheme(theme.id)}
+        action={
+          <button
+            type="button"
+            aria-label={favorite ? t("settings2.themeFavoriteRemove") : t("settings2.themeFavoriteAdd")}
+            aria-pressed={favorite}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFavorite(theme.id);
+            }}
+            className={cn(
+              "grid h-5 w-5 shrink-0 place-items-center transition-colors",
+              favorite ? "text-yellow-400" : "text-foreground/30 hover:text-foreground/70",
+            )}
+          >
+            <Star className={cn("h-4 w-4", favorite && "fill-current")} />
+          </button>
+        }
+      >
+        <ThemeSwatch theme={theme} dark={previewDark} />
+      </OptionCard>
+    );
+  };
 
   const rowClass = SETTING_BLOCK_CHROME;
 
@@ -92,46 +234,69 @@ export const AppearanceSection = ({ appearance }: AppearanceSectionProps) => {
       <SettingGroup divided={false}>
         <SettingRow
           className={rowClass}
+          id="set-mode"
           icon={Moon}
           title={t("settings.darkMode")}
           description={t("settings2.darkModeDesc")}
         >
-          <Switch checked={isDarkMode} onCheckedChange={setDarkMode} aria-label={t("settings.darkMode")} />
+          <Segmented
+            aria-label={t("settings.darkMode")}
+            value={modePref}
+            onChange={setModePref}
+            options={MODE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey), icon: option.icon }))}
+          />
         </SettingRow>
 
+        {resolveTheme(colorTheme).supports.length === 1 && (
+          <p className="px-4 pb-1 text-xs text-muted-foreground sm:px-5">
+            {t("settings2.themeSingleModeHint")}
+          </p>
+        )}
+
         <div id="set-theme" className={cn(SETTING_BLOCK_CHROME, "scroll-mt-28 px-4 py-4 sm:px-5")}>
-          <div className="mb-3 flex items-center gap-2">
-            <Palette className="h-4 w-4 text-muted-foreground" />
-            <div>
-              <h3 className="text-sm font-semibold">{t("settings.themes")}</h3>
-              <p className="text-xs text-muted-foreground">{t("settings.themesDescription")}</p>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Palette className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <h3 className="text-sm font-semibold">{t("settings.themes")}</h3>
+                <p className="text-xs text-muted-foreground">{t("settings.themesDescription")}</p>
+              </div>
             </div>
+            <Button variant="outline" size="sm" className="shrink-0 gap-2" onClick={randomTheme}>
+              <Shuffle className="h-4 w-4" />
+              {t("settings2.themeRandom")}
+            </Button>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2" onKeyDown={handleNavArrowKeys}>
-            {THEME_OPTIONS.map((theme) => (
-              <OptionCard
-                key={theme.id}
-                selected={colorTheme === theme.id}
-                title={t(`settings.${theme.nameKey}`)}
-                onClick={() => setColorTheme(theme.id)}
-              >
-                <span
-                  className="flex h-16 items-end justify-between gap-2 rounded-xl border border-white/10 p-3"
-                  style={{ background: theme.preview }}
-                >
-                  <span className="space-y-1.5">
-                    <span className="block h-2 w-16 rounded-full bg-white/80" />
-                    <span className="block h-2 w-10 rounded-full bg-white/50" />
-                  </span>
-                  <span
-                    className="block h-7 w-7 rounded-lg border border-white/20"
-                    style={{ backgroundColor: theme.accent, boxShadow: `0 0 18px ${theme.accent}55` }}
-                  />
-                </span>
-              </OptionCard>
+          <div className="space-y-5">
+            {sections.map((section) => (
+              <div key={section.key} className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {section.label}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2" onKeyDown={handleNavArrowKeys}>
+                  {section.ids.map(renderThemeCard)}
+                </div>
+              </div>
             ))}
           </div>
         </div>
+
+        <SettingRow
+          className={rowClass}
+          id="set-time-auto"
+          icon={Clock}
+          title={t("settings2.themeTimeAuto")}
+          description={t("settings2.themeTimeAutoDesc")}
+        >
+          <Switch checked={timeAuto} onCheckedChange={setTimeAuto} aria-label={t("settings2.themeTimeAuto")} />
+        </SettingRow>
+
+        <ThemeBuilder
+          colorTheme={colorTheme}
+          modePref={modePref}
+          isDarkMode={previewDark}
+          setColorTheme={setColorTheme}
+        />
       </SettingGroup>
 
       {/* ── Шрифт ──────────────────────────────────────────────────────── */}

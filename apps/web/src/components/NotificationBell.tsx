@@ -87,7 +87,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
     >
       <Button
         variant="ghost"
-        className="relative h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors group"
+        className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group"
         onClick={() => {
           if (!onNotificationsPage) navigate("/notify");
         }}

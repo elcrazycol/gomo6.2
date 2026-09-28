@@ -352,7 +352,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         codeBlock: false,
         code: false,
         horizontalRule: false,
-        dropcursor: enableMediaDrop ? { color: "hsl(var(--primary))", width: 2 } : false,
+        dropcursor: enableMediaDrop ? { color: "oklch(var(--primary))", width: 2 } : false,
         link: false,
         underline: false,
       }),

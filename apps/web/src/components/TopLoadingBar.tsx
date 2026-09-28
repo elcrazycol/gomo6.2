@@ -47,7 +47,7 @@ export const TopLoadingBar = () => {
     >
       <div className="absolute inset-0 bg-primary/15" />
       {visible && (
-        <span className="loading-bar-segment absolute inset-y-0 w-1/3 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.7)]" />
+        <span className="loading-bar-segment absolute inset-y-0 w-1/3 rounded-full bg-primary shadow-[0_0_8px_oklch(var(--primary)/0.7)]" />
       )}
     </div>
   );

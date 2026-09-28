@@ -45,7 +45,7 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
         disabled={disabled || creating}
         title={label}
         aria-label={label}
-        className="group inline-flex h-9 items-center rounded-full bg-gradient-to-r from-primary to-accent px-2.5 text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.35)] transition-all hover:brightness-110 hover:shadow-[0_4px_22px_hsl(var(--primary)/0.5)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+        className="group inline-flex h-9 items-center rounded-full bg-gradient-to-r from-primary to-accent px-2.5 text-primary-foreground shadow-[0_4px_16px_oklch(var(--primary)/0.35)] transition-all hover:brightness-110 hover:shadow-[0_4px_22px_oklch(var(--primary)/0.5)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
       >
         {creating ? (
           spinner
@@ -65,11 +65,11 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
         type="button"
         onClick={onClick}
         disabled={disabled || creating}
-        className="inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm font-semibold text-primary transition-all hover:shadow-[0_0_18px_hsl(var(--primary)/0.4)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+        className="inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm font-semibold text-primary transition-all hover:shadow-[0_0_18px_oklch(var(--primary)/0.4)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
         style={{
           border: "1.5px solid transparent",
           background:
-            "linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box, linear-gradient(120deg, hsl(var(--primary)), hsl(var(--accent))) border-box",
+            "linear-gradient(oklch(var(--card)), oklch(var(--card))) padding-box, linear-gradient(120deg, oklch(var(--primary)), oklch(var(--accent))) border-box",
         }}
       >
         {creating ? spinner : <Send className="h-4 w-4 -ml-0.5" />}
@@ -98,7 +98,7 @@ export const PublishButton = ({ style, creating = false, disabled = false, onCli
       type="button"
       onClick={onClick}
       disabled={disabled || creating}
-      className="inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-accent px-4 text-sm font-semibold text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.35)] transition-all hover:brightness-110 hover:shadow-[0_4px_22px_hsl(var(--primary)/0.5)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+      className="inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-accent px-4 text-sm font-semibold text-primary-foreground shadow-[0_4px_16px_oklch(var(--primary)/0.35)] transition-all hover:brightness-110 hover:shadow-[0_4px_22px_oklch(var(--primary)/0.5)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
     >
       {creating ? spinner : <Send className="h-4 w-4 -ml-0.5" />}
       {label}

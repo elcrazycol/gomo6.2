@@ -1,6 +1,44 @@
 <!doctype html>
 <html lang="ru">
   <head>
+    <script>
+      // Pre-boot theme: resolve and paint the saved theme before any stylesheet
+      // or bundle loads, so there is no flash of the default theme (FOUC).
+      // Keep the id list in sync with src/theme/registry.ts (guarded by a test).
+      (function () {
+        try {
+          var THEMES = ["cannabis", "pink", "blue", "blood", "pumpkin", "graphite", "lavender", "volcanic", "mint", "glitch", "acid", "void", "blush", "sage", "sky", "peach", "obsidian", "quartz", "jade", "synthwave", "terminal", "paper", "contrast", "contrastLight"];
+          var store = window.localStorage;
+          var theme = store.getItem("color-theme");
+          if (THEMES.indexOf(theme) === -1) theme = "graphite";
+          var pref = store.getItem("theme-mode");
+          if (pref !== "light" && pref !== "dark" && pref !== "system") {
+            var legacy = store.getItem("dark-mode");
+            pref = legacy === null ? "dark" : legacy === "true" ? "dark" : "light";
+          }
+          var mode =
+            pref === "system"
+              ? window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light"
+              : pref;
+          if (store.getItem("theme-time-auto") === "true") {
+            var hour = new Date().getHours();
+            mode = hour >= 7 && hour < 19 ? "light" : "dark";
+          }
+          // Single-mode themes ignore the switch (keep in sync with the registry).
+          var SINGLE = { terminal: "dark", paper: "light", contrast: "dark", contrastLight: "light" };
+          if (SINGLE[theme]) mode = SINGLE[theme];
+          var root = document.documentElement;
+          root.classList.toggle("dark", mode === "dark");
+          root.dataset.theme = theme;
+          root.dataset.mode = mode;
+          root.dataset.themePref = pref;
+        } catch (e) {
+          /* storage blocked — fall back to defaults */
+        }
+      })();
+    </script>
     <meta charset="UTF-8" />
     <!-- interactive-widget=resizes-content (Chrome Android 108+, Firefox Android 132+):
      shrink the layout viewport when the software keyboard opens so flex/grid

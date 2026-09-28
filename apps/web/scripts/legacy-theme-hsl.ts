@@ -1,3 +1,11 @@
+/**
+ * FROZEN LEGACY DATA — do not use at runtime.
+ *
+ * This is the pre-OKLCH theme map (HSL tokens), kept only as the input for
+ * `scripts/gen-theme-registry.mts`, which migrated it into the OKLCH registry
+ * (`src/theme/`). Nothing in `src/` imports this file. Delete both this file
+ * and the generator once the registry is hand-authored (phase 2+).
+ */
 export const THEME_IDS = [
   "cannabis",
   "pink",
@@ -20,7 +28,7 @@ export const DEFAULT_DARK_MODE = true;
 
 type ThemeTokens = Record<string, string>;
 
-const themeTokenMap: Record<ColorTheme, { light: ThemeTokens; dark: ThemeTokens }> = {
+export const themeTokenMap: Record<ColorTheme, { light: ThemeTokens; dark: ThemeTokens }> = {
   cannabis: {
     light: {
       "--background": "120 25% 95%",

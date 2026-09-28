@@ -2,13 +2,20 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import {
-  DEFAULT_DARK_MODE,
+  DEFAULT_MODE_PREF,
   DEFAULT_THEME,
+  THEMES,
   applyTheme,
-  getStoredTheme,
+  getStoredPrefs,
+  getTheme,
+  getTimeAuto,
+  resolveMode,
+  setStoredPrefs,
+  setTimeAuto as persistTimeAuto,
   syncSharedAppearanceCookies,
-  type ColorTheme,
-} from "@/utils/theme";
+  watchSystemMode,
+  type ThemeModePref,
+} from "@/theme";
 import { useAnimatedVideoStore } from "@/stores/animatedVideoStore";
 import { useLanguageStore } from "@/stores/languageStore";
 import { getHeaderBehavior, setHeaderBehavior as persistHeaderBehavior, type HeaderBehavior } from "@/lib/headerBehavior";
@@ -22,8 +29,9 @@ import { getMrRandomCount, setMrRandomCount as persistMrRandomCount } from "@/li
 
 /**
  * All appearance preferences in one place. Every one of them is a client-side
- * setting (localStorage + a broadcast event) that applies instantly — which is
- * why Settings → Внешний вид has no "Save" button.
+ * setting (localStorage + broadcast) that applies instantly — which is why
+ * Settings → Внешний вид has no "Save" button. Theme/mode are stored via the
+ * theme system's own preference layer (src/theme/apply.ts).
  */
 
 const removeGoogleFontLink = () => {
@@ -49,7 +57,8 @@ const applyGoogleFont = (fontName: string) => {
 };
 
 export const useAppearanceSettings = (userId?: string | null) => {
-  const [theme, setThemeState] = useState(() => getStoredTheme());
+  const [prefs, setPrefs] = useState(() => getStoredPrefs());
+  const [timeAuto, setTimeAutoState] = useState<boolean>(() => getTimeAuto());
   const [customFont, setCustomFont] = useState(() => {
     try {
       return localStorage.getItem("custom_font") || "";
@@ -67,13 +76,17 @@ export const useAppearanceSettings = (userId?: string | null) => {
   const language = useLanguageStore((state) => state.language);
   const changeLanguage = useLanguageStore((state) => state.changeLanguage);
 
-  const { colorTheme, isDarkMode } = theme;
+  const { theme: colorTheme, mode: modePref } = prefs;
+  const isDarkMode = resolveMode(getTheme(colorTheme), modePref, timeAuto) === "dark";
 
-  // Apply the theme on mount / on every change (also fixes a stale <html> class
-  // when the page is opened directly by URL).
+  // Apply on every preference change; the pre-boot script already painted the
+  // first frame, this only handles in-app changes.
   useEffect(() => {
-    applyTheme(colorTheme, isDarkMode);
-  }, [colorTheme, isDarkMode]);
+    applyTheme(colorTheme, modePref);
+  }, [colorTheme, modePref, timeAuto]);
+
+  // Re-resolve when the OS scheme flips while the preference is "system".
+  useEffect(() => watchSystemMode(() => applyTheme(colorTheme, modePref)), [colorTheme, modePref, timeAuto]);
 
   // Restore the saved font on mount.
   useEffect(() => {
@@ -87,17 +100,29 @@ export const useAppearanceSettings = (userId?: string | null) => {
     if (saved) applyGoogleFont(saved);
   }, []);
 
-  const setColorTheme = useCallback((next: ColorTheme) => {
-    setThemeState((prev) => ({ ...prev, colorTheme: next }));
-    localStorage.setItem("color-theme", next);
-    applyTheme(next, isDarkMode);
-  }, [isDarkMode]);
+  const setColorTheme = useCallback((next: string) => {
+    const updated = setStoredPrefs({ theme: next });
+    setPrefs(updated);
+    applyTheme(updated.theme, updated.mode);
+  }, []);
 
-  const setDarkMode = useCallback((next: boolean) => {
-    setThemeState((prev) => ({ ...prev, isDarkMode: next }));
-    localStorage.setItem("dark-mode", String(next));
-    applyTheme(colorTheme, next);
-  }, [colorTheme]);
+  const setModePref = useCallback((next: ThemeModePref) => {
+    const updated = setStoredPrefs({ mode: next });
+    setPrefs(updated);
+    applyTheme(updated.theme, updated.mode);
+  }, []);
+
+  const setTimeAuto = useCallback((next: boolean) => {
+    persistTimeAuto(next);
+    setTimeAutoState(next);
+    applyTheme(colorTheme, modePref);
+  }, [colorTheme, modePref]);
+
+  const randomTheme = useCallback(() => {
+    const pool = THEMES.filter((theme) => theme.id !== colorTheme);
+    if (pool.length === 0) return;
+    setColorTheme(pool[Math.floor(Math.random() * pool.length)].id);
+  }, [colorTheme, setColorTheme]);
 
   const setFont = useCallback((fontName: string) => {
     setCustomFont(fontName);
@@ -149,7 +174,8 @@ export const useAppearanceSettings = (userId?: string | null) => {
 
   const resetAppearance = useCallback(() => {
     setColorTheme(DEFAULT_THEME);
-    setDarkMode(DEFAULT_DARK_MODE);
+    setModePref(DEFAULT_MODE_PREF);
+    setTimeAuto(false);
     setFont("");
     setPublishStyle("gradient-pill");
     setHeaderBehavior("fixed");
@@ -157,10 +183,12 @@ export const useAppearanceSettings = (userId?: string | null) => {
     setMrRandomCount(1);
     setAutoplayMode("always");
     toast.success("Внешний вид сброшен к значениям по умолчанию");
-  }, [setColorTheme, setDarkMode, setFont, setPublishStyle, setHeaderBehavior, setTransitionStyle, setMrRandomCount, setAutoplayMode]);
+  }, [setColorTheme, setModePref, setTimeAuto, setFont, setPublishStyle, setHeaderBehavior, setTransitionStyle, setMrRandomCount, setAutoplayMode]);
 
   return {
     colorTheme,
+    modePref,
+    timeAuto,
     isDarkMode,
     customFont,
     publishStyle,
@@ -170,7 +198,9 @@ export const useAppearanceSettings = (userId?: string | null) => {
     autoplayMode,
     language,
     setColorTheme,
-    setDarkMode,
+    setModePref,
+    setTimeAuto,
+    randomTheme,
     setFont,
     setPublishStyle,
     setHeaderBehavior,

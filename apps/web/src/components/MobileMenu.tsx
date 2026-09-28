@@ -176,7 +176,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
         data-testid="mobile-menu-trigger"
         // Logged in: mobile-only (desktop shows the username in the header).
         // Guest: shown at every size — this menu holds the only login entry.
-        className={`${user ? "lg:hidden " : ""}h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors`}
+        className={`${user ? "lg:hidden " : ""}h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors`}
         onClick={() => setOpen(true)}
       >
         <Menu className="h-5 w-5" />

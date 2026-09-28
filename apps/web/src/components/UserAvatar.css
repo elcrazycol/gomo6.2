@@ -8,8 +8,8 @@
   justify-content: center;
   overflow: hidden;
   flex: 0 0 auto;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  background: oklch(var(--muted));
+  color: oklch(var(--muted-foreground));
 }
 
 .user-avatar--round {

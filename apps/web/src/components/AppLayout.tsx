@@ -1249,7 +1249,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <Search className="h-4 w-4" />
             </Button>
             <Link to="/settings">
-              <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-[hsl(var(--foreground)/0.12)] transition-colors group">
+              <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group">
                 <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>

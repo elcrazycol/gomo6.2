@@ -5,8 +5,10 @@ import {
   applyProfileThemeTokens,
   collectPixelStats,
   deriveVariantsFromStats,
+  normalizeTokenValue,
   rgbToHsl,
 } from "./profileTheme";
+import { parseOklch } from "@/theme/color";
 
 /** Build an RGBA buffer filled with a single color repeated n times. */
 const solidBuffer = (r: number, g: number, b: number, n = 64): Uint8ClampedArray => {
@@ -69,7 +71,10 @@ describe("deriveVariantsFromStats", () => {
     const variants = deriveVariantsFromStats(stats);
     expect(variants.map((v) => v.id)).toEqual(["dominant", "vibrant", "light", "dark", "neutral"]);
     const dominant = variants[0];
-    expect(dominant.tokens["--primary"]).toMatch(/^1[0-2][0-9] \d+% \d+%$/);
+    const primary = parseOklch(dominant.tokens["--primary"]);
+    expect(primary).not.toBeNull();
+    expect(primary!.H).toBeGreaterThan(110);
+    expect(primary!.H).toBeLessThan(160);
   });
 
   it("gray-dominant image yields a LOW-saturation theme (not a random hue)", () => {
@@ -86,18 +91,16 @@ describe("deriveVariantsFromStats", () => {
     expect(stats.grayShare).toBeGreaterThan(0.75);
     const variants = deriveVariantsFromStats(stats);
     const dominant = variants[0];
-    // Neutral theme: saturation floor is low (6), so --primary sat < 15%.
-    const primary = dominant.tokens["--primary"];
-    const sat = Number(primary.split(" ")[1].replace("%", ""));
-    expect(sat).toBeLessThan(15);
+    // Neutral theme: saturation floor is low, so --primary chroma stays tiny.
+    const sat = parseOklch(dominant.tokens["--primary"])?.C ?? 1;
+    expect(sat).toBeLessThan(0.05);
   });
 
   it("colored-dominant image keeps a saturated theme", () => {
     const stats = collectPixelStats(solidBuffer(0, 200, 0));
     const variants = deriveVariantsFromStats(stats);
-    const primary = variants[0].tokens["--primary"];
-    const sat = Number(primary.split(" ")[1].replace("%", ""));
-    expect(sat).toBeGreaterThanOrEqual(35);
+    const sat = parseOklch(variants[0].tokens["--primary"])?.C ?? 0;
+    expect(sat).toBeGreaterThanOrEqual(0.06);
   });
 
   it("every variant emits all tokens", () => {
@@ -119,43 +122,42 @@ describe("deriveVariantsFromStats", () => {
 describe("buildThemeTokens", () => {
   it("produces a light palette for a bright dominant color", () => {
     const tokens = buildThemeTokens({ h: 120, s: 60, l: 60 });
-    expect(tokens["--background"]).toBe("120 22% 95%");
-    expect(tokens["--primary"]).toMatch(/^120 \d+% \d+%$/);
-    expect(tokens["--primary-foreground"]).toBe("0 0% 100%");
+    const bg = parseOklch(tokens["--background"]);
+    expect(bg).not.toBeNull();
+    expect(bg!.L).toBeGreaterThan(0.9);
+    const primary = parseOklch(tokens["--primary"]);
+    expect(primary).not.toBeNull();
+    expect(primary!.H).toBeGreaterThan(120);
+    expect(primary!.H).toBeLessThan(170);
+    expect(parseOklch(tokens["--primary-foreground"])!.L).toBeGreaterThan(0.9);
   });
 
   it("produces a dark palette for a dark dominant color", () => {
     const tokens = buildThemeTokens({ h: 200, s: 50, l: 20 });
-    expect(tokens["--background"]).toBe("200 20% 9%");
-    expect(tokens["--foreground"]).toBe("200 8% 90%");
+    expect(parseOklch(tokens["--background"])!.L).toBeLessThan(0.3);
+    expect(parseOklch(tokens["--foreground"])!.L).toBeGreaterThan(0.8);
   });
 
   it("neutral mode keeps surfaces almost desaturated (gray stays gray)", () => {
     const tokens = buildThemeTokens({ h: 220, s: 4, l: 50 }, "neutral");
-    // Surfaces must be nearly gray — sat ~2-3% — so a gray photo gives a
+    // Surfaces must be nearly gray — chroma near zero — so a gray photo gives a
     // gray theme, not a brownish/blueish tint.
-    const bgSat = Number(tokens["--background"].split(" ")[1].replace("%", ""));
-    const cardSat = Number(tokens["--card"].split(" ")[1].replace("%", ""));
-    expect(bgSat).toBeLessThanOrEqual(3);
-    expect(cardSat).toBeLessThanOrEqual(2);
-    const primarySat = Number(tokens["--primary"].split(" ")[1].replace("%", ""));
-    expect(primarySat).toBeLessThanOrEqual(6);
+    expect(parseOklch(tokens["--background"])!.C).toBeLessThanOrEqual(0.01);
+    expect(parseOklch(tokens["--card"])!.C).toBeLessThanOrEqual(0.01);
+    expect(parseOklch(tokens["--primary"])!.C).toBeLessThanOrEqual(0.02);
   });
 
   it("neutral mode desaturates accents too — no blue links/quote text", () => {
     const tokens = buildThemeTokens({ h: 220, s: 4, l: 50 }, "neutral");
     for (const key of ["--link", "--link-text", "--quote-text", "--ring", "--board-header"]) {
-      const sat = Number(tokens[key].split(" ")[1].replace("%", ""));
-      expect(sat, key).toBeLessThanOrEqual(6);
+      expect(parseOklch(tokens[key])!.C, key).toBeLessThanOrEqual(0.02);
     }
   });
 
   it("color mode keeps accents saturated", () => {
     const tokens = buildThemeTokens({ h: 220, s: 60, l: 50 }, "color");
-    const linkSat = Number(tokens["--link"].split(" ")[1].replace("%", ""));
-    const quoteSat = Number(tokens["--quote-text"].split(" ")[1].replace("%", ""));
-    expect(linkSat).toBeGreaterThanOrEqual(35);
-    expect(quoteSat).toBeGreaterThanOrEqual(90);
+    expect(parseOklch(tokens["--link"])!.C).toBeGreaterThanOrEqual(0.06);
+    expect(parseOklch(tokens["--quote-text"])!.C).toBeGreaterThanOrEqual(0.14);
   });
 
   it("gray-dominant image: dominant variant is graphite, not the colored patch hue", () => {
@@ -182,6 +184,8 @@ describe("buildThemeTokens", () => {
 
 describe("isValidThemeTokens", () => {
   it("accepts a partial token map", () => {
+    expect(isValidThemeTokens({ "--primary": "0.569 0.1717 142.9" })).toBe(true);
+    // Legacy HSL payloads are still considered valid (normalized on apply).
     expect(isValidThemeTokens({ "--primary": "120 60% 35%" })).toBe(true);
   });
 
@@ -205,26 +209,36 @@ describe("applyProfileThemeTokens", () => {
   });
 
   it("applies tokens to html AND body (body shadows html) and restores on cleanup", () => {
-    const cleanup = applyProfileThemeTokens({ "--primary": "120 60% 35%", "--background": "120 20% 95%" });
-    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("120 60% 35%");
-    expect(document.body.style.getPropertyValue("--primary")).toBe("120 60% 35%");
+    const tokens = { "--primary": "0.569 0.1717 142.9", "--background": "0.9649 0.0108 145.5" };
+    const cleanup = applyProfileThemeTokens(tokens);
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe(tokens["--primary"]);
+    expect(document.body.style.getPropertyValue("--primary")).toBe(tokens["--primary"]);
     cleanup();
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("");
     expect(document.body.style.getPropertyValue("--primary")).toBe("");
   });
 
+  it("normalizes legacy HSL tokens to OKLCH when applying", () => {
+    const expected = normalizeTokenValue("120 60% 35%");
+    const cleanup = applyProfileThemeTokens({ "--primary": "120 60% 35%" });
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe(expected);
+    expect(document.body.style.getPropertyValue("--primary")).toBe(expected);
+    cleanup();
+  });
+
   it("restores previously set inline values on both elements", () => {
     document.documentElement.style.setProperty("--primary", "330 70% 50%");
     document.body.style.setProperty("--primary", "330 70% 50%");
+    const normalized = normalizeTokenValue("120 60% 35%");
     const cleanup = applyProfileThemeTokens({ "--primary": "120 60% 35%" });
-    expect(document.body.style.getPropertyValue("--primary")).toBe("120 60% 35%");
+    expect(document.body.style.getPropertyValue("--primary")).toBe(normalized);
     cleanup();
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("330 70% 50%");
     expect(document.body.style.getPropertyValue("--primary")).toBe("330 70% 50%");
   });
 
   it("ignores unknown keys", () => {
-    const cleanup = applyProfileThemeTokens({ "--nope": "1px solid red", "--primary": "1 2% 3%" });
+    const cleanup = applyProfileThemeTokens({ "--nope": "1px solid red", "--primary": "0.5 0.1 120" });
     expect(document.documentElement.style.getPropertyValue("--nope")).toBe("");
     expect(document.body.style.getPropertyValue("--nope")).toBe("");
     cleanup();

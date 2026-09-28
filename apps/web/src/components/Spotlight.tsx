@@ -42,7 +42,7 @@ export const Spotlight = ({ children, className, overlayClassName, color }: Spot
         )}
         style={{
           background: `radial-gradient(140px circle at var(--spot-x, 50%) var(--spot-y, 50%), ${
-            color ?? "hsl(var(--primary) / 0.18)"
+            color ?? "oklch(var(--primary) / 0.18)"
           }, transparent 72%)`,
         }}
       />
