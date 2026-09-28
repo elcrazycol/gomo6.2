@@ -22,11 +22,12 @@ import {
   finalizeTokens,
   withSemantic,
   type SeedStyle,
+  type SeedTone,
 } from "../src/theme/derive";
 
 /* ── Theme catalogue ─────────────────────────────────────────────────────── */
 
-type Group = "calm" | "pastel" | "vivid" | "mineral" | "neon" | "retro" | "a11y" | "dark";
+type Group = "calm" | "pastel" | "neutral" | "vivid" | "mineral" | "neon" | "retro" | "a11y" | "dark";
 type Mode = "light" | "dark";
 type FontKind = "sans" | "serif" | "mono" | "rounded";
 type Texture = "none" | "scanlines" | "grid" | "dots";
@@ -127,6 +128,14 @@ const SURFACE_BY_THEME: Record<string, SurfaceProfile> = {
   obsidian: "mineral",
   quartz: "mineral",
   jade: "mineral",
+  linen: "flat",
+  ash: "flat",
+  fog: "flat",
+  sand: "flat",
+  slate: "outlined",
+  charcoal: "outlined",
+  ink: "outlined",
+  espresso: "flat",
 };
 
 const DEFAULT_SURFACE_PROFILE: SurfaceProfile = "glass";
@@ -174,6 +183,7 @@ interface SeedTheme extends Character {
   nameKey: string;
   seed: Oklch;
   style: SeedStyle;
+  tone?: SeedTone;
   modes: Mode[];
 }
 
@@ -185,6 +195,15 @@ const SEED_THEMES: SeedTheme[] = [
   { id: "sage", group: "pastel", nameKey: "themeSage", seed: { L: 0.72, C: 0.09, H: 150 }, style: "pastel", modes: ["light", "dark"], radius: "1.25rem", font: "rounded" },
   { id: "sky", group: "pastel", nameKey: "themeSky", seed: { L: 0.72, C: 0.1, H: 235 }, style: "pastel", modes: ["light", "dark"], radius: "1.25rem", font: "rounded" },
   { id: "peach", group: "pastel", nameKey: "themePeach", seed: { L: 0.76, C: 0.12, H: 55 }, style: "pastel", modes: ["light", "dark"], radius: "1.25rem", font: "rounded" },
+  // Neutral tonal (paper-like minimalism, different depth/temperature)
+  { id: "linen", group: "neutral", nameKey: "themeLinen", seed: { L: 0.55, C: 0.02, H: 80 }, style: "soft", tone: "paper", modes: ["light"], radius: "0.125rem" },
+  { id: "ash", group: "neutral", nameKey: "themeAsh", seed: { L: 0.6, C: 0, H: 0 }, style: "soft", tone: "default", modes: ["light", "dark"], radius: "0.25rem" },
+  { id: "fog", group: "neutral", nameKey: "themeFog", seed: { L: 0.62, C: 0.015, H: 245 }, style: "soft", tone: "default", modes: ["light", "dark"], radius: "0.25rem" },
+  { id: "sand", group: "neutral", nameKey: "themeSand", seed: { L: 0.7, C: 0.03, H: 75 }, style: "soft", tone: "soft", modes: ["light", "dark"], radius: "0.25rem" },
+  { id: "slate", group: "neutral", nameKey: "themeSlate", seed: { L: 0.6, C: 0.012, H: 255 }, style: "soft", tone: "default", modes: ["light", "dark"], radius: "0.25rem" },
+  { id: "charcoal", group: "neutral", nameKey: "themeCharcoal", seed: { L: 0.6, C: 0, H: 0 }, style: "soft", tone: "deep", modes: ["dark"], radius: "0.125rem" },
+  { id: "ink", group: "neutral", nameKey: "themeInk", seed: { L: 0.6, C: 0.03, H: 265 }, style: "soft", tone: "deep", modes: ["dark"], radius: "0.25rem" },
+  { id: "espresso", group: "neutral", nameKey: "themeEspresso", seed: { L: 0.6, C: 0.03, H: 45 }, style: "soft", tone: "deep", modes: ["dark"], radius: "0.125rem" },
   // Minerals
   { id: "obsidian", group: "mineral", nameKey: "themeObsidian", seed: { L: 0.66, C: 0.15, H: 45 }, style: "soft", modes: ["light", "dark"], radius: "0.125rem", texture: "dots" },
   { id: "quartz", group: "mineral", nameKey: "themeQuartz", seed: { L: 0.7, C: 0.05, H: 70 }, style: "soft", modes: ["light", "dark"], radius: "0.5rem" },
@@ -257,7 +276,7 @@ for (const id of THEME_IDS) {
 for (const seed of SEED_THEMES) {
   const theme: EmittedTheme = { id: seed.id, group: seed.group, nameKey: seed.nameKey, radius: seed.radius, font: seed.font, texture: seed.texture, modes: {}, raw: {} };
   for (const mode of seed.modes) {
-    const { strings, raw } = compile(seed.id, deriveSeedTokens(seed.seed, mode, seed.style), mode);
+    const { strings, raw } = compile(seed.id, deriveSeedTokens(seed.seed, mode, seed.style, seed.tone), mode);
     theme.modes[mode] = strings;
     theme.raw[mode] = raw;
   }
@@ -306,7 +325,7 @@ for (const theme of emitted) {
 out.push("};");
 out.push("");
 out.push("export interface ThemeMeta {");
-out.push('  group: "calm" | "pastel" | "vivid" | "mineral" | "neon" | "retro" | "a11y" | "dark";');
+out.push('  group: "calm" | "pastel" | "neutral" | "vivid" | "mineral" | "neon" | "retro" | "a11y" | "dark";');
 out.push("  nameKey: string;");
 out.push("  radius: string;");
 out.push('  font?: "sans" | "serif" | "mono" | "rounded";');

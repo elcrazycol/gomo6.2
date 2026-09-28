@@ -12,7 +12,16 @@ import { formatOklch, wcagContrast, type Oklch } from "./color";
 import { THEME_TOKEN_NAMES } from "./tokens";
 
 export type SeedStyle = "soft" | "pastel" | "mono";
+/** Surface depth ramp for tonal neutrals (light/dark background + card L). */
+export type SeedTone = "default" | "paper" | "soft" | "deep";
 export type ThemeModeName = "light" | "dark";
+
+const TONES: Record<SeedTone, { lightBg: number; lightCard: number; darkBg: number; darkCard: number }> = {
+  default: { lightBg: 0.966, lightCard: 0.994, darkBg: 0.16, darkCard: 0.205 },
+  paper: { lightBg: 0.978, lightCard: 1, darkBg: 0.205, darkCard: 0.245 },
+  soft: { lightBg: 0.935, lightCard: 0.968, darkBg: 0.19, darkCard: 0.235 },
+  deep: { lightBg: 0.885, lightCard: 0.925, darkBg: 0.125, darkCard: 0.165 },
+};
 
 export interface SeedColor {
   /** Lightness 0..1. */
@@ -147,8 +156,10 @@ export const deriveSeedTokens = (
   seed: SeedColor,
   mode: ThemeModeName,
   style: SeedStyle,
+  toneName: SeedTone = "default",
 ): Record<string, Oklch> => {
   const { H, C: sc } = seed;
+  const tone = TONES[toneName] ?? TONES.default;
   const t = (L: number, C: number): Oklch => ({ L, C, H });
 
   if (style === "mono") {
@@ -186,13 +197,13 @@ export const deriveSeedTokens = (
   const primaryC = pastel ? clamp(sc, 0.05, 0.13) : clamp(sc, 0.08, 0.22);
 
   if (mode === "light") {
-    const bgL = pastel ? 0.976 : 0.966;
+    const bgL = pastel ? 0.976 : tone.lightBg;
     return {
       "--background": t(bgL, surfaceC(pastel ? 0.35 : 0.12, pastel ? 0.028 : 0.014)),
       "--foreground": t(pastel ? 0.3 : 0.24, surfaceC(0.18, 0.02)),
-      "--card": t(0.994, surfaceC(0.1, 0.012)),
+      "--card": t(tone.lightCard, surfaceC(0.1, 0.012)),
       "--card-foreground": t(pastel ? 0.3 : 0.24, surfaceC(0.18, 0.02)),
-      "--popover": t(0.994, surfaceC(0.1, 0.012)),
+      "--popover": t(tone.lightCard, surfaceC(0.1, 0.012)),
       "--popover-foreground": t(pastel ? 0.3 : 0.24, surfaceC(0.18, 0.02)),
       "--primary": t(pastel ? 0.72 : 0.55, primaryC),
       "--primary-foreground": t(pastel ? 0.22 : 1, 0),
@@ -216,11 +227,11 @@ export const deriveSeedTokens = (
   }
 
   return {
-    "--background": t(0.16, surfaceC(0.15, 0.018)),
+    "--background": t(tone.darkBg, surfaceC(0.15, 0.018)),
     "--foreground": t(0.93, surfaceC(0.12, 0.016)),
-    "--card": t(0.205, surfaceC(0.12, 0.014)),
+    "--card": t(tone.darkCard, surfaceC(0.12, 0.014)),
     "--card-foreground": t(0.93, surfaceC(0.12, 0.016)),
-    "--popover": t(0.205, surfaceC(0.12, 0.014)),
+    "--popover": t(tone.darkCard, surfaceC(0.12, 0.014)),
     "--popover-foreground": t(0.93, surfaceC(0.12, 0.016)),
     "--primary": t(pastel ? 0.79 : 0.66, primaryC),
     "--primary-foreground": t(pastel || primaryC > 0.14 ? 0.18 : 0.16, 0),

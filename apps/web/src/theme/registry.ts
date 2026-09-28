@@ -9,7 +9,7 @@ import { oklchCss, parseOklch } from "./color";
 import type { ThemeTokens } from "./tokens";
 
 export type ThemeMode = "light" | "dark";
-export type ThemeGroup = "custom" | "calm" | "pastel" | "vivid" | "mineral" | "neon" | "retro" | "a11y" | "dark";
+export type ThemeGroup = "custom" | "calm" | "pastel" | "neutral" | "vivid" | "mineral" | "neon" | "retro" | "a11y" | "dark";
 export type ThemeFont = "sans" | "serif" | "mono" | "rounded";
 export type ThemeTexture = "none" | "scanlines" | "grid" | "dots";
 
@@ -43,6 +43,7 @@ export const THEME_GROUP_LABEL_KEYS: Record<ThemeGroup, string> = {
   custom: "settings2.themeGroupCustom",
   calm: "settings2.themeGroupCalm",
   pastel: "settings2.themeGroupPastel",
+  neutral: "settings2.themeGroupNeutral",
   vivid: "settings2.themeGroupVivid",
   mineral: "settings2.themeGroupMineral",
   neon: "settings2.themeGroupNeon",
@@ -51,7 +52,7 @@ export const THEME_GROUP_LABEL_KEYS: Record<ThemeGroup, string> = {
   dark: "settings2.themeGroupDark",
 };
 
-export const THEME_GROUP_ORDER: ThemeGroup[] = ["custom", "calm", "pastel", "vivid", "mineral", "neon", "retro", "a11y", "dark"];
+export const THEME_GROUP_ORDER: ThemeGroup[] = ["custom", "calm", "pastel", "neutral", "vivid", "mineral", "neon", "retro", "a11y", "dark"];
 
 const DEFAULT_RADIUS = "0.25rem";
 
