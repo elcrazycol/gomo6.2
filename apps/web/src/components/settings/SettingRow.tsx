@@ -241,7 +241,7 @@ export const OptionCard = ({ selected, title, description, onClick, children, ac
       "group/card relative cursor-pointer overflow-hidden rounded-2xl border p-3 text-left outline-none transition-all duration-200",
       "focus-visible:ring-2 focus-visible:ring-ring/60",
       selected
-        ? "border-primary/60 bg-primary/[0.06] ring-1 ring-primary/25 shadow-[0_10px_30px_-16px_oklch(var(--primary)/0.6)]"
+        ? "border-primary/60 bg-primary/[0.06] ring-1 ring-primary/25"
         : "border-border/60 bg-background/40 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-foreground/[0.03] hover:shadow-md",
       className,
     )}
