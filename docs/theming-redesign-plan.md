@@ -135,6 +135,9 @@ localStorage + cookie остаются быстрым путём (pre-boot не 
 - [x] **Курирование набора**: удалены темы-дубли (blue, blood, pumpkin, glitch,
       acid, void, sage, sky, fog, blush, peach, quartz, jade, ink, espresso) —
       осталось 18 уникальных. Список вырезанных — `REMOVED_THEME_IDS` в генераторе.
+- [x] **Осмысленный материал каждой теме**: нейтральные — плоско/контурные без
+      стекла; цветные — только pink/lavender стекло (cosmic glow), cannabis
+      приподнятый, volcanic контурный с тлеющим фоном; материалы — материал.
 
 ### Фаза 3 — хранение и синхронизация
 - [ ] Тема в `user_settings` на бэке (источник правды), localStorage — кэш.

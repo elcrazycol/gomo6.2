@@ -1089,16 +1089,16 @@
 
 [data-theme="cannabis"] {
   --radius: 0.5rem;
-  --surface-blur: 16px;
-  --surface-saturate: 160%;
-  --surface-alpha: 0.72;
-  --surface-tint: 55%;
+  --surface-blur: 0px;
+  --surface-saturate: 100%;
+  --surface-alpha: 1;
+  --surface-tint: 100%;
   --surface-border-width: 1px;
-  --surface-border-alpha: 0.7;
-  --surface-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
-  --surface-grain: 1;
-  --surface-sheen: radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%), linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%), linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
-  --bg-image: none;
+  --surface-border-alpha: 0.6;
+  --surface-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.45);
+  --surface-grain: 0;
+  --surface-sheen: none;
+  --bg-image: radial-gradient(70% 55% at 20% 0%, oklch(var(--primary) / 0.12), transparent 62%);
   --bg-size: cover;
   --bg-repeat: no-repeat;
 }
@@ -1114,7 +1114,7 @@
   --surface-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
   --surface-grain: 1;
   --surface-sheen: radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%), linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%), linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
-  --bg-image: none;
+  --bg-image: radial-gradient(70% 55% at 80% 0%, oklch(var(--primary) / 0.14), transparent 62%);
   --bg-size: cover;
   --bg-repeat: no-repeat;
 }
@@ -1122,15 +1122,15 @@
 
 [data-theme="graphite"] {
   --radius: 0.25rem;
-  --surface-blur: 16px;
-  --surface-saturate: 160%;
-  --surface-alpha: 0.72;
-  --surface-tint: 55%;
+  --surface-blur: 0px;
+  --surface-saturate: 100%;
+  --surface-alpha: 1;
+  --surface-tint: 100%;
   --surface-border-width: 1px;
-  --surface-border-alpha: 0.7;
-  --surface-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
-  --surface-grain: 1;
-  --surface-sheen: radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%), linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%), linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
+  --surface-border-alpha: 0.9;
+  --surface-shadow: none;
+  --surface-grain: 0;
+  --surface-sheen: none;
   --bg-image: none;
   --bg-size: cover;
   --bg-repeat: no-repeat;
@@ -1147,7 +1147,7 @@
   --surface-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
   --surface-grain: 1;
   --surface-sheen: radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%), linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%), linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
-  --bg-image: none;
+  --bg-image: radial-gradient(70% 55% at 15% 0%, oklch(var(--primary) / 0.18), transparent 60%), radial-gradient(60% 50% at 90% 10%, oklch(var(--accent) / 0.16), transparent 55%);
   --bg-size: cover;
   --bg-repeat: no-repeat;
 }
@@ -1155,16 +1155,16 @@
 
 [data-theme="volcanic"] {
   --radius: 0.125rem;
-  --surface-blur: 16px;
-  --surface-saturate: 160%;
-  --surface-alpha: 0.72;
-  --surface-tint: 55%;
+  --surface-blur: 0px;
+  --surface-saturate: 100%;
+  --surface-alpha: 1;
+  --surface-tint: 100%;
   --surface-border-width: 1px;
-  --surface-border-alpha: 0.7;
-  --surface-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
-  --surface-grain: 1;
-  --surface-sheen: radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%), linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%), linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
-  --bg-image: none;
+  --surface-border-alpha: 1;
+  --surface-shadow: none;
+  --surface-grain: 0;
+  --surface-sheen: none;
+  --bg-image: radial-gradient(80% 60% at 50% 115%, oklch(var(--primary) / 0.16), transparent 62%);
   --bg-size: cover;
   --bg-repeat: no-repeat;
 }
@@ -1181,15 +1181,15 @@ html[data-theme="volcanic"]::after {
 
 [data-theme="mint"] {
   --radius: 0.75rem;
-  --surface-blur: 16px;
-  --surface-saturate: 160%;
-  --surface-alpha: 0.72;
-  --surface-tint: 55%;
+  --surface-blur: 0px;
+  --surface-saturate: 100%;
+  --surface-alpha: 1;
+  --surface-tint: 100%;
   --surface-border-width: 1px;
-  --surface-border-alpha: 0.7;
-  --surface-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
-  --surface-grain: 1;
-  --surface-sheen: radial-gradient(130% 190% at 14% -55%, hsl(0 0% 100% / 0.18), transparent 58%), linear-gradient(103deg, transparent 38%, hsl(0 0% 100% / 0.06) 49%, transparent 61%), linear-gradient(to bottom, hsl(0 0% 100% / 0.05), hsl(0 0% 0% / 0.06));
+  --surface-border-alpha: 0.9;
+  --surface-shadow: none;
+  --surface-grain: 0;
+  --surface-sheen: none;
   --bg-image: none;
   --bg-size: cover;
   --bg-repeat: no-repeat;

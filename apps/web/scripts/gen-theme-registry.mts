@@ -117,25 +117,27 @@ const SURFACE_PRESETS: Record<SurfaceProfile, Surface> = {
 };
 
 const SURFACE_BY_THEME: Record<string, SurfaceProfile> = {
-  void: "outlined",
-  glitch: "neon",
-  acid: "neon",
-  synthwave: "neon",
+  // Neutral / minimal — flat and outlined, no glass at all.
+  graphite: "flat",
+  linen: "flat",
+  ash: "flat",
+  sand: "flat",
+  mint: "flat",
+  slate: "outlined",
+  charcoal: "outlined",
+  // Materials.
+  glass: "glass",
+  obsidian: "mineral",
   terminal: "terminal",
+  synthwave: "neon",
   paper: "paper",
   contrast: "contrast",
   contrastLight: "contrast",
-  obsidian: "mineral",
-  quartz: "mineral",
-  jade: "mineral",
-  linen: "flat",
-  ash: "flat",
-  fog: "flat",
-  sand: "flat",
-  slate: "outlined",
-  charcoal: "outlined",
-  ink: "outlined",
-  espresso: "flat",
+  // Colour.
+  pink: "glass",
+  lavender: "glass",
+  cannabis: "elevated",
+  volcanic: "outlined",
 };
 
 const DEFAULT_SURFACE_PROFILE: SurfaceProfile = "glass";
@@ -155,6 +157,11 @@ const REMOVED_THEME_IDS = new Set<string>([
 const BG_IMAGE_BY_THEME: Record<string, string> = {
   glass:
     "radial-gradient(60% 55% at 12% 0%, oklch(var(--primary) / 0.28), transparent 60%), radial-gradient(55% 50% at 88% 8%, oklch(var(--accent) / 0.24), transparent 55%), radial-gradient(70% 60% at 50% 110%, oklch(var(--secondary) / 0.2), transparent 60%)",
+  lavender:
+    "radial-gradient(70% 55% at 15% 0%, oklch(var(--primary) / 0.18), transparent 60%), radial-gradient(60% 50% at 90% 10%, oklch(var(--accent) / 0.16), transparent 55%)",
+  pink: "radial-gradient(70% 55% at 80% 0%, oklch(var(--primary) / 0.14), transparent 62%)",
+  cannabis: "radial-gradient(70% 55% at 20% 0%, oklch(var(--primary) / 0.12), transparent 62%)",
+  volcanic: "radial-gradient(80% 60% at 50% 115%, oklch(var(--primary) / 0.16), transparent 62%)",
   synthwave:
     "linear-gradient(oklch(var(--primary) / 0.08) 1px, transparent 1px), linear-gradient(90deg, oklch(var(--primary) / 0.08) 1px, transparent 1px)",
   paper:
