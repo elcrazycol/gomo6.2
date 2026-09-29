@@ -299,6 +299,91 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Observability: VictoriaMetrics stack ──────────────────────────────────
+  # Replaces Grafana Cloud + Grafana Alloy: metric storage, ad-hoc UI (vmui),
+  # alert rules and Telegram delivery, all self-hosted. Config lives in
+  # observability/ (in git); the Telegram token lives in
+  # observability/alertmanager.yml, which is gitignored.
+  #
+  # UIs are bound to 127.0.0.1 only and are reached through an SSH tunnel:
+  #   ssh -L 8428:127.0.0.1:8428 -L 9093:127.0.0.1:9093 root@gomo6.wtf
+  #   vmui:         http://localhost:8428/vmui
+  #   Alertmanager: http://localhost:9093
+  #
+  # These are third-party images and are NOT in the deploy matrix: after a
+  # config change, recreate them on the VPS with
+  #   docker compose up -d --no-build victoriametrics vmagent vmalert alertmanager
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.153.0
+    command:
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=1y"
+      - "-httpListenAddr=:8428"
+    volumes:
+      - vm_data:/victoria-metrics-data
+    ports:
+      # localhost only — never exposed to the internet (admin UI, no auth).
+      - "127.0.0.1:8428:8428"
+    restart: unless-stopped
+
+  vmagent:
+    image: victoriametrics/vmagent:v1.153.0
+    command:
+      - "-promscrape.config=/etc/vmagent/vmagent.yml"
+      - "-remoteWrite.url=http://victoriametrics:8428"
+    environment:
+      # The /metrics bearer token; empty disables the backend scrape upstream.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    volumes:
+      - ./observability/vmagent.yml:/etc/vmagent/vmagent.yml:ro
+    depends_on:
+      victoriametrics:
+        condition: service_started
+    restart: unless-stopped
+
+  vmalert:
+    image: victoriametrics/vmalert:v1.153.0
+    command:
+      - "-rule=/etc/vmalert/rules.yml"
+      - "-datasource.url=http://victoriametrics:8428"
+      - "-remoteRead.url=http://victoriametrics:8428"
+      - "-notifier.url=http://alertmanager:9093"
+      - "-evaluationInterval=30s"
+    volumes:
+      - ./observability/vmalert-rules.yml:/etc/vmalert/rules.yml:ro
+    depends_on:
+      - victoriametrics
+      - alertmanager
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.28.0
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./observability/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    volumes:
+      - "/:/host:ro,rslave"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
@@ -307,3 +392,5 @@ volumes:
   garage_keys:
   caddy_data:
   caddy_config:
+  vm_data:
+  alertmanager_data:

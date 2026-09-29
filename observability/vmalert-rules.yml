@@ -1,0 +1,132 @@
+# vmalert alerting + recording rules.
+#
+# Evaluated against VictoriaMetrics; firing alerts go to Alertmanager, which
+# routes them to Telegram. Kept in git so the rules are reviewed and versioned
+# instead of living in someone's browser tab.
+#
+# Only series that the application actually exposes are used:
+#   up{job=...}, probe_success, probe_ssl_earliest_cert_expiry,
+#   http_requests_total, http_server_errors_total, http_client_errors_total,
+#   http_rate_limited_total, db_* , bg_* , node_*
+# A latency histogram (p50/p95/p99) is not exposed yet — see the follow-up
+# instrumentation task; until then there is no latency alert.
+
+groups:
+  # ── Availability ──────────────────────────────────────────────────────────
+  - name: availability
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend недоступен"
+          description: "vmagent не может скрейпить backend:8080 уже 2 минуты. Caddy отдаёт 502."
+
+      - alert: SiteDown
+        expr: probe_success{job="blackbox"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} недоступен"
+          description: "Чёрный ящик не получил 2xx с {{ $labels.instance }} за 2 минуты."
+
+      - alert: TLSCertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry{job="blackbox"} - time() < 14 * 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Сертификат {{ $labels.instance }} истекает < 14 дней"
+          description: "Проверь автопродление Caddy (Let's Encrypt)."
+
+  # ── HTTP ──────────────────────────────────────────────────────────────────
+  - name: http
+    interval: 30s
+    rules:
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(http_server_errors_total[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Доля 5xx выше 5%"
+          description: "За 10 минут серверные ошибки превысили 5% запросов."
+
+      - alert: RateLimitSurge
+        expr: sum(rate(http_rate_limited_total[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Всплеск 429 ({{ $value }}/s)"
+          description: "Либо абуза, либо бюджет рейт-лимита занижен для реального трафика."
+
+  # ── Database / background work ────────────────────────────────────────────
+  - name: resources
+    interval: 30s
+    rules:
+      - alert: DBPoolSaturated
+        expr: db_in_use_connections / clamp_min(db_max_open_connections, 1) > 0.8
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Пул БД исчерпан ({{ $value | humanizePercentage }})"
+          description: "in_use/max > 80% пять минут — запросы скоро начнут ждать освобождения соединения."
+
+      - alert: BackgroundTasksDropped
+        expr: increase(bg_dropped_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "bg-пул {{ $labels.pool }} дропает задачи"
+          description: "Очередь переполнена: фоновые задачи (realtime/push/кэш) теряются."
+
+      - alert: DBTxErrors
+        expr: increase(messenger_db_tx_errors_total[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ошибки транзакций БД"
+          description: "Больше 3 ошибок транзакций за 10 минут — вероятна проблема с БД."
+
+  # ── Host ──────────────────────────────────────────────────────────────────
+  - name: host
+    interval: 60s
+    rules:
+      - alert: DiskSpaceLow
+        expr: |
+          node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+            / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} < 0.15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Мало места на диске ({{ $value | humanizePercentage }} свободно)"
+          description: "Меньше 15% свободно — деплой и БД могут упасть."
+
+      - alert: HostMemoryHigh
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Память занята выше 90%"
+          description: "Проверь утечки и лимиты контейнеров."
+
+      - alert: HostLoadHigh
+        expr: node_load5 / count without (cpu) (node_cpu_seconds_total{mode="idle"}) > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокий load average"
+          description: "Load на ядро выше 2 пятнадцать минут."

@@ -74,3 +74,7 @@ trophy-concepts/
 
 # Go build cache (sandboxed GOCACHE inside repo during agent sessions)
 .gocache
+
+# Observability: the real Alertmanager config holds the Telegram bot token.
+# Template is observability/alertmanager.yml.example (tracked).
+observability/alertmanager.yml
