@@ -35,7 +35,13 @@ import { useTranslation } from "react-i18next";
  * (chips and action hovers use it) so those stay readable inside the card.
  */
 export const POST_CARD_CLASS =
-  "relative overflow-clip rounded-[var(--card-radius)] border-border/70 bg-surface transition-colors hover:border-border/80";
+  "relative overflow-clip rounded-[var(--card-radius)] border-border/70 bg-surface transition-colors hover:border-border/80 " +
+  // Long feed / wall / board sessions accumulate hundreds of cards. Off-screen
+  // cards now skip layout and paint entirely, so scroll depth stays cheap.
+  // `auto <length>` makes the browser remember each card's real height after
+  // its first render, so the 300px figure is only a placeholder for cards that
+  // have never been on screen — which keeps the scrollbar from jumping.
+  "[content-visibility:auto] [contain-intrinsic-size:auto_300px]";
 
 interface PostCardShellProps {
   children: ReactNode;

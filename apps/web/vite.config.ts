@@ -54,9 +54,6 @@ export default defineConfig(() => ({
       },
     },
   },
-  optimizeDeps: {
-    exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/core"],
-  },
   plugins: [
     react(),
     // injectManifest strategy: the service worker is our own src/sw.ts (push /
@@ -111,7 +108,6 @@ export default defineConfig(() => ({
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("framer-motion")) return "vendor-motion";
           if (id.includes("@bbob")) return "vendor-bbob";
-          if (id.includes("@ffmpeg")) return "vendor-ffmpeg";
           if (id.includes("@tanstack")) return "vendor-query";
           if (id.includes("i18next")) return "vendor-i18n";
           if (id.includes("lucide-react")) return "vendor-icons";
