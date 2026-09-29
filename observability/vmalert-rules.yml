@@ -124,6 +124,61 @@ groups:
           summary: "Ошибки транзакций БД"
           description: "Больше 3 ошибок транзакций за 10 минут — вероятна проблема с БД."
 
+  # ── Data layer ────────────────────────────────────────────────────────────
+  - name: data
+    interval: 30s
+    rules:
+      - alert: PostgresConnectionsHigh
+        expr: pg_stat_database_numbackends{datname="gomo6"} / clamp_min(pg_settings_max_connections, 1) > 0.8
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres: подключений больше 80% от максимума"
+          description: "Новые соединения начнут отклоняться — проверь утечки пула."
+
+      - alert: PostgresCacheHitLow
+        expr: |
+          sum(rate(pg_stat_database_blks_hit{datname="gomo6"}[5m]))
+            / clamp_min(sum(rate(pg_stat_database_blks_hit{datname="gomo6"}[5m]))
+                      + sum(rate(pg_stat_database_blks_read{datname="gomo6"}[5m])), 0.001) < 0.9
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres: попаданий в кэш меньше 90%"
+          description: "Запросы уходят на диск вместо shared_buffers."
+
+      - alert: PostgresDeadlocks
+        expr: increase(pg_stat_database_deadlocks{datname="gomo6"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres: взаимоблокировки транзакций"
+          description: "Кто-то откатился из-за дедлока — смотри порядок блокировок."
+
+      - alert: RedisEvictions
+        expr: increase(redis_evicted_keys_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis вытесняет ключи"
+          description: "Упёрлись в maxmemory: данные теряются по политике вытеснения."
+
+      - alert: RedisCacheHitLow
+        expr: |
+          sum(rate(redis_keyspace_hits_total[15m]))
+            / clamp_min(sum(rate(redis_keyspace_hits_total[15m]))
+                      + sum(rate(redis_keyspace_misses_total[15m])), 0.001) < 0.2
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Redis: hit ratio ниже 20%"
+          description: "Кэш почти не помогает — возможно, TTL слишком короткий."
+
   # ── Host ──────────────────────────────────────────────────────────────────
   - name: host
     interval: 60s
