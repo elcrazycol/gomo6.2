@@ -262,6 +262,13 @@ func (h *IntegrationsHandler) GetSpotifyStatus(c *gin.Context) {
 		Provider:  "spotify",
 	}
 
+	// No server credentials means no account can currently be linked — report
+	// "not connected" instead of attempting a live token refresh.
+	if !h.spotify.IsConfigured() {
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
 	var encAccessToken string
 	var encRefreshToken *string
 	var tokenExpiresAt *time.Time
@@ -330,6 +337,15 @@ func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 		return
 	}
 
+	// When the server has no Spotify credentials nobody can be connected, so
+	// answer "not connected" instead of walking into the DB/token/Spotify path
+	// (a stale integration row must not be reported as connected, and we must
+	// not make an outbound API call for an integration that is switched off).
+	if !h.spotify.IsConfigured() {
+		c.JSON(http.StatusOK, &integrations.NowPlayingResponse{IsConnected: false})
+		return
+	}
+
 	// L1: a private profile must not leak its current activity (what the user
 	// is listening to) to non-friends. The now-playing endpoint is public, so
 	// apply the same privacy predicate used by profiles.
@@ -384,7 +400,10 @@ func (h *IntegrationsHandler) GetSpotifyPlayerState(c *gin.Context) {
 	}
 
 	if !h.spotify.IsConfigured() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Spotify integration not configured"})
+		// Nothing is (or can be) connected while the server has no Spotify
+		// credentials. Answer like any other idle player state instead of a
+		// 5xx, which the global poller would surface as an error on every page.
+		c.JSON(http.StatusOK, &integrations.NowPlayingResponse{IsConnected: false})
 		return
 	}
 

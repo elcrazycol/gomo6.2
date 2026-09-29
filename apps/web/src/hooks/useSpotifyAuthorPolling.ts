@@ -19,14 +19,18 @@ export function useSpotifyAuthorPolling() {
     const poll = async () => {
       if (!active) return;
       try {
-        await apiClient.request("/api/v1/integrations/spotify/me/state");
+        const res = (await apiClient.request(
+          "/api/v1/integrations/spotify/me/state",
+        )) as unknown as { is_connected?: boolean };
         // Response triggers WS publish on backend if state changed.
         // We don't need the data here — visitors receive it via WebSocket.
+        // Nothing is connected (no account linked, or the server has no
+        // Spotify credentials): polling can't ever produce a track, so stop.
+        if (res?.is_connected === false) active = false;
       } catch (err) {
-        // 503 = Spotify is not configured on the server (nothing will change
-        // until the server is configured) and 401 = logged out. Polling either
-        // forever would just spam the console, so stop in both cases.
-        // Other errors (network, 5xx) — retry on the next tick.
+        // 503 = older backend without Spotify configured (pre-fix) and 401 =
+        // logged out. Polling either forever would just spam the console, so
+        // stop in both cases. Other errors — retry on the next tick.
         const status = (err as { status?: number } | null)?.status;
         if (status === 503 || status === 401) active = false;
       }
