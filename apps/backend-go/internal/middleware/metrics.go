@@ -166,25 +166,12 @@ func escapeLabelValue(s string) string {
 // startup so /metrics exposes them alongside the messenger/runtime series —
 // previously they were only reachable through an admin-only JSON endpoint.
 func WritePrometheus(w io.Writer) {
-	globalMetrics.mu.Lock()
-	rows := make([]MetricsRow, 0, len(globalMetrics.buckets))
-	for key, b := range globalMetrics.buckets {
-		var avg uint64
-		if b.requests > 0 {
-			avg = b.latencyMs / b.requests
-		}
-		rows = append(rows, MetricsRow{
-			Route:        key,
-			Requests:     b.requests,
-			AvgLatencyMs: avg,
-			ClientErrors: b.clientErrors,
-			ServerErrors: b.serverErrors,
-			RateLimited:  b.rateLimited,
-		})
-	}
-	globalMetrics.mu.Unlock()
-
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Requests > rows[j].Requests })
+	// MetricsSnapshot already aggregates every bucket, histogram state included;
+	// reusing it keeps /metrics and the admin JSON view identical.
+	//
+	// (The previous duplicated loop forgot DurationCounts, so every histogram
+	// bucket rendered as 0 while _count kept growing — p50/p99 were empty.)
+	rows := MetricsSnapshot()
 
 	_, _ = fmt.Fprint(w,
 		"# TYPE http_requests_total counter\n"+
