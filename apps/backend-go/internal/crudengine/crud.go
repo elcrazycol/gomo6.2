@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/metrics"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/cache"
@@ -375,6 +376,9 @@ func (h *Engine) afterWrite(c *gin.Context, tableName, method string, result map
 
 	// Invalidate cache for the written row.
 	h.invalidateCacheForTableResult(c, tableName, result)
+
+	// Product-level counter (only content tables are counted).
+	metrics.App.TableCreated(tableName)
 
 	// Wall-table writes respond with the enriched payload (author embed +
 	// interaction counts) instead of the raw row. The historical order ran the

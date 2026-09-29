@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -217,6 +219,34 @@ func main() {
 				"db_wait_duration_seconds_total %.6f\n",
 			s.OpenConnections, s.InUse, s.Idle, s.MaxOpenConnections,
 			s.WaitCount, s.WaitDuration.Seconds())
+	})
+
+	// Product gauges: online right now (in-memory presence) and "active today"
+	// from user_daily_visits. The latter is cached for 5 minutes and bounded by
+	// a context timeout so a scrape can never hammer or hang on the database.
+	var (
+		dauMu      sync.Mutex
+		dauValue   int64
+		dauFetched time.Time
+	)
+	metrics.RegisterProvider(func(w io.Writer) {
+		_, _ = fmt.Fprintf(w, "# TYPE app_users_online gauge\napp_users_online %d\n", wsHub.OnlineCount())
+	})
+	metrics.RegisterProvider(func(w io.Writer) {
+		dauMu.Lock()
+		if time.Since(dauFetched) > 5*time.Minute {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			var n int64
+			if err := db.QueryRowContext(ctx,
+				`SELECT count(*) FROM user_daily_visits WHERE visit_date = CURRENT_DATE`).Scan(&n); err == nil {
+				dauValue = n
+			}
+			cancel()
+			dauFetched = time.Now()
+		}
+		v := dauValue
+		dauMu.Unlock()
+		_, _ = fmt.Fprintf(w, "# TYPE app_users_active_today gauge\napp_users_active_today %d\n", v)
 	})
 
 	// Metrics are disabled unless METRICS_TOKEN is configured. pprof is not

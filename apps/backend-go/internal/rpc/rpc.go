@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/notifications"
 
 	"github.com/gin-gonic/gin"
@@ -261,6 +262,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		return
 	}
 
+	metrics.App.PostCreated()
 	c.JSON(http.StatusCreated, models.SuccessResponse(post))
 }
 
@@ -491,6 +493,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		return
 	}
 
+	metrics.App.ThreadCreated()
 	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
 }
 

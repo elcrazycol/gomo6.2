@@ -128,5 +128,8 @@ func Handler(m *MessengerMetrics) http.Handler {
 		// Series contributed by other packages: per-route counters, DB pool
 		// saturation, background-pool pressure.
 		renderProviders(w)
+
+		// Product-level counters (registrations, content, chat).
+		App.writeTo(w)
 	})
 }

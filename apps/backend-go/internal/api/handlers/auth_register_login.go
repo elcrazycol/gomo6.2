@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"golang.org/x/crypto/bcrypt"
@@ -138,6 +139,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
+	metrics.App.RegistrationCreated()
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"user":          user,
 		"token":         tokenPair.AccessToken,

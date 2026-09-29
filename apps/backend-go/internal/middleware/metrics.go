@@ -28,6 +28,34 @@ type metricsBucket struct {
 	clientErrors uint64 // 4xx (excluding 429, tracked separately)
 	serverErrors uint64 // 5xx
 	rateLimited  uint64 // 429
+	// Non-cumulative observation counts: slot i counts requests whose duration
+	// is <= httpDurationBuckets[i]; the last slot counts everything above the
+	// largest bound. Rendered cumulatively (Prometheus `le` semantics).
+	durationCounts [httpDurationBucketCount + 1]uint64
+}
+
+// httpDurationBucketCount / httpDurationBuckets define the fixed bounds
+// (seconds) of the per-route duration histogram. Fixed at declaration so
+// /metrics needs no external dependency (client_golang is not vendored) and the
+// series count stays bounded — and so a p95 alert is possible.
+const httpDurationBucketCount = 11
+
+var httpDurationBuckets = [httpDurationBucketCount]float64{
+	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+}
+
+// observe records one request duration into the bucket's histogram.
+func (b *metricsBucket) observe(seconds float64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	i := 0
+	for ; i < httpDurationBucketCount; i++ {
+		if seconds <= httpDurationBuckets[i] {
+			break
+		}
+	}
+	b.durationCounts[i]++
 }
 
 // maxMetricBuckets caps memory for garbage / unmatched paths (404 storms).
@@ -69,6 +97,7 @@ func MetricsMiddleware() gin.HandlerFunc {
 		}
 		b.requests++
 		b.latencyMs += uint64(elapsed.Milliseconds())
+		b.observe(elapsed.Seconds())
 		switch {
 		case c.Writer.Status() == http.StatusTooManyRequests:
 			b.rateLimited++
@@ -90,6 +119,10 @@ type MetricsRow struct {
 	ServerErrors uint64  `json:"server_errors"`
 	RateLimited  uint64  `json:"rate_limited"`
 	ErrorRatePct float64 `json:"error_rate_pct"`
+
+	// Histogram state, exposed only through /metrics (not the JSON snapshot).
+	DurationCounts [httpDurationBucketCount + 1]uint64 `json:"-"`
+	DurationSumSec float64                             `json:"-"`
 }
 
 // MetricsSnapshot returns a stable, sorted-by-volume snapshot of all counters.
@@ -108,13 +141,15 @@ func MetricsSnapshot() []MetricsRow {
 			errRate = float64(b.clientErrors+b.serverErrors+b.rateLimited) / float64(b.requests) * 100
 		}
 		rows = append(rows, MetricsRow{
-			Route:        key,
-			Requests:     b.requests,
-			AvgLatencyMs: avg,
-			ClientErrors: b.clientErrors,
-			ServerErrors: b.serverErrors,
-			RateLimited:  b.rateLimited,
-			ErrorRatePct: errRate,
+			Route:          key,
+			Requests:       b.requests,
+			AvgLatencyMs:   avg,
+			ClientErrors:   b.clientErrors,
+			ServerErrors:   b.serverErrors,
+			RateLimited:    b.rateLimited,
+			ErrorRatePct:   errRate,
+			DurationCounts: b.durationCounts,
+			DurationSumSec: float64(b.latencyMs) / 1000,
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Requests > rows[j].Requests })
@@ -156,7 +191,8 @@ func WritePrometheus(w io.Writer) {
 			"# TYPE http_request_duration_ms_sum counter\n"+
 			"# TYPE http_client_errors_total counter\n"+
 			"# TYPE http_server_errors_total counter\n"+
-			"# TYPE http_rate_limited_total counter\n")
+			"# TYPE http_rate_limited_total counter\n"+
+			"# TYPE http_request_duration_seconds histogram\n")
 	for _, r := range rows {
 		// AvgLatencyMs is derived from the summed latency, so multiply back to
 		// expose a monotonic counter instead of a gauge that jumps around.
@@ -172,5 +208,24 @@ func WritePrometheus(w io.Writer) {
 			route, r.ClientErrors,
 			route, r.ServerErrors,
 			route, r.RateLimited)
+
+		// Cumulative histogram: bucket i counts every request <= bound i.
+		writeDurationHistogram(w, route, r)
 	}
+}
+
+// writeDurationHistogram renders one route's http_request_duration_seconds
+// histogram (cumulative buckets, sum, count). Split out so the bucket math is
+// unit-testable without the package-level registry.
+func writeDurationHistogram(w io.Writer, route string, r MetricsRow) {
+	var cumulative uint64
+	for i := 0; i < httpDurationBucketCount; i++ {
+		cumulative += r.DurationCounts[i]
+		_, _ = fmt.Fprintf(w, "http_request_duration_seconds_bucket{route=\"%s\",le=\"%g\"} %d\n",
+			route, httpDurationBuckets[i], cumulative)
+	}
+	cumulative += r.DurationCounts[httpDurationBucketCount]
+	_, _ = fmt.Fprintf(w, "http_request_duration_seconds_bucket{route=\"%s\",le=\"+Inf\"} %d\n", route, cumulative)
+	_, _ = fmt.Fprintf(w, "http_request_duration_seconds_sum{route=\"%s\"} %.6f\n", route, r.DurationSumSec)
+	_, _ = fmt.Fprintf(w, "http_request_duration_seconds_count{route=\"%s\"} %d\n", route, r.Requests)
 }

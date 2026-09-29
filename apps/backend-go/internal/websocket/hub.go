@@ -1259,6 +1259,18 @@ func (h *Hub) GetOnlineUsers() []string {
 	return users
 }
 
+// OnlineCount returns the number of authenticated clients currently connected
+// to this instance. Cheap (an in-memory map length) so it can back a gauge on
+// every /metrics scrape.
+func (h *Hub) OnlineCount() int {
+	if h == nil {
+		return 0
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.presence)
+}
+
 // GetClientByUserID returns a client by user ID
 func (h *Hub) GetClientByUserID(userID string) *Client {
 	h.mu.RLock()
