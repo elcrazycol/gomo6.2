@@ -398,6 +398,12 @@ services:
     image: persesdev/perses:v0.54.0
     command:
       - "--config=/etc/perses/config.yaml"
+    # The distroless image runs as uid 65532 and the named volume is created
+    # root-owned, so the file DB cannot be written (provisioning then fails
+    # with "mkdir /perses/data/projects: permission denied"). Run as root here:
+    # the container is localhost-only and mounts nothing else. The alternative
+    # is `chown -R 65532:65532` on the volume once per fresh host.
+    user: root
     volumes:
       - ./observability/perses/config.yaml:/etc/perses/config.yaml:ro
       - ./observability/perses/provisioning:/etc/perses/provisioning:ro
