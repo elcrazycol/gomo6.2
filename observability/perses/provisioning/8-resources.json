@@ -2,12 +2,12 @@
   {
     "kind": "Dashboard",
     "metadata": {
-      "name": "overview",
+      "name": "resources",
       "project": "gomo6"
     },
     "spec": {
       "display": {
-        "name": "gomo6 · Обзор (RED)"
+        "name": "gomo6 · Ресурсы (USE)"
       },
       "duration": "3h",
       "panels": {
@@ -15,21 +15,35 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Запросы/с",
-              "description": "Суммарный RPS по всем эндпоинтам"
+              "name": "CPU, %",
+              "description": "Утилизация единственного ядра"
             },
             "plugin": {
               "kind": "StatChart",
               "spec": {
                 "calculation": "last-number",
-                "colorMode": "value",
-                "format": {
-                  "unit": "decimal",
-                  "decimalPlaces": 2
-                },
+                "colorMode": "background_solid",
                 "sparkline": {
-                  "color": "#3584e4",
+                  "color": "#33d17a",
                   "width": 1
+                },
+                "format": {
+                  "unit": "percent",
+                  "decimalPlaces": 1
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 70,
+                      "color": "#f5c211"
+                    },
+                    {
+                      "value": 90,
+                      "color": "#e01b24"
+                    }
+                  ]
                 }
               }
             },
@@ -44,7 +58,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "sum(rate(http_requests_total[5m]))"
+                      "query": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)"
                     }
                   }
                 }
@@ -56,35 +70,35 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Ошибки 5xx, %",
-              "description": "Порог алерта — 5% за 10 минут"
+              "name": "RAM, %",
+              "description": "Память хоста: 961 МБ всего"
             },
             "plugin": {
               "kind": "StatChart",
               "spec": {
                 "calculation": "last-number",
                 "colorMode": "background_solid",
+                "sparkline": {
+                  "color": "#33d17a",
+                  "width": 1
+                },
                 "format": {
                   "unit": "percent",
-                  "decimalPlaces": 2
+                  "decimalPlaces": 1
                 },
                 "thresholds": {
                   "mode": "absolute",
                   "defaultColor": "#33d17a",
                   "steps": [
                     {
-                      "value": 1,
+                      "value": 80,
                       "color": "#f5c211"
                     },
                     {
-                      "value": 5,
+                      "value": 92,
                       "color": "#e01b24"
                     }
                   ]
-                },
-                "sparkline": {
-                  "color": "#33d17a",
-                  "width": 1
                 }
               }
             },
@@ -99,7 +113,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "100 * sum(rate(http_server_errors_total[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.001)"
+                      "query": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)"
                     }
                   }
                 }
@@ -111,35 +125,35 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "p99 латентность",
-              "description": "95-й и 99-й перцентили из гистограммы; алерт > 1 с"
+              "name": "Диск /, %",
+              "description": "Занято на корневом разделе"
             },
             "plugin": {
               "kind": "StatChart",
               "spec": {
                 "calculation": "last-number",
                 "colorMode": "background_solid",
+                "sparkline": {
+                  "color": "#33d17a",
+                  "width": 1
+                },
                 "format": {
-                  "unit": "milliseconds",
-                  "decimalPlaces": 0
+                  "unit": "percent",
+                  "decimalPlaces": 1
                 },
                 "thresholds": {
                   "mode": "absolute",
                   "defaultColor": "#33d17a",
                   "steps": [
                     {
-                      "value": 200,
+                      "value": 80,
                       "color": "#f5c211"
                     },
                     {
-                      "value": 1000,
+                      "value": 90,
                       "color": "#e01b24"
                     }
                   ]
-                },
-                "sparkline": {
-                  "color": "#33d17a",
-                  "width": 1
                 }
               }
             },
@@ -154,16 +168,10 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "1000 * histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))"
+                      "query": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"})"
                     }
                   }
                 }
-              }
-            ],
-            "links": [
-              {
-                "name": "Открыть p99 в vmui",
-                "url": "http://localhost:9428/vmui/#/?g0.expr=1000%20%2A%20histogram_quantile%280.99%2C%20sum%20by%20%28le%29%20%28rate%28http_request_duration_seconds_bucket%5B5m%5D%29%29%29&g0.range_input=1h"
               }
             ]
           }
@@ -172,17 +180,35 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "WebSocket",
-              "description": "Активные realtime-соединения"
+              "name": "Swap, %",
+              "description": "Использование свопа — признак нехватки RAM"
             },
             "plugin": {
               "kind": "StatChart",
               "spec": {
                 "calculation": "last-number",
-                "colorMode": "value",
+                "colorMode": "background_solid",
                 "sparkline": {
-                  "color": "#9141ac",
+                  "color": "#33d17a",
                   "width": 1
+                },
+                "format": {
+                  "unit": "percent",
+                  "decimalPlaces": 1
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 10,
+                      "color": "#f5c211"
+                    },
+                    {
+                      "value": 50,
+                      "color": "#e01b24"
+                    }
+                  ]
                 }
               }
             },
@@ -197,7 +223,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "messenger_ws_active_connections"
+                      "query": "100 * (node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes) / clamp_min(node_memory_SwapTotal_bytes, 1)"
                     }
                   }
                 }
@@ -209,8 +235,8 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Трафик по классам, rps",
-              "description": "2xx / 4xx / 5xx / 429 одной стопкой — видно, из чего состоит трафик"
+              "name": "Утилизация: CPU / RAM / Диск, %",
+              "description": "USE · Utilization — сколько ресурса занято"
             },
             "plugin": {
               "kind": "TimeSeriesChart",
@@ -222,10 +248,6 @@
                     "last-number",
                     "max"
                   ]
-                },
-                "visual": {
-                  "display": "line",
-                  "stack": "all"
                 }
               }
             },
@@ -240,7 +262,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "sum(rate(http_requests_total[5m])) - sum(rate(http_client_errors_total[5m])) - sum(rate(http_server_errors_total[5m])) - sum(rate(http_rate_limited_total[5m]))"
+                      "query": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)"
                     }
                   }
                 }
@@ -255,7 +277,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "sum(rate(http_client_errors_total[5m]))"
+                      "query": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)"
                     }
                   }
                 }
@@ -270,31 +292,10 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "sum(rate(http_server_errors_total[5m]))"
+                      "query": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"})"
                     }
                   }
                 }
-              },
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "sum(rate(http_rate_limited_total[5m]))"
-                    }
-                  }
-                }
-              }
-            ],
-            "links": [
-              {
-                "name": "Все запросы в vmui",
-                "url": "http://localhost:9428/vmui/#/?g0.expr=sum%20by%20%28route%29%20%28rate%28http_requests_total%5B5m%5D%29%29&g0.range_input=3h"
               }
             ]
           }
@@ -303,29 +304,15 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Доля ошибок 5xx, %",
-              "description": "Держим ниже 5%: выше — алерт и в Telegram"
+              "name": "Сатурация: load и пул БД",
+              "description": "USE · Saturation — очередь на ресурс (load5 и % занятых соединений БД)"
             },
             "plugin": {
               "kind": "TimeSeriesChart",
               "spec": {
                 "legend": {
                   "position": "bottom",
-                  "mode": "list"
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "defaultColor": "#33d17a",
-                  "steps": [
-                    {
-                      "value": 1,
-                      "color": "#f5c211"
-                    },
-                    {
-                      "value": 5,
-                      "color": "#e01b24"
-                    }
-                  ]
+                  "mode": "table"
                 }
               }
             },
@@ -340,16 +327,25 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "100 * sum(rate(http_server_errors_total[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.001)"
+                      "query": "node_load5"
                     }
                   }
                 }
-              }
-            ],
-            "links": [
+              },
               {
-                "name": "5xx по роутам в vmui",
-                "url": "http://localhost:9428/vmui/#/?g0.expr=sum%20by%20%28route%29%20%28rate%28http_server_errors_total%5B5m%5D%29%29&g0.range_input=3h"
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "100 * db_in_use_connections / clamp_min(db_max_open_connections, 1)"
+                    }
+                  }
+                }
               }
             ]
           }
@@ -358,18 +354,17 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Латентность: p50 / p90 / p99, мс",
-              "description": "p50 — типичный запрос, p99 — хвост: именно там живут «иногда намертво виснет»"
+              "name": "Память по контейнерам, МБ",
+              "description": "Кто ест память — из textfile-коллектора (без cAdvisor)"
             },
             "plugin": {
               "kind": "TimeSeriesChart",
               "spec": {
                 "legend": {
-                  "position": "bottom",
+                  "position": "right",
                   "mode": "table",
                   "values": [
                     "last-number",
-                    "mean",
                     "max"
                   ]
                 }
@@ -386,46 +381,10 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "1000 * histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))"
+                      "query": "topk(6, container_memory_usage_bytes) / 1048576"
                     }
                   }
                 }
-              },
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "1000 * histogram_quantile(0.9, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))"
-                    }
-                  }
-                }
-              },
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "1000 * histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))"
-                    }
-                  }
-                }
-              }
-            ],
-            "links": [
-              {
-                "name": "p95 по роутам в vmui",
-                "url": "http://localhost:9428/vmui/#/?g0.expr=1000%20%2A%20histogram_quantile%280.95%2C%20sum%20by%20%28le%2C%20route%29%20%28rate%28http_request_duration_seconds_bucket%5B5m%5D%29%29%29&g0.range_input=3h"
               }
             ]
           }
@@ -434,15 +393,15 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "p95 сейчас и неделю назад, мс",
-              "description": "Time-shift: сравнение с прошлой неделей через `offset 1w` — сразу видно, стало ли хуже"
+              "name": "USE · Errors: OOM-киллы и дропы сети",
+              "description": "Молчаливые сбои: убитые процессы и потерянные пакеты"
             },
             "plugin": {
               "kind": "TimeSeriesChart",
               "spec": {
                 "legend": {
                   "position": "bottom",
-                  "mode": "list"
+                  "mode": "table"
                 }
               }
             },
@@ -457,7 +416,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))"
+                      "query": "increase(node_vmstat_oom_kill[1h])"
                     }
                   }
                 }
@@ -472,43 +431,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m] offset 1w)))"
-                    }
-                  }
-                }
-              }
-            ],
-            "links": [
-              {
-                "name": "p95 неделю назад в vmui",
-                "url": "http://localhost:9428/vmui/#/?g0.expr=1000%20%2A%20histogram_quantile%280.95%2C%20sum%20by%20%28le%29%20%28rate%28http_request_duration_seconds_bucket%5B5m%5D%20offset%201w%29%29%29&g0.range_input=3h"
-              }
-            ]
-          }
-        },
-        "8_8": {
-          "kind": "Panel",
-          "spec": {
-            "display": {
-              "name": "Топ роутов: rps, ошибки, p95",
-              "description": "Сортировка по объёму: куда бить в первую очередь"
-            },
-            "plugin": {
-              "kind": "TimeSeriesTable",
-              "spec": {}
-            },
-            "queries": [
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "sum by (route) (rate(http_requests_total[5m]))"
+                      "query": "rate(node_network_receive_drop_total{device!~\"lo|veth.*|br-.*\"}[5m])"
                     }
                   }
                 }
@@ -523,56 +446,12 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "sum by (route) (rate(http_server_errors_total[5m]))"
-                    }
-                  }
-                }
-              },
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "sum by (route) (rate(http_rate_limited_total[5m]))"
-                    }
-                  }
-                }
-              },
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "1000 * histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))"
+                      "query": "rate(node_network_transmit_drop_total{device!~\"lo|veth.*|br-.*\"}[5m])"
                     }
                   }
                 }
               }
             ]
-          }
-        },
-        "9_9": {
-          "kind": "Panel",
-          "spec": {
-            "display": {
-              "name": "Быстрые ссылки"
-            },
-            "plugin": {
-              "kind": "Markdown",
-              "spec": {
-                "text": "\n**Разбор всплеска:** открой [vmui](http://localhost:9428/vmui) и вставь запрос, например\n`1000 * histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))`.\n\n| Куда | Зачем |\n|---|---|\n| [vmui](http://localhost:9428/vmui) | ad-hoc запросы, cardinality explorer, сравнение через `offset` |\n| [vmui: p95 по роутам](http://localhost:9428/vmui/#/?g0.expr=1000%20*%20histogram_quantile(0.95%2C%20sum%20by%20(le%2C%20route)%20(rate(http_request_duration_seconds_bucket%5B5m%5D)))&g0.range_input=3h) | готовый запрос |\n| [Правила](http://localhost:9880) | что и когда сработает |\n| [Алерты](http://localhost:9093) | что горит сейчас, silences |\n| [Данные](http://localhost:9080/projects/gomo6/dashboards/data) | Postgres/Redis |\n| [Ресурсы](http://localhost:9080/projects/gomo6/dashboards/resources) | CPU/RAM/диск/контейнеры |\n"
-              }
-            }
           }
         }
       },
@@ -581,7 +460,7 @@
           "kind": "Grid",
           "spec": {
             "display": {
-              "title": "RED"
+              "title": "resources"
             },
             "items": [
               {
@@ -655,24 +534,6 @@
                 "content": {
                   "$ref": "#/spec/panels/7_7"
                 }
-              },
-              {
-                "x": 0,
-                "y": 22,
-                "width": 24,
-                "height": 8,
-                "content": {
-                  "$ref": "#/spec/panels/8_8"
-                }
-              },
-              {
-                "x": 0,
-                "y": 30,
-                "width": 24,
-                "height": 5,
-                "content": {
-                  "$ref": "#/spec/panels/9_9"
-                }
               }
             ]
           }
@@ -684,20 +545,8 @@
           "url": "http://localhost:9428/vmui"
         },
         {
-          "name": "Правила",
-          "url": "http://localhost:9880"
-        },
-        {
-          "name": "Алерты",
-          "url": "http://localhost:9093"
-        },
-        {
-          "name": "Данные",
-          "url": "http://localhost:9080/projects/gomo6/dashboards/data"
-        },
-        {
-          "name": "Ресурсы",
-          "url": "http://localhost:9080/projects/gomo6/dashboards/resources"
+          "name": "Хост (детально)",
+          "url": "http://localhost:9080/projects/gomo6/dashboards/host"
         }
       ]
     }

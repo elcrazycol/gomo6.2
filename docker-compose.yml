@@ -376,9 +376,13 @@ services:
     image: prom/node-exporter:v1.12.1
     command:
       - "--path.rootfs=/host"
+      # Per-container memory/CPU written by observability/container-metrics.sh
+      # (cron, once a minute) — the cheap alternative to cAdvisor on a 1 GB VPS.
+      - "--collector.textfile.directory=/textfile"
     pid: host
     volumes:
       - "/:/host:ro,rslave"
+      - "/var/lib/gomo6-node-exporter:/textfile:ro"
     restart: unless-stopped
 
   # Database / cache exporters. They read only, and expose the numbers a

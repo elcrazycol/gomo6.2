@@ -86,9 +86,14 @@ docker compose up -d --no-build victoriametrics vmagent vmalert alertmanager bla
 
 | Dashboard | Panels | Content |
 |---|---|---|
-| `overview` | 18 | backend availability, 5xx share, per-route request/error/429 rate, **p95 latency**, WebSocket, DB pool, background pools, process, blackbox probes, product counters (events/min, online, active today) |
-| `host` | 114 | upstream Node Exporter dashboard (CPU / memory / disk / network / filesystem) |
+| `overview` | 10 | **RED**: stat cards with sparklines/thresholds (RPS, 5xx %, p99, WebSocket), traffic stacked by class (2xx/4xx/5xx/429), error share, p50/p90/p99, p95 now vs `offset 1w`, top-routes table, vmui deep links |
+| `product` | 7 | registrations/messages totals, online now, active today, events per minute, WebSocket fan-out, content creation per hour |
+| `resources` | 8 | **USE**: CPU/RAM/disk/swap utilization (traffic-light cards), saturation (load, DB pool), per-container memory, OOM kills + network drops |
 | `data` | 10 | Postgres (connections vs max, cache hit %, tx rate, deadlocks, size, block timings) and Redis (hit ratio, memory, clients, keys, ops/s, evictions) |
+| `host` | 114 | upstream Node Exporter dashboard (CPU / memory / disk / network / filesystem) |
+
+Panels carry **deep links into vmui** (click a spike → the exact MetricsQL is
+pre-filled), and every dashboard links to the others plus vmalert/Alertmanager.
 
 ## Alerts (vmalert → Alertmanager → Telegram)
 
@@ -102,6 +107,21 @@ HTTP (`HighServerErrorRate`, `HighLatencyP95`, `RateLimitSurge`), database/cache
 **Watchdog** always fires and is delivered once a day (route `severity="none"`,
 24h repeat): if the heartbeat stops arriving, the alerting pipeline itself is
 broken — otherwise a silent failure.
+
+## Per-container memory without cAdvisor
+
+`observability/container-metrics.sh` writes `container_memory_usage_bytes` /
+`container_cpu_usage_percent` once a minute into
+`/var/lib/gomo6-node-exporter/containers.prom`, which node-exporter picks up via
+`--collector.textfile.directory`. Install it on the VPS with cron:
+
+```cron
+* * * * * /root/gomo6.2/observability/container-metrics.sh >/dev/null 2>&1
+```
+
+cAdvisor was rejected deliberately: it costs 100–200 MB of RAM and this VPS has
+961 MB total with swap already in use. The script gives the same answer to
+"which container is eating memory" at ~0 MB.
 
 ## Manual analysis (not exported as series)
 
