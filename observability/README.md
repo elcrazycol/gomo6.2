@@ -20,7 +20,9 @@ git.
 | `alertmanager` | `prom/alertmanager:v0.34.1` | routing + de-duplication + Telegram delivery |
 | `blackbox-exporter` | `prom/blackbox-exporter:v0.28.0` | availability and TLS-expiry probes |
 | `node-exporter` | `prom/node-exporter:v1.12.1` | host CPU / RAM / disk / network |
-| `perses` | `persesdev/perses:v0.54.0` | dashboards-as-code UI (YAML in git) |
+| `postgres-exporter` | `prometheuscommunity/postgres-exporter:v0.20.1` | connections, cache hit ratio, deadlocks, tx rate, DB size |
+| `redis-exporter` | `oliver006/redis_exporter:v1.92.1` | hit ratio, memory, clients, keys, ops/s, evictions |
+| `perses` | `persesdev/perses:v0.54.0` | dashboards-as-code UI (JSON in git) |
 
 Total image size is below the single Alloy container it replaces.
 
@@ -80,13 +82,37 @@ docker compose up -d --no-build victoriametrics vmagent vmalert alertmanager bla
 | `blackbox.yml` | probe modules |
 | `alertmanager.yml.example` | routing + Telegram template (real file is gitignored) |
 
-## Not done yet
+## Dashboards (Perses, project `gomo6`)
 
-* **Latency (p95) alerts** need a histogram. The backend exposes
-  `http_request_duration_ms_sum` / `http_requests_total` but no buckets, so a
-  percentile cannot be computed yet. Adding fixed-bucket histograms to
-  `internal/metrics` is the next instrumentation task; the alert goes into
-  `vmalert-rules.yml` afterwards.
-* **Perses** dashboards (charts per service, product metrics).
-* **postgres/redis exporters** — DB-level insight (connections, cache hit ratio,
-  slow queries via `pg_stat_statements`).
+| Dashboard | Panels | Content |
+|---|---|---|
+| `overview` | 18 | backend availability, 5xx share, per-route request/error/429 rate, **p95 latency**, WebSocket, DB pool, background pools, process, blackbox probes, product counters (events/min, online, active today) |
+| `host` | 114 | upstream Node Exporter dashboard (CPU / memory / disk / network / filesystem) |
+| `data` | 10 | Postgres (connections vs max, cache hit %, tx rate, deadlocks, size, block timings) and Redis (hit ratio, memory, clients, keys, ops/s, evictions) |
+
+## Alerts (vmalert → Alertmanager → Telegram)
+
+18 rules: availability (`SiteDown`, `BackendDown`, `TLSCertExpiringSoon`),
+HTTP (`HighServerErrorRate`, `HighLatencyP95`, `RateLimitSurge`), database/cache
+(`PostgresConnectionsHigh`, `PostgresCacheHitLow`, `PostgresDeadlocks`,
+`RedisEvictions`, `RedisCacheHitLow`), resources (`DBPoolSaturated`,
+`BackgroundTasksDropped`, `DBTxErrors`, `DiskSpaceLow`, `HostMemoryHigh`,
+`HostLoadHigh`) and `Watchdog`.
+
+**Watchdog** always fires and is delivered once a day (route `severity="none"`,
+24h repeat): if the heartbeat stops arriving, the alerting pipeline itself is
+broken — otherwise a silent failure.
+
+## Manual analysis (not exported as series)
+
+`pg_stat_statements` is enabled (migration 122, preloaded) so top queries can be
+inspected on demand:
+
+```bash
+docker compose exec postgres psql -U gomo6 -d gomo6 -c \
+  "SELECT calls, round(total_exec_time::numeric,1) AS ms, left(query,80)
+   FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10;"
+```
+
+It is deliberately **not** scraped: postgres_exporter would emit one series per
+distinct query, which is a cardinality bomb on a small VPS.
