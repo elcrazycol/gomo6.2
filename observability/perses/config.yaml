@@ -1,0 +1,25 @@
+# Perses configuration — dashboards-as-code UI for the VictoriaMetrics stack.
+#
+# Access is localhost-only (SSH tunnel: -L 8080:127.0.0.1:8080), so the auth
+# layer is off and no secret is stored, hence no encryption_key.
+
+security:
+  readonly: false
+  enable_auth: false
+
+# File-based database: anything created in the UI persists in this volume,
+# while everything under provisioning/ comes from git and is re-applied.
+database:
+  file:
+    folder: "/perses/data"
+    extension: "json"
+    case_sensitive: false
+
+provisioning:
+  folders:
+    - "/etc/perses/provisioning"
+
+frontend:
+  enable_keyboard_shortcuts: true
+  explorer:
+    enable: true

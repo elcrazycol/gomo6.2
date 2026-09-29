@@ -392,6 +392,24 @@ services:
       - "/:/host:ro,rslave"
     restart: unless-stopped
 
+  # Dashboards-as-code UI for the stack above. Config and provisioning live in
+  # observability/perses/ (git); the file DB persists in the perses_data volume.
+  perses:
+    image: persesdev/perses:v0.54.0
+    command:
+      - "--config=/etc/perses/config.yaml"
+    volumes:
+      - ./observability/perses/config.yaml:/etc/perses/config.yaml:ro
+      - ./observability/perses/provisioning:/etc/perses/provisioning:ro
+      - perses_data:/perses/data
+    ports:
+      # localhost only — reached through the SSH tunnel.
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      victoriametrics:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
@@ -402,3 +420,4 @@ volumes:
   caddy_config:
   vm_data:
   alertmanager_data:
+  perses_data:

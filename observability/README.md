@@ -20,6 +20,7 @@ git.
 | `alertmanager` | `prom/alertmanager:v0.34.1` | routing + de-duplication + Telegram delivery |
 | `blackbox-exporter` | `prom/blackbox-exporter:v0.28.0` | availability and TLS-expiry probes |
 | `node-exporter` | `prom/node-exporter:v1.12.1` | host CPU / RAM / disk / network |
+| `perses` | `persesdev/perses:v0.54.0` | dashboards-as-code UI (YAML in git) |
 
 Total image size is below the single Alloy container it replaces.
 
@@ -29,9 +30,10 @@ Every UI is bound to `127.0.0.1` on the VPS, so nothing is exposed to the
 internet. Tunnel in:
 
 ```bash
-ssh -L 8428:127.0.0.1:8428 -L 8429:127.0.0.1:8429 -L 8880:127.0.0.1:8880 -L 9093:127.0.0.1:9093 root@gomo6.wtf
+ssh -L 8428:127.0.0.1:8428 -L 8429:127.0.0.1:8429 -L 8880:127.0.0.1:8880 -L 9093:127.0.0.1:9093 -L 8080:127.0.0.1:8080 root@gomo6.wtf
 ```
 
+* Perses (dashboards): <http://localhost:8080>
 * vmui (queries, metrics/cardinality explorer): <http://localhost:8428/vmui>
 * vmagent targets ("is scraping working"): <http://localhost:8429/targets>
 * vmalert (rules, alert state): <http://localhost:8880>
