@@ -324,6 +324,25 @@ export const ThreadFeed = ({
     return () => { unsubs.forEach(u => u()); };
   }, [scheduleNewCheck]);
 
+  // A wall post deleted elsewhere (owner's wall, another tab) must leave an
+  // already-mounted feed at once — not on the next refetch. Threads have no
+  // delete broadcast, so this covers the wall-post half of the unified feed.
+  useEffect(() => {
+    const unsubscribe = wsService.on("delete_wall_post", (message) => {
+      if (!message.data) return;
+      try {
+        const payload = typeof message.data === "string" ? JSON.parse(message.data) : message.data;
+        const id = String((payload as { id?: unknown } | null)?.id ?? "");
+        if (!id) return;
+        setItems(prev => prev.filter(it => !(it.item_type === "wall_post" && it.item_id === id)));
+        setPendingNew(prev => prev.filter(it => !(it.item_type === "wall_post" && it.item_id === id)));
+      } catch {
+        // Malformed payload — the next poll reconciles the feed anyway.
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     const onFocus = () => { checkForNew(); };
     const onVisibility = () => {

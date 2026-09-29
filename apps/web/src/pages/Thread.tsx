@@ -29,6 +29,10 @@ import { recordContentView } from "@/utils/viewHistory";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import type { Thread as ThreadModel } from "@/types/forum";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components/editor/media/mediaSchema";
+import { PostCover } from "@/components/wall/PostCover";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { ThreadCommentTree } from "@/components/thread/ThreadCommentTree";
@@ -278,7 +282,16 @@ const Thread = () => {
 
   // Hooks must run before the early returns below.
   const tx = thread as ThreadWithExtras | null;
-  const attachments = useMemo(() => (tx ? buildAttachments(tx) : []), [tx]);
+  const attachments = useMemo(() => (tx ? ensureAttachmentIds(buildAttachments(tx)) : []), [tx]);
+  // Inline media is the new presentation; when the document has no media nodes
+  // (every legacy thread) the attachments fall back to the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(tx?.content_json), [tx?.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(tx?.content_json), [tx?.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
 
   if (threadLoading) {
     return (
@@ -499,31 +512,47 @@ const Thread = () => {
                 </div>
               </div>
             ) : (
-              <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-                <ProcessedContent
-                  content={thread.content}
-                  contentJson={tx.content_json}
-                  currentUserId={user?.id || null}
-                  isAdmin={isAdmin}
-                  currentUsername={currentUserUsername}
-                  currentUserColor={currentUserColor}
-                  postAuthorId={thread.user_id}
-                  authorUsername={tx.username}
-                />
-              </div>
-            )}
-
-            {/* Attachments */}
-            {attachments.length > 0 && (
-              <WallAttachments
-                attachments={attachments}
-                galleryKey={`thread-${thread.id}`}
-                onImageClick={(items, idx) => {
-                  setGalleryItems(items);
-                  setGalleryIndex(idx);
+              <MediaAttachmentsProvider
+                value={{
+                  attachments,
+                  inlineMedia,
+                  galleryKey: `thread-${thread.id}`,
+                  hiddenMediaIds,
+                  onImageClick: (items, idx) => {
+                    setGalleryItems(items);
+                    setGalleryIndex(idx);
+                  },
+                  autoPlayVideo: autoplayVideo,
                 }}
-                autoPlayVideo={autoplayVideo}
-              />
+              >
+                {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+                <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                  <ProcessedContent
+                    content={thread.content}
+                    contentJson={tx.content_json}
+                    currentUserId={user?.id || null}
+                    isAdmin={isAdmin}
+                    currentUsername={currentUserUsername}
+                    currentUserColor={currentUserColor}
+                    postAuthorId={thread.user_id}
+                    authorUsername={tx.username}
+                  />
+                </div>
+
+                {/* Attachments — legacy bottom gallery. With inline media on the
+                    photos already live inside the document (including spoilers). */}
+                {attachments.length > 0 && !inlineMedia && (
+                  <WallAttachments
+                    attachments={attachments}
+                    galleryKey={`thread-${thread.id}`}
+                    onImageClick={(items, idx) => {
+                      setGalleryItems(items);
+                      setGalleryIndex(idx);
+                    }}
+                    autoPlayVideo={autoplayVideo}
+                  />
+                )}
+              </MediaAttachmentsProvider>
             )}
 
             {/* Poll */}

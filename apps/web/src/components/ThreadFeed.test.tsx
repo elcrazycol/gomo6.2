@@ -1,6 +1,8 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll, afterAll } from "vitest";
 
+import { wsService } from "@/services/websocket";
+
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
 const mockFetch = vi.fn();
@@ -418,5 +420,53 @@ describe("ThreadFeed", () => {
         expect.any(Object),
       );
     });
+  });
+
+  // ─── Live wall-post deletion ─────────────────────────────────────────────────
+
+  it("removes a wall post card when a delete_wall_post event arrives", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/v1/feed")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeFeedResponse([
+            createMockThreadItem({ id: "thread-1", title: "First Thread" }),
+            createMockWallPostItem({ id: "wall-1" }),
+          ])),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [], success: true }),
+      });
+    });
+
+    let deleteHandler: ((message: unknown) => void) | null = null;
+    vi.spyOn(wsService, "on").mockImplementation(((
+      type: string,
+      handler: (message: unknown) => void,
+    ) => {
+      if (type === "delete_wall_post") deleteHandler = handler;
+      return () => {};
+    }) as typeof wsService.on);
+
+    render(
+      <ThreadFeedComponent
+        currentUserId="current-user"
+        currentUsername="currentuser"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("wall-post-card")).toBeInTheDocument());
+
+    act(() => {
+      deleteHandler?.({ data: { id: "wall-1" } });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("wall-post-card")).not.toBeInTheDocument(),
+    );
+    // The unrelated thread stays.
+    expect(screen.getByText("First Thread")).toBeInTheDocument();
   });
 });

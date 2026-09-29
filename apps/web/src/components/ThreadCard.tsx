@@ -19,6 +19,10 @@ import {
 } from "@/components/post/PostCardChrome";
 import { SectionIcon } from "@/components/topic/sectionIcons";
 import { buildThreadAttachments } from "@/utils/threadAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components/editor/media/mediaSchema";
+import { isFeatureEnabled } from "@/lib/featureFlags";
+import { PostCover } from "@/components/wall/PostCover";
 import { formatShortRelativeTime } from "@/utils/relativeTimeShort";
 
 interface ThreadCardProps {
@@ -211,13 +215,23 @@ const ThreadCard = ({
   const [galleryIndex, setGalleryIndex] = useState(0);
 
   // Rich attachments (new composer) render through the shared gallery; legacy
-  // threads keep their plain image_url grid + "Раскрыть" behaviour.
-  const richAttachments = useMemo(() => buildThreadAttachments(thread), [thread]);
+  // threads keep their plain image_url grid + "Раскрыть" behaviour. Media nodes
+  // carry ids that must match the attachment pool for the inline renderer.
+  const richAttachments = useMemo(() => ensureAttachmentIds(buildThreadAttachments(thread)), [thread]);
   const hasRichAttachments = useMemo(
     () => Array.isArray(thread.attachments) || typeof thread.attachments === "string",
     [thread.attachments],
   );
   const legacyImages = Array.isArray(thread.image_urls) ? thread.image_urls : [];
+  // Inline media is the new presentation; legacy threads (no media nodes) keep
+  // the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(thread.content_json), [thread.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(thread.content_json), [thread.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
 
   const handleLike = async () => {
     if (!currentUserId) return;
@@ -305,7 +319,20 @@ const ThreadCard = ({
           renderTags(thread.tags, 'inline', thread)}
       </PostCardHeading>
 
-      <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+      <MediaAttachmentsProvider
+        value={{
+          attachments: richAttachments,
+          inlineMedia,
+          galleryKey: `thread-card-${thread.id}`,
+          hiddenMediaIds,
+          onImageClick: (items, idx) => {
+            setGalleryItems(items);
+            setGalleryIndex(idx);
+          },
+        }}
+      >
+        {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+        <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
         <div className={`relative ${!isExpanded && thread.content.length > 300 ? 'max-h-20 overflow-hidden' : ''}`}>
           <ProcessedContent
             content={thread.content}
@@ -335,7 +362,7 @@ const ThreadCard = ({
         </div>
       </div>
 
-      {hasRichAttachments && richAttachments.length > 0 ? (
+      {hasRichAttachments && richAttachments.length > 0 && !inlineMedia ? (
         <WallAttachments
           attachments={richAttachments}
           galleryKey={`thread-card-${thread.id}`}
@@ -372,6 +399,7 @@ const ThreadCard = ({
           )}
         </div>
       ) : null}
+      </MediaAttachmentsProvider>
 
       {initialRecentPost && (
         <div className="rounded-md border-l-2 border-primary/30 bg-muted/20 p-3 text-xs">

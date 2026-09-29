@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components/editor/media/mediaSchema";
+import { isFeatureEnabled } from "@/lib/featureFlags";
+import { PostCover } from "@/components/wall/PostCover";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import {
@@ -88,7 +92,16 @@ export const GomoThreadCard = ({
 }: GomoThreadCardProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const attachments = useMemo(() => buildThreadAttachments(thread), [thread]);
+  const attachments = useMemo(() => ensureAttachmentIds(buildThreadAttachments(thread)), [thread]);
+  // Inline media is the new presentation; legacy threads keep the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(thread.content_json), [thread.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const hasContent = Boolean(thread.content?.trim()) || hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(thread.content_json), [thread.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
 
   const threadPath = `${boardPath}/thread/${thread.id}`;
   const gomosubTags = Array.isArray(thread.tags?.gomosub_tags)
@@ -183,55 +196,68 @@ export const GomoThreadCard = ({
         </PostCardHeading>
 
         {/* Content */}
-        {thread.content?.trim() && (
-          <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-            {hasVisibilityTags(thread.content) ? (
-              <span className="italic text-muted-foreground">
-                {t("board.openThreadToView")}
-              </span>
-            ) : (
-              <div
-                className={
-                  thread.content.length > 900
-                    ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]"
-                    : ""
-                }
-              >
-                <ProcessedContent
-                  content={thread.content}
-                  contentJson={thread.content_json}
-                  currentUserId={currentUserId}
-                  isAdmin={false}
-                  currentUsername={currentUsername}
-                  currentUserColor={currentUserColor}
-                  postAuthorId={thread.user_id}
-                  authorUsername={thread.profiles?.username}
-                  showHiddenIndicators={false}
-                />
-              </div>
-            )}
-            {thread.content.length > 900 && (
-              <Link
-                to={threadPath}
-                onClick={(e) => e.stopPropagation()}
-                className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80"
-              >
-                Читать полностью
-                <ArrowUpRight className="h-4 w-4" />
-              </Link>
-            )}
-          </div>
-        )}
+        <MediaAttachmentsProvider
+          value={{
+            attachments,
+            inlineMedia,
+            galleryKey: `gomo-thread-${thread.id}`,
+            hiddenMediaIds,
+            onImageClick,
+            onVideoOpen: handleVideoOpen,
+          }}
+        >
+          {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+          {hasContent && (
+            <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+              {hasVisibilityTags(thread.content) ? (
+                <span className="italic text-muted-foreground">
+                  {t("board.openThreadToView")}
+                </span>
+              ) : (
+                <div
+                  className={
+                    thread.content.length > 900
+                      ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]"
+                      : ""
+                  }
+                >
+                  <ProcessedContent
+                    content={thread.content}
+                    contentJson={thread.content_json}
+                    currentUserId={currentUserId}
+                    isAdmin={false}
+                    currentUsername={currentUsername}
+                    currentUserColor={currentUserColor}
+                    postAuthorId={thread.user_id}
+                    authorUsername={thread.profiles?.username}
+                    showHiddenIndicators={false}
+                  />
+                </div>
+              )}
+              {thread.content.length > 900 && (
+                <Link
+                  to={threadPath}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80"
+                >
+                  Читать полностью
+                  <ArrowUpRight className="h-4 w-4" />
+                </Link>
+              )}
+            </div>
+          )}
 
-        {/* Attachments — progressive grid like the wall */}
-        {attachments.length > 0 && (
-          <WallAttachments
-            attachments={attachments}
-            galleryKey={`gomo-thread-${thread.id}`}
-            onImageClick={onImageClick}
-            onVideoOpen={handleVideoOpen}
-          />
-        )}
+          {/* Attachments — legacy bottom gallery; with inline media on the
+              photos already live inside the document. */}
+          {attachments.length > 0 && !inlineMedia && (
+            <WallAttachments
+              attachments={attachments}
+              galleryKey={`gomo-thread-${thread.id}`}
+              onImageClick={onImageClick}
+              onVideoOpen={handleVideoOpen}
+            />
+          )}
+        </MediaAttachmentsProvider>
 
         {/* Actions */}
         <PostCardActions>

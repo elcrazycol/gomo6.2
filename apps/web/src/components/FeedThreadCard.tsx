@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components/editor/media/mediaSchema";
+import { isFeatureEnabled } from "@/lib/featureFlags";
+import { PostCover } from "@/components/wall/PostCover";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { FavoriteButton } from "@/components/FavoriteButton";
@@ -94,7 +98,16 @@ export const FeedThreadCard = ({
 }: FeedThreadCardProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const attachments = useMemo(() => buildThreadAttachments(thread), [thread]);
+  const attachments = useMemo(() => ensureAttachmentIds(buildThreadAttachments(thread)), [thread]);
+  // Inline media is the new presentation; legacy threads keep the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(thread.content_json), [thread.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const hasContent = Boolean(thread.content?.trim()) || hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(thread.content_json), [thread.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
 
   const isGlobalTopic = !thread.boards?.slug;
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
@@ -186,29 +199,40 @@ export const FeedThreadCard = ({
           renderTags(thread.tags, "inline")}
       </PostCardHeading>
 
-      {thread.content?.trim() && (
-        <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-          <ProcessedContent
-            content={thread.content || ""}
-            contentJson={thread.content_json}
-            currentUserId={currentUserId}
-            isAdmin={false}
-            currentUsername={currentUsername}
-            currentUserColor={currentUserColor}
-            postAuthorId={thread.user_id}
-            authorUsername={thread.profiles?.username}
-            showHiddenIndicators={false}
-          />
-        </div>
-      )}
+      <MediaAttachmentsProvider
+        value={{
+          attachments,
+          inlineMedia,
+          galleryKey: `feed-thread-${thread.id}`,
+          hiddenMediaIds,
+          onImageClick,
+        }}
+      >
+        {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+        {hasContent && (
+          <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+            <ProcessedContent
+              content={thread.content || ""}
+              contentJson={thread.content_json}
+              currentUserId={currentUserId}
+              isAdmin={false}
+              currentUsername={currentUsername}
+              currentUserColor={currentUserColor}
+              postAuthorId={thread.user_id}
+              authorUsername={thread.profiles?.username}
+              showHiddenIndicators={false}
+            />
+          </div>
+        )}
 
-      {attachments.length > 0 && (
-        <WallAttachments
-          attachments={attachments}
-          galleryKey={`feed-thread-${thread.id}`}
-          onImageClick={onImageClick}
-        />
-      )}
+        {attachments.length > 0 && !inlineMedia && (
+          <WallAttachments
+            attachments={attachments}
+            galleryKey={`feed-thread-${thread.id}`}
+            onImageClick={onImageClick}
+          />
+        )}
+      </MediaAttachmentsProvider>
 
       <PostCardActions>
         <ActionButton

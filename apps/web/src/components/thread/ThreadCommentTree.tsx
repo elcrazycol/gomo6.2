@@ -31,6 +31,10 @@ import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components/editor/media/mediaSchema";
+import { PostCover } from "@/components/wall/PostCover";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import { WallCommentComposer } from "@/components/wall/WallCommentComposer";
 import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import type { AttachmentMeta } from "@/types/forum";
@@ -208,7 +212,15 @@ const ThreadPostNode = ({
     currentUserId !== post.user_id &&
     currentUserId !== post.private_recipient_id;
 
-  const attachments = useMemo(() => buildAttachments(post), [post]);
+  const attachments = useMemo(() => ensureAttachmentIds(buildAttachments(post)), [post]);
+  // Inline media is the new presentation; legacy posts keep the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(post.content_json), [post.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
 
   return (
     <div
@@ -321,32 +333,43 @@ const ThreadPostNode = ({
             ) : post.is_deleted ? (
               <div className="mt-1.5 text-sm italic leading-6 text-muted-foreground/70">Пост удалён</div>
             ) : (
-              <div className="mt-1.5 max-w-[68ch] break-words text-sm leading-6 text-foreground/95">
-                {isHiddenPrivate ? (
-                  <span className="italic text-muted-foreground">Приватный ответ</span>
-                ) : (
-                  <ProcessedContent
-                    content={post.content || ""}
-                    contentJson={post.content_json}
-                    currentUserId={currentUserId}
-                    isAdmin={false}
-                    currentUsername={currentUsername}
-                    currentUserColor={currentUserColor}
-                    postAuthorId={post.user_id}
-                    authorUsername={post.profiles?.username}
-                  />
-                )}
-              </div>
-            )}
+              <MediaAttachmentsProvider
+                value={{
+                  attachments,
+                  inlineMedia,
+                  galleryKey: `thread-post-${post.id}`,
+                  hiddenMediaIds,
+                  onImageClick,
+                }}
+              >
+                {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+                <div className="mt-1.5 max-w-[68ch] break-words text-sm leading-6 text-foreground/95">
+                  {isHiddenPrivate ? (
+                    <span className="italic text-muted-foreground">Приватный ответ</span>
+                  ) : (
+                    <ProcessedContent
+                      content={post.content || ""}
+                      contentJson={post.content_json}
+                      currentUserId={currentUserId}
+                      isAdmin={false}
+                      currentUsername={currentUsername}
+                      currentUserColor={currentUserColor}
+                      postAuthorId={post.user_id}
+                      authorUsername={post.profiles?.username}
+                    />
+                  )}
+                </div>
 
-            {!isEditing && attachments.length > 0 && !isHiddenPrivate && (
-              <div className="mt-2">
-                <WallAttachments
-                  attachments={attachments}
-                  galleryKey={`thread-post-${post.id}`}
-                  onImageClick={onImageClick}
-                />
-              </div>
+                {attachments.length > 0 && !isHiddenPrivate && !inlineMedia && (
+                  <div className="mt-2">
+                    <WallAttachments
+                      attachments={attachments}
+                      galleryKey={`thread-post-${post.id}`}
+                      onImageClick={onImageClick}
+                    />
+                  </div>
+                )}
+              </MediaAttachmentsProvider>
             )}
 
             {!isEditing && (

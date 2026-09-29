@@ -237,13 +237,23 @@ func (s *Service) AfterPostWrite(c *gin.Context, method string, result map[strin
 			profiles.RecomputeUserProfileStats(s.db, uid)
 		}
 	case "PUT":
-		if ownerID != "" && s.redis != nil {
-			cache.InvalidateCacheForProfileWall(s.redis, ownerID)
+		if s.redis != nil {
+			if ownerID != "" {
+				cache.InvalidateCacheForProfileWall(s.redis, ownerID)
+			}
+			// The unified feed embeds the post body/content_json, so an edit must
+			// refresh it too — otherwise the old text survives until the TTL.
+			cache.InvalidateCacheForFeed(s.redis)
 		}
 		s.publishPostEvent(c, "update", result)
 	case "DELETE":
-		if ownerID != "" && s.redis != nil {
-			cache.InvalidateCacheForProfileWall(s.redis, ownerID)
+		if s.redis != nil {
+			if ownerID != "" {
+				cache.InvalidateCacheForProfileWall(s.redis, ownerID)
+			}
+			// The unified feed embeds the deleted post; without this it lingers in
+			// every viewer's cached feed until the 30s TTL expires.
+			cache.InvalidateCacheForFeed(s.redis)
 		}
 		// Cascade: invalidate comments, likes and reposts of the deleted post.
 		if postID := crud.WallResultString(result["id"]); postID != "" && s.redis != nil {
