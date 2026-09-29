@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/httpx"
-	"github.com/gomo6/backend/internal/metrics"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -427,7 +426,6 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		scheduleMessageSideEffects(h, conversationID, claims, msg, isNotes, cleanContent, len(req.Attachments) > 0)
 	})
 
-	metrics.App.ChatMessageSent()
 	c.JSON(http.StatusOK, models.SuccessResponse(msg))
 }
 

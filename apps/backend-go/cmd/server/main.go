@@ -249,6 +249,46 @@ func main() {
 		_, _ = fmt.Fprintf(w, "# TYPE app_users_active_today gauge\napp_users_active_today %d\n", v)
 	})
 
+	// Product totals come from the database with a 5-minute cache instead of the
+	// process-local counters (which reset on every restart and would read 0).
+	// Aggregate counts of accounts and public content only — no message content,
+	// no per-user labels, and private messages are deliberately NOT counted.
+	totalQueries := map[string]string{
+		// Bots live in users with domain 'bot.gomo6'; they are not registrations.
+		"app_users_total":      `SELECT count(*) FROM users WHERE COALESCE(domain, '') <> 'bot.gomo6'`,
+		"app_threads_total":    `SELECT count(*) FROM threads`,
+		"app_posts_total":      `SELECT count(*) FROM posts`,
+		"app_wall_posts_total": `SELECT count(*) FROM profile_wall_posts`,
+	}
+	totalOrder := []string{"app_users_total", "app_threads_total", "app_posts_total", "app_wall_posts_total"}
+	type cachedTotal struct {
+		mu      sync.Mutex
+		value   int64
+		fetched time.Time
+	}
+	totals := make(map[string]*cachedTotal, len(totalQueries))
+	for name := range totalQueries {
+		totals[name] = &cachedTotal{}
+	}
+	metrics.RegisterProvider(func(w io.Writer) {
+		for _, name := range totalOrder {
+			t := totals[name]
+			t.mu.Lock()
+			if time.Since(t.fetched) > 5*time.Minute {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				var n int64
+				if err := db.QueryRowContext(ctx, totalQueries[name]).Scan(&n); err == nil {
+					t.value = n
+				}
+				cancel()
+				t.fetched = time.Now()
+			}
+			v := t.value
+			t.mu.Unlock()
+			_, _ = fmt.Fprintf(w, "# TYPE %s gauge\n%s %d\n", name, name, v)
+		}
+	})
+
 	// Metrics are disabled unless METRICS_TOKEN is configured. pprof is not
 	// mounted on the public API; use an explicitly isolated admin process when
 	// profiling is required.

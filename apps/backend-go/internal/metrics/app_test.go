@@ -11,7 +11,6 @@ func TestAppMetrics_CountersAndRendering(t *testing.T) {
 	a.RegistrationCreated()
 	a.ThreadCreated()
 	a.PostCreated()
-	a.ChatMessageSent()
 	a.TableCreated("profile_wall_posts")
 	a.TableCreated("some_other_table") // must be ignored
 
@@ -24,11 +23,19 @@ func TestAppMetrics_CountersAndRendering(t *testing.T) {
 		"app_threads_created_total 1",
 		"app_posts_created_total 1",
 		"app_wall_posts_created_total 1",
-		"app_chat_messages_total 1",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in /metrics output:\n%s", want, out)
 		}
+	}
+}
+
+// Private messages must never be measured: there is no counter for them at all.
+func TestAppMetrics_NoPrivateMessageCounter(t *testing.T) {
+	var buf bytes.Buffer
+	App.writeTo(&buf)
+	if strings.Contains(buf.String(), "message") {
+		t.Fatalf("app metrics must not expose anything about messages:\n%s", buf.String())
 	}
 }
 

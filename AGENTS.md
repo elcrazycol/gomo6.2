@@ -136,6 +136,8 @@ VITE_SENTRY_DSN=
 METRICS_TOKEN=
 # Telegram-алерты живут в observability/alertmanager.yml (gitignored) — шаблон
 # рядом: observability/alertmanager.yml.example
+# Product-итоги (app_*_total) берутся из БД с кэшем 5 минут — process-счётчики
+# обнуляются при рестарте. Приватные сообщения НЕ измеряются нигде.
 # Web Push (PWA): сгенерировать `cd apps/backend-go && go run ./cmd/vapidgen` и
 # вставить пару ключей. БЕЗ них push просто отключён (логируем предупреждение),
 # остальное работает. Ключи должны быть стабильны — существующие подписки

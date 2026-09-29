@@ -15,8 +15,8 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Регистрации, всего",
-              "description": "Всего аккаунтов за всё время"
+              "name": "Пользователей всего",
+              "description": "Аккаунты без ботов (из базы, кэш 5 мин)"
             },
             "plugin": {
               "kind": "StatChart",
@@ -40,7 +40,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "app_registrations_total"
+                      "query": "app_users_total"
                     }
                   }
                 }
@@ -52,8 +52,8 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Сообщений в чате",
-              "description": "Всего сообщений мессенджера"
+              "name": "Тредов всего",
+              "description": "Создано тем на форуме"
             },
             "plugin": {
               "kind": "StatChart",
@@ -77,7 +77,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "app_chat_messages_total"
+                      "query": "app_threads_total"
                     }
                   }
                 }
@@ -89,8 +89,45 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "Онлайн сейчас",
-              "description": "Подключены по WebSocket прямо сейчас"
+              "name": "Постов всего",
+              "description": "Сообщений внутри тредов"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#3584e4",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_posts_total"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "3_3": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Записей на стене всего",
+              "description": "Постов на стенах профилей"
             },
             "plugin": {
               "kind": "StatChart",
@@ -114,6 +151,43 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
+                      "query": "app_wall_posts_total"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "4_4": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Онлайн сейчас",
+              "description": "Живые WebSocket-соединения"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#ff7800",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
                       "query": "app_users_online"
                     }
                   }
@@ -122,12 +196,12 @@
             ]
           }
         },
-        "3_3": {
+        "5_5": {
           "kind": "Panel",
           "spec": {
             "display": {
               "name": "Активны сегодня",
-              "description": "Заходили сегодня (user_daily_visits, кэш 5 мин)"
+              "description": "Заходили сегодня (кэш 5 мин)"
             },
             "plugin": {
               "kind": "StatChart",
@@ -159,12 +233,12 @@
             ]
           }
         },
-        "4_4": {
+        "6_6": {
           "kind": "Panel",
           "spec": {
             "display": {
               "name": "События в минуту",
-              "description": "Регистрации, треды, посты, записи на стене, сообщения"
+              "description": "Регистрации, треды, посты, записи на стене. Приватные сообщения не измеряются."
             },
             "plugin": {
               "kind": "TimeSeriesChart",
@@ -239,88 +313,27 @@
                     }
                   }
                 }
-              },
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "rate(app_chat_messages_total[15m]) * 60"
-                    }
-                  }
-                }
               }
             ]
           }
         },
-        "5_5": {
+        "7_7": {
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "WebSocket: рассылки в минуту и средняя длительность, с",
-              "description": "Реальный realtime-трафик: всплески = наплыв активности"
+              "name": "Создано контента за час",
+              "description": "Насколько сообщество живо прямо сейчас"
             },
             "plugin": {
               "kind": "TimeSeriesChart",
               "spec": {
                 "legend": {
                   "position": "bottom",
-                  "mode": "list"
-                }
-              }
-            },
-            "queries": [
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "rate(messenger_ws_broadcasts_total[5m]) * 60"
-                    }
-                  }
-                }
-              },
-              {
-                "kind": "TimeSeriesQuery",
-                "spec": {
-                  "plugin": {
-                    "kind": "PrometheusTimeSeriesQuery",
-                    "spec": {
-                      "datasource": {
-                        "kind": "PrometheusDatasource",
-                        "name": "victoriametrics"
-                      },
-                      "query": "messenger_ws_broadcast_duration_seconds"
-                    }
-                  }
-                }
-              }
-            ]
-          }
-        },
-        "6_6": {
-          "kind": "Panel",
-          "spec": {
-            "display": {
-              "name": "Создание контента, всего (прирост)",
-              "description": "Насколько сообщество живо за последний час"
-            },
-            "plugin": {
-              "kind": "TimeSeriesChart",
-              "spec": {
-                "legend": {
-                  "position": "bottom",
-                  "mode": "table"
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
                 }
               }
             },
@@ -372,6 +385,60 @@
               }
             ]
           }
+        },
+        "8_8": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Realtime: рассылки в минуту и средняя длительность, с",
+              "description": "Транспортный уровень (без содержимого): сколько событий рассылается и как быстро"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "mean"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(rate(messenger_ws_broadcasts_total[5m]) * 60, \"series\", \"рассылок/мин\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(messenger_ws_broadcast_duration_seconds, \"series\", \"длительность, с\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       },
       "layouts": [
@@ -379,7 +446,7 @@
           "kind": "Grid",
           "spec": {
             "display": {
-              "title": "product"
+              "title": "Продукт"
             },
             "items": [
               {
@@ -421,10 +488,19 @@
               {
                 "x": 0,
                 "y": 6,
-                "width": 12,
-                "height": 8,
+                "width": 6,
+                "height": 6,
                 "content": {
                   "$ref": "#/spec/panels/4_4"
+                }
+              },
+              {
+                "x": 6,
+                "y": 6,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/5_5"
                 }
               },
               {
@@ -433,7 +509,7 @@
                 "width": 12,
                 "height": 8,
                 "content": {
-                  "$ref": "#/spec/panels/5_5"
+                  "$ref": "#/spec/panels/6_6"
                 }
               },
               {
@@ -442,7 +518,16 @@
                 "width": 12,
                 "height": 8,
                 "content": {
-                  "$ref": "#/spec/panels/6_6"
+                  "$ref": "#/spec/panels/7_7"
+                }
+              },
+              {
+                "x": 12,
+                "y": 14,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/8_8"
                 }
               }
             ]
@@ -451,12 +536,12 @@
       ],
       "links": [
         {
-          "name": "vmui",
-          "url": "http://localhost:9428/vmui"
+          "name": "Обзор (RED)",
+          "url": "http://localhost:9080/projects/gomo6/dashboards/overview"
         },
         {
-          "name": "Обзор",
-          "url": "http://localhost:9080/projects/gomo6/dashboards/overview"
+          "name": "vmui",
+          "url": "http://localhost:9428/vmui"
         }
       ]
     }
