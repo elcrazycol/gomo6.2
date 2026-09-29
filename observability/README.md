@@ -29,10 +29,12 @@ Every UI is bound to `127.0.0.1` on the VPS, so nothing is exposed to the
 internet. Tunnel in:
 
 ```bash
-ssh -L 8428:127.0.0.1:8428 -L 9093:127.0.0.1:9093 root@gomo6.wtf
+ssh -L 8428:127.0.0.1:8428 -L 8429:127.0.0.1:8429 -L 8880:127.0.0.1:8880 -L 9093:127.0.0.1:9093 root@gomo6.wtf
 ```
 
 * vmui (queries, metrics/cardinality explorer): <http://localhost:8428/vmui>
+* vmagent targets ("is scraping working"): <http://localhost:8429/targets>
+* vmalert (rules, alert state): <http://localhost:8880>
 * Alertmanager (silences, current alerts): <http://localhost:9093>
 
 Perses (dashboards-as-code) will be added on the same `127.0.0.1`-only basis.

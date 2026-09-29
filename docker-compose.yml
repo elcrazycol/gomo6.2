@@ -330,12 +330,17 @@ services:
     image: victoriametrics/vmagent:v1.153.0
     command:
       - "-promscrape.config=/etc/vmagent/vmagent.yml"
-      - "-remoteWrite.url=http://victoriametrics:8428"
+      # The remote-write endpoint is explicit: vmagent does not append a path,
+      # and POSTing to "/" makes VictoriaMetrics answer 400.
+      - "-remoteWrite.url=http://victoriametrics:8428/api/v1/write"
     environment:
       # The /metrics bearer token; empty disables the backend scrape upstream.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
     volumes:
       - ./observability/vmagent.yml:/etc/vmagent/vmagent.yml:ro
+    ports:
+      # /targets — the "is scraping working" page (localhost only).
+      - "127.0.0.1:8429:8429"
     depends_on:
       victoriametrics:
         condition: service_started
@@ -351,6 +356,9 @@ services:
       - "-evaluationInterval=30s"
     volumes:
       - ./observability/vmalert-rules.yml:/etc/vmalert/rules.yml:ro
+    ports:
+      # Rule/alert status API + UI (localhost only).
+      - "127.0.0.1:8880:8880"
     depends_on:
       - victoriametrics
       - alertmanager
