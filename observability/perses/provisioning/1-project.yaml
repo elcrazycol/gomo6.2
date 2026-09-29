@@ -1,8 +1,0 @@
-# The project that owns gomo6 dashboards. Provisioned from git; see
-# observability/perses/README.md.
-kind: Project
-metadata:
-  name: gomo6
-spec:
-  display:
-    name: gomo6

@@ -1,0 +1,13 @@
+[
+  {
+    "kind": "Project",
+    "metadata": {
+      "name": "gomo6"
+    },
+    "spec": {
+      "display": {
+        "name": "gomo6"
+      }
+    }
+  }
+]
