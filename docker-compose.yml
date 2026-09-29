@@ -13,7 +13,7 @@
 services:
   # ── Database ──────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:15
+    image: postgres:18
     # pg_stat_statements is preloaded so postgres_exporter can expose per-query
     # statistics (migration 122 creates the extension itself).
     command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
@@ -22,7 +22,11 @@ services:
       POSTGRES_USER: gomo6
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL 18+ keeps the cluster in a major-versioned subdirectory
+      # ($PGDATA=/var/lib/postgresql/18/docker), so the mount is the PARENT dir.
+      # Mounting .../data (the pre-18 layout) makes the entrypoint refuse to
+      # start — see docker-library/postgres#1259.
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gomo6 -d gomo6"]

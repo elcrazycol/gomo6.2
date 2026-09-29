@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/node-22-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
   <img src="https://img.shields.io/badge/typescript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/react-18-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
-  <img src="https://img.shields.io/badge/postgresql-15-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/postgresql-18-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/redis-7-DC382D?style=flat-square&logo=redis&logoColor=white" alt="Redis">
   <img src="https://img.shields.io/badge/garage-2.3-FF6B35?style=flat-square" alt="Garage">
   <img src="https://img.shields.io/badge/docker-24-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
@@ -76,7 +76,7 @@ The backend is Go (Gin) on PostgreSQL + Redis + Garage (S3-compatible object sto
 | `web` | Main site static files | nginx |
 | `docs` | Developer documentation static files | nginx |
 | `dev-dashboard` | Developer portal static files | nginx |
-| `postgres` | Primary database | PostgreSQL 15 |
+| `postgres` | Primary database | PostgreSQL 18 |
 | `redis` | Cache, rate limiting, realtime | Redis 7 |
 | `garage` | S3-compatible object storage (files, avatars, emoji, gift layers, gamification assets) | Garage 2.3 |
 | `garage-init` | One-time setup: layout, S3 keys, buckets | Alpine |

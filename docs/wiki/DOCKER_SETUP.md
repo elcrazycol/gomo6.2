@@ -4,7 +4,7 @@
 
 - **Caddy** — reverse proxy с автоматическим HTTPS (Let's Encrypt)
 - **Backend (Go)** — API сервер на порту 8080
-- **PostgreSQL 15** — база данных
+- **PostgreSQL 18** — база данных
 - **Redis 7** — кеширование
 - **Garage S3** — объектное хранилище
 - **Frontends** — три SPA (web, docs, dev-dashboard), каждый в nginx
