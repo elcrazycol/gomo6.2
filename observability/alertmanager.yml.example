@@ -25,6 +25,11 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # Watchdog heartbeat: delivered once a day, never batched away.
+    - matchers:
+        - 'severity="none"'
+      receiver: telegram
+      repeat_interval: 24h
     # Critical alerts repeat sooner; warnings are batched more aggressively.
     - matchers:
         - 'severity="critical"'

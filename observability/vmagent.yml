@@ -49,6 +49,15 @@ scrape_configs:
     static_configs:
       - targets: ["node-exporter:9100"]
 
+  # ── Data layer ────────────────────────────────────────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
   # ── Blackbox probes: availability + TLS expiry ────────────────────────────
   # The public entrypoints, probed from inside the VPS. `module: http_2xx`
   # checks status, redirects and (with the module below) TLS.

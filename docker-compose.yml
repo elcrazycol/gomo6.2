@@ -14,6 +14,9 @@ services:
   # ── Database ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:15
+    # pg_stat_statements is preloaded so postgres_exporter can expose per-query
+    # statistics (migration 122 creates the extension itself).
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     environment:
       POSTGRES_DB: gomo6
       POSTGRES_USER: gomo6
@@ -372,6 +375,28 @@ services:
     pid: host
     volumes:
       - "/:/host:ro,rslave"
+    restart: unless-stopped
+
+  # Database / cache exporters. They read only, and expose the numbers a
+  # forum actually cares about: active connections, cache hit ratio, deadlocks,
+  # Redis hits/misses and evictions.
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    environment:
+      DATA_SOURCE_NAME: "postgres://gomo6:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/gomo6?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.92.1
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   # Dashboards-as-code UI for the stack above. Config and provisioning live in

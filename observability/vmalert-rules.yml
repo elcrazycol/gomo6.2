@@ -12,6 +12,21 @@
 # instrumentation task; until then there is no latency alert.
 
 groups:
+  # ── Meta: silence must itself be alarming ─────────────────────────────────
+  # Watchdog always fires and is delivered once a day. If that heartbeat stops
+  # arriving, the alerting pipeline itself (vmalert → Alertmanager → Telegram)
+  # is broken — which is otherwise a silent failure.
+  - name: meta
+    interval: 5m
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: "none"
+        annotations:
+          summary: "gomo6 · heartbeat (всё живо)"
+          description: "Приходит раз в сутки. Перестало приходить — сломаны сами алерты."
+
   # ── Availability ──────────────────────────────────────────────────────────
   - name: availability
     interval: 30s
