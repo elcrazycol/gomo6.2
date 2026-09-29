@@ -173,8 +173,8 @@
           "kind": "Panel",
           "spec": {
             "display": {
-              "name": "HTTP: средняя латентность по роутам, мс",
-              "description": "p95 появится после добавления гистограммы в бэкенд"
+              "name": "HTTP: p95 латентность по роутам, мс",
+              "description": "95-й перцентиль из гистограммы; алерт HighLatencyP95 срабатывает выше 1 с"
             },
             "plugin": {
               "kind": "TimeSeriesChart",
@@ -201,7 +201,7 @@
                         "kind": "PrometheusDatasource",
                         "name": "victoriametrics"
                       },
-                      "query": "sum by (route) (rate(http_request_duration_ms_sum[5m])) / clamp_min(sum by (route) (rate(http_requests_total[5m])), 0.001)"
+                      "query": "1000 * histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))"
                     }
                   }
                 }
@@ -729,6 +729,161 @@
               }
             ]
           }
+        },
+        "8_0": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Продукт: события/мин",
+              "description": "Регистрации, треды, посты, записи на стене, сообщения"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "mode": "table",
+                  "position": "bottom",
+                  "values": [
+                    "mean",
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_registrations_total[15m]) * 60"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_threads_created_total[15m]) * 60"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_posts_created_total[15m]) * 60"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_wall_posts_created_total[15m]) * 60"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_chat_messages_total[15m]) * 60"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "8_1": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Продукт: онлайн и активные сегодня",
+              "description": "online — подключены сейчас; active_today — заходили сегодня (кэш 5 мин)"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "mode": "table",
+                  "position": "bottom",
+                  "values": [
+                    "mean",
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_users_online"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_users_active_today"
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       },
       "layouts": [
@@ -881,6 +1036,24 @@
                 "height": 5,
                 "content": {
                   "$ref": "#/spec/panels/7_1"
+                }
+              },
+              {
+                "x": 0,
+                "y": 40,
+                "width": 12,
+                "height": 5,
+                "content": {
+                  "$ref": "#/spec/panels/8_0"
+                }
+              },
+              {
+                "x": 12,
+                "y": 40,
+                "width": 12,
+                "height": 5,
+                "content": {
+                  "$ref": "#/spec/panels/8_1"
                 }
               }
             ]

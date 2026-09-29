@@ -54,7 +54,7 @@ The backend is Go (Gin) on PostgreSQL + Redis + Garage (S3-compatible object sto
 | Security | JWT + refresh tokens, TOTP 2FA, WebAuthn passkeys, Cloudflare Turnstile + honeypot anti-bot, CSRF protection, row-level security, per-surface rate limits, encrypted messages |
 | Notifications | In-app notifications + Web Push (PWA, VAPID) |
 | PWA & performance | Installable PWA with service-worker caching, HTTP/3 (QUIC), edge compression (zstd + gzip), split bundles |
-| Observability | Prometheus `/metrics`, Sentry RUM (errors + tracing + Web Vitals), Grafana Cloud via Alloy |
+| Observability | Self-hosted VictoriaMetrics stack (vmagent → VictoriaMetrics → vmalert → Alertmanager/Telegram, Perses dashboards), Prometheus `/metrics`, Sentry RUM (errors + tracing + Web Vitals) — see `observability/` |
 
 ## Architecture
 
@@ -80,7 +80,7 @@ The backend is Go (Gin) on PostgreSQL + Redis + Garage (S3-compatible object sto
 | `redis` | Cache, rate limiting, realtime | Redis 7 |
 | `garage` | S3-compatible object storage (files, avatars, emoji, gift layers, gamification assets) | Garage 2.3 |
 | `garage-init` | One-time setup: layout, S3 keys, buckets | Alpine |
-| `alloy` | Observability agent: scrapes backend `/metrics` → Grafana Cloud | Grafana Alloy |
+| `victoriametrics`, `vmagent`, `vmalert`, `alertmanager`, `blackbox-exporter`, `node-exporter`, `perses` | Self-hosted observability: metric storage + alerting + dashboards (config in `observability/`, UIs on 127.0.0.1 only) | VictoriaMetrics / Prometheus / Perses |
 
 ### Storage architecture
 
@@ -252,8 +252,7 @@ Optional:
 | `DEPAY_PUBLIC_KEY` / `DEPAY_PRIVATE_KEY` / `DEPAY_RECEIVER_*` | DePay crypto payments for drops (ETH / Polygon / Base / Solana) |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Spotify now-playing widget on profiles |
 | `VITE_SENTRY_DSN` | Sentry RUM — errors + tracing + Web Vitals (SDK is a no-op without it) |
-| `METRICS_TOKEN` | Access token for backend `/metrics` (empty = 404); also used by the `alloy` container |
-| `GRAFANA_CLOUD_METRICS_URL` / `_USERNAME` / `_PASSWORD` | Hosted Prometheus remote-write (Grafana Cloud) |
+| `METRICS_TOKEN` | Access token for backend `/metrics` (empty = 404); also used by the `vmagent` container |
 | `WEBAUTHN_RP_ID` / `_ORIGIN` / `_NAME` | Passkey relying party settings (defaults derive from `DOMAIN`) |
 
 > Database / Redis URLs, Garage S3 endpoint and most service wiring are configured in `docker-compose.yml` and need no manual setup. Never commit `.env` or `.garage.toml` to version control.

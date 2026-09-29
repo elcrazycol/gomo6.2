@@ -58,6 +58,17 @@ groups:
           summary: "Доля 5xx выше 5%"
           description: "За 10 минут серверные ошибки превысили 5% запросов."
 
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 латентности выше 1 с"
+          description: "95-й перцентиль длительности запросов держится выше секунды 10 минут."
+
       - alert: RateLimitSurge
         expr: sum(rate(http_rate_limited_total[5m])) > 5
         for: 10m
