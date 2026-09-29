@@ -59,6 +59,9 @@ interface GomoRichEditorProps {
 export interface GomoRichEditorHandle {
   focus: () => void;
   insertText: (text: string) => void;
+  /** Wipe the editor content synchronously (used to clear the composer in the
+      same tick as send, instead of waiting for the parent's async round-trip). */
+  clear: () => void;
   insertEmoji: (
     data: { emojiId: string; packId: string; url: string; name: string },
     opts?: { focus?: boolean }
@@ -327,11 +330,6 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   onFilesDroppedRef.current = onFilesDropped;
   const onFilesPastedRef = useRef(onFilesPasted);
   onFilesPastedRef.current = onFilesPasted;
-  // Enter-to-submit state. Kept in refs (not effect-local) because the editor
-  // re-renders mid-keydown when a slash command inserts a block — re-running
-  // the effect would re-register the listener with a fresh, false flag and let
-  // Enter publish. The capture snapshot and the submit read the same refs.
-  const popupConsumesEnterRef = useRef(false);
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
@@ -540,6 +538,10 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     insertText: (text: string) => {
       editor?.chain().focus().insertContent(text).run();
     },
+    clear: () => {
+      // Emits an update, so the parent's draft lands on "" in the same tick.
+      editor?.commands.clearContent();
+    },
     insertEmoji: (data, opts) => {
       const node = {
         type: 'customEmoji',
@@ -562,34 +564,40 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     if (!editor) return;
     const el = editorContainerRef.current;
     if (!el) return;
-    // The slash/mention popup clears its "active" flag when it consumes Enter,
-    // and ProseMirror handles the keydown before this bubble listener runs — so
-    // snapshot whether a popup is open in the capture phase (which runs first).
-    // The flag lives in a ref so a mid-event re-render cannot reset it. We check
-    // both the module flag and the popup's DOM marker (the flag can go stale
-    // across an HMR instance; the empty result state has no items).
-    const captureKeyDown = (event: KeyboardEvent) => {
+    // Enter-to-submit is intercepted in the DOCUMENT CAPTURE phase — that runs
+    // before ProseMirror's own keydown handler on the contenteditable, so the
+    // base keymap never gets to insert the paragraph that used to flash an
+    // empty next line on send (and sometimes survived the clear). The old
+    // bubble-phase listener ran AFTER ProseMirror had already mutated the doc.
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter") return;
-      popupConsumesEnterRef.current =
+      // Document capture sees every keydown on the page — only the composer.
+      const target = event.target as Node | null;
+      if (!target || !el.contains(target)) return;
+      // No submit handler → Enter is a plain newline (other GomoRichEditor
+      // call sites, or a future one). Never swallow it.
+      if (!onSubmitRef.current) return;
+      // Don't submit while the @-mention/slash popup is open — Enter there
+      // selects a user/item. Captured BEFORE ProseMirror runs, so the popup's
+      // "active" flag is still set.
+      if (
         isSlashPopupActive() ||
         isMentionPopupActive() ||
         document.querySelector("[data-slash-menu]") !== null ||
-        document.querySelector("[data-mention-menu]") !== null;
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || event.shiftKey || window.innerWidth < 768) return;
-      // Don't submit while the @-mention/slash popup is open — Enter there
-      // selects a user/item.
-      if (popupConsumesEnterRef.current) return;
+        document.querySelector("[data-mention-menu]") !== null
+      ) {
+        return;
+      }
+      if (event.shiftKey) return; // Shift+Enter keeps the line break
+      if (window.innerWidth < 768) return; // mobile: Enter inserts a newline
+      // IME composition (CJK) — Enter commits the composition, it must not send.
+      if (event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
+      event.stopPropagation();
       onSubmitRef.current?.();
     };
-    document.addEventListener("keydown", captureKeyDown, true);
-    el.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", captureKeyDown, true);
-      el.removeEventListener("keydown", handleKeyDown);
-    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [editor]);
 
   // Cancel Safari scroll-to-reveal on tap. The global handleAppShellScroll in

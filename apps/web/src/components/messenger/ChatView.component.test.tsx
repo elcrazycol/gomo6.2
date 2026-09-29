@@ -178,7 +178,7 @@ function mockMessage(overrides: Record<string, unknown> = {}) {
 
 const defaultProps = {
   onBack: vi.fn(),
-  composerRef: { current: null } as React.RefObject<{ focus: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>,
+  composerRef: { current: null } as React.RefObject<{ focus: () => void; insertText: (text: string) => void; clear: () => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>,
   typingUsername: null as string | null,
   onTyping: vi.fn(),
 };
@@ -311,6 +311,7 @@ describe("ChatView", () => {
             current: {
               focus,
               insertText: vi.fn(),
+              clear: vi.fn(),
               insertEmoji: vi.fn(),
               getEditor: () => null,
             },
