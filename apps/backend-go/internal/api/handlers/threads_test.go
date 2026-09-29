@@ -403,7 +403,7 @@ func TestDeleteThread_ForeignAuthor_Forbidden(t *testing.T) {
 		WithArgs("t1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "board_id"}).AddRow("u1", "b1"))
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -426,7 +426,7 @@ func TestDeleteThread_ModeratorAllowed(t *testing.T) {
 		WithArgs("t1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "board_id"}).AddRow("u1", "b1"))
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 

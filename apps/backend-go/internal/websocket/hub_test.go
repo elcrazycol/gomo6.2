@@ -1260,7 +1260,7 @@ func TestHandleRedisEvent_UserOffline_RoomTargeted(t *testing.T) {
 	}
 }
 
-func TestHandleRedisEvent_UnknownType_BroadcastAll(t *testing.T) {
+func TestHandleRedisEvent_UnknownType_Dropped(t *testing.T) {
 	hub := NewHub(nil, nil)
 	client := newTestClient(hub, "user-1", "Alice")
 
@@ -1280,13 +1280,13 @@ func TestHandleRedisEvent_UnknownType_BroadcastAll(t *testing.T) {
 	hub.handleRedisEvent(event)
 	waitForBuffer()
 
+	// Unknown event types must NOT be fanned out to every client: no room
+	// mapping means no delivery (the previous global fallback leaked payloads).
 	select {
 	case msg := <-client.Send:
-		if !containsStr(string(msg), "custom_event") {
-			t.Errorf("expected 'custom_event', got: %s", string(msg))
-		}
-	default:
-		t.Error("client should receive unknown events via broadcast")
+		t.Errorf("unknown events must be dropped, got: %s", string(msg))
+	case <-time.After(50 * time.Millisecond):
+		// expected: nothing delivered
 	}
 }
 

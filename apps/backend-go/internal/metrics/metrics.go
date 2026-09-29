@@ -2,15 +2,47 @@ package metrics
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // startedAt marks process start so /metrics can expose uptime.
 var startedAt = time.Now()
+
+// providers contribute extra series at scrape time. They are registered during
+// startup (before the server serves requests) and let packages that already
+// import metrics — or the server itself — expose series without an import
+// cycle. Each provider must write valid Prometheus text and must not block.
+var (
+	providersMu sync.Mutex
+	providers   []func(io.Writer)
+)
+
+// RegisterProvider adds a scrape-time series provider. Safe to call from init or
+// startup; not intended to be called concurrently with scraping.
+func RegisterProvider(f func(io.Writer)) {
+	if f == nil {
+		return
+	}
+	providersMu.Lock()
+	providers = append(providers, f)
+	providersMu.Unlock()
+}
+
+func renderProviders(w io.Writer) {
+	providersMu.Lock()
+	snapshot := make([]func(io.Writer), len(providers))
+	copy(snapshot, providers)
+	providersMu.Unlock()
+	for _, f := range snapshot {
+		f(w)
+	}
+}
 
 // MessengerMetrics contains the small set of production signals needed for
 // realtime and transaction troubleshooting. Counters are process-local; scrape
@@ -92,5 +124,9 @@ func Handler(m *MessengerMetrics) http.Handler {
 				"# TYPE backend_uptime_seconds gauge\n"+
 				"backend_uptime_seconds %.0f\n",
 			runtime.NumGoroutine(), mem.HeapInuse, time.Since(startedAt).Seconds())
+
+		// Series contributed by other packages: per-route counters, DB pool
+		// saturation, background-pool pressure.
+		renderProviders(w)
 	})
 }

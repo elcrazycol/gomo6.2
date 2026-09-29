@@ -3,11 +3,13 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -70,6 +72,72 @@ func TestRegister_DBError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
+	}
+	// The raw driver error must never reach the client.
+	if body := w.Body.String(); strings.Contains(body, "cancelled") || strings.Contains(body, "INSERT INTO") {
+		t.Fatalf("raw DB error leaked to client: %s", body)
+	}
+}
+
+func TestRegister_DuplicateUsername_Conflict(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	mock.ExpectQuery(`(?s).*INSERT INTO users.*RETURNING.*`).
+		WithArgs("testuser", "testuser", "test@example.com", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnError(&pq.Error{
+			Code:       "23505",
+			Constraint: "users_username_key",
+			Message:    `duplicate key value violates unique constraint "users_username_key"`,
+		})
+
+	email := "test@example.com"
+	c, w := newPOSTContext("/auth/v1/register", models.RegisterRequest{
+		Username: "testuser",
+		Email:    &email,
+		Password: "vE7xKp2mNq9rLw5t",
+	}, nil, nil)
+	h.Register(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	// Neither the constraint name nor the driver text may leak.
+	if strings.Contains(body, "duplicate key") || strings.Contains(body, "users_username_key") {
+		t.Fatalf("raw duplicate error leaked to client: %s", body)
+	}
+}
+
+func TestRegister_WalletAddressCollision_Conflict(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	mock.ExpectQuery(`(?s).*INSERT INTO users.*RETURNING.*`).
+		WithArgs("testuser", "testuser", "test@example.com", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnError(&pq.Error{
+			Code:       "23505",
+			Constraint: "users_wallet_address_key",
+			Message:    `duplicate key value violates unique constraint "users_wallet_address_key"`,
+		})
+
+	email := "test@example.com"
+	c, w := newPOSTContext("/auth/v1/register", models.RegisterRequest{
+		Username: "testuser",
+		Email:    &email,
+		Password: "vE7xKp2mNq9rLw5t",
+	}, nil, nil)
+	h.Register(c)
+
+	// A wallet collision is not a username conflict and must not be reported as
+	// one (see L6: 32-bit address space).
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "username is already taken") {
+		t.Fatalf("wallet collision misreported as a username conflict: %s", body)
+	}
+	if strings.Contains(body, "users_wallet_address_key") {
+		t.Fatalf("constraint name leaked to client: %s", body)
 	}
 }
 

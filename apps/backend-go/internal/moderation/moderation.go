@@ -12,9 +12,11 @@
 package moderation
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -78,9 +80,5 @@ type ReportGroup struct {
 // 'admin' role in user_roles — the same predicate the post/thread delete
 // handlers use for foreign-content moderation.
 func isModerator(db *sql.DB, userID string) (bool, error) {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`, userID).Scan(&count); err != nil {
-		return false, err
-	}
-	return count > 0, nil
+	return authz.IsModerator(context.Background(), db, userID)
 }

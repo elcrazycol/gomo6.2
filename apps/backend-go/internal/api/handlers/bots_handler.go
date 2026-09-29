@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -27,7 +26,7 @@ func NewBotsHandler(db *sql.DB) *BotsHandler {
 
 func generateBotToken() (rawToken string, hash string, err error) {
 	bytes := make([]byte, 32)
-	if _, err = rand.Read(bytes); err != nil {
+	if _, err = randRead(bytes); err != nil {
 		return
 	}
 	rawToken = "gomo6_bot_" + hex.EncodeToString(bytes)
@@ -151,7 +150,7 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 		RETURNING id`, req.Username, botEmail, hex.EncodeToString([]byte(randHex(32)))).Scan(&botUserID)
 	if err != nil {
 		log.Printf("[CreateBot] INSERT users failed: %v", err)
-		if strings.Contains(err.Error(), "duplicate key") {
+		if httpx.UniqueViolationConstraint(err) != "" {
 			c.JSON(http.StatusConflict, models.ErrorResponse("Username already taken"))
 			return
 		}
@@ -415,7 +414,7 @@ func (h *BotsHandler) RegenerateToken(c *gin.Context) {
 }
 
 func randHex(n int) string {
-	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	// 2n hex characters, matching the previous output length. Fail-closed on a
+	// CSPRNG error: this feeds the bot account password and token material.
+	return mustRandom(secureHex(2 * n))
 }

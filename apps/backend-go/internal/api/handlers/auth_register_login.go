@@ -8,9 +8,11 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"golang.org/x/crypto/bcrypt"
@@ -84,8 +86,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		displayName = *req.DisplayName
 	}
 
-	// Generate wallet address: GM6-XXXX-XXXX (2 bytes from crypto/rand → 4 hex chars each)
-	walletAddr := fmt.Sprintf("GM6-%s-%s", randomHex(4), randomHex(4))
+	// Generate wallet address: GM6-XXXX-XXXX (4 base36 chars ×2 ≈ 41 bits,
+	// up from 32 with hex). The length and charset are pinned by the
+	// wallet_address column (VARCHAR(14)) and the client-side regex.
+	walletAddr := fmt.Sprintf("GM6-%s-%s", randomBase36(4), randomBase36(4))
 
 	query := `
 		INSERT INTO users (username, display_name, email, password_hash, domain, wallet_address) 
@@ -102,7 +106,27 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain, &user.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create user: "+err.Error()))
+		// A unique_violation must NOT surface as a 500 with the raw driver
+		// error: the text names the constraint and confirms which value exists.
+		// Answer with a 409 instead and log the detail server-side.
+		if constraint := httpx.UniqueViolationConstraint(err); constraint != "" {
+			log.Printf("[Auth] register unique violation (%s): %v", constraint, err)
+			switch {
+			case strings.Contains(constraint, "username"):
+				c.JSON(http.StatusConflict, models.ErrorResponseWithCode(
+					models.ErrUsernameTaken, "This username is already taken", nil))
+			case strings.Contains(constraint, "wallet_address"):
+				// 32-bit address space (see L6 in the security audit): a
+				// collision is rare but retryable.
+				c.JSON(http.StatusConflict, models.ErrorResponse(
+					"Could not allocate a wallet address, please try again"))
+			default:
+				c.JSON(http.StatusConflict, models.ErrorResponse(
+					"Registration conflict, please try again"))
+			}
+			return
+		}
+		httpx.ServerError(c, "register user", err)
 		return
 	}
 

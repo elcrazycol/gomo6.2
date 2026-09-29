@@ -596,14 +596,16 @@ func updateConversationPreview(c *gin.Context, tx *sql.Tx, conversationID string
 // payload is client-side E2E ciphertext we cannot (and must not) read.
 func scheduleMessageSideEffects(h *MessengerHandler, conversationID string, claims *auth.Claims, msg MessageResponse, isNotes bool, cleanContent string, hasAttachments bool) {
 	if h.redis != nil {
-		go InvalidateMessengerCaches(h.redis, conversationID, claims.UserID)
+		publishPool.Go(func() { InvalidateMessengerCaches(h.redis, conversationID, claims.UserID) })
 	}
 	if h.hub != nil {
-		go h.broadcastNewMessage(conversationID, msg, claims, isNotes)
+		publishPool.Go(func() { h.broadcastNewMessage(conversationID, msg, claims, isNotes) })
 	}
 	if !isNotes {
 		body := messagePushBody(cleanContent, hasAttachments)
-		go h.deliverMessagePush(context.Background(), conversationID, claims.UserID, claims.Username, body)
+		publishPool.Go(func() {
+			h.deliverMessagePush(context.Background(), conversationID, claims.UserID, claims.Username, body)
+		})
 	}
 } // messagePushBody builds the short human-readable push body for a message:
 // the plaintext when present, otherwise a placeholder for an attachment-only
@@ -806,7 +808,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 	queueAfterCommit(c, func() {
 		if h.hub != nil {
-			go h.broadcastMessageEdited(messageID, req.Content, conversationID, isNotes)
+			publishPool.Go(func() { h.broadcastMessageEdited(messageID, req.Content, conversationID, isNotes) })
 		}
 	})
 
@@ -934,7 +936,7 @@ func (h *MessengerHandler) UpdateNotesMeta(c *gin.Context) {
 
 	queueAfterCommit(c, func() {
 		if h.hub != nil {
-			go h.broadcastMessageNotesMeta(messageID, conversationID, req.Meta)
+			publishPool.Go(func() { h.broadcastMessageNotesMeta(messageID, conversationID, req.Meta) })
 		}
 	})
 
@@ -1012,7 +1014,7 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 		if h.hub == nil {
 			return
 		}
-		go func() {
+		publishPool.Go(func() {
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "message_deleted",
 				Payload: map[string]interface{}{
@@ -1023,7 +1025,7 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 			}); err != nil {
 				log.Printf("[Messenger] WS delete broadcast error: %v", err)
 			}
-		}()
+		})
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))

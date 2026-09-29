@@ -280,7 +280,7 @@ func TestUploadFileWithKey_GiftLayers_AdminAllowed(t *testing.T) {
 	h, f := setupStorageHandlerWithS3(t, db)
 
 	// Gift keys are not user-namespaced — an admin must be able to write them.
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("admin-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -311,7 +311,7 @@ func TestUploadFileWithKey_GiftLayers_NonAdmin_Forbidden(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	h, _ := setupStorageHandlerWithS3(t, db)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -340,7 +340,7 @@ func TestDeleteFile_GiftLayers_AdminAllowed(t *testing.T) {
 	h, f := setupStorageHandlerWithS3(t, db)
 	f.put("gift-layers", "gifts/abc/base.png", []byte("png-bytes"), "image/png")
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("admin-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -368,7 +368,7 @@ func TestDeleteFile_GiftLayers_NonAdmin_Forbidden(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	h, _ := setupStorageHandlerWithS3(t, db)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 

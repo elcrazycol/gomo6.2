@@ -3,6 +3,7 @@ package httpx
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/lib/pq"
 )
 
 func TestServerError_ReturnsGeneric500(t *testing.T) {
@@ -91,4 +93,35 @@ func TestAuthenticatedUserID_EmptyUserID(t *testing.T) {
 	if got := AuthenticatedUserID(c); got != "" {
 		t.Fatalf("expected empty for empty UserID, got %q", got)
 	}
+}
+
+func TestUniqueViolationConstraint(t *testing.T) {
+	t.Run("real unique violation returns the constraint", func(t *testing.T) {
+		err := &pq.Error{Code: "23505", Constraint: "users_username_key"}
+		if got := UniqueViolationConstraint(err); got != "users_username_key" {
+			t.Fatalf("got %q, want users_username_key", got)
+		}
+	})
+
+	t.Run("wrapped unique violation is detected", func(t *testing.T) {
+		err := fmt.Errorf("insert user: %w", &pq.Error{Code: "23505", Constraint: "users_wallet_address_key"})
+		if got := UniqueViolationConstraint(err); got != "users_wallet_address_key" {
+			t.Fatalf("got %q, want users_wallet_address_key", got)
+		}
+	})
+
+	t.Run("other pq errors are ignored", func(t *testing.T) {
+		if got := UniqueViolationConstraint(&pq.Error{Code: "23502", Constraint: "users_email_not_null"}); got != "" {
+			t.Fatalf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("non-pq errors are ignored", func(t *testing.T) {
+		if got := UniqueViolationConstraint(errors.New("duplicate key value violates unique constraint")); got != "" {
+			t.Fatalf("got %q, want empty (no string sniffing)", got)
+		}
+		if got := UniqueViolationConstraint(nil); got != "" {
+			t.Fatalf("nil: got %q, want empty", got)
+		}
+	})
 }

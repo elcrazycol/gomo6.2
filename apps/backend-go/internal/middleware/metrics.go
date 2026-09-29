@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,4 +119,58 @@ func MetricsSnapshot() []MetricsRow {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Requests > rows[j].Requests })
 	return rows
+}
+
+// escapeLabelValue escapes a Prometheus label value per the exposition format.
+func escapeLabelValue(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(s)
+}
+
+// WritePrometheus renders the per-route request counters (counts, latency sum,
+// 4xx/5xx/429) in Prometheus text format. Registered with the metrics package at
+// startup so /metrics exposes them alongside the messenger/runtime series —
+// previously they were only reachable through an admin-only JSON endpoint.
+func WritePrometheus(w io.Writer) {
+	globalMetrics.mu.Lock()
+	rows := make([]MetricsRow, 0, len(globalMetrics.buckets))
+	for key, b := range globalMetrics.buckets {
+		var avg uint64
+		if b.requests > 0 {
+			avg = b.latencyMs / b.requests
+		}
+		rows = append(rows, MetricsRow{
+			Route:        key,
+			Requests:     b.requests,
+			AvgLatencyMs: avg,
+			ClientErrors: b.clientErrors,
+			ServerErrors: b.serverErrors,
+			RateLimited:  b.rateLimited,
+		})
+	}
+	globalMetrics.mu.Unlock()
+
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Requests > rows[j].Requests })
+
+	_, _ = fmt.Fprint(w,
+		"# TYPE http_requests_total counter\n"+
+			"# TYPE http_request_duration_ms_sum counter\n"+
+			"# TYPE http_client_errors_total counter\n"+
+			"# TYPE http_server_errors_total counter\n"+
+			"# TYPE http_rate_limited_total counter\n")
+	for _, r := range rows {
+		// AvgLatencyMs is derived from the summed latency, so multiply back to
+		// expose a monotonic counter instead of a gauge that jumps around.
+		route := escapeLabelValue(r.Route)
+		_, _ = fmt.Fprintf(w,
+			"http_requests_total{route=\"%s\"} %d\n"+
+				"http_request_duration_ms_sum{route=\"%s\"} %d\n"+
+				"http_client_errors_total{route=\"%s\"} %d\n"+
+				"http_server_errors_total{route=\"%s\"} %d\n"+
+				"http_rate_limited_total{route=\"%s\"} %d\n",
+			route, r.Requests,
+			route, r.AvgLatencyMs*r.Requests,
+			route, r.ClientErrors,
+			route, r.ServerErrors,
+			route, r.RateLimited)
+	}
 }

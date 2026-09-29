@@ -1,11 +1,14 @@
 package gifts
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/httpx"
 
 	"github.com/gin-gonic/gin"
@@ -21,9 +24,12 @@ func NewGiftAdminHandler(db *sql.DB) *GiftAdminHandler {
 }
 
 func (h *GiftAdminHandler) isAdmin(userID string) bool {
-	var count int
-	h.db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, userID).Scan(&count)
-	return count > 0
+	ok, err := authz.IsAdmin(context.Background(), h.db, userID)
+	if err != nil {
+		log.Printf("[Gifts] admin check failed for %s: %v", userID, err)
+		return false
+	}
+	return ok
 }
 
 // ListGifts — GET /api/v1/admin/gifts (admin only, includes inactive)

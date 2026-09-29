@@ -1,6 +1,11 @@
 package handlers
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+
+	"github.com/gomo6/backend/internal/authz"
+)
 
 // isModeratorOrAdmin reports whether the user holds the platform 'moderator'
 // or 'admin' role in user_roles. It gates content-moderation actions such as
@@ -9,9 +14,5 @@ import "database/sql"
 // DELETE /posts and /threads endpoints, so the delete handlers must accept
 // both the content author and platform staff.
 func isModeratorOrAdmin(db *sql.DB, userID string) (bool, error) {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`, userID).Scan(&count); err != nil {
-		return false, err
-	}
-	return count > 0, nil
+	return authz.IsModerator(context.Background(), db, userID)
 }

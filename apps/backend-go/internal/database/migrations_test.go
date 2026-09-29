@@ -103,18 +103,32 @@ func TestMain(m *testing.M) {
 
 	var err error
 	testDB, err = sql.Open("postgres", dbURL)
-	if err != nil {
-		fmt.Printf("Skipping integration tests: %v\n", err)
-		os.Exit(0)
-	}
-	if err := testDB.Ping(); err != nil {
-		fmt.Printf("Skipping integration tests: %v\n", err)
-		os.Exit(0)
+	if err != nil || testDB == nil {
+		fmt.Printf("Integration tests disabled: %v\n", err)
+		testDB = nil
+	} else if err := testDB.Ping(); err != nil {
+		fmt.Printf("Integration tests disabled: %v\n", err)
+		testDB.Close()
+		testDB = nil
 	}
 
+	// Unit tests still run without a database; the integration tests skip
+	// themselves via requireTestDB.
 	code := m.Run()
-	testDB.Close()
+	if testDB != nil {
+		testDB.Close()
+	}
 	os.Exit(code)
+}
+
+// requireTestDB skips a test when no live Postgres is available, so the pure
+// unit tests in this package run locally without Docker.
+func requireTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	if testDB == nil {
+		t.Skip("integration test requires a running Postgres (DATABASE_URL_TEST)")
+	}
+	return testDB
 }
 
 // writeMigrationFiles creates .sql files in dir with the given name→content mapping.
@@ -151,6 +165,7 @@ func getAppliedVersions(t *testing.T, db *sql.DB) []string {
 // cleanupMigrations drops test artifacts from the DB.
 func cleanupMigrations(t *testing.T) {
 	t.Helper()
+	requireTestDB(t)
 	// Drop schema_migrations and any test tables created by migrations
 	testDB.Exec("DROP TABLE IF EXISTS migration_test_001 CASCADE")
 	testDB.Exec("DROP TABLE IF EXISTS migration_test_002 CASCADE")

@@ -744,7 +744,7 @@ func TestAdminOnlyMiddleware_NonAdmin(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -767,7 +767,7 @@ func TestAdminOnlyMiddleware_Admin(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 

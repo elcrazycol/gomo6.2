@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/authz"
+	"github.com/gomo6/backend/internal/bg"
 	"github.com/gomo6/backend/internal/channelaccess"
 	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/metrics"
@@ -133,6 +135,7 @@ type Hub struct {
 	rateLimiter          *RateLimiter
 	statusUpdateDebounce map[string]*time.Timer
 	statusUpdateMu       sync.Mutex
+	presencePool         *bg.Pool
 	stopped              bool
 }
 
@@ -156,6 +159,10 @@ func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 		allowedOrigins:       allowedOrigins,
 		rateLimiter:          NewRateLimiter(redisClient, 60, time.Minute), // 60 messages per minute, Redis-backed
 		statusUpdateDebounce: make(map[string]*time.Timer),
+		// Presence DB writes + status broadcasts are best-effort and must not
+		// spawn a goroutine per connect/disconnect: a reconnect storm would
+		// otherwise pile up thousands of them. Generous queue so drops stay rare.
+		presencePool: bg.New("ws-presence", 4, 4096),
 	}
 }
 
@@ -222,8 +229,13 @@ func (h *Hub) Run() {
 			// Only update status if the client has authenticated
 			if client.UserID != "" {
 				h.TouchPresence(client.UserID)
-				go h.updateUserOnlineStatus(client.UserID, true)
-				go h.broadcastUserStatus(client.UserID, client.Username, true)
+				userID, username := client.UserID, client.Username
+				// One bounded task per connect (not two raw goroutines): the DB
+				// status write and the presence broadcast run in order.
+				h.presencePool.Go(func() {
+					h.updateUserOnlineStatus(userID, true)
+					h.broadcastUserStatus(userID, username, true)
+				})
 				log.Printf("[WebSocket] Client connected: %s (%s)", client.Username, client.UserID)
 			} else {
 				log.Printf("[WebSocket] Client connected (unauthenticated) — waiting for auth message")
@@ -239,7 +251,8 @@ func (h *Hub) Run() {
 				// the user's LAST live connection — another tab or device of the
 				// same user may legitimately still be connected.
 				if !h.hasLiveConnections(client.UserID) {
-					go h.markUserOffline(client.UserID, client.Username, true)
+					userID, username := client.UserID, client.Username
+					h.presencePool.Go(func() { h.markUserOffline(userID, username, true) })
 				}
 			}
 
@@ -473,8 +486,9 @@ func marshalRealtimeMessage(event RealtimeEvent) (Message, []byte, bool) {
 // dispatchRealtimeBroadcast routes a realtime event to the room(s) that own
 // it. Every event is scoped: content to thread/board/feed rooms, chat to the
 // conversation room, wall/presence/now-playing to the target user's room, and
-// notifications to the recipient's room. Unknown event types still fall back
-// to the global fan-out channel so legacy publishers keep working.
+// notifications to the recipient's room. Unknown event types are DROPPED: the
+// previous global fan-out fallback would leak any private payload from a typo'd
+// or newly added publisher to every connected client (M2-class regression).
 func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, message Message, messageBytes []byte) {
 	switch eventType {
 	case MessageTypeNewPost, MessageTypeNewReply:
@@ -510,7 +524,10 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 		messageBytes = decryptChatMessage(payload, message, messageBytes, eventType)
 		h.broadcastChatEvent(payload, messageBytes, false)
 
-	case MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping, "member_left":
+	case MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping, "member_left",
+		// Messenger housekeeping events (conversation metadata, notes meta).
+		// They carry no encrypted content and route to the conversation room.
+		"group_updated", "message_notes_meta":
 		// These events don't carry encrypted content
 		h.broadcastChatEvent(payload, messageBytes, false)
 
@@ -536,8 +553,10 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 		h.broadcastNowPlayingEvent(payload, messageBytes)
 
 	default:
-		// Broadcast to all clients for unknown types
-		h.broadcast <- messageBytes
+		// Scoped-only: never fall back to a global fan-out. An unrecognized type
+		// is either a typo or a publisher that forgot to map its room; dropping
+		// it is safe (clients refetch) and cannot leak a private payload.
+		log.Printf("[WebSocket] dropping unknown realtime event type %q (no room mapping)", eventType)
 	}
 }
 
@@ -583,7 +602,7 @@ func (h *Hub) broadcastChatEvent(payload interface{}, messageBytes []byte, subsc
 		chatRoom := fmt.Sprintf("chat_%s", conversationID)
 		h.BroadcastToRoom(chatRoom, messageBytes)
 		if subscribeBots {
-			go h.autoSubscribeBotsToChat(conversationID, chatRoom)
+			h.presencePool.Go(func() { h.autoSubscribeBotsToChat(conversationID, chatRoom) })
 		}
 	}
 }
@@ -668,7 +687,11 @@ func (h *Hub) autoSubscribeBotsToChat(conversationID, chatRoom string) {
 		return
 	}
 
-	rows, err := h.db.Query(
+	// Bounded: this runs on the chat fan-out path; a stalled DB must not pin the
+	// connection (and the goroutine) indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	rows, err := h.db.QueryContext(ctx,
 		"SELECT user_id FROM get_active_bot_members($1)", conversationID)
 	if err != nil {
 		log.Printf("[WebSocket] failed to query active bot members: %v", err)
@@ -855,13 +878,16 @@ func (h *Hub) isModerator(userID string) bool {
 	if h.db == nil || userID == "" {
 		return false
 	}
-	var count int
-	err := h.db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`, userID).Scan(&count)
+	// Bounded: this runs on the websocket event path, a stalled DB must not
+	// pin the connection indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ok, err := authz.IsModerator(ctx, h.db, userID)
 	if err != nil {
 		log.Printf("[WebSocket] moderator check error: %v", err)
 		return false
 	}
-	return count > 0
+	return ok
 }
 
 func isPublicRoom(room string) bool {
@@ -1356,7 +1382,7 @@ func (h *Hub) markUserOffline(userID, username string, broadcast bool) {
 	}
 	h.flushOfflineToDB(userID, lastSeen)
 	if broadcast {
-		go h.broadcastUserStatus(userID, username, false)
+		h.presencePool.Go(func() { h.broadcastUserStatus(userID, username, false) })
 	}
 }
 

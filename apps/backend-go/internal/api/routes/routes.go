@@ -14,6 +14,7 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/backup"
 	"github.com/gomo6/backend/internal/crudengine"
 	"github.com/gomo6/backend/internal/drops"
@@ -214,6 +215,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Client-side error reporting handler
 	clientErrorsHandler := handlers.NewClientErrorsHandler(db)
+	clientErrorsHandler.StartClientErrorRetention()
 	translationsHandler := translations.New(db)
 
 	// Admin-only request metrics (per-route counts, latency, 4xx/5xx/429).
@@ -1057,8 +1059,8 @@ func moderatorOrAdminMiddleware(db *sql.DB) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`, claims.UserID).Scan(&count); err != nil || count == 0 {
+		ok, err := authz.IsModerator(c.Request.Context(), db, claims.UserID)
+		if err != nil || !ok {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Moderator access required"})
 			c.Abort()
 			return
@@ -1079,8 +1081,8 @@ func adminOnlyMiddleware(db *sql.DB) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, claims.UserID).Scan(&count); err != nil || count == 0 {
+		ok, err := authz.IsAdmin(c.Request.Context(), db, claims.UserID)
+		if err != nil || !ok {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 			c.Abort()
 			return

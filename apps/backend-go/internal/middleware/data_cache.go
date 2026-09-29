@@ -10,11 +10,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/bg"
 	"github.com/redis/go-redis/v9"
 )
 
 // DefaultDataCacheTTL is the default TTL for data cache entries (2 minutes).
 const DefaultDataCacheTTL = 2 * time.Minute
+
+// cacheWrites bounds the goroutines that persist cache entries. Caching is
+// best-effort: a saturated pool drops the write (the next request re-caches)
+// instead of spawning one goroutine per cacheable response.
+var cacheWrites = bg.New("cache-write", 4, 1024)
 
 // cacheTTLByPath returns a differentiated TTL based on the request path:
 // - 30s for threads/posts (frequently updated content)
@@ -185,15 +191,17 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			// Check if response is an empty array []
 			bodyStr := string(writer.body)
 			if bodyStr != "[]" && bodyStr != "{\"data\":[]}" {
-				go func() {
+				// Detach from the request: the middleware returns before this
+				// runs, and the body buffer would otherwise be reused.
+				payload := append([]byte(nil), writer.body...)
+				cacheWrites.Go(func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 					defer cancel()
 
-					err := redisClient.Set(ctx, cacheKey, writer.body, effectiveTTL).Err()
-					if err != nil {
+					if err := redisClient.Set(ctx, cacheKey, payload, effectiveTTL).Err(); err != nil {
 						log.Printf("[DataCache] Failed to cache response: %v", err)
 					}
-				}()
+				})
 			}
 		}
 	}

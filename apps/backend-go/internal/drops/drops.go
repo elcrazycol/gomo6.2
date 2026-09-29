@@ -9,6 +9,7 @@ package drops
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -27,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 )
@@ -490,12 +492,15 @@ func (h *DropsHandler) creditDrops(amount int, userID, blockchain, txHash string
 		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to record transaction"}
 	}
 
-	_, _ = tx.Exec(`
+	if _, err = tx.Exec(`
 		UPDATE drops_pending
 		SET status = 'credited', credited_at = NOW(), blockchain = $1, tx_hash = $2
 		WHERE user_id = $3 AND drops_amount = $4 AND status = 'initiated'
 		  AND created_at > NOW() - INTERVAL '1 hour'
-	`, blockchain, txHash, userID, amount)
+	`, blockchain, txHash, userID, amount); err != nil {
+		log.Printf("[Drops] Callback: mark pending failed user=%s err=%v", userID, err)
+		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to update pending payment"}
+	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("[Drops] Callback: COMMIT FAILED user=%s err=%v", userID, err)
@@ -595,11 +600,12 @@ type ManualVerifyRequest struct {
 // @Security     BearerAuth
 // isAdminUser reports whether the user holds the platform 'admin' role.
 func (h *DropsHandler) isAdminUser(userID string) bool {
-	var count int
-	if err := h.db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, userID).Scan(&count); err != nil {
+	ok, err := authz.IsAdmin(context.Background(), h.db, userID)
+	if err != nil {
+		log.Printf("[Drops] admin check failed for %s: %v", userID, err)
 		return false
 	}
-	return count > 0
+	return ok
 }
 
 func (h *DropsHandler) ManualVerify(c *gin.Context) {
@@ -654,20 +660,39 @@ func (h *DropsHandler) ManualVerify(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	_, _ = tx.Exec("UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2", pendingAmount, userID)
+	// Every write is checked and aborts the transaction: an unchecked failure
+	// here would commit a balance change with no ledger row (or a wrong
+	// balance_after), leaving the drops economy unaccountable.
+	if _, err := tx.Exec("UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2", pendingAmount, userID); err != nil {
+		log.Printf("[Drops] Manual verify: credit balance failed user=%s err=%v", userID, err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to credit drops"))
+		return
+	}
 
 	var balanceAfter int
-	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&balanceAfter)
+	if err := tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&balanceAfter); err != nil {
+		log.Printf("[Drops] Manual verify: read balance failed user=%s err=%v", userID, err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to read balance"))
+		return
+	}
 
-	_, _ = tx.Exec(`
+	if _, err := tx.Exec(`
 		INSERT INTO drops_transactions (user_id, type, amount, balance_after, description, blockchain, tx_hash)
 		VALUES ($1, 'purchase', $2, $3, $4, $5, $6)
-	`, userID, pendingAmount, balanceAfter, fmt.Sprintf("Manual verify: %d drops", pendingAmount), req.Blockchain, req.TxHash)
+	`, userID, pendingAmount, balanceAfter, fmt.Sprintf("Manual verify: %d drops", pendingAmount), req.Blockchain, req.TxHash); err != nil {
+		log.Printf("[Drops] Manual verify: record transaction failed user=%s err=%v", userID, err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record transaction"))
+		return
+	}
 
-	_, _ = tx.Exec(`
+	if _, err := tx.Exec(`
 		UPDATE drops_pending SET status = 'credited', credited_at = NOW(), tx_hash = $1
 		WHERE user_id = $2 AND status = 'initiated' AND drops_amount = $3
-	`, req.TxHash, userID, pendingAmount)
+	`, req.TxHash, userID, pendingAmount); err != nil {
+		log.Printf("[Drops] Manual verify: mark pending failed user=%s err=%v", userID, err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to update pending payment"))
+		return
+	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("[Drops] Manual verify: commit failed user=%s err=%v", userID, err)
@@ -868,10 +893,15 @@ func (h *DropsHandler) transferInTx(tx *sql.Tx, senderID, recipientID string, am
 		return "", 0, err
 	}
 
-	// Read final balances
-	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&senderBalance)
+	// Read final balances. A failure must abort: balance_after is written to the
+	// ledger, and a zero-value read would record a wrong figure.
+	if err := tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&senderBalance); err != nil {
+		return "", 0, err
+	}
 	var recipientBalance int
-	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", recipientID).Scan(&recipientBalance)
+	if err := tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", recipientID).Scan(&recipientBalance); err != nil {
+		return "", 0, err
+	}
 
 	// Ledger entries
 	err = tx.QueryRow(`

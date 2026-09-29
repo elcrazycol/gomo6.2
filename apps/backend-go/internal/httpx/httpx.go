@@ -1,13 +1,30 @@
 package httpx
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/lib/pq"
 )
+
+// UniqueViolationConstraint returns the constraint name for a PostgreSQL
+// unique_violation (SQLSTATE 23505), or "" when err is not one.
+//
+// Callers use it to answer "already taken" with a 409 and a neutral message
+// instead of leaking the driver error text — which names the constraint and
+// confirms which value exists (a username-enumeration oracle) — or returning a
+// 500 with raw DB internals.
+func UniqueViolationConstraint(err error) string {
+	var pgErr *pq.Error
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return pgErr.Constraint
+	}
+	return ""
+}
 
 // ServerError logs the real error and returns a generic 500 to the client.
 // NEVER leaks raw error messages to the client. Shared by handlers, crudengine

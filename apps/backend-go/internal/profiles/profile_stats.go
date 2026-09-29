@@ -7,6 +7,29 @@ package profiles
 
 import (
 	"database/sql"
+	"sync"
+)
+
+const (
+	// statsWorkers bounds how many unified-stats UPDATEs run concurrently. The
+	// query is heavy (a dozen correlated subqueries), so one goroutine per like
+	// or post is what saturates Postgres under load.
+	statsWorkers = 2
+	// statsQueueLen bounds pending users; coalescing keeps it small because a
+	// user is queued at most once until their recompute finishes.
+	statsQueueLen = 2048
+)
+
+type statsJob struct {
+	db     *sql.DB
+	userID string
+}
+
+var (
+	statsOnce    sync.Once
+	statsQueue   chan statsJob
+	statsMu      sync.Mutex
+	statsPending = map[string]struct{}{}
 )
 
 // RecomputeUserProfileStats sets users.post_count, thread_count and the unified
@@ -30,15 +53,50 @@ import (
 //	лайки комментов стены ×1 + ответы других в моих тредах ×0.25 +
 //	floor(session_minutes/30) + награды достижений.
 //
-// This function runs asynchronously to avoid blocking the request.
+// This function enqueues the recompute instead of running it inline: the work
+// is coalesced per user and executed on a bounded worker set (statsWorkers), so
+// a burst of interactions cannot spawn an unbounded number of goroutines.
 func RecomputeUserProfileStats(db *sql.DB, userID string) {
-	if userID == "" {
+	if userID == "" || db == nil {
 		return
 	}
+	statsOnce.Do(startStatsWorkers)
 
-	// Run in goroutine to avoid blocking
-	go func() {
-		const q = `
+	statsMu.Lock()
+	if _, ok := statsPending[userID]; ok {
+		statsMu.Unlock()
+		return
+	}
+	statsPending[userID] = struct{}{}
+	statsMu.Unlock()
+
+	select {
+	case statsQueue <- statsJob{db: db, userID: userID}:
+	default:
+		// Saturated: release the marker so a later write can retry.
+		statsMu.Lock()
+		delete(statsPending, userID)
+		statsMu.Unlock()
+	}
+}
+
+// startStatsWorkers launches the fixed-size worker set exactly once.
+func startStatsWorkers() {
+	statsQueue = make(chan statsJob, statsQueueLen)
+	for i := 0; i < statsWorkers; i++ {
+		go func() {
+			for job := range statsQueue {
+				_, _ = job.db.Exec(recomputeStatsSQL, job.userID)
+				statsMu.Lock()
+				delete(statsPending, job.userID)
+				statsMu.Unlock()
+			}
+		}()
+	}
+}
+
+// recomputeStatsSQL is the heavy unified stats UPDATE.
+const recomputeStatsSQL = `
 UPDATE users u SET
   post_count = s.pc,
   thread_count = s.tc,
@@ -108,6 +166,3 @@ FROM (
     )::int)) AS g
 ) s
 WHERE u.id = $1`
-		_, _ = db.Exec(q, userID)
-	}()
-}

@@ -40,13 +40,8 @@ func claimsFor(userID string) *auth.Claims {
 
 // expectModerator stubs the moderator-role lookup.
 func expectModerator(mock sqlmock.Sqlmock, isMod bool) {
-	rows := sqlmock.NewRows([]string{"count"})
-	if isMod {
-		rows = rows.AddRow(1)
-	} else {
-		rows = rows.AddRow(0)
-	}
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)`).
+	rows := sqlmock.NewRows([]string{"exists"}).AddRow(isMod)
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u1").
 		WillReturnRows(rows)
 }

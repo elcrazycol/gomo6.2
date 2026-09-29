@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"database/sql"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/media"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -86,11 +88,11 @@ func (h *StorageHandler) isAdmin(userID string) bool {
 	if h.db == nil {
 		return false
 	}
-	var count int
-	if err := h.db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, userID).Scan(&count); err != nil {
+	ok, err := authz.IsAdmin(context.Background(), h.db, userID)
+	if err != nil {
 		return false
 	}
-	return count > 0
+	return ok
 }
 
 // readUploadFile reads and validates a single file from multipart form.

@@ -122,7 +122,7 @@ func SeedDevDashboardApp(db *sql.DB) {
 
 	// Generate a random wallet address for the system user (required NOT NULL).
 	// The system user is never intended to log in, so the password is random.
-	walletAddr := fmt.Sprintf("GM6-%s-%s", randomHex(4), randomHex(4))
+	walletAddr := fmt.Sprintf("GM6-%s-%s", randomBase36(4), randomBase36(4))
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(randomHex(32)), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("SeedDevDashboardApp: failed to hash system user password: %v", err)
