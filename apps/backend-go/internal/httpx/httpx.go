@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -26,10 +27,29 @@ func UniqueViolationConstraint(err error) string {
 	return ""
 }
 
-// ServerError logs the real error and returns a generic 500 to the client.
+// IsClientInputError reports whether err is a PostgreSQL data-exception
+// (SQLSTATE class 22): the database rejected a value supplied in the request
+// because it could not be parsed for the target column — a non-UUID string
+// compared against a uuid column (22P02), a malformed timestamp (22007), an
+// out-of-range number (22003), and friends. These are client input errors, not
+// server faults, so callers should answer 400 rather than 500.
+func IsClientInputError(err error) bool {
+	var pgErr *pq.Error
+	return errors.As(err, &pgErr) && strings.HasPrefix(string(pgErr.Code), "22")
+}
+
+// ServerError logs the real error and returns a generic response to the client.
 // NEVER leaks raw error messages to the client. Shared by handlers, crudengine
-// and backup so the "generic 500" contract lives in exactly one place.
+// and backup so the generic error contract lives in exactly one place:
+//
+//   - PostgreSQL data exceptions (class 22, bad client-supplied value) → 400;
+//   - everything else → 500.
 func ServerError(c *gin.Context, context string, err error) {
+	if IsClientInputError(err) {
+		log.Printf("[HTTP] %s (invalid input): %v", context, err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, models.ErrorResponse("Invalid request value"))
+		return
+	}
 	log.Printf("[HTTP] %s: %v", context, err)
 	_ = c.Error(err)
 	c.AbortWithStatusJSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))

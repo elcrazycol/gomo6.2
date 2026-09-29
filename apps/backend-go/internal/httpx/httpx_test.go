@@ -51,6 +51,55 @@ func TestServerError_ReturnsGeneric500(t *testing.T) {
 	}
 }
 
+// TestServerError_ClientInputReturns400 pins that malformed values supplied by
+// the client (PostgreSQL data exception, class 22) answer 400 without leaking
+// the driver text — they are request errors, not server faults.
+func TestServerError_ClientInputReturns400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+	ServerError(c, "database error", &pq.Error{Code: "22P02", Message: `invalid input syntax for type uuid: "abc"`})
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal body: %v", err)
+	}
+	if resp.Error == nil || *resp.Error != "Invalid request value" {
+		t.Fatalf("expected generic invalid-value message, got %v", resp.Error)
+	}
+	if strings.Contains(w.Body.String(), "uuid") {
+		t.Fatalf("raw driver error leaked to client: %s", w.Body.String())
+	}
+}
+
+func TestIsClientInputError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"invalid uuid text", &pq.Error{Code: "22P02"}, true},
+		{"invalid datetime", &pq.Error{Code: "22007"}, true},
+		{"wrapped data exception", fmt.Errorf("query: %w", &pq.Error{Code: "22P02"}), true},
+		{"unique violation is not input", &pq.Error{Code: "23505"}, false},
+		{"plain error", errors.New("boom"), false},
+		{"nil", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsClientInputError(tc.err); got != tc.want {
+				t.Fatalf("IsClientInputError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAuthenticatedUserID_WithClaims(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Set("claims", &auth.Claims{UserID: "u42", Username: "alice"})

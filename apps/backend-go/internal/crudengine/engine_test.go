@@ -10,6 +10,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -95,6 +96,25 @@ func TestEngineGet_DBError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+// TestEngineGet_InvalidUUIDFilter_Returns400 pins the regression behind the
+// /api/v1/user_roles 5xx: a non-UUID value compared against a uuid column makes
+// Postgres reject the query (SQLSTATE 22P02). That is a bad client value, not a
+// server fault, so the generic surface must answer 400 instead of 500.
+func TestEngineGet_InvalidUUIDFilter_Returns400(t *testing.T) {
+	h, mock := setupEngine(t)
+
+	mock.ExpectQuery(`SELECT \* FROM user_roles WHERE user_id = \$1`).
+		WithArgs("abc").
+		WillReturnError(&pq.Error{Code: "22P02", Message: `invalid input syntax for type uuid: "abc"`})
+
+	c, w := newRequestContext("GET", "/api/v1/user_roles?user_id=eq.abc", nil, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
