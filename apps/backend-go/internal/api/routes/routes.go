@@ -679,7 +679,18 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 			// Public-number assignment (docs/wiki/PUBLIC_IDS.md §9): the only
 			// writer of users.public_id — it is not client-writable anywhere.
-			protected.POST("/admin/public-id/assign", adminOnlyMiddleware(db), publicIDHandler.AssignPublicID)
+			//
+			// DISABLED ON PURPOSE (2026-09-30): handing a number to another user
+			// (and re-numbering the previous holder) is a product decision that
+			// has not been made yet, so the route is commented out. Everything
+			// behind it is kept and tested: the handler
+			// (handlers.PublicIDHandler.AssignPublicID), the ledger migration
+			// (129_public_id_transfers.sql) and the handler unit tests. Uncomment
+			// the line below to make the endpoint reachable again — the route
+			// list in routes_test.go and the phase-5 block in
+			// scripts/public-id-acceptance.sh are the other two places to flip.
+			_ = publicIDHandler
+			// protected.POST("/admin/public-id/assign", adminOnlyMiddleware(db), publicIDHandler.AssignPublicID)
 
 			// Admin gift management
 			protected.GET("/admin/gifts", giftAdminHandler.ListGifts)

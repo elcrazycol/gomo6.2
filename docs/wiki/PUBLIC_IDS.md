@@ -281,7 +281,15 @@ UUID-ссылку, а не в `/profile/undefined`.
 
 ## 9. Фаза 5 — выдача и трансферы (рынок)
 
-**Статус: сделано.**
+**Статус: реализовано, но ВЫКЛЮЧЕНО.** Маршрут
+`POST /api/v1/admin/public-id/assign` закомментирован в `routes.go`: передача
+номера другому юзеру (с перенумерацией прежнего владельца) — продуктовое решение,
+которого пока нет. Всё за ним сохранено и протестировано: хендлер
+(`handlers.PublicIDHandler.AssignPublicID`), леджер (`129_public_id_transfers.sql`)
+и unit-тесты хендлера. Включить = снять комментарий в трёх местах: `routes.go`,
+список маршрутов в `routes_test.go` и блок фазы 5 в
+`scripts/public-id-acceptance.sh` (скрипт сам пропускает эти проверки, пока маршрут
+отдаёт 404).
 
 `POST /api/v1/admin/public-id/assign` `{user_id, public_id, note?}`, только админ
 (`adminOnlyMiddleware`). Это **единственный писатель** `users.public_id`: в

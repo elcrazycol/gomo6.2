@@ -250,6 +250,14 @@ check_status 403 "PUT /profiles/<number> (writes are UUID-only)" -X PUT \
   -H 'Content-Type: application/json' -d '{"bio":"nope"}'
 
 # ── 8. Admin assignment / transfer (phase 5) ──────────────────────────────
+# The route is commented out in routes.go until the product decision is made, so
+# probe it first: a 404 means the whole block is skipped rather than failed.
+ASSIGN_PROBE="$(status_of -X POST "$BASE/api/v1/admin/public-id/assign" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"user_id\":\"$USER_UUID\",\"public_id\":5}")"
+if [ "$ASSIGN_PROBE" = "404" ]; then
+  info "public-id assignment is disabled (route commented out) — skipping the phase-5 checks"
+else
 # A non-admin must not be able to hand out numbers.
 check_status 403 "POST /admin/public-id/assign as a non-admin" -X POST \
   "$BASE/api/v1/admin/public-id/assign" -H "Authorization: Bearer $TOKEN" \
@@ -290,6 +298,8 @@ pass "the displaced owner was re-numbered to $DISPLACED (clean exchange)"
 LEDGER="$(psql_scratch "SELECT count(*) FROM public_id_transfers")"
 [ "$LEDGER" -ge 3 ] || fail "expected at least 3 ledger rows, got $LEDGER"
 pass "the ledger recorded every movement ($LEDGER rows)"
+
+fi
 
 # ── 9. The sequence continues after the backfill ──────────────────────────
 # psql prints the command tag after RETURNING, so keep the first line only.
