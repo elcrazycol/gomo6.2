@@ -71,6 +71,9 @@ export function useProfileData({
   // heavy payload (every level/description/icon embedded) — fetch only the
   // pinned rows on mount and defer the full list to the achievements tab.
   const loadPinnedAchievements = useCallback(async () => {
+    // The caller passes the resolved UUID, which is empty until the profile row
+    // arrives — an empty id would be a pointless 400.
+    if (!userId) return;
     try {
       const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc&limit=${PINNED_ACHIEVEMENTS_LIMIT}`);
       const achResult = await achRes.json();
@@ -84,6 +87,7 @@ export function useProfileData({
   }, [userId]);
 
   const loadAchievements = useCallback(async () => {
+    if (!userId) return;
     try {
       const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc`);
       const achResult = await achRes.json();

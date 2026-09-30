@@ -70,3 +70,24 @@ export const wallPostUrl = (
   const postParam = entityParam(post);
   return ownerParam && postParam ? `/profile/${ownerParam}/wall/${postParam}` : '';
 };
+
+/**
+ * profileLookupUrl builds the REST path that resolves a profile row from a route
+ * parameter, picking the column that matches the parameter's shape.
+ *
+ * Hand-writing `?id=eq.<param>` is how a numeric URL used to 400: the parameter
+ * is a public number on new links, and `id` is a UUID column. Use this (or the
+ * hook) instead of building the query string inline.
+ */
+export const profileLookupUrl = (param: string | null | undefined): string => {
+  const value = param ?? '';
+  const column = isPublicId(value) ? 'public_id' : 'id';
+  return `/api/v1/profiles?${column}=eq.${encodeURIComponent(value)}`;
+};
+
+/** threadLookupUrl is the same contract for the thread line. */
+export const threadLookupUrl = (param: string | null | undefined): string => {
+  const value = param ?? '';
+  const column = isPublicId(value) ? 'public_id' : 'id';
+  return `/api/v1/threads?${column}=eq.${encodeURIComponent(value)}`;
+};

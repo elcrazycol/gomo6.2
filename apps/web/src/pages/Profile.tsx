@@ -23,6 +23,7 @@ import { ProfileEditPanel } from "./profile/ProfileEditPanel";
 import { ProfileTabs, type ProfileTab } from "./profile/ProfileTabs";
 import { UsernameDialog, AvatarGalleryDialog } from "./profile/ProfileDialogs";
 import type { Profile, ProfilePrivacyData } from "./profile/types";
+import { profileLookupUrl } from "@/utils/entityUrl";
 
 /**
  * Profile page — orchestration shell. The loaded row + privacy flags and the
@@ -155,7 +156,9 @@ const Profile = () => {
     const profileData = await getCached<Profile | null>(
       `profile-page:${localSessionUser?.id ?? "guest"}:${userId}`,
       async () => {
-        const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
+        // The parameter is a public number on new links and a UUID on old ones;
+        // the helper picks the matching column.
+        const res = await fetch(profileLookupUrl(userId));
         const json = await res.json();
         return (json.data?.[0] as Profile | undefined) ?? null;
       },

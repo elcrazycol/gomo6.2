@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { entityParam, isPublicId, profileUrl, threadUrl, wallPostUrl } from "./entityUrl";
+import {
+  entityParam,
+  isPublicId,
+  profileLookupUrl,
+  profileUrl,
+  threadLookupUrl,
+  threadUrl,
+  wallPostUrl,
+} from "./entityUrl";
 
 describe("isPublicId", () => {
   it("accepts the numbers the backend allocates", () => {
@@ -71,5 +79,29 @@ describe("link builders", () => {
     expect(wallPostUrl(null, { id: "p", public_id: 1337 })).toBe("");
     expect(profileUrl(null)).toBe("");
     expect(threadUrl(null)).toBe("");
+  });
+});
+
+describe("lookup urls", () => {
+  // Hand-writing ?id=eq.<param> is how a numeric URL used to 400: the parameter
+  // is a public number on new links, and `id` is a UUID column.
+  it("resolves a profile by public_id for a numeric parameter", () => {
+    expect(profileLookupUrl("14")).toBe("/api/v1/profiles?public_id=eq.14");
+  });
+
+  it("resolves a profile by id for a UUID", () => {
+    expect(profileLookupUrl("20d1f4de-8094-44af-ac52-56247311b7d8")).toBe(
+      "/api/v1/profiles?id=eq.20d1f4de-8094-44af-ac52-56247311b7d8",
+    );
+  });
+
+  it("resolves a thread the same way", () => {
+    expect(threadLookupUrl("315")).toBe("/api/v1/threads?public_id=eq.315");
+    expect(threadLookupUrl("uuid-t")).toBe("/api/v1/threads?id=eq.uuid-t");
+  });
+
+  it("never emits an unencoded value", () => {
+    expect(profileLookupUrl("a b")).toBe("/api/v1/profiles?id=eq.a%20b");
+    expect(profileLookupUrl(null)).toBe("/api/v1/profiles?id=eq.");
   });
 });

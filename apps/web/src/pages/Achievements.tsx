@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/integrations/api/compat";
 import { Trophy, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isPublicId, profileUrl } from "@/utils/entityUrl";
+import { isPublicId, profileLookupUrl, profileUrl } from "@/utils/entityUrl";
 
 interface AchievementRow {
   id: string;
@@ -54,14 +54,15 @@ export default function Achievements() {
         `achievements-page:profile:${userId}`,
         async () => {
           const res = await fetch(
-            isPublicId(userId) ? `/api/v1/profiles?public_id=eq.${userId}` : `/api/v1/profiles?id=eq.${userId}`,
+            profileLookupUrl(userId),
           );
           const json = await res.json();
           return json.data?.[0] ?? null;
         },
         { ttlMs: 60_000 }
       );
-      const uid = profileData?.id ?? (isPublicId(userId) ? "" : userId ?? "");
+      // A numeric parameter is only resolvable through the profile row above.
+      const uid = profileData?.id ?? (isPublicId(userId) ? "" : (userId ?? ""));
 
       const [unlockedRows, catalogRows] = await Promise.all([
         uid
@@ -186,7 +187,8 @@ export default function Achievements() {
       invalidateByPrefix(`achievements-page:user:${resolvedUserId || userId}`);
       // Re-fetch silently (no loading spinner) to reconcile with the server.
       try {
-        const res = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}`);
+        if (!resolvedUserId) return;
+        const res = await fetch(`/api/v1/user_achievements?user_id=eq.${resolvedUserId}`);
         const json = await res.json();
         const rows = (json.data || []) as Record<string, unknown>[];
         const pinned = new Set(
