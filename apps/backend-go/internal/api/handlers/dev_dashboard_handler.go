@@ -131,16 +131,17 @@ func SeedDevDashboardApp(db *sql.DB) {
 
 	// First ensure a system user exists to satisfy the owner_id FK constraint.
 	//
-	// public_id is set explicitly to a number far outside the range people are
-	// allocated (the sequences start at 10, docs/wiki/PUBLIC_IDS.md): a service row
-	// must not consume an organic number, and it must not squat the low band either
-	// — #1..9 are held for the founder and the first accounts, not for
-	// infrastructure. systemPublicID is a plain, unique, resolvable number that the
-	// sequence will not reach in any realistic lifetime. An explicit value is
-	// possible because public_id is a sequence default rather than an identity
-	// column; the DO UPDATE branch also moves an install that already handed this
-	// row an organic number (or the low band, as an earlier revision did).
-	const systemPublicID = 1000000000
+	// public_id is set explicitly to -1: infrastructure has no human number.
+	// A service row must not consume an organic number, and it must not squat the
+	// low band either — #1..9 are held for the founder and the first accounts.
+	// Negative values are reserved for service rows: the sequence only allocates
+	// positive numbers (it starts at 10, docs/wiki/PUBLIC_IDS.md) and the public
+	// resolver rejects anything that is not a positive decimal, so this row is
+	// unreachable through /profile/<n>. An explicit value is possible because
+	// public_id is a sequence default rather than an identity column; the DO UPDATE
+	// branch also moves an install that already handed this row an organic number
+	// (or the low band, as an earlier revision did).
+	const systemPublicID = -1
 	_, err = db.Exec(`
 		INSERT INTO users (id, public_id, username, email, password_hash, domain, wallet_address)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)

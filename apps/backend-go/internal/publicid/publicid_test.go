@@ -109,3 +109,20 @@ func TestNormalize(t *testing.T) {
 		t.Errorf("Normalize without public_id = %q, want the UUID fallback", got)
 	}
 }
+
+// Service rows carry a negative sentinel instead of a human number: it must never
+// be rendered as a link parameter.
+func TestNormalize_ServiceSentinel(t *testing.T) {
+	for _, sentinel := range []int64{-1, 0, -100} {
+		if !IsServiceSentinel(sentinel) {
+			t.Errorf("IsServiceSentinel(%d) = false, want true", sentinel)
+		}
+		v := sentinel
+		if got := Normalize(&v, "uuid-here"); got != "uuid-here" {
+			t.Errorf("Normalize(%d) = %q, want the UUID fallback", sentinel, got)
+		}
+	}
+	if IsServiceSentinel(42) {
+		t.Error("a positive number is not a service sentinel")
+	}
+}

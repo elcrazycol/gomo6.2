@@ -39,6 +39,14 @@ describe("entityParam", () => {
     expect(entityParam({ id: "uuid-1", public_id: Infinity })).toBe("uuid-1");
   });
 
+  // Negative values are the service-row sentinel: such a row has no human number,
+  // so a link must not be built from it.
+  it("ignores zero and the negative service sentinel", () => {
+    expect(entityParam({ id: "uuid-1", public_id: 0 })).toBe("uuid-1");
+    expect(entityParam({ id: "uuid-1", public_id: -1 })).toBe("uuid-1");
+    expect(profileUrl({ id: "system-uuid", public_id: -1 })).toBe("/profile/system-uuid");
+  });
+
   it("returns an empty string when there is nothing to address", () => {
     expect(entityParam(null)).toBe("");
     expect(entityParam(undefined)).toBe("");

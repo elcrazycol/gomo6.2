@@ -67,6 +67,10 @@ func ParseParamStrict(raw string) Param {
 }
 
 // Parse reports whether raw is a public_id and returns its value.
+//
+// Public ids are strictly positive decimals: the sequences allocate from 1 up, and
+// negative values are reserved as sentinels for service rows (see
+// SeedDevDashboardApp), so "-1" and "0" are not numbers a URL can address.
 func Parse(raw string) (int64, bool) {
 	if raw == "" || len(raw) > 18 {
 		return 0, false
@@ -87,6 +91,11 @@ func Parse(raw string) (int64, bool) {
 	return n, true
 }
 
+// IsServiceSentinel reports whether a stored public_id is NOT an addressable
+// number: negatives mark service rows (SeedDevDashboardApp) and zero is never
+// allocated. Callers that build links must fall back to the UUID for such a row.
+func IsServiceSentinel(publicID int64) bool { return publicID <= 0 }
+
 // IsNumber reports whether raw looks like a public_id. Convenience for callers
 // that only need the shape (e.g. deciding on a URL form in tests).
 func IsNumber(raw string) bool {
@@ -98,7 +107,7 @@ func IsNumber(raw string) bool {
 // present, otherwise the UUID. Used by server-side link building so a missing
 // public_id degrades to the legacy UUID link instead of an empty one.
 func Normalize(publicID *int64, uuid string) string {
-	if publicID != nil {
+	if publicID != nil && !IsServiceSentinel(*publicID) {
 		return strconv.FormatInt(*publicID, 10)
 	}
 	return uuid

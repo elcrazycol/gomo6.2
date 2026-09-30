@@ -137,6 +137,17 @@ THREAD_PID="$(psql_scratch "SELECT public_id FROM threads WHERE id = '$THREAD_UU
 WALL_PID="$(psql_scratch "SELECT public_id FROM profile_wall_posts WHERE id = '$WALL_UUID'")"
 echo "    assigned numbers: user=$USER_PID thread=$THREAD_PID wall_post=$WALL_PID"
 
+# The service row (owner of the dashboard OAuth app) must stay OUT of the human
+# numbering: it holds the negative sentinel, so no real account is displaced and
+# its row is unreachable through /profile/<n>.
+SYSTEM_PID="$(psql_scratch "SELECT public_id FROM users WHERE username = '__system__'")"
+[ "$SYSTEM_PID" = "-1" ] || fail "the service account holds $SYSTEM_PID, expected the -1 sentinel"
+for sentinel in -1 0; do
+  GOT="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/profiles/$sentinel")"
+  [ "$GOT" = "404" ] || fail "/profiles/$sentinel: expected 404, got $GOT"
+done
+pass "the service account is outside the human numbering (public_id = -1, /profiles/-1 → 404)"
+
 [ "$USER_PID" = "10" ]   || fail "users base: expected 10, got $USER_PID"
 [ "$THREAD_PID" = "100" ] || fail "threads base: expected 100, got $THREAD_PID"
 [ "$WALL_PID" = "1" ]    || fail "wall posts base: expected 1, got $WALL_PID"
