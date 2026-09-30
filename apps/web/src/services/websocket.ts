@@ -52,6 +52,7 @@ export type WebSocketMessageType =
   | 'now_playing'
   | 'session_revoked'
   | 'new_report'
+  | 'new_appeal'
   | 'profile_updated'
   | 'disconnected';
 

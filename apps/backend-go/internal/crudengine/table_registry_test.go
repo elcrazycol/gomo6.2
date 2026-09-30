@@ -159,7 +159,6 @@ func TestGenericTables_DenyListsMatchRegistry(t *testing.T) {
 		{"polls", false, true, false, false, true},
 		{"gomosub_invites", true, true, false, false, false},
 		{"reports", true, false, false, false, false},
-		{"user_bans", true, false, false, false, false},
 		{"channels", false, false, true, false, true},
 		{"gomosub_roles", false, false, true, false, false},
 		{"channel_permissions", false, false, true, false, false},

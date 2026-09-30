@@ -4,6 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
+import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1098,6 +1099,15 @@ const Board = () => {
                         </>
                       )}
                     </Button>
+                    {user && board.owner_id !== user.id && (
+                      <PostActionsMenu
+                        targetType="gomosub"
+                        targetId={board.id}
+                        reportLabel="Пожаловаться на саб"
+                        reportTargetLabel="на саб"
+                        triggerTitle="Действия"
+                      />
+                    )}
                   </div>
                 )}
                 <p className="mt-2 text-sm sm:text-base text-muted-foreground sm:pr-44">{board.description}</p>

@@ -1963,3 +1963,56 @@ func TestGetPostLikesBatch_InvalidUUIDsSkipped(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// ── unified stats: a reply must also refresh the thread author ──
+//
+// The thread author's garma includes "replies by others in my threads", so a
+// reply changes their number even though they did nothing. Only the commenter
+// used to be refreshed, leaving that term stale until the author's next action.
+func TestCreatePostRPC_RecomputesThreadAuthor(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	var got []string
+	h.recomputeStatsFn = func(_ *sql.DB, userID string) { got = append(got, userID) }
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectQuery(`(?s).*INSERT INTO posts.*RETURNING.*`).
+		WithArgs(threadID, "u1", "Test post content",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "thread_id", "user_id", "content", "content_json",
+			"image_url", "image_urls", "attachments", "reply_to", "is_private",
+			"private_recipient_id", "server_domain", "created_at", "is_remote",
+		}).AddRow(
+			"post-1", threadID, "u1", "Test post content", nil,
+			nil, nil, nil, nil, false,
+			nil, "localhost:8080", now, false,
+		))
+
+	mock.ExpectExec(`UPDATE threads SET post_count = post_count \+ 1, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("author-9"))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"thread_id": threadID,
+		"content":   "Test post content",
+	}, claims)
+	h.CreatePostRPC(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(got) != 2 || got[0] != "u1" || got[1] != "author-9" {
+		t.Fatalf("expected recompute [u1 author-9] (commenter then thread author), got %v", got)
+	}
+}

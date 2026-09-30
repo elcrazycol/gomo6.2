@@ -3,8 +3,10 @@ package achievements
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gomo6/backend/internal/activity"
 )
 
 // testCatalog covers both stat kinds and the event-derived groups.
@@ -358,4 +360,43 @@ func TestRecomputeUser(t *testing.T) {
 	}
 
 	e.RecomputeUser(t.Context(), "u1")
+}
+
+// ──────────── activity ledger ────────────
+
+// waitForLedger polls until cond holds (the ledger write is asynchronous).
+func waitForLedger(t *testing.T, cond func() bool) {
+	t.Helper()
+	for i := 0; i < 600; i++ {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("ledger write not observed within timeout")
+}
+
+// Every handled event must land in the append-only activity ledger, carrying
+// the target the action touched so moderation can point at the object.
+func TestHandleEvent_RecordsActivityLedger(t *testing.T) {
+	e, mock := newEngine(t)
+	e.SetActivityRecorder(activity.New(e.db))
+
+	mock.ExpectExec(`INSERT INTO user_activity_events`).
+		WithArgs("u1", "test_event", "post", "p-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// "test_event" maps to no counter/derived group, so the only DB work is the
+	// ledger insert.
+	e.HandleEvent(Event{UserID: "u1", Type: EventType("test_event"), TargetType: "post", TargetID: "p-1"})
+
+	waitForLedger(t, func() bool { return mock.ExpectationsWereMet() == nil })
+}
+
+// A nil recorder leaves the engine working and writes nothing to the ledger.
+func TestHandleEvent_NoLedgerWhenUnset(t *testing.T) {
+	e, _ := newEngine(t)
+	e.SetActivityRecorder(nil)
+
+	e.HandleEvent(Event{UserID: "u1", Type: EventType("test_event")})
 }

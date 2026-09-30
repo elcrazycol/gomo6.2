@@ -28,6 +28,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
+import { ReportTrigger } from "@/components/moderation/ReportTrigger";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
@@ -182,6 +183,9 @@ const ThreadPostNode = ({
   const canReply = depth < MAX_POST_DEPTH;
   const canEdit = currentUserId === post.user_id;
   const canDelete = currentUserId === post.user_id;
+  // Reporting requires an authenticated user and applies to other people's
+  // posts (one report per user per post, enforced server-side).
+  const canReport = Boolean(currentUserId) && currentUserId !== post.user_id && !post.is_deleted;
 
   const editState = editorStates[`edit:${post.id}`] || {
     json: post.content_json ?? undefined,
@@ -418,7 +422,7 @@ const ThreadPostNode = ({
                   </Button>
                 )}
 
-                {!post.is_deleted && (canEdit || canDelete) && (
+                {!post.is_deleted && (canEdit || canDelete || canReport) && (
                   <>
                     <div className="hidden items-center gap-1 sm:flex">
                       {canEdit && (
@@ -450,6 +454,7 @@ const ThreadPostNode = ({
                           )}
                         </Button>
                       )}
+                      {canReport && <ReportTrigger targetType="post" targetId={post.id} />}
                     </div>
                     <>
                       <Button
@@ -494,6 +499,14 @@ const ThreadPostNode = ({
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />Удалить
                               </Button>
+                            )}
+                            {canReport && (
+                              <ReportTrigger
+                                variant="sheet"
+                                targetType="post"
+                                targetId={post.id}
+                                onBeforeOpen={() => setMobileActionsOpen(false)}
+                              />
                             )}
                           </div>
                         </SheetContent>

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
+	"github.com/gomo6/backend/internal/activity"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/authz"
@@ -131,6 +132,37 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	achEngine := achievements.New(db, achCatalog)
 	achEngine.RecomputeStats = func(userID string) { profiles.RecomputeUserProfileStats(db, userID) }
 
+	// Activity ledger: an append-only, content-free action log for moderation
+	// ("what did user X do") and honest time-series. The achievements engine
+	// records every content action it handles (they all emit one), through a
+	// bounded background pool — so this adds no request latency and degrades by
+	// dropping (counted in the bg metrics) rather than piling up. Partition
+	// maintenance runs at startup and every 6h, so no pg_cron is needed.
+	activityRecorder := activity.New(db)
+	achEngine.SetActivityRecorder(activityRecorder)
+	if err := activity.MaintainPartitions(context.Background(), db, 6); err != nil {
+		log.Printf("[activity] partition maintenance failed: %v", err)
+	}
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := activity.MaintainPartitions(context.Background(), db, 6); err != nil {
+				log.Printf("[activity] partition maintenance failed: %v", err)
+			}
+		}
+	}()
+
+	// Unified stats snapshot: interactions only MARK a user dirty (O(1),
+	// in-memory — see profiles.RecomputeUserProfileStats); a sweep recomputes
+	// them in one batched statement every 2 minutes, with a full reconciliation
+	// hourly. This replaces the per-interaction heavy UPDATE that used to run on
+	// the request path, and the per-view recompute that used to run while
+	// reading a profile.
+	go profiles.StatsSweepLoop(context.Background(), db, 2*time.Minute, time.Hour, func(err error) {
+		log.Printf("[stats] sweep failed: %v", err)
+	})
+
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
 	profilesHandler.SetAchievementEngine(achEngine)
@@ -185,6 +217,22 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
 	// Content moderation: report filing (any user) + moderator queue/triage.
 	moderationHandler := moderation.NewHandler(db, redis, wsHub)
+	// Sanction notifications ("почему меня забанили") go through the shared
+	// notification service.
+	moderationHandler.SetNotifier(notifService)
+
+	// Auto-signals: a scan of the activity ledger (bursts) and the content tables
+	// (duplicates) files system reports for a human to review — it never
+	// sanctions anyone. Runs once at startup, then every few minutes.
+	go func() {
+		ctx := context.Background()
+		if n, err := moderationHandler.RunSignalScan(ctx); err != nil {
+			log.Printf("[signals] initial scan failed: %v", err)
+		} else if n > 0 {
+			log.Printf("[signals] initial scan filed %d report(s)", n)
+		}
+		moderationHandler.StartSignalLoop(ctx)
+	}()
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	actieyeHandler := handlers.NewActiEyeHandler(db)
@@ -414,6 +462,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// their own.
 		rest.GET("/users/:id/customization", profilesHandler.GetUserCustomization)
 
+		// Profile statistics (public): snapshot totals, the garma breakdown and
+		// the daily activity series from the append-only ledger. One request
+		// replaces the ~10 the stats page used to make. Visibility follows the
+		// profile rules (private profile / private_hide_stats) and the detailed
+		// part needs show_detailed_stats for non-owners.
+		rest.GET("/users/:id/stats", profilesHandler.GetUserStats)
+
 		// Push VAPID public key (public) — needed by the frontend before it can
 		// call PushManager.subscribe / show the permission prompt.
 		rest.GET("/push/vapid-public-key", pushHandler.GetVAPIDPublicKey)
@@ -471,6 +526,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected := rest.Group("")
 		genericProtected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		genericProtected.Use(middleware.ValidateCSRFMiddleware())
+		// Mutating requests from a muted/banned user are rejected here.
+		genericProtected.Use(middleware.SanctionGateMiddleware(db, redis))
 
 		// The authenticated group for tables whose writes must run through the
 		// RLS middleware chain (emoji tables). Declared here so the generic
@@ -479,6 +536,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		protected := rest.Group("")
 		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		protected.Use(middleware.RLSSetConfigMiddleware(db))
+		// Mutating requests from a muted/banned user are rejected here (staff
+		// bypass inside the middleware).
+		protected.Use(middleware.SanctionGateMiddleware(db, redis))
 
 		// Generate every generic CRUD route from the registry: guest GETs on
 		// genericRead, authenticated GETs and writes on genericProtected, and
@@ -566,9 +626,47 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/moderation/reports",
 				middleware.AuthRateLimitMiddleware(moderationReportLimiter),
 				moderationHandler.CreateReport)
-			protected.GET("/moderation/reports", moderatorOrAdminMiddleware(db), moderationHandler.ListReports)
-			protected.POST("/moderation/posts/:postId/resolve", moderatorOrAdminMiddleware(db), moderationHandler.ResolvePostReports)
+			protected.GET("/moderation/reports", moderationReadMiddleware(db), moderationHandler.ListReports)
+			// One report in full: the report, its target, the action trail and the
+			// author's sanction/appeal chain.
+			protected.GET("/moderation/reports/:id", moderationReadMiddleware(db), moderationHandler.GetReport)
+			// Triage: close ONE report (resolve/reject) or every open report of a
+			// target. Every action is written to the append-only
+			// moderation_actions audit log.
+			protected.POST("/moderation/reports/:id/resolve", moderatorOrAdminMiddleware(db), moderationHandler.ResolveReport)
+			protected.POST("/moderation/reports/:id/reject", moderatorOrAdminMiddleware(db), moderationHandler.RejectReport)
+			protected.POST("/moderation/targets/:targetType/:targetId/resolve", moderatorOrAdminMiddleware(db), moderationHandler.ResolveTargetReports)
 			protected.DELETE("/moderation/posts/:postId", moderatorOrAdminMiddleware(db), moderationHandler.DeletePost)
+
+			// Dashboard + audit log (helper-readable).
+			protected.GET("/moderation/stats", moderationReadMiddleware(db), moderationHandler.GetStats)
+			protected.GET("/moderation/actions", moderationReadMiddleware(db), moderationHandler.ListActions)
+			// One audit entry in full.
+			protected.GET("/moderation/actions/:id", moderationReadMiddleware(db), moderationHandler.GetAction)
+
+			// Staff roles: helper/moderator/admin. Read by the moderation
+			// surface, granted and revoked by admins only.
+			protected.GET("/moderation/staff", moderationReadMiddleware(db), moderationHandler.ListStaff)
+			protected.POST("/moderation/staff", adminOnlyMiddleware(db), moderationHandler.GrantRole)
+			protected.DELETE("/moderation/staff/:userId/:role", adminOnlyMiddleware(db), moderationHandler.RevokeRole)
+
+			// Sanction appeals: any user appeals their own sanction; the queue is
+			// moderator-readable and decisions are moderator-only.
+			protected.POST("/moderation/appeals", moderationHandler.SubmitAppeal)
+			protected.GET("/moderation/appeals/mine", moderationHandler.ListMyAppeals)
+			protected.GET("/moderation/sanctions/mine", moderationHandler.ListMySanctions)
+			protected.GET("/moderation/appeals", moderationReadMiddleware(db), moderationHandler.ListAppeals)
+			protected.POST("/moderation/appeals/:id/accept", moderatorOrAdminMiddleware(db), moderationHandler.DecideAppeal)
+			protected.POST("/moderation/appeals/:id/reject", moderatorOrAdminMiddleware(db), moderationHandler.RejectAppeal)
+
+			// User card: sanctions, notes, reports for/against and the activity
+			// ledger. Reads are helper-readable; acting is moderator-only.
+			protected.GET("/moderation/users/:id", moderationReadMiddleware(db), moderationHandler.GetUserCard)
+			protected.GET("/moderation/users/:id/activity", moderationReadMiddleware(db), moderationHandler.GetUserActivity)
+			protected.POST("/moderation/users/:id/notes", moderatorOrAdminMiddleware(db), moderationHandler.AddUserNote)
+			protected.DELETE("/moderation/users/:id/notes/:noteId", moderatorOrAdminMiddleware(db), moderationHandler.DeleteUserNote)
+			protected.POST("/moderation/users/:id/sanctions", moderatorOrAdminMiddleware(db), moderationHandler.ApplySanction)
+			protected.DELETE("/moderation/users/:id/sanctions/:sanctionId", moderatorOrAdminMiddleware(db), moderationHandler.RevokeSanction)
 
 			// Drops
 			protected.GET("/user/drops", dropsHandler.GetDropsBalance)
@@ -1044,6 +1142,33 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		} else if err != nil {
 			log.Printf("[Achievements] backfill marker check failed: %v", err)
 		}
+	}
+}
+
+// moderationReadMiddleware allows helpers, moderators and admins — anyone who
+// may READ the moderation surface (queue, user cards, activity, audit, stats).
+// Helpers triage by reading; acting still requires moderatorOrAdminMiddleware.
+func moderationReadMiddleware(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claimsValue, exists := c.Get("claims")
+		claims, ok := claimsValue.(*auth.Claims)
+		if !exists || !ok || claims == nil || claims.UserID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			c.Abort()
+			return
+		}
+		allowed, err := authz.HasModerationReadAccess(c.Request.Context(), db, claims.UserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Role check failed"})
+			c.Abort()
+			return
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Moderation access required"})
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
 }
 

@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -304,5 +305,65 @@ func TestAnonymousViewerKeyCap(t *testing.T) {
 	other := ctxFor("198.51.100.9:4321")
 	if !h.anonymousViewerKeyAllowed(other, "forged-0") {
 		t.Fatal("a different IP must have its own key budget")
+	}
+}
+
+// ─────────── unified stats: views refresh the wall-post authors ───────────
+
+// captureRPCRecompute swaps the handler's stats refresher for a recorder, so a
+// test can assert which users were recomputed (the real one is async).
+func captureRPCRecompute(h *RPCHandler) *[]string {
+	var got []string
+	h.recomputeStatsFn = func(_ *sql.DB, userID string) { got = append(got, userID) }
+	return &got
+}
+
+// Newly recorded views change users.views_received_count, so the authors of the
+// viewed posts must be refreshed — in one batched lookup.
+func TestRecordWallViews_RefreshesAuthors(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	got := captureRPCRecompute(h)
+
+	mock.ExpectExec(`(?s)INSERT INTO profile_wall_post_views.*ON CONFLICT DO NOTHING`).
+		WithArgs("viewer-1", nil, sqlmock.AnyArg(), "viewer-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`SELECT DISTINCT author_id::text FROM profile_wall_posts`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"author_id"}).AddRow("author-1").AddRow("author-2"))
+
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
+		PostIDs: []string{viewPostUUID},
+	}, &auth.Claims{UserID: "viewer-1", Username: "viewer"})
+	h.RecordWallViews(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(*got) != 2 || (*got)[0] != "author-1" || (*got)[1] != "author-2" {
+		t.Fatalf("expected authors [author-1 author-2] refreshed, got %v", *got)
+	}
+}
+
+// Re-scrolls and revisits insert nothing (ON CONFLICT DO NOTHING → 0 rows), so
+// no author may be recomputed — otherwise every scroll would fan out recomputes.
+func TestRecordWallViews_NoNewRowsNoRecompute(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	got := captureRPCRecompute(h)
+
+	mock.ExpectExec(`(?s)INSERT INTO profile_wall_post_views.*ON CONFLICT DO NOTHING`).
+		WithArgs(nil, "anon-key-1", sqlmock.AnyArg(), "").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := testutil.NewRPCPostContext(recordWallViewsRequest{
+		PostIDs:   []string{viewPostUUID},
+		ViewerKey: "anon-key-1",
+	}, nil)
+	h.RecordWallViews(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(*got) != 0 {
+		t.Fatalf("expected no recompute when no view rows landed, got %v", *got)
 	}
 }

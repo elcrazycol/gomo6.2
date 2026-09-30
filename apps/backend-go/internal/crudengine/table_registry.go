@@ -607,11 +607,6 @@ var genericTables = []TableMeta{
 		UserScopedRead: true,
 	},
 	{
-		Name:       "user_bans",
-		ReadDenied: true,
-		// Same posture as reports: reads are sensitive, no routes registered.
-	},
-	{
 		Name:             "user_daily_visits",
 		ReadAccess:       ProtectedRead,
 		ReadWildcard:     true,

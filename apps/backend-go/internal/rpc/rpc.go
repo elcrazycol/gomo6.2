@@ -323,10 +323,18 @@ func (h *RPCHandler) insertPostAndNotify(userID, username string, req *models.Cr
 
 	h.recomputeStatsFn(h.db, userID)
 
-	achievements.EmitAchievement(h.achEngine, userID, achievements.EventCommentCreated)
+	achievements.EmitAchievementTarget(h.achEngine, userID, achievements.EventCommentCreated, "post", post.ID)
 
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
+	// Unified stats: the thread author's garma includes "replies by others in my
+	// threads" (see the formula in profiles.recomputeStatsSQL), so a reply
+	// changes the author's number even though the author did nothing. Only the
+	// commenter was refreshed before, which left that term stale until the
+	// author's next own action or profile view.
+	if threadAuthor != "" && threadAuthor != userID {
+		h.recomputeStatsFn(h.db, threadAuthor)
+	}
 	// Private posts (is_private = true) are DMs between the author and
 	// private_recipient_id. The thread author is not necessarily a participant in
 	// that DM, so no reply notification carrying a content snippet may reach them
@@ -665,9 +673,9 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 
 	h.recomputeStatsFn(h.db, userID)
 
-	achievements.EmitAchievement(h.achEngine, userID, achievements.EventEntryCreated)
+	achievements.EmitAchievementTarget(h.achEngine, userID, achievements.EventEntryCreated, "thread", thread.ID)
 	if len(req.ImageURLs) > 0 {
-		achievements.EmitAchievement(h.achEngine, userID, achievements.EventImageUploaded)
+		achievements.EmitAchievementTarget(h.achEngine, userID, achievements.EventImageUploaded, "thread", thread.ID)
 	}
 
 	if h.redis != nil {

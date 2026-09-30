@@ -1,17 +1,22 @@
 package moderation
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/cache"
-	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/notifications"
+	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // validCategories is the allow-list for the report category field. Values are
@@ -23,10 +28,23 @@ var validCategories = map[string]bool{
 // maxReasonRunes caps the report reason length in runes (mirrors the DB CHECK).
 const maxReasonRunes = 2000
 
+// Limits for the triage metadata and the queue page.
+const (
+	maxNoteRunes      = 1000
+	maxReasonCodeLen  = 64
+	defaultQueueLimit = 50
+	maxQueueLimit     = 200
+)
+
+// ──────────────────────────── Report creation ────────────────────────────
+
 // CreateReport — POST /api/v1/moderation/reports.
-// Body: { post_id, category, reason }. Any authenticated user may file one
-// report per post (UNIQUE(post_id, reporter_id)); a second attempt returns 409
-// with a stable code so the UI can render "you already reported this".
+//
+// Body: { target_type, target_id, category, reason }. The legacy shape
+// { post_id, … } is still accepted and normalised to target_type=wall_post.
+// Any authenticated user may file one report per target; a second attempt
+// returns 409 with a stable code so the UI can render "you already reported
+// this".
 func (h *Handler) CreateReport(c *gin.Context) {
 	claims := httpx.EnsureAuth(c)
 	if claims == nil {
@@ -34,57 +52,74 @@ func (h *Handler) CreateReport(c *gin.Context) {
 	}
 
 	var body struct {
-		PostID   string `json:"post_id"`
-		Category string `json:"category"`
-		Reason   string `json:"reason"`
+		TargetType string `json:"target_type"`
+		TargetID   string `json:"target_id"`
+		PostID     string `json:"post_id"` // legacy wall-post reports
+		Category   string `json:"category"`
+		Reason     string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
+	body.TargetType = strings.TrimSpace(body.TargetType)
+	body.TargetID = strings.TrimSpace(body.TargetID)
 	body.PostID = strings.TrimSpace(body.PostID)
 	body.Category = strings.TrimSpace(body.Category)
 	body.Reason = strings.TrimSpace(body.Reason)
 
-	if body.PostID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("post_id is required"))
+	if body.TargetType == "" && body.PostID != "" {
+		body.TargetType, body.TargetID = TargetWallPost, body.PostID
+	}
+	if _, ok := targetExistenceQuery[body.TargetType]; !ok {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid target_type"))
+		return
+	}
+	if _, err := uuid.Parse(body.TargetID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid target_id"))
 		return
 	}
 	if !validCategories[body.Category] {
 		body.Category = "other"
 	}
-	reasonLen := len([]rune(body.Reason))
-	if reasonLen < 1 || reasonLen > maxReasonRunes {
+	if n := len([]rune(body.Reason)); n < 1 || n > maxReasonRunes {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("reason must be between 1 and 2000 characters"))
 		return
 	}
 
-	// L5: the target post must exist. A report on a nonexistent post would
+	// L5: the target must exist. A report on a nonexistent target would
 	// otherwise be accepted and linger in the queue as a dangling row.
 	var exists bool
 	if err := h.db.QueryRowContext(c.Request.Context(),
-		`SELECT EXISTS(SELECT 1 FROM profile_wall_posts WHERE id = $1)`, body.PostID).Scan(&exists); err != nil {
-		httpx.ServerError(c, "lookup wall post", err)
+		targetExistenceQuery[body.TargetType], body.TargetID).Scan(&exists); err != nil {
+		httpx.ServerError(c, "lookup target", err)
 		return
 	}
 	if !exists {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Target not found"))
 		return
+	}
+
+	// post_id is a legacy convenience column for wall-post reports only.
+	var postIDArg interface{}
+	if body.TargetType == TargetWallPost {
+		postIDArg = body.TargetID
 	}
 
 	report := ReportItem{}
 	err := h.db.QueryRowContext(c.Request.Context(), `
-		INSERT INTO content_reports (post_id, reporter_id, category, reason)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (post_id, reporter_id) DO NOTHING
-		RETURNING id, post_id, reporter_id, category, reason, status, created_at`,
-		body.PostID, claims.UserID, body.Category, body.Reason,
-	).Scan(&report.ID, &report.PostID, &report.ReporterID, &report.Category, &report.Reason, &report.Status, &report.CreatedAt)
+		INSERT INTO content_reports (target_type, target_id, post_id, reporter_id, category, reason)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (target_type, target_id, reporter_id) DO NOTHING
+		RETURNING id, target_type, target_id, reporter_id, category, reason, status, created_at`,
+		body.TargetType, body.TargetID, postIDArg, claims.UserID, body.Category, body.Reason,
+	).Scan(&report.ID, &report.TargetType, &report.TargetID, &report.ReporterID,
+		&report.Category, &report.Reason, &report.Status, &report.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusConflict, gin.H{
 				"success": false,
-				"error":   "Вы уже пожаловались на эту запись",
+				"error":   "Вы уже пожаловались на это",
 				"code":    "report_already_exists",
 			})
 			return
@@ -96,68 +131,104 @@ func (h *Handler) CreateReport(c *gin.Context) {
 
 	var openCount int
 	if err := h.db.QueryRowContext(c.Request.Context(),
-		`SELECT COUNT(*) FROM content_reports WHERE post_id = $1 AND status = 'open'`, body.PostID).Scan(&openCount); err != nil {
+		`SELECT COUNT(*) FROM content_reports WHERE target_type = $1 AND target_id = $2 AND status = 'open'`,
+		body.TargetType, body.TargetID).Scan(&openCount); err != nil {
 		openCount = 0
 	}
 
-	// A fresh report changes the queue: evict any cached moderation-queue
-	// responses so the next fetch (and the realtime-triggered refetch)
-	// returns the new report immediately.
-	h.invalidateQueueCache()
-
-	// Realtime: push the fresh report to the "moderation" room so open
-	// moderation screens show it immediately (nil-hub safe).
+	// A fresh report changes the queue: evict cached queue responses and push
+	// the new report to open moderation screens (nil-hub safe).
+	h.invalidateModerationCache()
 	if h.hub != nil {
 		_ = h.hub.PublishNewReport(map[string]interface{}{
 			"id":          report.ID,
-			"post_id":     report.PostID,
+			"target_type": report.TargetType,
+			"target_id":   report.TargetID,
 			"reporter_id": report.ReporterID,
 			"category":    report.Category,
 			"open_count":  openCount,
 		})
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"success":    true,
-		"data":       report,
-		"open_count": openCount,
-	})
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": report, "open_count": openCount})
+}
+
+// ──────────────────────────── Queue ────────────────────────────
+
+// queueHavingClause maps the ?status filter to the HAVING clause that selects
+// targets. Whitelisted — no user input reaches the SQL text.
+func queueHavingClause(status string) string {
+	switch status {
+	case "resolved":
+		return `COUNT(*) FILTER (WHERE status = 'resolved') > 0`
+	case "rejected":
+		return `COUNT(*) FILTER (WHERE status = 'rejected') > 0`
+	case "all":
+		return `TRUE`
+	default: // "open"
+		return `COUNT(*) FILTER (WHERE status = 'open') > 0`
+	}
 }
 
 // ListReports — GET /api/v1/moderation/reports.
-// Moderator-only. Returns the moderation queue: every post with at least one
-// open report, grouped under one entry per post, sorted by open report count
-// (descending) and then by the newest report (descending) — more reports push
-// a post higher. Resolved reports stay in the expanded per-post list.
+//
+// Moderator-only. Returns the moderation queue grouped per target, sorted by
+// open report count (desc) then newest report (desc), with filters:
+//
+//	?status=open|resolved|rejected|all  (default open)
+//	?category=<category>                (optional)
+//	?target_type=<type>                 (optional)
+//	?limit=<1..200> ?offset=<n>         (grouped pagination)
+//
+// Targets and their reports are fetched in batch (one query per target type),
+// so the queue does not issue a query per row.
 func (h *Handler) ListReports(c *gin.Context) {
-	claims := httpx.EnsureAuth(c)
-	if claims == nil {
-		return
-	}
-	mod, err := isModerator(h.db, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check moderator role", err)
-		return
-	}
-	if !mod {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Moderator access required"))
+	if !h.requireModerationRead(c) {
 		return
 	}
 
-	// All reports (open + resolved) of every post that still has >= 1 open
-	// report, with the reporter profile embedded, newest first.
-	rows, err := h.db.QueryContext(c.Request.Context(), `
-		SELECT r.id, r.post_id, r.reporter_id, r.category, r.reason, r.status, r.created_at,
-		       COALESCE(u.username, ''),
-		       u.display_name,
-		       u.avatar_url
-		FROM content_reports r
-		LEFT JOIN users u ON u.id = r.reporter_id
-		WHERE EXISTS (
-			SELECT 1 FROM content_reports open_r
-			WHERE open_r.post_id = r.post_id AND open_r.status = 'open'
-		)
-		ORDER BY r.created_at DESC`)
+	status := c.Query("status")
+	switch status {
+	case "open", "resolved", "rejected", "all":
+	default:
+		status = "open"
+	}
+	category := c.Query("category")
+	if !validCategories[category] {
+		category = ""
+	}
+	targetType := c.Query("target_type")
+	if _, ok := targetExistenceQuery[targetType]; !ok {
+		targetType = ""
+	}
+	limit := clampInt(parseIntOr(c.Query("limit"), defaultQueueLimit), 1, maxQueueLimit)
+	offset := parseNonNegative(c.Query("offset"))
+
+	having := queueHavingClause(status)
+	const where = `WHERE ($1 = '' OR category = $1) AND ($2 = '' OR target_type = $2)`
+
+	ctx := c.Request.Context()
+
+	var total int
+	if err := h.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM (SELECT 1 FROM content_reports `+where+
+			` GROUP BY target_type, target_id HAVING `+having+`) t`,
+		category, targetType).Scan(&total); err != nil {
+		httpx.ServerError(c, "count reports", err)
+		return
+	}
+
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT target_type, target_id::text,
+		       COUNT(*) FILTER (WHERE status = 'open')::int AS open_count,
+		       COUNT(*)::int AS total_count,
+		       MAX(created_at) AS last_at
+		FROM content_reports
+		`+where+`
+		GROUP BY target_type, target_id
+		HAVING `+having+`
+		ORDER BY open_count DESC, last_at DESC
+		LIMIT $3 OFFSET $4`, category, targetType, limit, offset)
 	if err != nil {
 		httpx.ServerError(c, "list reports", err)
 		return
@@ -165,60 +236,194 @@ func (h *Handler) ListReports(c *gin.Context) {
 	defer rows.Close()
 
 	groups := []*ReportGroup{}
-	groupByPost := map[string]*ReportGroup{}
+	types := []string{}
+	ids := []string{}
 	for rows.Next() {
-		var item ReportItem
-		if err := rows.Scan(&item.ID, &item.PostID, &item.ReporterID, &item.Category,
-			&item.Reason, &item.Status, &item.CreatedAt,
-			&item.Reporter.Username, &item.Reporter.DisplayName, &item.Reporter.AvatarURL); err != nil {
-			httpx.ServerError(c, "scan report", err)
+		g := &ReportGroup{}
+		if err := rows.Scan(&g.Target.Type, &g.Target.ID, &g.OpenCount, &g.TotalCount, &g.LastAt); err != nil {
+			httpx.ServerError(c, "scan report group", err)
 			return
 		}
-		group, ok := groupByPost[item.PostID]
-		if !ok {
-			group = &ReportGroup{}
-			groupByPost[item.PostID] = group
-			groups = append(groups, group)
-		}
-		group.Reports = append(group.Reports, item)
-		if item.Status == "open" {
-			group.OpenCount++
-			group.ReportCount++
-		}
+		groups = append(groups, g)
+		types = append(types, g.Target.Type)
+		ids = append(ids, g.Target.ID)
 	}
 	if err := rows.Err(); err != nil {
-		httpx.ServerError(c, "list reports", err)
+		httpx.ServerError(c, "iterate reports", err)
 		return
 	}
 
-	// Attach the enriched post row to each group (author embed + interaction
-	// counts, same shape as the wall GET) and drop groups whose post vanished
-	// between the report query and here.
-	kept := groups[:0]
-	for _, group := range groups {
-		post, err := h.fetchPostWithAuthor(group.Reports[0].PostID)
-		if err != nil || post == nil {
-			continue
-		}
-		group.Post = post
-		kept = append(kept, group)
-	}
-	groups = kept
+	// One query for all reports of the page's targets, one query per target
+	// type for the previews — no per-row lookups.
+	byTarget := h.fetchReportsForTargets(ctx, types, ids)
+	previews := h.fetchTargetPreviews(ctx, types, ids)
 
-	// Queue order: more open reports first, newest report breaks ties.
-	sortReports(groups)
-
-	resp := make([]ReportGroup, 0, len(groups))
 	for _, g := range groups {
-		resp = append(resp, *g)
+		key := g.Target.Type + ":" + g.Target.ID
+		g.Reports = byTarget[key]
+		if g.Reports == nil {
+			g.Reports = []ReportItem{}
+		}
+		if p, ok := previews[g.Target.ID]; ok {
+			p.Type = g.Target.Type
+			g.Target = p
+		}
 	}
-	c.JSON(http.StatusOK, models.SuccessResponse(resp))
+
+	c.JSON(http.StatusOK, models.SuccessResponse(QueuePage{
+		Items:  derefGroups(groups),
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+	}))
 }
 
-// ResolvePostReports — POST /api/v1/moderation/posts/:postId/resolve.
-// Moderator-only. Marks every open report on the post as resolved WITHOUT
-// deleting the post (the content stays up — the reports are what's handled).
-func (h *Handler) ResolvePostReports(c *gin.Context) {
+func derefGroups(groups []*ReportGroup) []ReportGroup {
+	out := make([]ReportGroup, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, *g)
+	}
+	return out
+}
+
+// fetchReportsForTargets loads every report of the page's targets in one query,
+// keyed by "type:id".
+func (h *Handler) fetchReportsForTargets(ctx context.Context, types, ids []string) map[string][]ReportItem {
+	out := map[string][]ReportItem{}
+	if len(types) == 0 {
+		return out
+	}
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT r.id, r.target_type, r.target_id::text, COALESCE(r.reporter_id::text, ''), r.category,
+		       r.reason, r.status, r.created_at, r.reason_code, r.resolution_note,
+		       COALESCE(u.username, ''), u.display_name, u.avatar_url, r.source
+		FROM content_reports r
+		LEFT JOIN users u ON u.id = r.reporter_id
+		WHERE (r.target_type, r.target_id) IN (
+			SELECT t, i FROM unnest($1::text[], $2::uuid[]) AS x(t, i)
+		)
+		ORDER BY r.created_at DESC`, pq.Array(types), pq.Array(ids))
+	if err != nil {
+		log.Printf("[moderation] fetch reports failed: %v", err)
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var it ReportItem
+		if err := rows.Scan(&it.ID, &it.TargetType, &it.TargetID, &it.ReporterID,
+			&it.Category, &it.Reason, &it.Status, &it.CreatedAt, &it.ReasonCode, &it.Note,
+			&it.Reporter.Username, &it.Reporter.DisplayName, &it.Reporter.AvatarURL, &it.Source); err != nil {
+			log.Printf("[moderation] scan report failed: %v", err)
+			return out
+		}
+		key := it.TargetType + ":" + it.TargetID
+		out[key] = append(out[key], it)
+	}
+	return out
+}
+
+// fetchTargetPreviews loads the display context of the page's targets: one
+// query per target type present (batch, never per row). Targets that no longer
+// exist are simply absent from the map (the caller marks them exists=false).
+func (h *Handler) fetchTargetPreviews(ctx context.Context, types, ids []string) map[string]TargetInfo {
+	out := map[string]TargetInfo{}
+	if len(types) == 0 {
+		return out
+	}
+	idsByType := map[string][]string{}
+	seen := map[string]bool{}
+	for i, t := range types {
+		key := t + ":" + ids[i]
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		idsByType[t] = append(idsByType[t], ids[i])
+	}
+	// Deterministic type order: map iteration is random, and the preview queries
+	// must run in a stable order (tests, and a predictable query log).
+	typeKeys := make([]string, 0, len(idsByType))
+	for t := range idsByType {
+		typeKeys = append(typeKeys, t)
+	}
+	sort.Strings(typeKeys)
+
+	for _, t := range typeKeys {
+		typeIDs := idsByType[t]
+		q, ok := targetPreviewQuery[t]
+		if !ok {
+			continue
+		}
+		rows, err := h.db.QueryContext(ctx, q, pq.Array(typeIDs))
+		if err != nil {
+			log.Printf("[moderation] preview %s failed: %v", t, err)
+			continue
+		}
+		for rows.Next() {
+			var (
+				p          TargetInfo
+				authorID   sql.NullString
+				ctx1, ctx2 sql.NullString
+			)
+			p.Type = t
+			p.Exists = true
+			if err := rows.Scan(&p.ID, &p.Title, &p.Content, &p.AuthorUsername, &authorID,
+				&p.CreatedAt, &ctx1, &ctx2); err != nil {
+				log.Printf("[moderation] scan preview %s failed: %v", t, err)
+				break
+			}
+			p.AuthorID = authorID.String
+			p.Link = buildTargetLink(t, p.ID, ctx1.String, ctx2.String)
+			out[p.ID] = p
+		}
+		rows.Close()
+	}
+	return out
+}
+
+// buildTargetLink returns the in-app path that opens the target, or "" when the
+// context needed to build it is missing. The path shapes mirror App.tsx routes
+// (profile wall post, thread page, profile).
+func buildTargetLink(targetType, id, ctx1, ctx2 string) string {
+	switch targetType {
+	case TargetWallPost:
+		if ctx1 == "" {
+			return ""
+		}
+		return "/profile/" + ctx1 + "/wall/" + id
+	case TargetWallComment:
+		if ctx1 == "" || ctx2 == "" {
+			return ""
+		}
+		return "/profile/" + ctx1 + "/wall/" + ctx2
+	case TargetThread:
+		return "/thread/" + id
+	case TargetPost:
+		if ctx1 == "" {
+			return ""
+		}
+		return "/thread/" + ctx1
+	case TargetUser:
+		return "/profile/" + id
+	case TargetGomosub:
+		if ctx1 == "" {
+			return ""
+		}
+		return "/g/" + ctx1
+	}
+	return ""
+}
+
+// ──────────────────────────── Triage ────────────────────────────
+
+// ResolveReport — POST /api/v1/moderation/reports/:id/resolve.
+// RejectReport — POST /api/v1/moderation/reports/:id/reject.
+// Both close ONE open report, record the reason in the report and write the
+// audit row in the same transaction.
+func (h *Handler) ResolveReport(c *gin.Context) { h.triageReport(c, "resolved") }
+func (h *Handler) RejectReport(c *gin.Context)  { h.triageReport(c, "rejected") }
+
+func (h *Handler) triageReport(c *gin.Context, status string) {
 	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
@@ -232,41 +437,146 @@ func (h *Handler) ResolvePostReports(c *gin.Context) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Moderator access required"))
 		return
 	}
-
-	postID := c.Param("postId")
-	if postID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("postId is required"))
+	id := c.Param("id")
+	if _, err := uuid.Parse(id); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid report id"))
 		return
 	}
 
-	var exists bool
-	if err := h.db.QueryRowContext(c.Request.Context(),
-		`SELECT EXISTS(SELECT 1 FROM profile_wall_posts WHERE id = $1)`, postID).Scan(&exists); err != nil {
-		httpx.ServerError(c, "lookup wall post", err)
-		return
+	var body struct {
+		ReasonCode string `json:"reason_code"`
+		Note       string `json:"note"`
 	}
-	if !exists {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
-		return
-	}
+	_ = c.ShouldBindJSON(&body) // body is optional
+	reasonCode := trimRunes(body.ReasonCode, maxReasonCodeLen)
+	note := trimRunes(body.Note, maxNoteRunes)
 
-	res, err := h.db.ExecContext(c.Request.Context(),
-		`UPDATE content_reports SET status = 'resolved' WHERE post_id = $1 AND status = 'open'`, postID)
+	var targetType, targetID, reporterID string
+	var reporterNull sql.NullString
+	err = h.withAudit(c.Request.Context(), func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(c.Request.Context(), `
+			UPDATE content_reports
+			SET status = $1, reason_code = NULLIF($2, ''), resolution_note = NULLIF($3, ''),
+			    resolved_by = $4, resolved_at = NOW()
+			WHERE id = $5 AND status = 'open'
+			RETURNING target_type, target_id::text, reporter_id::text`,
+			status, reasonCode, note, claims.UserID, id).Scan(&targetType, &targetID, &reporterNull); err != nil {
+			return err
+		}
+		reporterID = reporterNull.String
+		return insertAction(c.Request.Context(), tx, claims.UserID, status, targetType, targetID, id, reasonCode, note)
+	})
+	if err == sql.ErrNoRows {
+		// Distinguish "already handled" from "not found".
+		var current string
+		if e := h.db.QueryRowContext(c.Request.Context(),
+			`SELECT status FROM content_reports WHERE id = $1`, id).Scan(&current); e == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Report not found"))
+		} else {
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "Report already handled",
+				"code":    "report_already_handled",
+			})
+		}
+		return
+	}
 	if err != nil {
-		httpx.ServerError(c, "resolve reports", err)
+		httpx.ServerError(c, "triage report", err)
 		return
 	}
-	n, _ := res.RowsAffected()
-	h.invalidateQueueCache()
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"post_id": postID, "resolved": n}})
+	h.invalidateModerationCache()
+
+	// Tell the reporter their report was handled. Best-effort; system reports
+	// have no reporter.
+	if h.notif != nil && reporterID != "" {
+		notifType := "report_resolved"
+		if status == "rejected" {
+			notifType = "report_rejected"
+		}
+		_, _ = h.notif.CreateNotification(notifications.CreateParams{
+			RecipientID: reporterID,
+			Type:        notifType,
+			Params:      &models.NotificationParams{Actor: claims.Username},
+			ActorID:     &claims.UserID,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"id": id, "status": status, "target_type": targetType, "target_id": targetID,
+	}})
 }
 
+// ResolveTargetReports — POST /api/v1/moderation/targets/:targetType/:targetId/resolve.
+// Moderator-only. Closes EVERY open report on the target in one transaction and
+// logs a single audit row. (The content itself is not touched — deletion is a
+// separate action.)
+func (h *Handler) ResolveTargetReports(c *gin.Context) {
+	claims := httpx.EnsureAuth(c)
+	if claims == nil {
+		return
+	}
+	mod, err := isModerator(h.db, claims.UserID)
+	if err != nil {
+		httpx.ServerError(c, "check moderator role", err)
+		return
+	}
+	if !mod {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Moderator access required"))
+		return
+	}
+	targetType := c.Param("targetType")
+	if _, ok := targetExistenceQuery[targetType]; !ok {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid target_type"))
+		return
+	}
+	targetID := c.Param("targetId")
+	if _, err := uuid.Parse(targetID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid target_id"))
+		return
+	}
+
+	var body struct {
+		ReasonCode string `json:"reason_code"`
+		Note       string `json:"note"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	reasonCode := trimRunes(body.ReasonCode, maxReasonCodeLen)
+	note := trimRunes(body.Note, maxNoteRunes)
+
+	var resolved int64
+	err = h.withAudit(c.Request.Context(), func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(c.Request.Context(), `
+			UPDATE content_reports
+			SET status = 'resolved', reason_code = NULLIF($3, ''), resolution_note = NULLIF($4, ''),
+			    resolved_by = $5, resolved_at = NOW()
+			WHERE target_type = $1 AND target_id = $2 AND status = 'open'`,
+			targetType, targetID, reasonCode, note, claims.UserID)
+		if err != nil {
+			return err
+		}
+		resolved, _ = res.RowsAffected()
+		return insertAction(c.Request.Context(), tx, claims.UserID, "resolve_target", targetType, targetID, "", reasonCode, note)
+	})
+	if err != nil {
+		httpx.ServerError(c, "resolve target reports", err)
+		return
+	}
+
+	h.invalidateModerationCache()
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"target_type": targetType, "target_id": targetID, "resolved": resolved,
+	}})
+}
+
+// ──────────────────────────── Content actions ────────────────────────────
+
 // DeletePost — DELETE /api/v1/moderation/posts/:postId.
-// Moderator-only. Hard-deletes the wall post (its reports, comments, likes and
-// album links cascade via FK), invalidates every cache that embeds it (the
-// owner's wall list, the standalone post page, the unified feed) and pushes a
-// delete_wall_post realtime event so open walls drop it immediately.
+// Moderator-only. Hard-deletes the wall post (its comments/likes cascade via
+// FK), purges its reports (the polymorphic FK is gone) and writes the audit row
+// in one transaction, then invalidates every cache that embeds the post and
+// pushes a delete_wall_post realtime event.
 func (h *Handler) DeletePost(c *gin.Context) {
 	claims := httpx.EnsureAuth(c)
 	if claims == nil {
@@ -290,47 +600,91 @@ func (h *Handler) DeletePost(c *gin.Context) {
 
 	row := map[string]interface{}{"id": postID}
 	var ownerID string
-	err = h.db.QueryRowContext(c.Request.Context(),
-		`SELECT user_id FROM profile_wall_posts WHERE id = $1`, postID).Scan(&ownerID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
-			return
+	err = h.withAudit(c.Request.Context(), func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(c.Request.Context(),
+			`SELECT user_id FROM profile_wall_posts WHERE id = $1`, postID).Scan(&ownerID); err != nil {
+			return err
 		}
-		httpx.ServerError(c, "lookup wall post", err)
+		if _, err := tx.ExecContext(c.Request.Context(),
+			`DELETE FROM profile_wall_posts WHERE id = $1`, postID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(c.Request.Context(),
+			`DELETE FROM content_reports WHERE target_type = $1 AND target_id = $2`,
+			TargetWallPost, postID); err != nil {
+			return err
+		}
+		return insertAction(c.Request.Context(), tx, claims.UserID, "delete_content", TargetWallPost, postID, "", "", "")
+	})
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
+		return
+	}
+	if err != nil {
+		httpx.ServerError(c, "delete wall post", err)
 		return
 	}
 	row["user_id"] = ownerID
 
-	if _, err := h.db.ExecContext(c.Request.Context(),
-		`DELETE FROM profile_wall_posts WHERE id = $1`, postID); err != nil {
-		httpx.ServerError(c, "delete wall post", err)
-		return
-	}
-
-	h.invalidateQueueCache()
+	h.invalidateModerationCache()
 	h.invalidatePostCaches(c, row)
-
-	// Realtime: tell open walls to drop the deleted post (nil-hub safe).
 	if h.hub != nil {
 		_ = h.hub.PublishDeleteWallPost(row)
 	}
-
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"id": postID}})
 }
 
-// invalidateQueueCache clears every cached moderation-queue response so a new
-// report / resolution / deletion is reflected on the next fetch.
-func (h *Handler) invalidateQueueCache() {
+// ──────────────────────────── Helpers ────────────────────────────
+
+// withAudit runs fn in a transaction. Moderation mutations and their audit row
+// commit together — an action can never be applied without a record of who did
+// it and why.
+func (h *Handler) withAudit(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// insertAction appends one moderation audit row.
+func insertAction(ctx context.Context, tx *sql.Tx, moderatorID, action, targetType, targetID, reportID, reasonCode, note string) error {
+	var reportArg interface{}
+	if reportID != "" {
+		reportArg = reportID
+	}
+	var rcArg, noteArg interface{}
+	if reasonCode != "" {
+		rcArg = reasonCode
+	}
+	if note != "" {
+		noteArg = note
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO moderation_actions (moderator_id, action, target_type, target_id, report_id, reason_code, note)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		moderatorID, action, targetType, targetID, reportArg, rcArg, noteArg)
+	return err
+}
+
+// invalidateModerationCache clears every cached moderation response (the queue,
+// user cards, activity logs). Moderation is no longer served from the data cache
+// at all, but this also purges keys written before that change and any other
+// cache that ever embeds moderation data.
+func (h *Handler) invalidateModerationCache() {
 	if h.redis == nil {
 		return
 	}
-	cache.InvalidateByPattern(h.redis, "data:/api/v1/moderation/reports*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/moderation*")
 }
 
 // invalidatePostCaches evicts every cached response that embeds the deleted
 // post: the owner's wall list, the standalone post page (+ its comments/likes/
-// repost lists) and the unified feed. Mirrors the wall write-path deletions.
+// repost lists) and the unified feed.
 func (h *Handler) invalidatePostCaches(c *gin.Context, row map[string]interface{}) {
 	if h.redis == nil {
 		return
@@ -349,82 +703,41 @@ func (h *Handler) invalidatePostCaches(c *gin.Context, row map[string]interface{
 	cache.InvalidateCacheForFeed(h.redis)
 }
 
-// sortReports orders queue groups by open report count (desc) then newest
-// report (desc) — more reports push a post higher in the queue.
-func sortReports(groups []*ReportGroup) {
-	sort.SliceStable(groups, func(i, j int) bool {
-		a, b := groups[i], groups[j]
-		if a.OpenCount != b.OpenCount {
-			return a.OpenCount > b.OpenCount
-		}
-		aLatest := a.Reports[0].CreatedAt
-		bLatest := b.Reports[0].CreatedAt
-		if aLatest != nil && bLatest != nil && !aLatest.Equal(*bLatest) {
-			return aLatest.After(*bLatest)
-		}
-		return aLatest == nil && bLatest != nil
-	})
+// trimRunes trims space and caps a string to n runes.
+func trimRunes(s string, n int) string {
+	s = strings.TrimSpace(s)
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
-// fetchPostWithAuthor returns one wall post in the same enriched shape the
-// wall GET serves (author embed + interaction counts), or nil when the post is
-// gone. Moderators see posts even on private walls — reports are filed by
-// people who already saw the content.
-func (h *Handler) fetchPostWithAuthor(id string) (map[string]interface{}, error) {
-	q := `
-SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
-       p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
-       (SELECT COUNT(*) FROM profile_wall_post_likes l WHERE l.post_id = p.id) AS likes_count,
-       (SELECT COUNT(*) FROM profile_wall_post_comments cm WHERE cm.post_id = p.id) AS comments_count,
-       (SELECT COUNT(*) FROM profile_wall_post_reposts r WHERE r.post_id = p.id) AS reposts_count,
-       (SELECT COUNT(*) FROM profile_wall_post_views v WHERE v.post_id = p.id) AS views_count,
-       COALESCE(json_build_object(
-           'username', u.username,
-           'display_name', u.display_name,
-           'nickname_emoji_id', u.nickname_emoji_id,
-           'is_anonymous', COALESCE(u.is_anonymous, false),
-           'avatar_url', u.avatar_url
-       ), '{}'::json) AS author
-FROM profile_wall_posts p
-LEFT JOIN users u ON u.id = p.author_id
-WHERE p.id = $1`
-	return h.fetchOneRow(q, id)
-}
-
-func (h *Handler) fetchOneRow(q string, args ...interface{}) (map[string]interface{}, error) {
-	rows, err := h.db.Query(q, args...)
+func parseIntOr(s string, fallback int) int {
+	if s == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(s)
 	if err != nil {
-		return nil, err
+		return fallback
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		return nil, sql.ErrNoRows
+	return n
+}
+
+func parseNonNegative(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0
 	}
-	columns, _ := rows.Columns()
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
-	for i := range columns {
-		valuePtrs[i] = &values[i]
+	return n
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
 	}
-	if err := rows.Scan(valuePtrs...); err != nil {
-		return nil, err
+	if v > hi {
+		return hi
 	}
-	row := make(map[string]interface{})
-	for i, col := range columns {
-		val := values[i]
-		if col == "author" {
-			row[col] = crud.DecodeJSONBMap(val)
-			continue
-		}
-		if col == "content_json" || col == "attachments" {
-			row[col] = crud.DecodeJSONB(val)
-			continue
-		}
-		if b, ok := val.([]byte); ok {
-			row[col] = string(b)
-		} else {
-			row[col] = val
-		}
-	}
-	return row, nil
+	return v
 }

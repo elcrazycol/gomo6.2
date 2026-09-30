@@ -207,20 +207,6 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		}
 	}
 
-	if idq := c.Query("id"); idq != "" {
-		singleID := ""
-		if strings.HasPrefix(idq, "eq.") {
-			singleID = strings.TrimPrefix(idq, "eq.")
-		} else if !strings.HasPrefix(idq, "in.(") {
-			singleID = idq
-		}
-		if singleID != "" {
-			if _, err := uuid.Parse(singleID); err == nil {
-				profilepkg.RecomputeUserProfileStats(h.db, singleID)
-			}
-		}
-	}
-
 	// Handle ordering
 	query += " ORDER BY created_at DESC"
 
@@ -299,68 +285,75 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		profiles = append(profiles, profile)
 	}
 
-	// Private profile: strip sensitive fields for non-friends
+	// Private profile: strip sensitive fields for non-friends.
+	//
+	// The visibility of the whole page is resolved with one privacy_settings
+	// read (+ at most one friendships read) instead of the two per-row queries
+	// this loop used to issue — that per-row GetSettings/IsMutualFriend pair was
+	// an N+1 costing up to 200 round trips for a 100-profile page and dominated
+	// the endpoint's p95 on cache misses. Fail closed: if the visibility load
+	// itself fails, nothing may be served unfiltered.
 	var viewerID string
 	if claims, exists := c.Get("claims"); exists {
 		if uc, ok := claims.(*auth.Claims); ok {
 			viewerID = uc.UserID
 		}
 	}
+	targetIDs := make([]string, len(profiles))
 	for i := range profiles {
+		targetIDs[i] = profiles[i].ID
+	}
+	visibility, err := privacy.ResolveProfileVisibilityBatch(h.db, viewerID, targetIDs)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+
+	for i := range profiles {
+		p := &profiles[i]
 		// Email is private PII — only the profile owner may ever see it.
 		// Public profiles must not leak it to anonymous visitors or other users.
-		if viewerID != profiles[i].ID {
-			profiles[i].Email = nil
+		if viewerID != p.ID {
+			p.Email = nil
 		}
-		shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, profiles[i].ID)
-		if err != nil {
-			continue
-		}
-		if shouldFilter {
-			if ps.PrivateHideAvatar {
-				profiles[i].AvatarURL = nil
-				profiles[i].BackgroundURL = nil
+		vis := visibility[p.ID]
+		if vis.Filter {
+			if vis.HideAvatar {
+				p.AvatarURL = nil
+				p.BackgroundURL = nil
 			}
-			profiles[i].Bio = nil
-			profiles[i].BioJSON = nil
-			profiles[i].Garma = nil
-			profiles[i].PostCount = nil
-			profiles[i].ThreadCount = nil
-			profiles[i].WallPostCount = nil
-			profiles[i].CommentCount = nil
-			profiles[i].LikesReceivedCount = nil
-			profiles[i].LikesGivenCount = nil
-			profiles[i].ViewsReceivedCount = nil
-			profiles[i].IsOnline = false
-			profiles[i].LastSeen = nil
+			p.Bio = nil
+			p.BioJSON = nil
+			p.Garma = nil
+			p.PostCount = nil
+			p.ThreadCount = nil
+			p.WallPostCount = nil
+			p.CommentCount = nil
+			p.LikesReceivedCount = nil
+			p.LikesGivenCount = nil
+			p.ViewsReceivedCount = nil
+			p.IsOnline = false
+			p.LastSeen = nil
 			continue
 		}
 		// H3 (security audit): the avatar/stats toggles must also apply to
 		// PUBLIC profiles — otherwise "hide avatar"/"hide stats" is a no-op
 		// for the majority of users. Owner and mutual friends always see them.
-		if !ps.PrivateProfile && viewerID != profiles[i].ID {
-			if ps.PrivateHideAvatar || ps.PrivateHideStats {
-				isFriend := false
-				if viewerID != "" {
-					isFriend, _ = privacy.IsMutualFriend(h.db, viewerID, profiles[i].ID)
-				}
-				if ps.PrivateHideAvatar && !isFriend {
-					profiles[i].AvatarURL = nil
-					profiles[i].BackgroundURL = nil
-				}
-				if ps.PrivateHideStats && !isFriend {
-					profiles[i].Garma = nil
-					profiles[i].PostCount = nil
-					profiles[i].ThreadCount = nil
-					profiles[i].WallPostCount = nil
-					profiles[i].CommentCount = nil
-					profiles[i].LikesReceivedCount = nil
-					profiles[i].LikesGivenCount = nil
-					profiles[i].ViewsReceivedCount = nil
-					profiles[i].IsOnline = false
-					profiles[i].LastSeen = nil
-				}
-			}
+		if vis.HideAvatar {
+			p.AvatarURL = nil
+			p.BackgroundURL = nil
+		}
+		if vis.HideStats {
+			p.Garma = nil
+			p.PostCount = nil
+			p.ThreadCount = nil
+			p.WallPostCount = nil
+			p.CommentCount = nil
+			p.LikesReceivedCount = nil
+			p.LikesGivenCount = nil
+			p.ViewsReceivedCount = nil
+			p.IsOnline = false
+			p.LastSeen = nil
 		}
 	}
 
@@ -379,9 +372,6 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 // @Router       /profiles/{id} [get]
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
-	if _, err := uuid.Parse(id); err == nil {
-		profilepkg.RecomputeUserProfileStats(h.db, id)
-	}
 
 	query := `
 		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
@@ -446,7 +436,11 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		}
 	}
 
-	// Private profile: strip sensitive fields for non-friends
+	// Private profile: strip sensitive fields for non-friends. Resolved through
+	// the same batched helper GetProfiles uses (a single target here), so the
+	// owner/private/public rules can never drift between the two endpoints.
+	// Fail closed: if the visibility load fails, nothing may be served
+	// unfiltered.
 	var viewerID string
 	if claims, exists := c.Get("claims"); exists {
 		if uc, ok := claims.(*auth.Claims); ok {
@@ -457,9 +451,14 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	if viewerID != id {
 		profile.Email = nil
 	}
-	shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, id)
-	if err == nil && shouldFilter {
-		if ps.PrivateHideAvatar {
+	visibility, err := privacy.ResolveProfileVisibilityBatch(h.db, viewerID, []string{id})
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	vis := visibility[id]
+	if vis.Filter {
+		if vis.HideAvatar {
 			profile.AvatarURL = nil
 			profile.BackgroundURL = nil
 		}
@@ -475,30 +474,24 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		profile.ViewsReceivedCount = nil
 		profile.IsOnline = false
 		profile.LastSeen = nil
-	} else if err == nil && !ps.PrivateProfile && viewerID != id {
+	} else {
 		// H3 (security audit): public-profile avatar/stats toggles must not be
 		// no-ops. Owner and mutual friends always see them.
-		if ps.PrivateHideAvatar || ps.PrivateHideStats {
-			isFriend := false
-			if viewerID != "" {
-				isFriend, _ = privacy.IsMutualFriend(h.db, viewerID, id)
-			}
-			if ps.PrivateHideAvatar && !isFriend {
-				profile.AvatarURL = nil
-				profile.BackgroundURL = nil
-			}
-			if ps.PrivateHideStats && !isFriend {
-				profile.Garma = nil
-				profile.PostCount = nil
-				profile.ThreadCount = nil
-				profile.WallPostCount = nil
-				profile.CommentCount = nil
-				profile.LikesReceivedCount = nil
-				profile.LikesGivenCount = nil
-				profile.ViewsReceivedCount = nil
-				profile.IsOnline = false
-				profile.LastSeen = nil
-			}
+		if vis.HideAvatar {
+			profile.AvatarURL = nil
+			profile.BackgroundURL = nil
+		}
+		if vis.HideStats {
+			profile.Garma = nil
+			profile.PostCount = nil
+			profile.ThreadCount = nil
+			profile.WallPostCount = nil
+			profile.CommentCount = nil
+			profile.LikesReceivedCount = nil
+			profile.LikesGivenCount = nil
+			profile.ViewsReceivedCount = nil
+			profile.IsOnline = false
+			profile.LastSeen = nil
 		}
 	}
 

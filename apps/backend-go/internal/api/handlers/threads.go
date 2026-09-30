@@ -16,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/moderation"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -694,6 +695,10 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 		return
 	}
+
+	// Polymorphic reports have no FK cascade — drop this thread's reports
+	// explicitly so they cannot linger as orphan queue rows.
+	_ = moderation.PurgeReportsForTarget(c.Request.Context(), h.db, moderation.TargetThread, id)
 
 	if ownerID.Valid {
 		profiles.RecomputeUserProfileStats(h.db, ownerID.String)

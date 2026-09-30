@@ -15,6 +15,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/moderation"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -544,6 +545,10 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 		return
 	}
+
+	// Polymorphic reports have no FK cascade — drop this post's reports
+	// explicitly so they cannot linger as orphan queue rows.
+	_ = moderation.PurgeReportsForTarget(c.Request.Context(), h.db, moderation.TargetPost, id)
 
 	_, _ = h.db.Exec(`
 		UPDATE threads SET post_count = GREATEST(0, post_count - 1), updated_at = NOW() WHERE id = $1

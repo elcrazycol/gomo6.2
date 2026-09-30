@@ -18,6 +18,9 @@ import (
 const (
 	RoleAdmin     = "admin"
 	RoleModerator = "moderator"
+	// RoleHelper may READ the moderation surface (queue, user cards, activity
+	// logs, audit log) but cannot act on anything.
+	RoleHelper = "helper"
 )
 
 // isModeratorQuery and isAdminQuery are constants — no user input ever reaches
@@ -25,11 +28,20 @@ const (
 const (
 	isModeratorQuery = `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin'))`
 	isAdminQuery     = `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`
+	// isModerationReadQuery covers every role that may read the moderation
+	// surface: helpers triage by reading, moderators/admins also act.
+	isModerationReadQuery = `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role IN ('helper', 'moderator', 'admin'))`
 )
 
 // IsModerator reports whether userID holds the platform moderator or admin role.
 func IsModerator(ctx context.Context, db *sql.DB, userID string) (bool, error) {
 	return hasRole(ctx, db, userID, isModeratorQuery)
+}
+
+// HasModerationReadAccess reports whether userID may read the moderation
+// surface (helper, moderator or admin).
+func HasModerationReadAccess(ctx context.Context, db *sql.DB, userID string) (bool, error) {
+	return hasRole(ctx, db, userID, isModerationReadQuery)
 }
 
 // IsAdmin reports whether userID holds the platform admin role.

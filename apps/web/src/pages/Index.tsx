@@ -17,6 +17,7 @@ import { MyPosts } from "@/components/MyPosts";
 import { HistoryView } from "@/components/HistoryView";
 import { FavoritesView } from "@/components/FavoritesView";
 import { MrRandom } from "@/components/MrRandom";
+import { ModerationNavCard } from "@/components/ModerationNavCard";
 import { AddTabDialog } from "@/components/AddTabDialog";
 import { Spotlight } from "@/components/Spotlight";
 import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
@@ -647,6 +648,9 @@ const Index = () => {
 
               {/* Mr. рандомность — random thread / post / profile / comment / g-sub */}
               <MrRandom />
+
+              {/* Moderation entry point — helpers, moderators and admins only. */}
+              <ModerationNavCard />
             </div>
           </div>
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -15,6 +16,47 @@ import (
 	"github.com/gomo6/backend/internal/models"
 	"github.com/redis/go-redis/v9"
 )
+
+// ──────────────────────── privacy batch test helpers ────────────────────────
+//
+// GetProfiles/GetProfile resolve the whole page's privacy with one batched
+// read (privacy.ResolveProfileVisibilityBatch) instead of two queries per row.
+// Tests must therefore expect that read, and — only when a signed-in non-owner
+// views a private profile or an avatar/stats toggle — the friendships read that
+// follows it. ids with no privacy_settings row are public defaults.
+
+const (
+	privacyBatchSettingsRe = `SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`
+	privacyBatchFriendsRe  = `SELECT user1_id::text, user2_id::text FROM friendships`
+)
+
+// privacyBatchRow is one privacy_settings row as the profile list reads it.
+type privacyBatchRow struct {
+	id         string
+	private    bool
+	hideAvatar bool
+	hideStats  bool
+}
+
+// expectPrivacyBatch expects the batched privacy_settings read, returning one
+// row per privacyBatchRow. It does not expect the friendships read.
+func expectPrivacyBatch(mock sqlmock.Sqlmock, rows ...privacyBatchRow) {
+	set := sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"})
+	for _, r := range rows {
+		set.AddRow(r.id, r.private, r.hideAvatar, r.hideStats)
+	}
+	mock.ExpectQuery(privacyBatchSettingsRe).WithArgs(sqlmock.AnyArg()).WillReturnRows(set)
+}
+
+// expectMutualFriends expects the batched friendships read, returning the given
+// (viewer, target) pairs. Must follow an expectPrivacyBatch.
+func expectMutualFriends(mock sqlmock.Sqlmock, pairs ...[2]string) {
+	set := sqlmock.NewRows([]string{"user1_id", "user2_id"})
+	for _, p := range pairs {
+		set.AddRow(p[0], p[1])
+	}
+	mock.ExpectQuery(privacyBatchFriendsRe).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(set)
+}
 
 // ──────────────────────────── GetProfiles ────────────────────────────
 
@@ -39,6 +81,8 @@ func TestGetProfiles_Success_NoFilter(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*ORDER BY created_at DESC.*LIMIT \$1 OFFSET \$2`).
 		WithArgs(50, 0).
 		WillReturnRows(rows)
+
+	expectPrivacyBatch(mock)
 
 	handler.GetProfiles(c)
 
@@ -75,6 +119,8 @@ func TestGetProfiles_Success_IDFilter(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs("550e8400-e29b-41d4-a716-446655440000", 50, 0).
 		WillReturnRows(rows)
+
+	expectPrivacyBatch(mock)
 
 	handler.GetProfiles(c)
 
@@ -128,6 +174,8 @@ func TestGetProfiles_Success_UsernameFilter(t *testing.T) {
 		WithArgs("testuser", 50, 0).
 		WillReturnRows(rows)
 
+	expectPrivacyBatch(mock)
+
 	handler.GetProfiles(c)
 
 	if w.Code != http.StatusOK {
@@ -147,6 +195,49 @@ func TestGetProfiles_DBError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+// TestGetProfiles_BatchPrivacy_NoPerRowQueries is the regression guard for the
+// N+1 fix: a page with many profiles must resolve visibility with the single
+// batched privacy_settings read, so any extra per-row query would fail the
+// mock and turn the request into a 500.
+func TestGetProfiles_BatchPrivacy_NoPerRowQueries(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+	c, w := newGETContext("/api/v1/profiles", nil)
+
+	const n = 40
+	rows := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "avatar_animated", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "wall_post_count", "comment_count", "likes_received_count", "likes_given_count", "views_received_count",
+		"is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+		"background_url", "background_variant", "theme_enabled", "theme_tokens",
+	})
+	for i := 0; i < n; i++ {
+		rows.AddRow(fmt.Sprintf("u%02d", i), "user", "user", nil, "e@example.com", "localhost:8080", nil, false, nil, nil,
+			0, 0, 0, 0, 0, 0, 0, 0, false, nil, time.Now(), false, false, nil, "banner", false, nil)
+	}
+
+	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*ORDER BY created_at DESC.*LIMIT \$1 OFFSET \$2`).
+		WithArgs(50, 0).
+		WillReturnRows(rows)
+
+	// One batched settings read for all 40 ids — and, the viewer being
+	// anonymous, no friendships read at all.
+	expectPrivacyBatch(mock)
+
+	handler.GetProfiles(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if resp.Count == nil || *resp.Count != n {
+		t.Fatalf("expected %d profiles, got %v", n, resp.Count)
 	}
 }
 
@@ -175,6 +266,8 @@ func TestGetProfile_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(row)
+
+	expectPrivacyBatch(mock)
 
 	handler.GetProfile(c)
 
@@ -294,6 +387,8 @@ func TestUpdateProfile_InvalidatesAuthorContentCache(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(selectRow)
 
+	expectPrivacyBatch(mock)
+
 	handler.UpdateProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -381,6 +476,8 @@ func TestUpdateProfile_NoAuthorContent_NothingToInvalidate(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(selectRow)
 
+	expectPrivacyBatch(mock)
+
 	handler.UpdateProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -427,6 +524,8 @@ func TestGetProfile_EmailHiddenFromAnonymous(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(row)
 
+	expectPrivacyBatch(mock)
+
 	handler.GetProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -466,6 +565,8 @@ func TestGetProfile_OtherUserSeesNoEmail(t *testing.T) {
 		WithArgs("u2").
 		WillReturnRows(row)
 
+	expectPrivacyBatch(mock)
+
 	handler.GetProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -501,6 +602,8 @@ func TestGetProfile_OwnerSeesEmail(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(row)
+
+	expectPrivacyBatch(mock)
 
 	handler.GetProfile(c)
 
@@ -538,6 +641,8 @@ func TestGetProfile_ViewsReceivedCountReturned(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(row)
 
+	expectPrivacyBatch(mock)
+
 	handler.GetProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -574,17 +679,10 @@ func TestGetProfile_ViewsReceivedCountStrippedForNonFriendOnPrivate(t *testing.T
 		WithArgs("u1").
 		WillReturnRows(row)
 
-	// Private profile → GetPrivacySettings returns private_profile=true.
-	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\),`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"private_profile", "private_hide_avatar", "private_hide_wall",
-			"private_hide_threads", "private_hide_stats", "private_hide_friends",
-			"private_hide_gifts", "private_hide_achievements",
-		}).AddRow(true, true, true, true, true, true, true, true))
-
-	// Viewer is not a friend → profile gets filtered.
-	mock.ExpectQuery(`SELECT EXISTS\(`).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	// Private profile with hide_avatar: the batched read returns it, and the
+	// viewer is not a friend → profile gets filtered.
+	expectPrivacyBatch(mock, privacyBatchRow{id: "u1", private: true, hideAvatar: true, hideStats: true})
+	expectMutualFriends(mock)
 
 	handler.GetProfile(c)
 
@@ -624,6 +722,8 @@ func TestGetProfiles_EmailsHiddenFromAnonymous(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*ORDER BY created_at DESC.*LIMIT \$1 OFFSET \$2`).
 		WithArgs(50, 0).
 		WillReturnRows(rows)
+
+	expectPrivacyBatch(mock)
 
 	handler.GetProfiles(c)
 
@@ -673,6 +773,8 @@ func TestGetProfile_ReturnsSanitizedBackgroundURL(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(row)
 
+	expectPrivacyBatch(mock)
+
 	handler.GetProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -709,6 +811,8 @@ func TestGetProfile_StripsMaliciousBackgroundURL(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*LEFT JOIN profile_customization.*WHERE u\.id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(row)
+
+	expectPrivacyBatch(mock)
 
 	handler.GetProfile(c)
 
@@ -756,6 +860,8 @@ func TestUpdateProfile_Success_UpdateBio(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(selectRow)
+
+	expectPrivacyBatch(mock)
 
 	handler.UpdateProfile(c)
 
@@ -831,6 +937,8 @@ func TestUpdateProfile_Success_UpdateAvatar(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(selectRow)
 
+	expectPrivacyBatch(mock)
+
 	handler.UpdateProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -893,6 +1001,8 @@ func TestUpdateProfile_Success_SetNicknameEmoji(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(selectRow)
 
+	expectPrivacyBatch(mock)
+
 	handler.UpdateProfile(c)
 
 	if w.Code != http.StatusOK {
@@ -937,6 +1047,8 @@ func TestUpdateProfile_Success_ClearNicknameEmoji(t *testing.T) {
 	mock.ExpectQuery(`SELECT u\.id, u\.username.*FROM users.*WHERE u\.id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(selectRow)
+
+	expectPrivacyBatch(mock)
 
 	handler.UpdateProfile(c)
 

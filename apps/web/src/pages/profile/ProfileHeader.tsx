@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AdminBadge } from "@/components/AdminBadge";
 import { FriendButton } from "@/components/FriendButton";
+import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { AvatarUploadProgress } from "@/components/AvatarUploadProgress";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { OnlineStatus } from "@/components/OnlineStatus";
@@ -221,6 +222,13 @@ export function ProfileHeader({
             <MessageSquare className="w-4 h-4" />
             <span className="hidden sm:inline">{t("profile.write")}</span>
           </Button>
+          <PostActionsMenu
+            targetType="user"
+            targetId={profile.id}
+            reportLabel="Пожаловаться на пользователя"
+            reportTargetLabel="на пользователя"
+            triggerTitle="Действия"
+          />
         </div>
       )}
     </div>

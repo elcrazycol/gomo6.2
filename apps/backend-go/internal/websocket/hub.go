@@ -63,6 +63,8 @@ const (
 	// Content-moderation events: a fresh report fans out to the "moderation"
 	// room so open moderation screens show it immediately.
 	MessageTypeNewReport = "new_report"
+	// A fresh sanction appeal — same room, so the appeals queue updates live.
+	MessageTypeNewAppeal = "new_appeal"
 
 	// A profile edit (display name, avatar, nickname style, badge...). It fans
 	// out to the public feed room because a nickname can appear in any feed,
@@ -536,7 +538,7 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 			h.BroadcastToRoom(fmt.Sprintf("notifications_%s", userID), messageBytes)
 		}
 
-	case MessageTypeNewReport:
+	case MessageTypeNewReport, MessageTypeNewAppeal:
 		// Scoped to the moderation room — only moderator clients subscribe.
 		h.BroadcastToRoom("moderation", messageBytes)
 
@@ -1234,6 +1236,16 @@ func (h *Hub) PublishNewReport(report interface{}) error {
 	event := RealtimeEvent{
 		Type:    MessageTypeNewReport,
 		Payload: report,
+	}
+	return h.PublishToRedis(RedisChannelModeration, event)
+}
+
+// PublishNewAppeal publishes a fresh sanction appeal to Redis. Same moderation
+// room as reports, so open appeals queues update in realtime (nil-safe).
+func (h *Hub) PublishNewAppeal(appeal interface{}) error {
+	event := RealtimeEvent{
+		Type:    MessageTypeNewAppeal,
+		Payload: appeal,
 	}
 	return h.PublishToRedis(RedisChannelModeration, event)
 }

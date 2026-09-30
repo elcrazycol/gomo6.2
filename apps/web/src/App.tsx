@@ -77,8 +77,15 @@ const Board = lazyWithRetry(() => import("./pages/Board"));
 const Thread = lazyWithRetry(() => import("./pages/Thread"));
 const Profile = lazyWithRetry(() => import("./pages/Profile"));
 const WallPost = lazyWithRetry(() => import("./pages/WallPost"));
-const Moderation = lazyWithRetry(() => import("./pages/Moderation"));
+const ModerationDashboard = lazyWithRetry(() => import("./pages/ModerationDashboard"));
 const ModerationPosts = lazyWithRetry(() => import("./pages/ModerationPosts"));
+const ModerationAudit = lazyWithRetry(() => import("./pages/ModerationAudit"));
+const ModerationUser = lazyWithRetry(() => import("./pages/ModerationUser"));
+const ModerationAppeals = lazyWithRetry(() => import("./pages/ModerationAppeals"));
+const ModerationStaff = lazyWithRetry(() => import("./pages/ModerationStaff"));
+const ModerationReport = lazyWithRetry(() => import("./pages/ModerationReport"));
+const ModerationAction = lazyWithRetry(() => import("./pages/ModerationAction"));
+const Appeals = lazyWithRetry(() => import("./pages/Appeals"));
 const EmojiPacks = lazyWithRetry(() => import("./pages/EmojiPacks"));
 const EmojiPackDetail = lazyWithRetry(() => import("./pages/EmojiPackDetail"));
 const EmojiPackCreate = lazyWithRetry(() => import("./pages/EmojiPackCreate"));
@@ -280,8 +287,17 @@ function AppRoutes() {
           <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
           <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
           <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
-          <Route path="moderation" element={<AuthGuard><LazyPage component={Moderation} /></AuthGuard>} />
-          <Route path="moderation/posts" element={<AuthGuard><LazyPage component={ModerationPosts} /></AuthGuard>} />
+          <Route path="moderation" element={<AuthGuard><LazyPage component={ModerationDashboard} /></AuthGuard>} />
+          <Route path="moderation/reports" element={<AuthGuard><LazyPage component={ModerationPosts} /></AuthGuard>} />
+          <Route path="moderation/reports/:reportId" element={<AuthGuard><LazyPage component={ModerationReport} /></AuthGuard>} />
+          <Route path="moderation/audit" element={<AuthGuard><LazyPage component={ModerationAudit} /></AuthGuard>} />
+          <Route path="moderation/actions/:actionId" element={<AuthGuard><LazyPage component={ModerationAction} /></AuthGuard>} />
+          <Route path="moderation/users/:userId" element={<AuthGuard><LazyPage component={ModerationUser} /></AuthGuard>} />
+          <Route path="moderation/appeals" element={<AuthGuard><LazyPage component={ModerationAppeals} /></AuthGuard>} />
+          <Route path="moderation/staff" element={<AuthGuard><LazyPage component={ModerationStaff} /></AuthGuard>} />
+          <Route path="appeals" element={<AuthGuard><LazyPage component={Appeals} /></AuthGuard>} />
+          {/* Legacy URL — the queue lives at /moderation/reports now. */}
+          <Route path="moderation/posts" element={<Navigate to="/moderation/reports" replace />} />
           <Route path="emojis" element={<LazyPage component={EmojiPacks} />} />
           <Route path="emojis/pack/:slug" element={<LazyPage component={EmojiPackDetail} />} />
           <Route path="emojis/create" element={<AuthGuard><LazyPage component={EmojiPackCreate} /></AuthGuard>} />

@@ -386,7 +386,13 @@ export const WallPostCard = ({
                (pin/edit/delete) — reporting happens on the opened post, so
                visitors in list context get no menu at all. */
             (standalone || canManage) ? (
-              <PostActionsMenu postId={standalone ? post.id : undefined}>
+              <PostActionsMenu
+                targetType="wall_post"
+                targetId={standalone ? post.id : undefined}
+                reportLabel="Пожаловаться на запись"
+                reportTargetLabel="на запись"
+                triggerTitle="Меню поста"
+              >
                 {currentUserId === post.user_id && (
                   <DropdownMenuItem
                     onClick={() => onTogglePin(post.id)}

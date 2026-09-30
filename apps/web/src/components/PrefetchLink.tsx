@@ -30,7 +30,7 @@ export const PrefetchLink = ({ prefetchRoute = true, to, children, ...props }: P
           import("../pages/Messages");
           break;
         case 'moderation':
-          import("../pages/Moderation");
+          import("../pages/ModerationDashboard");
           break;
         default:
           // For boards and threads, prefetch the components

@@ -417,33 +417,41 @@ const Thread = () => {
                 </div>
               </div>
 
-              {/* Own-thread actions */}
-              {isOwner && (
-                <div className="flex shrink-0 items-center gap-1">
-                  <PostActionsMenu>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setEditingThread(true);
-                        setEditContent(tx.content);
-                        setEditContentJson(tx.content_json ?? null);
-                      }}
-                      className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
-                      title="Изменить запись"
-                    >
-                      <Edit3 className="h-4 w-4 mr-3" />
-                      Изменить запись
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={handleDeleteThread}
-                      className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
-                      title="Удалить запись"
-                    >
-                      <Trash2 className="h-4 w-4 mr-3" />
-                      Удалить запись
-                    </DropdownMenuItem>
-                  </PostActionsMenu>
-                </div>
-              )}
+              {/* Thread actions: management for the owner, report for everyone */}
+              <div className="flex shrink-0 items-center gap-1">
+                <PostActionsMenu
+                  targetType="thread"
+                  targetId={thread.id}
+                  reportLabel="Пожаловаться на запись"
+                  reportTargetLabel="на запись"
+                  triggerTitle="Меню записи"
+                >
+                  {isOwner && (
+                    <>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setEditingThread(true);
+                          setEditContent(tx.content);
+                          setEditContentJson(tx.content_json ?? null);
+                        }}
+                        className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                        title="Изменить запись"
+                      >
+                        <Edit3 className="h-4 w-4 mr-3" />
+                        Изменить запись
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={handleDeleteThread}
+                        className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                        title="Удалить запись"
+                      >
+                        <Trash2 className="h-4 w-4 mr-3" />
+                        Удалить запись
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </PostActionsMenu>
+              </div>
             </div>
 
             {/* Title */}

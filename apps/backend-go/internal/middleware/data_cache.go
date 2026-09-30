@@ -119,6 +119,17 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Moderation must be immediately consistent. The queue, the user cards and
+		// the activity log are read right after an action (apply a sanction, add a
+		// note, resolve a report), so a cached copy is always wrong: a moderator
+		// saw "Санкций не было" for two minutes after issuing a warning. The
+		// surface is moderator-only and low-traffic, so nothing is lost by not
+		// caching it at all.
+		if strings.HasPrefix(path, "/api/v1/moderation") {
+			c.Next()
+			return
+		}
+
 		// Skip caching for the viewing history / favorites — per-viewer, change
 		// on every action, and their writes have no generic CRUD invalidator
 		// (the endpoints are custom, not registry tables).

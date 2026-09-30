@@ -16,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/sanctions"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -256,6 +257,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		h.redis.Del(ctx, fmt.Sprintf("lockout:%s", loginIdentifier))
 		cancel()
+	}
+
+	// Sanctions: a ban refuses login outright. A mute only blocks writes, which
+	// the sanction gate middleware enforces per request.
+	if block, err := sanctions.ActiveBlocking(context.Background(), h.db, user.ID); err == nil && block != nil && block.Kind == sanctions.KindBan {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "Аккаунт заблокирован",
+			"code":    "user_banned",
+			"reason":  block.Reason,
+		})
+		return
 	}
 
 	// Check if 2FA is enabled and device is trusted

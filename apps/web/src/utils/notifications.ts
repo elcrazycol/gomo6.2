@@ -144,6 +144,26 @@ export function notificationTitle(notif: Notification, t: TFunction, actorName?:
         key = params.anonymous ? "notif.giftReceivedAnonymous" : "notif.giftReceived";
         values = { actor: params.actor, gift: params.gift_name };
         break;
+      case "sanction":
+        key = "notif.sanction";
+        values = { reason: notif.message };
+        break;
+      case "report_resolved":
+        key = "notif.reportResolved";
+        values = { actor: params.actor };
+        break;
+      case "appeal_accepted":
+        key = "notif.appealAccepted";
+        values = { actor: params.actor };
+        break;
+      case "appeal_rejected":
+        key = "notif.appealRejected";
+        values = { actor: params.actor };
+        break;
+      case "report_rejected":
+        key = "notif.reportRejected";
+        values = { actor: params.actor };
+        break;
     }
     if (key) return interpolateNotification(t(key, values), params);
   }
