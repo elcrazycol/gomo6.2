@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useLoadingBarStore } from "@/stores/loadingBarStore";
-import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
+import type { WallPost } from "@/utils/wallNormalizers";
 
 const PAGE_SIZE = 30;
 

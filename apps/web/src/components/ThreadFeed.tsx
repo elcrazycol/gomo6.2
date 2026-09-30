@@ -5,7 +5,7 @@ import { FeedWallPostCard } from "@/components/FeedWallPostCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { QuietLoading } from "@/components/QuietLoading";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
-import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
+import type { WallPost } from "@/utils/wallNormalizers";
 import { wsService, type WebSocketMessageType } from "@/services/websocket";
 import { useLoadingBarStore } from "@/stores/loadingBarStore";
 import { feedItemToThread, feedItemToWallPost } from "@/utils/threadFeedItem";

@@ -9,7 +9,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { QuietLoading } from "@/components/QuietLoading";
 import { favoriteKey, useFavoritesStore } from "@/stores/favoritesStore";
 import { useLoadingBarStore } from "@/stores/loadingBarStore";
-import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
+import type { WallPost } from "@/utils/wallNormalizers";
 
 const PAGE_SIZE = 30;
 
