@@ -340,6 +340,7 @@ var expectedRoutes = []string{
 	"GET /api/v1/drops/wallet",
 	"POST /api/v1/drops/transfer",
 	"GET /api/v1/drops/users/search",
+	"POST /api/v1/admin/public-id/assign",
 	"GET /api/v1/admin/gifts",
 	"POST /api/v1/admin/gifts",
 	"PUT /api/v1/admin/gifts/:id",

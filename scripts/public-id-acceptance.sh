@@ -39,7 +39,15 @@ export PGPASSWORD
 SCRATCH_DB="${SCRATCH_DB:-gomo6_publicid_accept}"
 PORT="${PORT:-18080}"
 BASE="http://127.0.0.1:$PORT"
-REDIS_URL="${REDIS_URL:-redis://:redispass123@127.0.0.1:6379/9}"
+# The script gets its own Redis database: responses are cached by path/query, and
+# a key left over from a previous run (same scratch database name, same fixtures)
+# makes the parity checks flaky. A random index keeps concurrent runs apart;
+# redis-cli clears it up front when it is installed.
+REDIS_DB="${REDIS_DB:-$((RANDOM % 15 + 1))}"
+REDIS_URL="${REDIS_URL:-redis://:redispass123@127.0.0.1:6379/$REDIS_DB}"
+if command -v redis-cli >/dev/null 2>&1; then
+  redis-cli -u "$REDIS_URL" flushdb >/dev/null 2>&1 || true
+fi
 JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 SERVER_BIN="$(mktemp -t gomo6-accept-server.XXXXXX)"
 SERVER_LOG="$(mktemp -t gomo6-accept-server.XXXXXX.log)"
@@ -241,14 +249,57 @@ check_status 403 "PUT /profiles/<number> (writes are UUID-only)" -X PUT \
   "$BASE/api/v1/profiles/$WRITER_PID" -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"bio":"nope"}'
 
-# ── 8. The sequence continues after the backfill ──────────────────────────
+# ── 8. Admin assignment / transfer (phase 5) ──────────────────────────────
+# A non-admin must not be able to hand out numbers.
+check_status 403 "POST /admin/public-id/assign as a non-admin" -X POST \
+  "$BASE/api/v1/admin/public-id/assign" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"user_id\":\"$USER_UUID\",\"public_id\":5}"
+
+psql_scratch "INSERT INTO user_roles (user_id, role) VALUES ('$WRITER_UUID', 'admin')
+               ON CONFLICT (user_id, role) DO NOTHING" >/dev/null || fail "could not promote the writer to admin"
+
+# Hand out a reserved number (inside the band the sequence can never reach).
+ASSIGN="$(curl -s -X POST "$BASE/api/v1/admin/public-id/assign" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"user_id\":\"$WRITER_UUID\",\"public_id\":5,\"note\":\"acceptance\"}")"
+echo "$ASSIGN" | grep -q '"success":true' || fail "assign failed: $ASSIGN"
+check_status 200 "/api/v1/profiles/5 now resolves" "$BASE/api/v1/profiles/5"
+OWNER="$(curl -sf "$BASE/api/v1/profiles/5" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')"
+[ "$OWNER" = "$WRITER_UUID" ] || fail "/profile/5 belongs to $OWNER, expected the writer"
+pass "the reserved number 5 was handed to the writer"
+
+# A real transfer: take the first user's number. The displaced owner must be
+# re-numbered in the same transaction — here they receive the writer's old
+# number (a clean exchange that burns no sequence value).
+ASSIGN="$(curl -s -X POST "$BASE/api/v1/admin/public-id/assign" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"user_id\":\"$WRITER_UUID\",\"public_id\":$USER_PID,\"note\":\"acceptance swap\"}")"
+echo "$ASSIGN" | grep -q '"success":true' || fail "transfer failed: $ASSIGN"
+DB_OWNER="$(psql_scratch "SELECT id FROM users WHERE public_id = $USER_PID")"
+[ "$DB_OWNER" = "$WRITER_UUID" ] || fail "the database still maps $USER_PID to $DB_OWNER"
+pass "the database moved $USER_PID to the new owner"
+
+OWNER="$(curl -sf "$BASE/api/v1/profiles/$USER_PID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')"
+[ "$OWNER" = "$WRITER_UUID" ] || fail "/profile/$USER_PID serves $OWNER after the transfer (stale cache?)"
+pass "/profile/$USER_PID now points at the new owner"
+
+DISPLACED="$(psql_scratch "SELECT public_id FROM users WHERE id = '$USER_UUID'")"
+[ "$DISPLACED" = "5" ] || fail "the displaced owner got $DISPLACED, expected the exchanged number 5"
+pass "the displaced owner was re-numbered to $DISPLACED (clean exchange)"
+
+LEDGER="$(psql_scratch "SELECT count(*) FROM public_id_transfers")"
+[ "$LEDGER" -ge 3 ] || fail "expected at least 3 ledger rows, got $LEDGER"
+pass "the ledger recorded every movement ($LEDGER rows)"
+
+# ── 9. The sequence continues after the backfill ──────────────────────────
 # psql prints the command tag after RETURNING, so keep the first line only.
 NEXT_PID="$(psql_scratch "
   INSERT INTO users (id, username, email, password_hash, wallet_address)
   VALUES (gen_random_uuid(), 'accept_next', 'accept-next@test.local', 'x', '0xacceptnext')
   RETURNING public_id" | head -1)"
-EXPECTED=$((WRITER_PID > USER_PID ? WRITER_PID : USER_PID))
-EXPECTED=$((EXPECTED + 1))
+# After the transfer the highest number handed out is still USER_PID (the swap
+# exchanged existing numbers, it did not allocate a new one).
+EXPECTED=$((USER_PID + 1))
 [ "$NEXT_PID" -ge "$EXPECTED" ] \
   || fail "the sequence did not continue (got $NEXT_PID, expected at least $EXPECTED)"
 pass "new rows continue from the sequence (next number: $NEXT_PID)"

@@ -237,6 +237,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	actieyeHandler := handlers.NewActiEyeHandler(db)
 	gamificationHandler := handlers.NewGamificationHandler()
+	publicIDHandler := handlers.NewPublicIDHandler(db, redis, wsHub)
 	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
@@ -675,6 +676,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/drops/wallet", dropsHandler.GetWalletInfo)
 			protected.POST("/drops/transfer", dropsHandler.TransferDrops)
 			protected.GET("/drops/users/search", dropsHandler.SearchUsers)
+
+			// Public-number assignment (docs/wiki/PUBLIC_IDS.md §9): the only
+			// writer of users.public_id — it is not client-writable anywhere.
+			protected.POST("/admin/public-id/assign", adminOnlyMiddleware(db), publicIDHandler.AssignPublicID)
 
 			// Admin gift management
 			protected.GET("/admin/gifts", giftAdminHandler.ListGifts)
