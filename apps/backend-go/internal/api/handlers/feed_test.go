@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/lib/pq"
 	"net/http"
 	"testing"
 	"time"
@@ -253,8 +254,14 @@ func TestGetUserFeed_AttachesPublicIDs(t *testing.T) {
 
 	// The enrichment lookup: numbers for the thread, the wall post, its owner and
 	// both authors, in one UNION query.
+	// The three arrays must be distinct: reusing one placeholder for both the
+	// thread and the wall-post lookup silently returned no numbers for wall posts.
 	mock.ExpectQuery(`SELECT 'thread'::text AS kind`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(
+			pq.Array([]string{"thread-1"}),
+			pq.Array([]string{"post-1"}),
+			pq.Array([]string{"author-1", "author-2"}),
+		).
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "id", "public_id", "owner_public_id"}).
 			AddRow("thread", "thread-1", int64(315), nil).
 			AddRow("wall_post", "post-1", int64(1337), int64(42)).

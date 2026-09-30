@@ -318,11 +318,11 @@ func (h *FeedHandler) fillPublicIDs(items []feedItem) {
 		SELECT 'wall_post', p.id, p.public_id, ow.public_id
 		  FROM profile_wall_posts p
 		  LEFT JOIN users ow ON ow.id = p.user_id
-		 WHERE p.id = ANY($1::uuid[])
+		 WHERE p.id = ANY($2::uuid[])
 		UNION ALL
 		SELECT 'user', u.id, u.public_id, NULL::bigint
-		  FROM users u WHERE u.id = ANY($2::uuid[])`,
-		pq.Array(threadIDs), pq.Array(authorIDs))
+		  FROM users u WHERE u.id = ANY($3::uuid[])`,
+		pq.Array(threadIDs), pq.Array(wallPostIDs), pq.Array(authorIDs))
 	if err != nil {
 		// Best-effort enrichment: a failure here must not fail the feed — the
 		// client falls back to UUID links.
