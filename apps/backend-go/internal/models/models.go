@@ -599,6 +599,7 @@ type FriendRequestResponse struct {
 	Status                string  `json:"status"`
 	CreatedAt             string  `json:"created_at"`
 	SenderID              string  `json:"sender_id"`
+	SenderPublicID        *int64  `json:"sender_public_id,omitempty"`
 	SenderUsername        string  `json:"sender_username"`
 	SenderAvatarURL       *string `json:"sender_avatar_url"`
 	SenderDisplayName     *string `json:"sender_display_name"`
@@ -608,6 +609,7 @@ type FriendRequestResponse struct {
 type FriendResponse struct {
 	FriendshipID    string  `json:"friendship_id"`
 	UserID          string  `json:"user_id"`
+	PublicID        *int64  `json:"public_id,omitempty"`
 	Username        string  `json:"username"`
 	DisplayName     *string `json:"display_name"`
 	NicknameEmojiID *string `json:"nickname_emoji_id"`

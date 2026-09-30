@@ -517,8 +517,8 @@ func TestGetFriends_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT COALESCE\\(private_profile, false\\).*FROM privacy_settings").
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery("SELECT \\s*f\\.id AS friendship_id").WillReturnRows(
-		sqlmock.NewRows([]string{"friendship_id", "friend_id", "username", "display_name", "nickname_emoji_id", "avatar_url", "is_online"}).
-			AddRow("fs-1", friendReceiver, "bob", "Bob", nil, "http://a/b.png", true),
+		sqlmock.NewRows([]string{"friendship_id", "friend_id", "username", "public_id", "display_name", "nickname_emoji_id", "avatar_url", "is_online"}).
+			AddRow("fs-1", friendReceiver, "bob", 42, "Bob", nil, "http://a/b.png", true),
 	)
 
 	c, w := newGETContextWithClaims("/api/v1/friends", nil, claims)
@@ -579,8 +579,8 @@ func TestGetRequests_Success(t *testing.T) {
 
 	mock.ExpectQuery("SELECT \\s*fr\\.id,\\s*fr\\.sender_id").WillReturnRows(
 		sqlmock.NewRows([]string{"id", "sender_id", "receiver_id", "status", "created_at",
-			"username", "avatar_url", "display_name", "nickname_emoji_id"}).
-			AddRow("req-1", friendSender, friendReceiver, "pending", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "alice", nil, "Alice", nil),
+			"username", "public_id", "avatar_url", "display_name", "nickname_emoji_id"}).
+			AddRow("req-1", friendSender, friendReceiver, "pending", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "alice", 10, nil, "Alice", nil),
 	)
 
 	c, w := newGETContextWithClaims("/api/v1/friends/requests", nil, claims)
