@@ -217,7 +217,16 @@ UUID-ссылку, а не в `/profile/undefined`.
 - Проверки владельца сравнивают резолвнутый UUID, а не сырой параметр
   (`Profile`, `ProfileTabs`, `useProfileEditing`, `Achievements`, `MobileMenu`).
 
-### 7.3 Что осталось на UUID-фолбэке (осознанно)
+### 7.3 Приёмочный скрипт
+
+`./scripts/public-id-acceptance.sh` покрывает и поверхности под авторизацией:
+регистрирует два аккаунта и проверяет, что номера есть в `GET /notifications`
+(`related_user_public_id`), `GET /friends/requests` (`sender_public_id`),
+`GET /friends` (`public_id`), `GET /favorites` и `GET /history`
+(`public_id` + `author.public_id`) и в публичном RPC
+`get_recent_thread_likers` (`public_id`). 28 проверок.
+
+### 7.4 Что осталось на UUID-фолбэке (осознанно)
 
 Номер протащен через пропсы туда, где он есть в payload: `UserBadge`/`PostCardHeader`
 (`userPublicId` — аватары и ники в карточках тредов, стен, комментариев и в списках
@@ -231,7 +240,7 @@ UUID-ссылку, а не в `/profile/undefined`.
 - `GiftDetailPanel` (отправитель подарка) — payload подарков не отдаёт номера;
 - страницы модерации (внутренние, вне объёма с §1).
 
-### 7.4 Как увидеть номера локально
+### 7.5 Как увидеть номера локально
 
 `public_id` появляется в API только после того, как бэкенд применит миграцию 128
 (`RunMigrations` выполняется на старте). Если dev-бэкенд был запущен до неё, БД остаётся

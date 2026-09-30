@@ -34,7 +34,7 @@ SELECT * FROM (
     t.created_at, t.updated_at,
     t.title::text, t.content::text, t.content_json, t.image_url, t.image_urls, t.attachments, t.tags, t.post_count,
     t.user_id AS author_id,
-    u.username::text, u.display_name::text, u.nickname_emoji_id, COALESCE(u.is_anonymous, false), u.avatar_url,
+    u.username::text, u.public_id, u.display_name::text, u.nickname_emoji_id, COALESCE(u.is_anonymous, false), u.avatar_url,
     t.board_id, b.slug::text, b.name::text, COALESCE(b.is_gomosub, false),
     t.section_id, ts.slug::text, ts.name::text, ts.icon::text,
     t.subsection_id, tss.slug::text, tss.name::text,
@@ -63,7 +63,7 @@ SELECT * FROM (
     p.created_at, p.updated_at,
     p.title::text, p.content::text, p.content_json, p.image_url, NULL::jsonb, p.attachments, NULL::jsonb, NULL::integer,
     p.author_id,
-    u.username::text, u.display_name::text, u.nickname_emoji_id, COALESCE(u.is_anonymous, false), u.avatar_url,
+    u.username::text, u.public_id, u.display_name::text, u.nickname_emoji_id, COALESCE(u.is_anonymous, false), u.avatar_url,
     NULL::uuid, NULL::text, NULL::text, false,
     NULL::uuid, NULL::text, NULL::text, NULL::text,
     NULL::uuid, NULL::text, NULL::text,
@@ -247,6 +247,7 @@ func (h *FavoritesHandler) GetFavorites(c *gin.Context) {
 		var contentJSON, imageURLs, attachments, tags []byte
 		var postCount sql.NullInt64
 		var authorUsername, authorDisplayName, authorNicknameEmojiID, authorAvatarURL sql.NullString
+		var authorPublicID *int64
 		var authorIsAnonymous bool
 		var boardID, boardSlug, boardName sql.NullString
 		var boardIsGomosub bool
@@ -258,7 +259,7 @@ func (h *FavoritesHandler) GetFavorites(c *gin.Context) {
 			&it.ItemType, &it.ItemID, &it.PublicID, &it.CreatedAt, &updatedAt,
 			&title, &content, &contentJSON, &imageURL, &imageURLs, &attachments,
 			&tags, &postCount,
-			&authorID, &authorUsername, &authorDisplayName, &authorNicknameEmojiID,
+			&authorID, &authorUsername, &authorPublicID, &authorDisplayName, &authorNicknameEmojiID,
 			&authorIsAnonymous, &authorAvatarURL,
 			&boardID, &boardSlug, &boardName, &boardIsGomosub,
 			&sectionID, &sectionSlug, &sectionName, &sectionIcon,
@@ -308,6 +309,7 @@ func (h *FavoritesHandler) GetFavorites(c *gin.Context) {
 			it.AuthorID = &authorID.String
 			it.Author = &feedAuthor{
 				Username:        authorUsername.String,
+				PublicID:        authorPublicID,
 				DisplayName:     nullStringPtr(authorDisplayName),
 				NicknameEmojiID: nullStringPtr(authorNicknameEmojiID),
 				IsAnonymous:     authorIsAnonymous,

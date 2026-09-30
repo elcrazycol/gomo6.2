@@ -312,7 +312,95 @@ pass "the ledger recorded every movement ($LEDGER rows)"
 
 fi
 
-# ── 9. The sequence continues after the backfill ──────────────────────────
+# ── 9. Auth-only surfaces ─────────────────────────────────────────────────
+# Notifications, friends (list + incoming requests), favorites, history and the
+# recent-likers RPC are behind auth, so the guest checks above never touched them.
+# A second registered account acts on the fixtures and every payload is asserted
+# to carry the numbers the cards link with.
+FRIEND_EMAIL="accept@test.local3"
+FRIEND_BODY="$(curl -s -X POST "$BASE/api/v1/auth/register" -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$FRIEND_EMAIL\",\"username\":\"acceptfriend\",\"password\":\"$WRITER_PASSWORD\"}")"
+echo "$FRIEND_BODY" | grep -q '"success":true' || fail "friend register failed: $FRIEND_BODY"
+FRIEND_TOKEN="$(curl -sf -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$FRIEND_EMAIL\",\"password\":\"$WRITER_PASSWORD\"}" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["token"])')"
+FRIEND_PID="$(psql_scratch "SELECT public_id FROM users WHERE username = 'acceptfriend'")"
+[ -n "$FRIEND_PID" ] || fail "the second account has no public_id"
+pass "registered a second account (number=$FRIEND_PID)"
+
+# The friend asks the writer: the writer gets an incoming request AND a
+# friend_request notification.
+curl -sf -X POST "$BASE/api/v1/friends/request" -H "Authorization: Bearer $FRIEND_TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"receiver_id\":\"$WRITER_UUID\"}" >/dev/null \
+  || fail "the second account could not send a friend request"
+
+REQ_JSON="$(curl -sf "$BASE/api/v1/friends/requests" -H "Authorization: Bearer $TOKEN")"
+echo "$REQ_JSON" | python3 -c '
+import sys, json
+want = int(sys.argv[1])
+rows = json.load(sys.stdin).get("data") or []
+assert rows, "no incoming friend requests"
+got = rows[0].get("sender_public_id")
+assert got == want, f"sender_public_id={got}, want {want}"
+' "$FRIEND_PID" || fail "GET /friends/requests does not carry sender_public_id"
+pass "GET /friends/requests carries sender_public_id"
+
+NOTIF_JSON="$(curl -sf "$BASE/api/v1/notifications" -H "Authorization: Bearer $TOKEN")"
+echo "$NOTIF_JSON" | python3 -c '
+import sys, json
+want = int(sys.argv[1])
+rows = json.load(sys.stdin).get("data") or []
+req = [r for r in rows if r.get("type") == "friend_request"]
+assert req, f"no friend_request notification among {len(rows)} rows"
+got = req[0].get("related_user_public_id")
+assert got == want, f"related_user_public_id={got}, want {want}"
+' "$FRIEND_PID" || fail "GET /notifications does not carry related_user_public_id"
+pass "GET /notifications carries related_user_public_id"
+
+REQ_ID="$(echo "$REQ_JSON" | python3 -c 'import sys,json; print((json.load(sys.stdin).get("data") or [{}])[0].get("id",""))')"
+curl -sf -X PUT "$BASE/api/v1/friends/request/$REQ_ID/accept" -H "Authorization: Bearer $TOKEN" >/dev/null \
+  || fail "accepting the friend request failed"
+curl -sf "$BASE/api/v1/friends" -H "Authorization: Bearer $TOKEN" | python3 -c '
+import sys, json
+want = int(sys.argv[1])
+rows = json.load(sys.stdin).get("data") or []
+assert rows, "the friends list is empty"
+got = rows[0].get("public_id")
+assert got == want, f"public_id={got}, want {want}"
+' "$FRIEND_PID" || fail "GET /friends does not carry public_id"
+pass "GET /friends carries public_id"
+
+# Favorites and history embed the item AND its author.
+for surface in favorites history; do
+  curl -sf -X POST "$BASE/api/v1/$surface" -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' -d "{\"item_type\":\"thread\",\"item_id\":\"$THREAD_UUID\"}" >/dev/null \
+    || fail "POST /$surface failed"
+  curl -sf "$BASE/api/v1/$surface" -H "Authorization: Bearer $TOKEN" | python3 -c '
+import sys, json
+want_item, want_author = int(sys.argv[1]), int(sys.argv[2])
+rows = json.load(sys.stdin).get("data") or []
+assert rows, "empty list"
+row = rows[0]
+assert row.get("public_id") == want_item, f"public_id={row.get("public_id")}, want {want_item}"
+author = row.get("author") or {}
+assert author.get("public_id") == want_author, f"author.public_id={author.get("public_id")}, want {want_author}"
+' "$THREAD_PID" "$USER_PID" || fail "/$surface does not carry the numbers"
+  pass "GET /$surface carries public_id + author.public_id"
+done
+
+# Recent likers (the public /api/rpc surface the like tooltip uses).
+curl -sf -X POST "$BASE/api/v1/threads/$THREAD_UUID/like" -H "Authorization: Bearer $TOKEN" >/dev/null \
+  || fail "liking the seeded thread failed"
+curl -sf "$BASE/api/rpc/get_recent_thread_likers?thread_uuid=$THREAD_UUID&limit_count=5" | python3 -c '
+import sys, json
+want = int(sys.argv[1])
+rows = json.load(sys.stdin).get("data") or []
+assert rows, "no likers returned"
+assert any(r.get("public_id") == want for r in rows), f"no liker with public_id={want}: {rows}"
+' "$WRITER_PID" || fail "get_recent_thread_likers does not carry public_id"
+pass "get_recent_thread_likers carries public_id"
+
+# ── 10. The sequence continues after the backfill ─────────────────────────
 # psql prints the command tag after RETURNING, so keep the first line only.
 NEXT_PID="$(psql_scratch "
   INSERT INTO users (id, username, email, password_hash, wallet_address)
