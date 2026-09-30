@@ -112,7 +112,11 @@ export interface FeedShapedItem {
 export const feedItemToThread = (item: FeedShapedItem): FeedThread => ({
   id: item.item_id,
   public_id: item.public_id,
-  user_public_id: item.user_public_id,
+  // The author's number, NOT the wall owner's: on a feed item `user_public_id`
+  // belongs to the wall post's owner, and a thread item has no wall owner — its
+  // author number lives in the author embed. Reading only `user_public_id` here
+  // sent every author link in the feed back to the UUID.
+  user_public_id: item.user_public_id ?? item.author?.public_id ?? null,
   title: item.title || "",
   content: item.content || "",
   content_json: item.content_json,

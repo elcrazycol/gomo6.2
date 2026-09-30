@@ -54,6 +54,20 @@ describe("feedItemToThread", () => {
     expect(thread.profiles?.public_id).toBe(10);
     expect(profileUrl({ id: thread.user_id ?? "", public_id: thread.profiles?.public_id })).toBe("/profile/10");
   });
+
+  // A thread feed item has no wall owner: the API sends the author's number
+  // inside the author embed and leaves user_public_id empty. Reading only
+  // user_public_id is what sent every author link in the feed back to the UUID.
+  it("takes the author number from the author embed for a thread item", () => {
+    const thread = feedItemToThread({ ...item, user_public_id: null });
+    expect(thread.user_public_id).toBe(10);
+    expect(profileUrl({ id: thread.user_id ?? "", public_id: thread.user_public_id })).toBe("/profile/10");
+  });
+
+  it("keeps the wall owner's number for a wall post item", () => {
+    const post = feedItemToThread({ ...item, item_type: "wall_post", user_public_id: 42, author: { username: "bob", public_id: 11, is_anonymous: false } });
+    expect(post.user_public_id).toBe(42);
+  });
 });
 
 describe("feedItemToWallPost", () => {
