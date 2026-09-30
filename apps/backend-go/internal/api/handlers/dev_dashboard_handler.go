@@ -129,17 +129,21 @@ func SeedDevDashboardApp(db *sql.DB) {
 		return
 	}
 
-	// First ensure a system user exists to satisfy the owner_id FK constraint
-	// public_id is set explicitly to a reserved low number: the sequence starts at
-	// 10 (docs/wiki/PUBLIC_IDS.md), so letting this service row take the default
-	// would consume #10 and push every real account up by one — the "low number =
-	// old account" ladder belongs to people. 1 is inside the band the sequence can
-	// never reach, and the explicit value is possible because public_id is a plain
-	// sequence default rather than an identity column. The DO UPDATE branch also
-	// moves an install that already handed this row an organic number.
+	// First ensure a system user exists to satisfy the owner_id FK constraint.
+	//
+	// public_id is set explicitly to a number far outside the range people are
+	// allocated (the sequences start at 10, docs/wiki/PUBLIC_IDS.md): a service row
+	// must not consume an organic number, and it must not squat the low band either
+	// — #1..9 are held for the founder and the first accounts, not for
+	// infrastructure. systemPublicID is a plain, unique, resolvable number that the
+	// sequence will not reach in any realistic lifetime. An explicit value is
+	// possible because public_id is a sequence default rather than an identity
+	// column; the DO UPDATE branch also moves an install that already handed this
+	// row an organic number (or the low band, as an earlier revision did).
+	const systemPublicID = 1000000000
 	_, err = db.Exec(`
 		INSERT INTO users (id, public_id, username, email, password_hash, domain, wallet_address)
-		VALUES ($1, 1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO UPDATE SET
 			username = EXCLUDED.username,
 			email = EXCLUDED.email,
@@ -148,6 +152,7 @@ func SeedDevDashboardApp(db *sql.DB) {
 			public_id = EXCLUDED.public_id
 	`,
 		systemUserID,
+		systemPublicID,
 		"__system__",
 		"system@gomo6.local",
 		string(hashedPassword),
