@@ -145,41 +145,47 @@ const Profile = () => {
     const token = sessionAuth.data.session?.access_token;
     const headers: Record<string, string> | undefined = token ? { 'Authorization': `Bearer ${token}` } : undefined;
     const localSessionUser = sessionAuth.data.session?.user;
-    const isOwnProfileBySession = localSessionUser?.id === userId;
 
-    // The profile row, privacy flags, friendship status and customization are
-    // all independent reads — run them in parallel instead of one after
-    // another (previously 4 sequential round trips on a mobile network before
-    // the header could render). Only the session lookup above stays
-    // sequential, and it is local (no network round trip).
-    //
-    // The profile row is served through the TTL cache (viewer-scoped key) so
-    // back-navigation within the TTL renders the header instantly instead of
-    // re-fetching the same row.
-    const [profileData, privacyRes, friendshipRes, customization] = await Promise.all([
-      getCached<Profile | null>(
-        `profile-page:${isOwnProfileBySession ? "owner" : "viewer"}:${userId}`,
-        async () => {
-          const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
-          const json = await res.json();
-          return (json.data?.[0] as Profile | undefined) ?? null;
-        },
-        { ttlMs: 60_000 }
-      ),
-      // The generic /privacy_settings endpoint is viewer-scoped (returns only
-      // the caller's own row), so a foreign profile must use the public
-      // /users/:id/privacy endpoint — the same rules the server enforces on
-      // content (private_profile + private_hide_*).
-      isOwnProfileBySession
-        ? fetch(`/api/v1/privacy_settings?user_id=eq.${userId}`)
-        : fetch(`/api/v1/users/${userId}/privacy`),
-      // Guests cannot read a foreign user's friend status (protected endpoint)
-      // and the owner is always a friend — skip the request in both cases.
-      !isOwnProfileBySession && localSessionUser?.id
-        ? fetch(`/api/v1/friends/status/${userId}`, { headers }).catch(() => null)
-        : Promise.resolve(null),
-      getProfileCustomization(userId!),
-    ]);
+    // The route parameter is a public number on new links and a UUID on old
+    // ones, so the profile row is resolved FIRST: the privacy, friendship,
+    // customization and realtime reads below all need the canonical UUID, and
+    // the owner check can only be made once the row is known. The row is served
+    // through the TTL cache (viewer-scoped key) so back-navigation within the
+    // TTL renders the header instantly instead of re-fetching.
+    const profileData = await getCached<Profile | null>(
+      `profile-page:${localSessionUser?.id ?? "guest"}:${userId}`,
+      async () => {
+        const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
+        const json = await res.json();
+        return (json.data?.[0] as Profile | undefined) ?? null;
+      },
+      { ttlMs: 60_000 }
+    );
+
+    const profileId = profileData?.id ?? "";
+    const isOwnProfileBySession = !!localSessionUser?.id && localSessionUser.id === profileId;
+
+    // The three dependent reads stay parallel with each other.
+    let privacyRes: Response | null = null;
+    let friendshipRes: Response | null = null;
+    let customization: Awaited<ReturnType<typeof getProfileCustomization>> | null = null;
+    if (profileId) {
+      [privacyRes, friendshipRes, customization] = await Promise.all([
+        // The generic /privacy_settings endpoint is viewer-scoped (returns only
+        // the caller's own row), so a foreign profile must use the public
+        // /users/:id/privacy endpoint — the same rules the server enforces on
+        // content (private_profile + private_hide_*).
+        isOwnProfileBySession
+          ? fetch(`/api/v1/privacy_settings?user_id=eq.${profileId}`)
+          : fetch(`/api/v1/users/${profileId}/privacy`),
+        // Guests cannot read a foreign user's friend status (protected endpoint)
+        // and the owner is always a friend — skip the request in both cases.
+        !isOwnProfileBySession && localSessionUser?.id
+          ? fetch(`/api/v1/friends/status/${profileId}`, { headers }).catch(() => null)
+          : Promise.resolve(null),
+        getProfileCustomization(profileId),
+      ]);
+    }
 
     const data = profileData;
 
@@ -270,7 +276,13 @@ const Profile = () => {
 
   // Live online status via WebSocket presence — the previous 10s HTTP polling
   // fired 6 requests/min per open profile page for the same data.
-  const realtimeStatus = useUserRealtimeStatus(userId);
+  // Everything downstream of the route parameter needs the canonical UUID: the
+  // realtime presence room, the tab-scoped queries (user_id=eq.<uuid>), the
+  // owner checks and the messenger deep link. The parameter itself may be a
+  // public number, so the resolved row id is what gets passed around.
+  const resolvedUserId = profile?.id ?? "";
+
+  const realtimeStatus = useUserRealtimeStatus(resolvedUserId || undefined);
   useEffect(() => {
     if (!realtimeStatus) return;
     setIsOnline(realtimeStatus.is_online);
@@ -281,14 +293,14 @@ const Profile = () => {
   // state. Both hooks own their domains; they touch page state only through
   // the callbacks below.
   const data = useProfileData({
-    userId,
+    userId: resolvedUserId,
     activeTab,
     currentUser,
     onAvatarUrlChange: setAvatarUrl,
   });
 
   const editing = useProfileEditing({
-    userId,
+    userId: resolvedUserId,
     profile,
     currentUser,
     onProfileUpdate: setProfile,
@@ -306,7 +318,7 @@ const Profile = () => {
   // Mirror the server-side rules (profileWallFinishSelectQuery and the per-
   // section CanViewUser* checks) so the client hides exactly what the backend
   // refuses to serve.
-  const isOwnProfile = currentUser?.id === userId;
+  const isOwnProfile = !!resolvedUserId && currentUser?.id === resolvedUserId;
   const isPrivate = privateProfile && privacyChecked;
   const isNonFriendOnPrivate = isPrivate && !isOwnProfile && isMutualFriend === false;
   // A wall is hidden from the viewer when they are neither the owner nor a
@@ -326,7 +338,7 @@ const Profile = () => {
   // The floating "Написать на стене" button is shown when this viewer may
   // actually leave a post: logged in, allowed on this wall, and the wall is
   // visible (not hidden server-side, not disabled, not in edit mode).
-  const canPostOnWall = !!currentUser && (currentUser.id === userId || allowWallPostsFromOthers) && showProfileWall && !wallHiddenFromViewer && !editing.isEditing;
+  const canPostOnWall = !!currentUser && (currentUser.id === resolvedUserId || allowWallPostsFromOthers) && showProfileWall && !wallHiddenFromViewer && !editing.isEditing;
 
   // Set default tab based on wall visibility. The wall tab is available to
   // every viewer while showProfileWall is on (for non-friends on a private
@@ -377,7 +389,7 @@ const Profile = () => {
   const cardVariantActive = bgVariant === 'card' && !!bgUrl && !editing.isEditing;
 
   const statsSummaryAllowed = (() => {
-    const isOwn = currentUser?.id === userId;
+    const isOwn = !!resolvedUserId && currentUser?.id === resolvedUserId;
     return isOwn || (showProfileStats && canViewSection(privateHideStats));
   })();
 
@@ -409,7 +421,7 @@ const Profile = () => {
       onNicknameEmojiRemove={editing.handleNicknameEmojiRemove}
       onEditClick={editing.isEditing ? editing.handleSaveAndExit : editing.startEditing}
       onUsernameClick={() => editing.setShowUsernameDialog(true)}
-      onOpenMessages={() => navigate(`/messages?user=${userId}`)}
+      onOpenMessages={() => navigate(`/messages?user=${resolvedUserId}`)}
     />
   ) : null;
 
@@ -532,7 +544,7 @@ const Profile = () => {
 
               {/* Spotify Now Playing */}
               {!isNonFriendOnPrivate && (
-                <SpotifyNowPlaying userId={userId!} />
+                <SpotifyNowPlaying userId={resolvedUserId} />
               )}
 
               {/* Profile Tabs — visibility follows the owner's privacy settings.
@@ -542,7 +554,7 @@ const Profile = () => {
               <ProfileTabs
                 activeTab={activeTab}
                 onTabChange={(tab) => { setActiveTab(tab); setWallCreateOpen(false); }}
-                userId={userId!}
+                userId={resolvedUserId}
                 profile={profile}
                 isOwnProfile={isOwnProfile}
                 isEditing={editing.isEditing}

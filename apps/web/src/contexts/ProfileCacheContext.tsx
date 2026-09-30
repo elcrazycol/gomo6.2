@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { api } from '@/integrations/api/compat';
 import { apiClient } from '@/integrations/api/client';
+import { isPublicId } from "@/utils/entityUrl";
 
 // Listen for external invalidation events (e.g. from CustomProfile save)
 const INVALIDATE_EVENT = 'profile-cache:invalidate';
@@ -109,18 +110,28 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
         // already swallows that). Guests never need the viewed profile's roles
         // — isAdmin only matters for the signed-in owner — so skip the request
         // entirely instead of firing a doomed 401.
+        // `uid` may be a public number (new links) or a UUID (old ones): the
+        // profiles query accepts both, and the row's canonical id is what the
+        // other lookups (user_roles, customization) must use.
+        const profileRes = await toFallback(
+          () =>
+            api
+              .from('profiles')
+              .select('id, username, avatar_url, nickname_emoji_id')
+              .eq(isPublicId(uid) ? 'public_id' : 'id', uid)
+              .single(),
+          { data: null, error: null }
+        );
+        const resolvedId = (profileRes.data as { id?: string } | null)?.id || uid;
+
         const isGuest = !apiClient.getCSRFToken();
-        const rolesResPromise = isGuest
-          ? Promise.resolve({ data: [] as { role: string }[], error: null })
-          : toFallback(
-              () => api.from('user_roles').select('role').eq('user_id', uid),
-              { data: [], error: null }
-            );		const [profileRes, rolesRes, customizationRes] = await Promise.all([
-          toFallback(
-            () => api.from('profiles').select('username, avatar_url, nickname_emoji_id').eq('id', uid).single(),
-            { data: null, error: null }
-          ),
-          rolesResPromise,
+        const [rolesRes, customizationRes] = await Promise.all([
+          isGuest
+            ? Promise.resolve({ data: [] as { role: string }[], error: null })
+            : toFallback(
+                () => api.from('user_roles').select('role').eq('user_id', resolvedId),
+                { data: [], error: null }
+              ),
           toFallback(
             // Profile appearance for the viewed user. NOT the generic
             // /profile_customization surface: that table is read-scoped to the
@@ -129,7 +140,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
             // ever rendered for anyone but its owner. The public display
             // endpoint works for the owner too, so no branch is needed here.
             async () => {
-              const res = await fetch(`/api/v1/users/${uid}/customization`);
+              const res = await fetch(`/api/v1/users/${resolvedId}/customization`);
               const json = await res.json();
               return { data: json?.data ?? null, error: null };
             },

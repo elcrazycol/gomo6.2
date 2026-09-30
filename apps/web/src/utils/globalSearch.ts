@@ -2,6 +2,7 @@ import { apiClient } from "@/integrations/api/client";
 
 export type SearchUser = {
   id: string;
+  public_id?: number | null;
   username: string;
   avatar_url?: string | null;
 };
@@ -17,6 +18,7 @@ export type SearchGomoSub = {
 
 export type SearchThread = {
   id: string;
+  public_id?: number | null;
   title: string;
   content: string;
   created_at: string;
@@ -32,6 +34,8 @@ export type SearchPost = {
   content: string;
   created_at: string;
   thread_id: string;
+  /** The thread's public number — post hits link to the thread, not the post. */
+  thread_public_id?: number | null;
   thread_title: string;
   board_id: string;
   board_slug: string;
@@ -51,6 +55,7 @@ export type GlobalSearchResult = {
 // Normalise thread results to the shape expected by the UI (with boards object)
 const normaliseThread = (t: Record<string, unknown>): SearchThread => ({
   id: t.id as string,
+  public_id: t.public_id as number | null | undefined,
   title: t.title as string,
   content: t.content as string,
   created_at: t.created_at as string,

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/integrations/api/compat';
+import { isPublicId } from "@/utils/entityUrl";
 
 export interface Thread {
   id: string;
@@ -33,21 +34,24 @@ export interface Thread {
  * Hook for fetching a single thread with caching
  */
 export function useThread(threadId: string | undefined) {
+  // The route parameter is a public number on new links and a UUID on old ones;
+  // the backend accepts both, so the filter column follows the parameter shape.
+  const param = threadId ?? '';
   return useQuery({
-    queryKey: ['thread', threadId],
+    queryKey: ['thread', param],
     queryFn: async () => {
-      if (!threadId) return null;
+      if (!param) return null;
 
       const { data, error } = await api
         .from('threads')
         .select('*, boards(*), profiles:user_id(*)')
-        .eq('id', threadId)
+        .eq(isPublicId(param) ? 'public_id' : 'id', param)
         .single();
 
       if (error) throw error;
       return data as unknown as Thread;
     },
-    enabled: !!threadId,
+    enabled: !!param,
     staleTime: 2 * 60 * 1000, // 2 minutes
     gcTime: 5 * 60 * 1000, // 5 minutes
   });

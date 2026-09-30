@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 import { Loader2, Search } from "lucide-react";
+import { entityParam, profileUrl } from "@/utils/entityUrl";
 
 const SearchResults = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -87,7 +88,7 @@ const SearchResults = () => {
                   results.users.map((user) => (
                     <Link
                       key={user.id}
-                      to={`/profile/${user.id}`}
+                      to={profileUrl(user)}
                       className="block p-2 rounded-md border border-border hover:bg-muted/50 transition-colors"
                     >
                       @{user.username}
@@ -138,8 +139,8 @@ const SearchResults = () => {
                 results.threads.map((thread) => {
                   const isGomo = thread.board_is_gomosub && thread.board_slug;
                   const link = isGomo
-                    ? `/g/${thread.board_slug}/thread/${thread.id}`
-                    : `/thread/${thread.id}`;
+                    ? `/g/${thread.board_slug}/thread/${entityParam(thread)}`
+                    : `/thread/${entityParam(thread)}`;
                   return (
                     <Link
                       key={thread.id}
@@ -172,8 +173,8 @@ const SearchResults = () => {
                 results.posts.map((post) => {
                   const isGomo = post.board_is_gomosub && post.board_slug;
                   const link = isGomo
-                    ? `/g/${post.board_slug}/thread/${post.thread_id}`
-                    : `/thread/${post.thread_id}`;
+                    ? `/g/${post.board_slug}/thread/${entityParam({ id: post.thread_id, public_id: post.thread_public_id })}`
+                    : `/thread/${entityParam({ id: post.thread_id, public_id: post.thread_public_id })}`;
                   return (
                     <Link
                       key={post.id}

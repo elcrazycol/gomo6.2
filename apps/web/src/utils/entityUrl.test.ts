@@ -49,9 +49,15 @@ describe("link builders", () => {
     expect(threadUrl({ id: "uuid-t" })).toBe("/thread/uuid-t");
   });
 
-  it("builds board-scoped thread links when a slug is known", () => {
-    expect(threadUrl({ id: "uuid-t", public_id: 315 }, { slug: "general" })).toBe("/g/general/thread/315");
-    expect(threadUrl({ id: "uuid-t" }, { slug: "general" })).toBe("/g/general/thread/uuid-t");
+  it("builds board-scoped thread links following the app's routing convention", () => {
+    // gomosubs live under /g, regular boards under /<slug>.
+    expect(threadUrl({ id: "uuid-t", public_id: 315 }, { slug: "general", is_gomosub: true })).toBe(
+      "/g/general/thread/315",
+    );
+    expect(threadUrl({ id: "uuid-t", public_id: 315 }, { slug: "general", is_gomosub: false })).toBe(
+      "/general/thread/315",
+    );
+    expect(threadUrl({ id: "uuid-t" }, { slug: "general" })).toBe("/general/thread/uuid-t");
   });
 
   it("builds wall post links from both numbers", () => {

@@ -38,6 +38,7 @@ import { ShareSheet } from "@/components/share/ShareSheet";
 import { ThreadCommentTree } from "@/components/thread/ThreadCommentTree";
 import { SectionIcon } from "@/components/topic/sectionIcons";
 import type { AttachmentMeta } from "@/types/forum";
+import { entityParam } from "@/utils/entityUrl";
 
 interface ThreadWithExtras extends ThreadModel {
   content_json?: unknown;
@@ -125,13 +126,19 @@ const Thread = () => {
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
 
-  const { data: isSubscribed = false } = useThreadSubscription(threadId, user?.id);
+  // The route parameter is a public number on new links and a UUID on old ones.
+  // The thread query accepts both, but every downstream write/read (polls,
+  // subscriptions, history, edit/delete, the comment tree) needs the canonical
+  // UUID — so the loaded row's id is what gets passed around.
+  const resolvedThreadId = thread?.id ?? "";
+
+  const { data: isSubscribed = false } = useThreadSubscription(resolvedThreadId, user?.id);
 
   // Record the open in the viewer's «История» (once the id + viewer are known).
   useEffect(() => {
-    if (!threadId || !user?.id) return;
-    recordContentView("thread", threadId);
-  }, [threadId, user?.id]);
+    if (!resolvedThreadId || !user?.id) return;
+    recordContentView("thread", resolvedThreadId);
+  }, [resolvedThreadId, user?.id]);
 
   // Sync the visible post count with the loaded thread + live changes.
   useEffect(() => {
@@ -161,14 +168,14 @@ const Thread = () => {
 
   // Load poll data + record a visit when the thread is loaded.
   useEffect(() => {
-    if (!thread?.id || !threadId) return;
+    if (!resolvedThreadId) return;
 
     const loadPollData = async () => {
       try {
         const token = (await api.auth.getSession()).data.session?.access_token;
         const headers = token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : undefined;
 
-        const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${threadId}`);
+        const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${resolvedThreadId}`);
         const pollResult = await pollRes.json();
         const poll = pollResult.data?.[0];
 
@@ -206,7 +213,7 @@ const Thread = () => {
     };
 
     loadPollData();
-  }, [thread, threadId, user]);
+  }, [thread, resolvedThreadId, user]);
 
   const toggleSubscription = async () => {
     if (!user) {
@@ -217,7 +224,7 @@ const Thread = () => {
     const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
     if (isSubscribed) {
-      const res = await fetch(`/api/v1/thread_subscriptions?user_id=eq.${user.id}&thread_id=eq.${threadId}`, {
+      const res = await fetch(`/api/v1/thread_subscriptions?user_id=eq.${user.id}&thread_id=eq.${resolvedThreadId}`, {
         method: "DELETE",
         headers,
       });
@@ -226,7 +233,7 @@ const Thread = () => {
       const res = await fetch("/api/v1/thread_subscriptions", {
         method: "POST",
         headers,
-        body: JSON.stringify({ user_id: user.id, thread_id: threadId }),
+        body: JSON.stringify({ user_id: user.id, thread_id: resolvedThreadId }),
       });
       if (res.ok) toast.success(t("thread.subscribed"));
     }
@@ -241,10 +248,10 @@ const Thread = () => {
   };
 
   const handleEditThread = async () => {
-    if (!editContent.trim() || !threadId) return;
+    if (!editContent.trim() || !resolvedThreadId) return;
     try {
       const headers = await authHeaders();
-      const res = await fetch(`/api/v1/threads?id=eq.${threadId}`, {
+      const res = await fetch(`/api/v1/threads?id=eq.${resolvedThreadId}`, {
         method: "PUT",
         headers,
         body: JSON.stringify({ content: editContent.trim(), content_json: editContentJson }),
@@ -262,10 +269,10 @@ const Thread = () => {
   };
 
   const handleDeleteThread = async () => {
-    if (!threadId) return;
+    if (!resolvedThreadId) return;
     try {
       const headers = await authHeaders();
-      const res = await fetch(`/api/v1/threads?id=eq.${threadId}`, {
+      const res = await fetch(`/api/v1/threads?id=eq.${resolvedThreadId}`, {
         method: "DELETE",
         headers,
       });
@@ -567,7 +574,7 @@ const Thread = () => {
             {pollData && (
               <Poll
                 poll={pollData}
-                threadId={threadId!}
+                threadId={resolvedThreadId}
                 currentUserId={user?.id || null}
                 isPageLoading={false}
               />
@@ -604,7 +611,7 @@ const Thread = () => {
         {/* Comments — wall-style tree */}
         <div data-thread-comments>
           <ThreadCommentTree
-            threadId={threadId!}
+            threadId={resolvedThreadId}
             currentUserId={canPost ? user?.id ?? null : null}
             onPostCountChange={(delta) => setPostCount((prev) => Math.max(0, prev + delta))}
           />
@@ -624,7 +631,7 @@ const Thread = () => {
         open={shareOpen}
         onOpenChange={setShareOpen}
         target={{ type: "thread", id: thread.id }}
-        url={`${window.location.origin}${slug ? `${threadPath}/thread/${thread.id}` : `/thread/${thread.id}`}`}
+        url={`${window.location.origin}${slug ? `${threadPath}/thread/${entityParam(thread)}` : `/thread/${entityParam(thread)}`}`}
         title={thread.title || "Запись"}
       />
     </>

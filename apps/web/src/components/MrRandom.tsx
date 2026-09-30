@@ -10,16 +10,20 @@ import {
   MR_RANDOM_COUNT_EVENT,
   getMrRandomCount,
 } from "@/lib/mrRandom";
+import { entityParam, profileUrl, wallPostUrl } from "@/utils/entityUrl";
 
 interface RandomItem {
   type: "thread" | "wall_post" | "profile" | "wall_comment" | "gomosub";
   id: string;
+  public_id?: number | null;
   label: string;
   sublabel?: string;
   board_slug?: string;
   is_gomosub?: boolean;
   wall_user_id?: string;
+  wall_user_public_id?: number | null;
   post_id?: string;
+  post_public_id?: number | null;
   username?: string;
   avatar_url?: string | null;
   /** Small square on the right for a thread/post with media. */
@@ -31,14 +35,20 @@ const hrefFor = (item: RandomItem): string => {
   switch (item.type) {
     case "thread":
       return item.is_gomosub && item.board_slug
-        ? `/g/${item.board_slug}/thread/${item.id}`
-        : `/thread/${item.id}`;
+        ? `/g/${item.board_slug}/thread/${entityParam(item)}`
+        : `/thread/${entityParam(item)}`;
     case "wall_post":
-      return `/profile/${item.wall_user_id}/wall/${item.id}`;
+      return wallPostUrl(
+        { id: item.wall_user_id, public_id: item.wall_user_public_id },
+        item,
+      );
     case "wall_comment":
-      return `/profile/${item.wall_user_id}/wall/${item.post_id}`;
+      return wallPostUrl(
+        { id: item.wall_user_id, public_id: item.wall_user_public_id },
+        { id: item.post_id, public_id: item.post_public_id },
+      );
     case "profile":
-      return `/profile/${item.id}`;
+      return profileUrl(item);
     case "gomosub":
       return `/g/${item.board_slug}`;
     default:

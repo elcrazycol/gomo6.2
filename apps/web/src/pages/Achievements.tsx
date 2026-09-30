@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/integrations/api/compat";
 import { Trophy, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isPublicId, profileUrl } from "@/utils/entityUrl";
 
 interface AchievementRow {
   id: string;
@@ -32,7 +33,11 @@ export default function Achievements() {
   const [allAchievements, setAllAchievements] = useState<AchievementData[]>([]);
   const [profile, setProfile] = useState<{ username: string; avatar_url?: string | null; id: string } | null>(null);
 
-  const isOwnProfile = currentUser?.id === userId;
+  // The route parameter is a public number on new links and a UUID on old
+  // ones; the loaded profile row supplies the canonical UUID the achievement
+  // queries and the owner check need.
+  const resolvedUserId = profile?.id ?? "";
+  const isOwnProfile = !!resolvedUserId && currentUser?.id === resolvedUserId;
 
   useEffect(() => {
     if (!userId) return;
@@ -43,28 +48,36 @@ export default function Achievements() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [profileData, unlockedRows, catalogRows] = await Promise.all([
-        getCached<{ username: string; avatar_url?: string | null; id: string } | null>(
-          `achievements-page:profile:${userId}`,
-          async () => {
-            const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
-            const json = await res.json();
-            return json.data?.[0] ?? null;
-          },
-          { ttlMs: 60_000 }
-        ),
-        getCached<Record<string, unknown>[]>(
-          `achievements-page:user:${userId}`,
-          async () => {
-            const res = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}`);
-            const json = await res.json();
-            return json.data || [];
-          },
-          // Short TTL: unlocks arrive via WS, which dispatches
-          // profile-cache:invalidate → clearQueryCache, so the page refreshes
-          // immediately on unlock even with a longer TTL.
-          { ttlMs: 30_000 }
-        ),
+      // The profile row is resolved first: the route parameter may be a public
+      // number, and user_achievements.user_id is a UUID column.
+      const profileData = await getCached<{ username: string; avatar_url?: string | null; id: string } | null>(
+        `achievements-page:profile:${userId}`,
+        async () => {
+          const res = await fetch(
+            isPublicId(userId) ? `/api/v1/profiles?public_id=eq.${userId}` : `/api/v1/profiles?id=eq.${userId}`,
+          );
+          const json = await res.json();
+          return json.data?.[0] ?? null;
+        },
+        { ttlMs: 60_000 }
+      );
+      const uid = profileData?.id ?? (isPublicId(userId) ? "" : userId ?? "");
+
+      const [unlockedRows, catalogRows] = await Promise.all([
+        uid
+          ? getCached<Record<string, unknown>[]>(
+              `achievements-page:user:${uid}`,
+              async () => {
+                const res = await fetch(`/api/v1/user_achievements?user_id=eq.${uid}`);
+                const json = await res.json();
+                return json.data || [];
+              },
+              // Short TTL: unlocks arrive via WS, which dispatches
+              // profile-cache:invalidate → clearQueryCache, so the page refreshes
+              // immediately on unlock even with a longer TTL.
+              { ttlMs: 30_000 }
+            )
+          : Promise.resolve([] as Record<string, unknown>[]),
         getCached<AchievementRow[]>(
           "achievements-page:catalog",
           async () => {
@@ -164,13 +177,13 @@ export default function Achievements() {
     );
     try {
       const { error } = await api.rpc("toggle_achievement_pin", {
-        _user_id: userId,
+        _user_id: resolvedUserId || userId,
         _achievement_id: achievementId,
       });
       if (error) throw new Error(error.message || "Failed to toggle pin");
       // Drop the cached user rows so a later visit doesn't resurrect the
       // stale pin state, and refresh the header counter quietly.
-      invalidateByPrefix(`achievements-page:user:${userId}`);
+      invalidateByPrefix(`achievements-page:user:${resolvedUserId || userId}`);
       // Re-fetch silently (no loading spinner) to reconcile with the server.
       try {
         const res = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}`);
@@ -220,7 +233,7 @@ export default function Achievements() {
       {/* Header */}
       <div className="space-y-3">
         <Link
-          to={`/profile/${userId}`}
+          to={profileUrl({ id: resolvedUserId || userId || "" })}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />

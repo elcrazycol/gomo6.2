@@ -8,6 +8,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { formatShortRelativeTime } from "@/utils/relativeTimeShort";
 import { toFeedThread, type ThreadApiRow } from "@/utils/threadFeedItem";
+import { entityParam } from "@/utils/entityUrl";
 
 /** Latest reply of a thread (right column + hover preview). */
 export interface ThreadLastPost {
@@ -24,7 +25,7 @@ const PREVIEW_MARGIN = 12;
 const threadPath = (row: ThreadApiRow): string => {
   const slug = row.boards?.slug || "";
   const prefix = row.boards?.is_gomosub ? "/g" : "";
-  return slug ? `${prefix}/${slug}/thread/${row.id}` : `/thread/${row.id}`;
+  return slug ? `${prefix}/${slug}/thread/${entityParam(row)}` : `/thread/${entityParam(row)}`;
 };
 
 interface CompactThreadListProps {

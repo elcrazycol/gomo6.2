@@ -26,6 +26,7 @@ import { SectionIcon } from "@/components/topic/sectionIcons";
 import { buildThreadAttachments } from "@/utils/threadAttachments";
 import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
 import type { LightboxItem } from "@/components/Lightbox";
+import { entityParam } from "@/utils/entityUrl";
 
 /** Thread shape the unified feed hands to the card (derived from a feed item
  * or the subscriptions query in Index.tsx). */
@@ -113,8 +114,8 @@ export const FeedThreadCard = ({
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
   const boardSlug = thread.boards?.slug || "";
   const threadPath = isGlobalTopic
-    ? `/thread/${thread.id}`
-    : `${boardPrefix}/${boardSlug}/thread/${thread.id}`;
+    ? `/thread/${entityParam(thread)}`
+    : `${boardPrefix}/${boardSlug}/thread/${entityParam(thread)}`;
 
   const [likesCount, setLikesCount] = useState(initialLikesCount);
   const [isLiked, setIsLiked] = useState(initialUserLiked);

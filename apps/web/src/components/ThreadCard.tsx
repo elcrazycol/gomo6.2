@@ -24,6 +24,7 @@ import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import { PostCover } from "@/components/wall/PostCover";
 import { formatShortRelativeTime } from "@/utils/relativeTimeShort";
+import { entityParam } from "@/utils/entityUrl";
 
 interface ThreadCardProps {
   thread: {
@@ -270,8 +271,8 @@ const ThreadCard = ({
   const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
   const boardSlug = thread.boards?.slug || "";
   const threadPath = boardSlug
-    ? `${boardPrefix}/${boardSlug}/thread/${thread.id}`
-    : `/thread/${thread.id}`;
+    ? `${boardPrefix}/${boardSlug}/thread/${entityParam(thread)}`
+    : `/thread/${entityParam(thread)}`;
 
   const sourceChip = thread.section ? (
     <PostSourceChip

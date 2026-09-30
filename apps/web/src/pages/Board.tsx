@@ -31,6 +31,7 @@ import { GomoThreadCard } from "@/components/GomoThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { ChannelChat } from "@/components/ChannelChat";
 import { wsService } from "@/services/websocket";
+import { entityParam } from "@/utils/entityUrl";
 
 // Mobile channel sheet grab zone: bottom-left corner of the screen.
 // Used both for the swipe-up-to-open and swipe-down-to-close.
@@ -1959,7 +1960,7 @@ const Board = () => {
                       <div className="h-px bg-border/35" />
 
                       <Link
-                        to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
+                        to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`}
                         className="block group/title"
                       >
                         <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
@@ -1990,7 +1991,7 @@ const Board = () => {
                         </div>
                         {thread.content.length > 900 && (
                           <Link
-                            to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
+                            to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`}
                             className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
                           >
                             Читать полностью
@@ -2000,7 +2001,7 @@ const Board = () => {
                       </div>
 
                       {thread.image_url && (
-                        <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`} className="block pt-1">
+                        <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`} className="block pt-1">
                           <img
                             src={storageUrl("content", thread.image_url) || thread.image_url}
                             alt="Thread"
@@ -2020,7 +2021,7 @@ const Board = () => {
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`)}
+                          onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`)}
                           className="h-9 rounded-full px-3 gap-2"
                         >
                           <MessageCircle className="w-4 h-4" />
@@ -2041,7 +2042,7 @@ const Board = () => {
               ) : (
                 <Link
                   key={thread.id}
-                  to={`${pathPrefix}/${slug}/thread/${thread.id}`}
+                  to={`${pathPrefix}/${slug}/thread/${entityParam(thread)}`}
                   className="block border border-border bg-surface p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
                 >
                   {/* Mobile Layout */}

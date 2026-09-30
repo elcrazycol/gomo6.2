@@ -22,6 +22,7 @@ import {
 } from "@/components/post/PostCardChrome";
 import { buildThreadAttachments } from "@/utils/threadAttachments";
 import type { LightboxItem } from "@/components/Lightbox";
+import { entityParam } from "@/utils/entityUrl";
 
 /** Thread shape as the g-sub board hands it to the card. */
 export interface GomoThread {
@@ -103,7 +104,7 @@ export const GomoThreadCard = ({
     [coverId],
   );
 
-  const threadPath = `${boardPath}/thread/${thread.id}`;
+  const threadPath = `${boardPath}/thread/${entityParam(thread)}`;
   const gomosubTags = Array.isArray(thread.tags?.gomosub_tags)
     ? (thread.tags?.gomosub_tags as string[])
     : [];

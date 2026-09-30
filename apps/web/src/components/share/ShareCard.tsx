@@ -7,11 +7,14 @@ import { api } from "@/integrations/api/compat";
 import { storageUrl } from "@/utils/storage";
 import { messengerPlainPreview } from "@/components/messenger/messengerRichTextUtils";
 import type { ShareTarget } from "./share";
+import { entityParam } from "@/utils/entityUrl";
+import { wallPostUrl } from "@/utils/entityUrl";
 
 // ─── Entity shapes (mirror what the feed/wall pages select) ─────────────────
 
 interface ShareCardThread {
   id: string;
+  public_id?: number | null;
   title: string | null;
   content: string | null;
   image_url?: string | null;
@@ -29,7 +32,9 @@ interface ShareCardThread {
 
 interface ShareCardWallPost {
   id: string;
+  public_id?: number | null;
   user_id: string;
+  user_public_id?: number | null;
   author_id?: string;
   title?: string | null;
   content?: string | null;
@@ -88,7 +93,7 @@ export const ShareCard = ({ target }: ShareCardProps) => {
         const { data: rows } = await api
           .from("threads")
           .select(
-            "id, title, content, image_url, image_urls, attachments, boards(name, slug, is_gomosub), profiles(username, display_name, nickname_emoji_id, is_anonymous, avatar_url)",
+            "id, public_id, title, content, image_url, image_urls, attachments, boards(name, slug, is_gomosub), profiles(username, display_name, nickname_emoji_id, is_anonymous, avatar_url)",
           )
           .eq("id", target.id)
           .limit(1);
@@ -98,7 +103,7 @@ export const ShareCard = ({ target }: ShareCardProps) => {
       const { data: rows } = await api
         .from("profile_wall_posts")
         .select(
-          "id, user_id, author_id, title, content, image_url, attachments, author:profiles!author_id(username, display_name, is_anonymous, avatar_url)",
+          "id, public_id, user_id, user_public_id, author_id, title, content, image_url, attachments, author:profiles!author_id(username, display_name, is_anonymous, avatar_url)",
         )
         .eq("id", target.id)
         .limit(1);
@@ -136,9 +141,9 @@ export const ShareCard = ({ target }: ShareCardProps) => {
 
     const url = thread
       ? hasBoard
-        ? `${board?.is_gomosub ? "/g" : ""}/${board?.slug}/thread/${thread.id}`
-        : `/thread/${thread.id}`
-      : `/profile/${wall!.user_id}/wall/${wall!.id}`;
+        ? `${board?.is_gomosub ? "/g" : ""}/${board?.slug}/thread/${entityParam(thread)}`
+        : `/thread/${entityParam(thread)}`
+      : wallPostUrl({ id: wall!.user_id, public_id: wall!.user_public_id }, wall!);
 
     return { author, title, snippet, image, boardLabel, url, isThread: Boolean(thread) };
   }, [data]);

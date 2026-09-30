@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import type { Notification } from "@/integrations/api/client";
 import { getWallPostPath } from "@/utils/wallNormalizers";
-import { profileUrl, threadUrl } from "@/utils/entityUrl";
+import { entityParam, profileUrl } from "@/utils/entityUrl";
 
 /** Structured, language-neutral display data carried by new notifications. */
 export interface NotificationParams {
@@ -53,10 +53,9 @@ export function notificationLink(notif: Notification, threadSlug?: string): stri
   }
 
   if (notif.related_thread_id) {
-    return threadUrl(
-      { id: notif.related_thread_id, public_id: notif.related_thread_public_id },
-      threadSlug ? { slug: threadSlug } : null,
-    );
+    // Thread notifications carry the board slug; the app routes those under /g.
+    const param = entityParam({ id: notif.related_thread_id, public_id: notif.related_thread_public_id });
+    return threadSlug ? `/g/${threadSlug}/thread/${param}` : `/thread/${param}`;
   }
 
   return "#";

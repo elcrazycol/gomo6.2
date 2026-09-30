@@ -31,6 +31,7 @@ import { useThreadSections } from "@/hooks/useThreadSections";
 import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
 
 import type { User as UserFromClient } from "@/integrations/api/client";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface MobileMenuProps {
   user: UserFromClient | null;
@@ -62,7 +63,9 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const sidebarTabs = useSidebarTabsStore((state) => state.tabs);
   const removeSidebarTab = useSidebarTabsStore((state) => state.removeTab);
 
-  const isOwnProfile = location.pathname === `/profile/${user?.id}`;
+  // Compare against the same URL the link below builds, so a numeric profile
+  // link and the active-tab check can never disagree.
+  const isOwnProfile = !!user && location.pathname === profileUrl(user);
 
   // Everything is path-driven now:
   //   /feed /mine /history /favorites   app views
@@ -193,7 +196,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 for a guest (the header has no separate «Войти» button). */}
             {user ? (
               <Link
-                to={`/profile/${user.id}`}
+                to={profileUrl(user)}
                 onClick={() => setOpen(false)}
                 className="block"
               >

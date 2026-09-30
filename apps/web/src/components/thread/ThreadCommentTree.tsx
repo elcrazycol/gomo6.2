@@ -40,6 +40,7 @@ import { WallCommentComposer } from "@/components/wall/WallCommentComposer";
 import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import type { AttachmentMeta } from "@/types/forum";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { profileUrl } from "@/utils/entityUrl";
 
 const MAX_POST_DEPTH = 6;
 
@@ -60,6 +61,7 @@ interface ThreadPost {
   is_deleted?: boolean;
   profiles?: {
     id?: string;
+    public_id?: number | null;
     username?: string;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
@@ -267,7 +269,7 @@ const ThreadPostNode = ({
             </div>
           ) : (
             <Link
-              to={`/profile/${post.user_id}`}
+              to={profileUrl({ id: post.user_id, public_id: post.profiles?.public_id })}
               className="relative z-10 mt-0.5 shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
@@ -296,7 +298,7 @@ const ThreadPostNode = ({
             ) : (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <Link
-                  to={`/profile/${post.user_id}`}
+                  to={profileUrl({ id: post.user_id, public_id: post.profiles?.public_id })}
                   className="text-sm font-semibold text-foreground hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >

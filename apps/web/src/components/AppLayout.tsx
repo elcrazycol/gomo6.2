@@ -26,6 +26,7 @@ import { useProfileRealtimeInvalidation } from "@/hooks/useProfileRealtimeInvali
 import { getHeaderBehavior, HEADER_BEHAVIOR_EVENT, type HeaderBehavior } from "@/lib/headerBehavior";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
+import { entityParam, profileUrl } from "@/utils/entityUrl";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -1191,7 +1192,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                           {searchResults.users.map((item) => (
                             <Link
                               key={item.id}
-                              to={`/profile/${item.id}`}
+                              to={profileUrl(item)}
                               className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
                             >
                               @{item.username}
@@ -1219,8 +1220,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                           {searchResults.threads.map((item) => {
                             const isGomo = item.board_is_gomosub && item.board_slug;
                             const link = isGomo
-                              ? `/g/${item.board_slug}/thread/${item.id}`
-                              : `/thread/${item.id}`;
+                              ? `/g/${item.board_slug}/thread/${entityParam(item)}`
+                              : `/thread/${entityParam(item)}`;
                             return (
                               <Link
                                 key={item.id}
@@ -1290,7 +1291,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                 ) : (
                   <>
                     {searchResults.users.map((item) => (
-                      <Link key={item.id} to={`/profile/${item.id}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
+                      <Link key={item.id} to={profileUrl(item)} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
                         @{item.username}
                       </Link>
                     ))}
@@ -1302,8 +1303,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                     {searchResults.threads.map((item) => {
                       const isGomo = item.board_is_gomosub && item.board_slug;
                       const link = isGomo
-                        ? `/g/${item.board_slug}/thread/${item.id}`
-                        : `/thread/${item.id}`;
+                        ? `/g/${item.board_slug}/thread/${entityParam(item)}`
+                        : `/thread/${entityParam(item)}`;
                       return (
                         <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
                           {item.title}

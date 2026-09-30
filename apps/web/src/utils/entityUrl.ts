@@ -46,18 +46,19 @@ export const profileUrl = (user: Identifiable | null | undefined): string => {
 };
 
 /**
- * threadUrl builds the thread URL. With a board slug it is the pretty
- * /g/<slug>/thread/<param> form (board pages and gomosubs), otherwise the
- * global-topic /thread/<param>.
+ * threadUrl builds the thread URL, matching the app's routing convention:
+ * a gomosub board lives under /g/<slug>/thread/<param>, a regular board under
+ * /<slug>/thread/<param>, and a global topic (no board) under /thread/<param>.
  */
 export const threadUrl = (
   thread: Identifiable | null | undefined,
-  board?: { slug?: string | null } | null,
+  board?: { slug?: string | null; is_gomosub?: boolean | null } | null,
 ): string => {
   const param = entityParam(thread);
   if (!param) return '';
   const slug = board?.slug;
-  return slug ? `/g/${slug}/thread/${param}` : `/thread/${param}`;
+  if (!slug) return `/thread/${param}`;
+  return `${board?.is_gomosub ? '/g' : ''}/${slug}/thread/${param}`;
 };
 
 /** wallPostUrl builds /profile/<owner>/wall/<post>. */

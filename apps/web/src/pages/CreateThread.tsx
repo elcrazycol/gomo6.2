@@ -19,6 +19,7 @@ import { SectionPicker } from "@/components/topic/SectionPicker";
 import { SectionIcon } from "@/components/topic/sectionIcons";
 import { useThreadSections, type ThreadSection, type ThreadSubsection } from "@/hooks/useThreadSections";
 import { Input } from "@/components/ui/input";
+import { entityParam } from "@/utils/entityUrl";
 
 const DRAFT_PREFIX = "gomo6:topic-draft:";
 
@@ -163,7 +164,7 @@ const CreateThread = () => {
         }
         invalidateByPrefix("/api/v1/threads");
         invalidateByPrefix("/api/v1/feed");
-        navigate(`/thread/${threadData.id}`, { replace: true });
+        navigate(`/thread/${entityParam(threadData)}`, { replace: true });
       } catch (err) {
         console.error("CreateThread error:", err);
         toast.error("Ошибка при создании темы");

@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import type { MediaAttachment } from "@/components/editor/media/mediaSchema";
 import { Loader2 } from "lucide-react";
 import { RichComposer, type RichComposerPayload } from "@/components/composer/RichComposer";
+import { entityParam } from "@/utils/entityUrl";
 
 type GomoBoard = {
   id: string;
@@ -178,7 +179,7 @@ const CreateGomoThread = () => {
         invalidateByPrefix("/api/v1/boards");
         const backPath = channelSlug ? `/g/${board.slug}/c/${channelSlug}` : `/g/${board.slug}`;
         navigate(backPath, { replace: true });
-        navigate(`/g/${board.slug}/thread/${threadData.id}`);
+        navigate(`/g/${board.slug}/thread/${entityParam(threadData)}`);
       } catch (err) {
         console.error("CreateGomoThread error:", err);
         toast.error("Ошибка при публикации записи");
