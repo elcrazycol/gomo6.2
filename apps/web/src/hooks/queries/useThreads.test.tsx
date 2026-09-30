@@ -94,6 +94,18 @@ describe("useThread", () => {
     expect(mockChain.single).toHaveBeenCalled();
   });
 
+  it("resolves a numeric route parameter through public_id", async () => {
+    // /thread/315 is a public number, not a UUID.
+    const thread = { id: "t1", public_id: 315, title: "Hi", board_id: "b1", user_id: "u1", created_at: "2025-01-01T00:00:00Z" };
+    mockResolve(thread);
+
+    const { result } = renderHook(() => useThread("315"), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(result.current.data).toEqual(thread);
+    expect(mockChain.eq).toHaveBeenCalledWith("public_id", "315");
+  });
+
   it("surfaces API errors", async () => {
     mockResolve(null, { message: "boom" });
 

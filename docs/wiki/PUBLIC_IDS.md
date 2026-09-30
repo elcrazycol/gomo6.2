@@ -1,7 +1,7 @@
 # Дизайн-док: публичные номера (`public_id`) вместо UUID в ссылках
 
-> Статус: **фазы 1 и 2 сделаны и проверены**, фазы 3–5 не начаты
-> Версия: 1.1 (2026-09-30)
+> Статус: **фазы 1–3 сделаны и проверены**, фазы 4–5 не начаты
+> Версия: 1.2 (2026-09-30)
 > Решения: номера **последовательные, per-table**; базы `users` **10**, `threads` **100**,
 > `profile_wall_posts` **1**; линия `posts` отложена; отдельного реестра резерва нет
 
@@ -187,33 +187,47 @@ payload'ы, из которых фронт строит ссылки).
 
 ## 7. Фаза 3 — фронт
 
-Новый хелпер (все ссылки через него, с фолбэком на UUID на время раскатки):
+**Статус: сделано** (ссылки + резолв параметра маршрута).
 
-```ts
-// src/utils/entityUrl.ts
-export const isPublicId = (v?: string) => !!v && /^\d+$/.test(v);
-export const profileUrl  = (u) => `/profile/${u.public_id ?? u.id}`;
-export const threadUrl   = (t) => `/thread/${t.public_id ?? t.id}`;
-export const wallPostUrl = (owner, p) =>
-  `/profile/${owner.public_id ?? owner.id}/wall/${p.public_id ?? p.id}`;
-```
+### 7.1 Линк-билдеры
 
-`?? id` — страховка: пока API-кэши не содержат `public_id`, ссылки собираются по UUID и
-продолжают работать.
+`src/utils/entityUrl.ts`: `isPublicId`, `entityParam`, `profileUrl`, `threadUrl`,
+`wallPostUrl`. Номер предпочитается, UUID — фолбэк; при отсутствии обоих возвращается
+пустая строка, а не полусобранный URL.
 
-- Заменить линк-билдеры: `wallNormalizers.ts:137` (центральный), `Profile.tsx`,
-  `UserBadge.tsx:107`, `SearchResults.tsx:90,141,175`, `ShareCard.tsx:141`,
-  `MrRandom.tsx:37,39`, `Achievements.tsx:223`, `NotificationThumb`,
-  `ModerationUser.tsx:391`, навигация после создания (`CreateThread.tsx:166`,
-  `CreateGomoThread.tsx:181`).
-- Хуки: `useProfiles.ts:34`, `useThreads.ts:42`, `usePosts.ts:117` + wall-lookup — выбирать
-  фильтр по форме параметра.
-- **Главная ловушка:** сравнения сырого параметра маршрута с сессией сломают «это мой
-  профиль» (нельзя будет редактировать и писать на свою стену):
-  `Profile.tsx:148,309,329,380`, `Achievements.tsx:35`, `ProfileTabs.tsx:602`,
-  `useProfileEditing.ts:231`. Правило: сравнивать `profile.id === currentUser.id`
-  (UUID загруженной сущности), а не `userId` из URL.
-- react-query ключи и `ProfileCacheContext` остаются на UUID.
+`?? id` — это страховка на время раскатки: React Query-кэш может ещё держать ответы,
+полученные до появления `public_id`, и пропавший номер должен деградировать в
+UUID-ссылку, а не в `/profile/undefined`.
+
+Переведены: карточки тредов (`ThreadCard`, `FeedThreadCard`, `GomoThreadCard`,
+`CompactThreadList`, `Board`, шэр-URL треда, `CreateThread`/`CreateGomoThread`),
+`ShareCard`, поиск (люди, темы, попадания по постам — через номер треда), `MrRandom`,
+дропдаун поиска в шапке, авторы комментариев (`ThreadCommentTree`, `WallCommentNode`),
+друзья и заявки в друзья, уведомления (`notificationLink`).
+
+### 7.2 Резолв параметра маршрута (то, без чего числовые URL не работают)
+
+- `useProfile` / `useThread` выбирают `public_id=eq.` или `id=eq.` по форме параметра.
+- `ProfileCacheContext` резолвит числовой параметр через запрос профиля и берёт
+  канонический UUID для `user_roles` и customization.
+- `Profile`, `Thread`, `WallPost`, `Achievements` резолвят параметр один раз и передают
+  дальше **UUID**: приватность, статус дружбы, presence-рум, опросы/подписки/история/
+  редактирование, дерево комментариев, `ProfileWall`, RPC ачивок. **UUID-ссылка не делает
+  лишнего запроса** — резолв включается только для числового параметра.
+- Проверки владельца сравнивают резолвнутый UUID, а не сырой параметр
+  (`Profile`, `ProfileTabs`, `useProfileEditing`, `Achievements`, `MobileMenu`).
+
+### 7.3 Что осталось на UUID-фолбэке (осознанно)
+
+Ссылки, которые строятся из «голого» id-пропа без номера в payload: аватар в
+`UserBadge`/`HeaderUsername`/`ProfileSection`/`PostCardChrome`, `MentionLink`,
+`GiftDetailPanel`, `ProcessedContent` (`__ME_LINK__`/`__DUDE_LINK__`), мессенджер
+(`MessageLinkViews`, `UserInfoPanel`) и страницы модерации. Работают, но URL будет
+UUID-ным; чтобы перевести, нужно протащить номер через пропсы/эндпоинты.
+
+Побочный эффект резолва: страница профиля теперь делает запрос профиля до остальных
+чтений (раньше все четыре шли параллельно) — один лишний round trip на холодном кэше,
+сглаживается TTL-кэшем страницы.
 
 ## 8. Фаза 4 — тесты и приёмка
 
