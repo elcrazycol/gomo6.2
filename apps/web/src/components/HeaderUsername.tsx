@@ -5,11 +5,13 @@ import { parseCssToStyle } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { NicknameEmoji } from "./NicknameEmoji";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface CachedProfile {
   username: string;
   display_name?: string | null;
   nickname_emoji_id?: string | null;
+  public_id?: number | null;
   color?: string;
   customization?: {
     username_css?: string;
@@ -51,7 +53,7 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
     <ProfileHoverCard userId={userId} showDrops>
       <span
         className={`inline-flex items-center gap-1 cursor-pointer group ${className}`}
-        onClick={() => navigate(`/profile/${userId}`)}
+        onClick={() => navigate(profileUrl({ id: userId, public_id: profileData.public_id }))}
         style={{ userSelect: 'none' }}
       >
         <span className={`${usernameClassName} relative inline-block transition-transform duration-200 group-hover:translate-x-0.5`} style={usernameStyle}>

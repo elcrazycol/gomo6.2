@@ -130,14 +130,22 @@ func SeedDevDashboardApp(db *sql.DB) {
 	}
 
 	// First ensure a system user exists to satisfy the owner_id FK constraint
+	// public_id is set explicitly to a reserved low number: the sequence starts at
+	// 10 (docs/wiki/PUBLIC_IDS.md), so letting this service row take the default
+	// would consume #10 and push every real account up by one — the "low number =
+	// old account" ladder belongs to people. 1 is inside the band the sequence can
+	// never reach, and the explicit value is possible because public_id is a plain
+	// sequence default rather than an identity column. The DO UPDATE branch also
+	// moves an install that already handed this row an organic number.
 	_, err = db.Exec(`
-		INSERT INTO users (id, username, email, password_hash, domain, wallet_address)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO users (id, public_id, username, email, password_hash, domain, wallet_address)
+		VALUES ($1, 1, $2, $3, $4, $5, $6)
 		ON CONFLICT (id) DO UPDATE SET
 			username = EXCLUDED.username,
 			email = EXCLUDED.email,
 			domain = EXCLUDED.domain,
-			wallet_address = EXCLUDED.wallet_address
+			wallet_address = EXCLUDED.wallet_address,
+			public_id = EXCLUDED.public_id
 	`,
 		systemUserID,
 		"__system__",

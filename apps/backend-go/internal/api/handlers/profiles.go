@@ -403,7 +403,9 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 // @Failure      404 {object} models.APIResponse
 // @Router       /profiles/{id} [get]
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {
-	param := publicid.ParseParam(c.Param("id"))
+	// Strict: a parameter that is neither a public number nor a UUID is a 404,
+	// not a 500 from the uuid cast (bots and truncated links hit this path).
+	param := publicid.ParseParamStrict(c.Param("id"))
 	if !param.OK {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
 		return

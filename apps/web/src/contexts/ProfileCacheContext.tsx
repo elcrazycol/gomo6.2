@@ -12,6 +12,8 @@ interface ProfileData {
   isAdmin: boolean;
   avatarUrl?: string;
   nickname_emoji_id?: string | null;
+  /** Public number of the viewed profile, for /profile/<n> links. */
+  public_id?: number | null;
 }
 
 interface ProfileCacheContextType {
@@ -117,7 +119,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
           () =>
             api
               .from('profiles')
-              .select('id, username, avatar_url, nickname_emoji_id')
+              .select('id, public_id, username, avatar_url, nickname_emoji_id')
               .eq(isPublicId(uid) ? 'public_id' : 'id', uid)
               .single(),
           { data: null, error: null }
@@ -155,6 +157,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
           isAdmin,
           avatarUrl: profileRes.data?.avatar_url || undefined,
           nickname_emoji_id: (profileRes.data as { nickname_emoji_id?: string | null } | null)?.nickname_emoji_id || null,
+          public_id: (profileRes.data as { public_id?: number | null } | null)?.public_id ?? null,
         };
 
         // Update cache
