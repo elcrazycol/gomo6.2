@@ -14,7 +14,7 @@
  * (low-saturation), not a random hue.
  */
 
-import { formatOklch, hslToOklch, parseOklch } from "@/theme/color";
+import { formatOklch, hslToOklch, oklchToRgb, parseOklch } from "@/theme/color";
 import { THEME_TOKEN_NAMES } from "@/theme/tokens";
 import { SEMANTIC_TOKENS } from "@/theme/derive";
 
@@ -322,6 +322,45 @@ export const normalizeTokenValue = (value: string): string | null => {
 };
 
 /**
+ * Complete a profile token map so the whole profile renders in the owner's
+ * theme — including tokens the map never carried.
+ *
+ * Old profiles stored only a handful of tokens (background / card / foreground
+ * / primary / accent). Applying just those left every other token —
+ * `--border`, `--card-foreground`, `--muted`, `--popover`, … — at the
+ * *viewer's* theme values. When the viewer's mode was the opposite of the
+ * profile theme's, that painted light borders and dark text on the dark wall
+ * cards (or the reverse on a light profile). The gaps are now filled from a
+ * full palette derived from the profile background, so the viewer's own theme
+ * can no longer bleed through. Owner-provided tokens always win.
+ */
+export const completeThemeTokens = (tokens: ThemeTokenMap): ThemeTokenMap => {
+  const provided: ThemeTokenMap = {};
+  for (const key of THEME_TOKEN_KEYS) {
+    const raw = tokens[key];
+    if (raw == null || raw === "") continue;
+    const value = normalizeTokenValue(raw);
+    if (value) provided[key] = value;
+  }
+  const out: ThemeTokenMap = { ...provided };
+
+  // The background is the profile's dominant surface, so its hue and lightness
+  // decide the mode (dark/light) and tint of every derived structural token.
+  const anchor = parseOklch(
+    provided["--background"] ?? provided["--card"] ?? provided["--foreground"] ?? "",
+  );
+  if (anchor) {
+    const { r, g, b } = oklchToRgb(anchor);
+    const hsl = rgbToHsl(r, g, b);
+    const derived = buildThemeTokens(hsl, hsl.s < GRAY_SAT_THRESHOLD ? "neutral" : "color");
+    for (const key of THEME_TOKEN_KEYS) {
+      if (!(key in out)) out[key] = derived[key];
+    }
+  }
+  return out;
+};
+
+/**
  * Apply profile theme tokens to the page root, overriding the viewer's own
  * theme while the profile page is mounted.
  *
@@ -335,10 +374,9 @@ export const applyProfileThemeTokens = (tokens: ThemeTokenMap): (() => void) => 
   const root = document.documentElement;
   const body = document.body;
   const prev = new Map<string, { html: string | null; body: string | null }>();
+  const complete = completeThemeTokens(tokens);
   for (const key of THEME_TOKEN_KEYS) {
-    const raw = tokens[key];
-    if (raw == null || raw === "") continue;
-    const value = normalizeTokenValue(raw);
+    const value = complete[key];
     if (!value) continue;
     prev.set(key, {
       html: root.style.getPropertyValue(key) || null,

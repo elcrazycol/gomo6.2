@@ -4,6 +4,7 @@ import {
   isValidThemeTokens,
   applyProfileThemeTokens,
   collectPixelStats,
+  completeThemeTokens,
   deriveVariantsFromStats,
   normalizeTokenValue,
   rgbToHsl,
@@ -242,6 +243,46 @@ describe("applyProfileThemeTokens", () => {
     expect(document.documentElement.style.getPropertyValue("--nope")).toBe("");
     expect(document.body.style.getPropertyValue("--nope")).toBe("");
     cleanup();
+  });
+
+  // Regression: an old profile theme carried only a handful of tokens, so the
+  // rest fell back to the *viewer's* theme. A dark profile viewed in light mode
+  // therefore painted light borders + dark text on the dark wall cards.
+  it("completes a legacy partial dark theme so the viewer's light tokens don't leak", () => {
+    const legacyDark = {
+      "--background": "240 12% 8%",
+      "--card": "240 10% 12%",
+      "--foreground": "0 0% 98%",
+      "--primary": "265 85% 62%",
+      "--accent": "330 80% 60%",
+    };
+    const complete = completeThemeTokens(legacyDark);
+    // Owner tokens survive untouched (normalized).
+    expect(complete["--background"]).toBe(normalizeTokenValue("240 12% 8%"));
+    // Missing tokens are dark-mode correct: light text, dark hairline.
+    expect(parseOklch(complete["--card-foreground"])!.L).toBeGreaterThan(0.8);
+    expect(parseOklch(complete["--border"])!.L).toBeLessThan(0.5);
+    expect(parseOklch(complete["--muted"])!.L).toBeLessThan(0.5);
+  });
+
+  it("completes a legacy partial light theme with dark text and light hairlines", () => {
+    const complete = completeThemeTokens({
+      "--background": "40 20% 97%",
+      "--card": "40 15% 99%",
+      "--foreground": "30 10% 12%",
+    });
+    expect(parseOklch(complete["--card-foreground"])!.L).toBeLessThan(0.4);
+    expect(parseOklch(complete["--border"])!.L).toBeGreaterThan(0.6);
+    expect(parseOklch(complete["--muted"])!.L).toBeGreaterThan(0.6);
+  });
+
+  it("applies completed tokens for every canonical key, not just the stored ones", () => {
+    const cleanup = applyProfileThemeTokens({ "--background": "240 12% 8%", "--foreground": "0 0% 98%" });
+    expect(document.body.style.getPropertyValue("--border")).not.toBe("");
+    expect(document.body.style.getPropertyValue("--card-foreground")).not.toBe("");
+    expect(document.documentElement.style.getPropertyValue("--border")).not.toBe("");
+    cleanup();
+    expect(document.body.style.getPropertyValue("--border")).toBe("");
   });
 });
 
