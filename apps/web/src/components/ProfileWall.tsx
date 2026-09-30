@@ -695,7 +695,7 @@ export const ProfileWall = ({
                 onTogglePin={handleTogglePin}
                 onRefreshPosts={loadPosts}
                 forceCommentsOpen={Boolean(focusedPostId)}
-                postHref={focusedPostId ? null : getWallPostPath(post.user_id, post.id)}
+                postHref={focusedPostId ? null : getWallPostPath({ id: post.user_id, public_id: post.user_public_id }, post)}
                 standalone={standalone}
                 autoplayVideo={autoplayVideo && String(post.id) === String(focusedPostId)}
                 onImageClick={(items, idx) => {

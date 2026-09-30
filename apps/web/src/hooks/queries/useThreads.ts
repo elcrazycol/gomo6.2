@@ -3,6 +3,7 @@ import { api } from '@/integrations/api/compat';
 
 export interface Thread {
   id: string;
+  public_id?: number | null;
   board_id: string;
   user_id: string;
   title: string;
@@ -22,6 +23,7 @@ export interface Thread {
   };
   profiles?: {
     username: string;
+    public_id?: number | null;
     avatar_url?: string;
     is_anonymous?: boolean;
   };

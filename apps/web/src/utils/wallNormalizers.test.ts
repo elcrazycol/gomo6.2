@@ -171,8 +171,14 @@ describe("normalizeWallComment", () => {
 });
 
 describe("getWallPostPath", () => {
-  it("generates correct path", () => {
-    expect(getWallPostPath("user-1", "post-1")).toBe("/profile/user-1/wall/post-1");
+  it("uses the public numbers when the payload has them", () => {
+    expect(getWallPostPath({ id: "user-1", public_id: 42 }, { id: "post-1", public_id: 1337 })).toBe(
+      "/profile/42/wall/1337",
+    );
+  });
+
+  it("falls back to UUIDs when the numbers are missing (cached payloads)", () => {
+    expect(getWallPostPath({ id: "user-1" }, { id: "post-1" })).toBe("/profile/user-1/wall/post-1");
   });
 });
 

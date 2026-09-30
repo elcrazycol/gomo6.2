@@ -8,14 +8,27 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 // Types — re-exported from auto-generated OpenAPI spec (api.d.ts)
 import type { components } from '@/api';
 
-export type User = components['schemas']['User'];
+export type User = components['schemas']['User'] & { public_id?: number | null };
 export type Board = components['schemas']['Board'];
-export type Thread = components['schemas']['Thread'];
-export type ThreadWithBoards = components['schemas']['ThreadWithBoards'];
+export type Thread = components['schemas']['Thread'] & { public_id?: number | null };
+export type ThreadWithBoards = components['schemas']['ThreadWithBoards'] & {
+  public_id?: number | null;
+  user_public_id?: number | null;
+};
 export type Post = components['schemas']['Post'];
 export type PostLike = components['schemas']['PostLike'];
 export type ThreadLike = components['schemas']['ThreadLike'];
-export type Notification = components['schemas']['Notification'];
+// public_id (docs/wiki/PUBLIC_IDS.md): the human-readable numbers the backend
+// sends next to the UUIDs so links can be /profile/42 instead of /profile/<uuid>.
+// Declared as an intersection here because apps/web/openapi.yaml has drifted
+// behind src/api.d.ts — regenerating from it would drop fields the app already
+// uses. Fold these into the spec when the OpenAPI document is refreshed.
+export type Notification = components['schemas']['Notification'] & {
+  related_user_public_id?: number | null;
+  related_thread_public_id?: number | null;
+  related_wall_post_public_id?: number | null;
+  related_wall_user_public_id?: number | null;
+};
 export type AuthResponse = components['schemas']['AuthResponse'];
 export type TOTPSetupResponse = components['schemas']['TOTPSetupResponse'];
 export type TwoFAStatus = components['schemas']['TwoFAStatus'];

@@ -487,7 +487,7 @@ export function ProfileAlbumView({
               onTogglePin={handleTogglePin}
               onRefreshPosts={loadPosts}
               forceCommentsOpen={false}
-              postHref={getWallPostPath(post.user_id, post.id)}
+              postHref={getWallPostPath({ id: post.user_id, public_id: post.user_public_id }, post)}
               standalone={false}
               onImageClick={(items, idx) => {
                 setGalleryItems(items);

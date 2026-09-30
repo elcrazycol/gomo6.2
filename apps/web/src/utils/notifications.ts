@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { Notification } from "@/integrations/api/client";
 import { getWallPostPath } from "@/utils/wallNormalizers";
+import { profileUrl, threadUrl } from "@/utils/entityUrl";
 
 /** Structured, language-neutral display data carried by new notifications. */
 export interface NotificationParams {
@@ -32,21 +33,30 @@ export function notificationLink(notif: Notification, threadSlug?: string): stri
   const { type } = notif;
 
   if (isWallNotification(type)) {
+    // The owner may be the recipient themself (a notification about your own
+    // wall); their number is not part of the payload, so the UUID fallback is
+    // what keeps that link working.
     const ownerId = notif.related_wall_user_id || notif.user_id;
     if (notif.related_wall_post_id && ownerId) {
-      return getWallPostPath(ownerId, notif.related_wall_post_id);
+      return getWallPostPath(
+        { id: ownerId, public_id: notif.related_wall_user_public_id },
+        { id: notif.related_wall_post_id, public_id: notif.related_wall_post_public_id },
+      );
     }
-    return ownerId ? `/profile/${ownerId}` : "#";
+    return ownerId ? profileUrl({ id: ownerId, public_id: notif.related_wall_user_public_id }) : "#";
   }
 
   if (type === "friend_request" || type === "friend_accepted") {
-    return notif.related_user_id ? `/profile/${notif.related_user_id}` : "#";
+    return notif.related_user_id
+      ? profileUrl({ id: notif.related_user_id, public_id: notif.related_user_public_id })
+      : "#";
   }
 
   if (notif.related_thread_id) {
-    return threadSlug
-      ? `/g/${threadSlug}/thread/${notif.related_thread_id}`
-      : `/thread/${notif.related_thread_id}`;
+    return threadUrl(
+      { id: notif.related_thread_id, public_id: notif.related_thread_public_id },
+      threadSlug ? { slug: threadSlug } : null,
+    );
   }
 
   return "#";

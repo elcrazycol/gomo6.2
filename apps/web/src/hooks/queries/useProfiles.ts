@@ -3,6 +3,7 @@ import { api } from '@/integrations/api/compat';
 
 export interface Profile {
   id: string;
+  public_id?: number | null;
   username: string;
   email?: string;
   domain?: string;

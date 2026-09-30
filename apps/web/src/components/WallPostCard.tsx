@@ -261,7 +261,7 @@ export const WallPostCard = ({
     setShareDialogOpen(true);
   };
 
-  const sharePath = getWallPostPath(post.user_id, post.id);
+  const sharePath = getWallPostPath({ id: post.user_id, public_id: post.user_public_id }, post);
   const shareUrl = `${window.location.origin}${sharePath}`;
 
   const handleSubmitRepost = async () => {

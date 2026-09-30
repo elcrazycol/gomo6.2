@@ -67,6 +67,7 @@ interface Channel {
 
 interface Thread {
   id: string;
+  public_id?: number | null;
   title: string;
   content: string;
   content_json?: unknown;
@@ -81,6 +82,7 @@ interface Thread {
   tags?: Record<string, unknown>; // Thread tags object
   profiles: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;

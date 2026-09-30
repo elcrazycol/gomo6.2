@@ -1,10 +1,14 @@
 import { prosemirrorToPlainText } from "@/utils/contentConverter";
 import type { AttachmentMeta } from "@/types/forum";
 import { ensureAttachmentIds, type MediaAttachment } from "@/components/editor/media/mediaSchema";
+import { wallPostUrl } from "@/utils/entityUrl";
 
 export interface WallPost {
   id: string;
+  public_id?: number | null;
   user_id: string;
+  /** The wall owner's public number (absent on WebSocket-delivered posts). */
+  user_public_id?: number | null;
   author_id: string;
   title?: string | null;
   content?: string | null;
@@ -19,6 +23,7 @@ export interface WallPost {
   original_post?: WallPost | null;
   author: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;
@@ -49,6 +54,7 @@ export interface WallComment {
   updated_at: string;
   author: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;
@@ -133,8 +139,10 @@ export const normalizeWallComment = (comment: Record<string, unknown>): WallComm
   };
 };
 
-export const getWallPostPath = (profileUserId: string, postId: string) =>
-  `/profile/${profileUserId}/wall/${postId}`;
+export const getWallPostPath = (
+  owner: { id: string; public_id?: number | null },
+  post: { id: string; public_id?: number | null },
+) => wallPostUrl(owner, post);
 
 export const isInteractiveTarget = (target: EventTarget | null, currentTarget?: HTMLElement | null) => {
   if (!(target instanceof HTMLElement)) return false;

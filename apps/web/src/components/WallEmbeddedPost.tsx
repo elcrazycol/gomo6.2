@@ -35,7 +35,7 @@ export const EmbeddedWallPost = ({
   const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   const handleOpenPost = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (isInteractiveTarget(event.target, event.currentTarget)) return;
-    navigate(getWallPostPath(post.user_id, post.id), { state: { wallPost: post } });
+    navigate(getWallPostPath({ id: post.user_id, public_id: post.user_public_id }, post), { state: { wallPost: post } });
   };
 
   return (

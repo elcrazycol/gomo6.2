@@ -62,7 +62,7 @@ export const FeedWallPostCard = ({
   const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   // Reports the post as viewed once the card becomes visible in the viewport.
   const viewTrackingRef = usePostViewTracking(post.id);
-  const postPath = getWallPostPath(post.user_id, post.id);
+  const postPath = getWallPostPath({ id: post.user_id, public_id: post.user_public_id }, post);
   const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
   const hiddenMediaIds = useMemo(
     () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),

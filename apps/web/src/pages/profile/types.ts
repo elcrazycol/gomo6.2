@@ -4,6 +4,7 @@ import { useFileDrop } from "@/hooks/useFileDrop";
 /** Raw row returned by /profiles. */
 export interface Profile {
   id: string;
+  public_id?: number | null;
   username: string;
   display_name?: string | null;
   nickname_emoji_id?: string | null;

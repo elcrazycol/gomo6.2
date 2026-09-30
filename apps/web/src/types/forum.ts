@@ -3,6 +3,7 @@ export type { AttachmentMeta };
 
 export interface UserProfileLite {
   id?: string | null;
+  public_id?: number | null;
   username: string;
   display_name?: string | null;
   nickname_emoji_id?: string | null;
@@ -12,6 +13,7 @@ export interface UserProfileLite {
 
 export interface Thread {
   id: string;
+  public_id?: number | null;
   title: string;
   content: string;
   created_at: string;
@@ -32,6 +34,7 @@ export interface Thread {
 
 export interface Post {
   id: string;
+  public_id?: number | null;
   thread_id?: string;
   content: string;
   created_at: string;
