@@ -73,9 +73,13 @@ export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: stri
   const authorSource = Array.isArray(author) ? author[0] : author;
 
   if (authorSource && typeof authorSource === 'object' && 'username' in (authorSource as Record<string, unknown>)) {
-    const a = authorSource as { username: string; display_name?: string | null; nickname_emoji_id?: string | null; is_anonymous?: boolean; avatar_url?: string | null };
+    const a = authorSource as { username: string; public_id?: number | null; display_name?: string | null; nickname_emoji_id?: string | null; is_anonymous?: boolean; avatar_url?: string | null };
     return {
       username: a.username,
+      // The number must survive the rebuild: this object is the only source the
+      // cards have for the author link, so dropping it here sends every wall
+      // author link back to the UUID.
+      public_id: typeof a.public_id === 'number' ? a.public_id : null,
       display_name: a.display_name || null,
       nickname_emoji_id: a.nickname_emoji_id || null,
       is_anonymous: Boolean(a.is_anonymous),
@@ -85,6 +89,7 @@ export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: stri
 
   return {
     username: fallbackUsername || "user",
+    public_id: null,
     display_name: null,
     nickname_emoji_id: null,
     is_anonymous: false,

@@ -56,7 +56,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	baseSelect := `
 		p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
-		u.username, u.nickname_emoji_id, u.avatar_url
+		u.username, u.public_id, u.nickname_emoji_id, u.avatar_url
 	`
 
 	// H1 (security audit): posts must inherit the visibility of their parent
@@ -319,13 +319,14 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	for rows.Next() {
 		var post models.Post
 		var username, nicknameEmojiID, avatarURL sql.NullString
+		var userPublicID *int64
 		var contentJSON []byte
 
 		err := rows.Scan(
 			&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 			&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 			&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
-			&username, &nicknameEmojiID, &avatarURL,
+			&username, &userPublicID, &nicknameEmojiID, &avatarURL,
 		)
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
@@ -334,6 +335,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		if username.Valid {
 			post.Username = username.String
 		}
+		post.UserPublicID = userPublicID
 		if nicknameEmojiID.Valid {
 			post.NicknameEmojiID = &nicknameEmojiID.String
 		}
@@ -400,7 +402,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	query := `
 		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
-		       u.username, u.nickname_emoji_id, u.avatar_url
+		       u.username, u.public_id, u.nickname_emoji_id, u.avatar_url
 		FROM posts p
 		LEFT JOIN users u ON p.user_id = u.id
 		LEFT JOIN threads t ON p.thread_id = t.id
@@ -413,6 +415,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	`
 
 	var post models.Post
+	var userPublicID *int64
 	var username, nicknameEmojiID, avatarURL sql.NullString
 	var contentJSON []byte
 
@@ -425,7 +428,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
-		&username, &nicknameEmojiID, &avatarURL,
+		&username, &userPublicID, &nicknameEmojiID, &avatarURL,
 	)
 
 	if err != nil {
@@ -439,6 +442,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	if username.Valid {
 		post.Username = username.String
 	}
+	post.UserPublicID = userPublicID
 	if nicknameEmojiID.Valid {
 		post.NicknameEmojiID = &nicknameEmojiID.String
 	}

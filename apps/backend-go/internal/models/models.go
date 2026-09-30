@@ -223,8 +223,11 @@ type Post struct {
 	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
 	IsRemote           bool            `json:"is_remote" db:"is_remote"`
 	Username           string          `json:"username"`
-	NicknameEmojiID    *string         `json:"nickname_emoji_id,omitempty"`
-	AvatarURL          *string         `json:"avatar_url"`
+	// Public number of the author (the users line), so a thread comment can link
+	// /profile/<n> even though the posts line itself is not numbered.
+	UserPublicID    *int64  `json:"user_public_id,omitempty"`
+	NicknameEmojiID *string `json:"nickname_emoji_id,omitempty"`
+	AvatarURL       *string `json:"avatar_url"`
 }
 
 // PostLike

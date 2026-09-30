@@ -69,6 +69,8 @@ interface Channel {
 interface Thread {
   id: string;
   public_id?: number | null;
+  /** Public number of the author, for /profile/<n> links. */
+  user_public_id?: number | null;
   title: string;
   content: string;
   content_json?: unknown;
@@ -1945,6 +1947,7 @@ const Board = () => {
                       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <UserBadge
                           userId={thread.user_id}
+                          userPublicId={thread.user_public_id}
                           username={thread.profiles?.username || t("common.anonymous")}
                           isAnonymous={thread.profiles?.is_anonymous}
                           disableLink={true}
@@ -2052,6 +2055,7 @@ const Board = () => {
                       <div className="flex items-center justify-between">
                         <UserBadge
                           userId={thread.user_id}
+                          userPublicId={thread.user_public_id}
                           username={thread.profiles?.username || t("common.anonymous")}
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}
@@ -2141,6 +2145,7 @@ const Board = () => {
                             </span>
                         <UserBadge
                           userId={thread.user_id}
+                          userPublicId={thread.user_public_id}
                           username={thread.profiles?.username || t("common.anonymous")}
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}

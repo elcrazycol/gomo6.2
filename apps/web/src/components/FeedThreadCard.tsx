@@ -32,6 +32,8 @@ import { entityParam } from "@/utils/entityUrl";
  * or the subscriptions query in Index.tsx). */
 export interface FeedThread {
   id: string;
+  /** Public number of the thread, for /thread/<n> links. */
+  public_id?: number | null;
   /** Public number of the author, for /profile/<n> links. */
   user_public_id?: number | null;
   title: string;
@@ -48,6 +50,7 @@ export interface FeedThread {
   tags?: Record<string, string>;
   profiles: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;

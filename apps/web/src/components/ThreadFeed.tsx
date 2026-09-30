@@ -8,11 +8,16 @@ import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
 import { wsService, type WebSocketMessageType } from "@/services/websocket";
 import { useLoadingBarStore } from "@/stores/loadingBarStore";
+import { feedItemToThread, feedItemToWallPost } from "@/utils/threadFeedItem";
 
 /** One unified feed item as returned by GET /api/v1/feed. */
 interface FeedItem {
   item_type: "thread" | "wall_post";
   item_id: string;
+  /** Public number of the item, for /thread/<n> and /profile/<n>/wall/<n>. */
+  public_id?: number | null;
+  /** The wall owner's number (wall posts only). */
+  user_public_id?: number | null;
   score: number;
   created_at: string;
   updated_at?: string | null;
@@ -27,6 +32,7 @@ interface FeedItem {
   author_id?: string | null;
   author?: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;
@@ -147,45 +153,9 @@ export const ThreadFeed = ({
     }
   }, [seenKey]);
 
-  const feedToThread = (item: FeedItem): FeedThread => ({
-    id: item.item_id,
-    title: item.title || "",
-    content: item.content || "",
-    content_json: item.content_json,
-    image_url: item.image_url ?? null,
-    image_urls: item.image_urls ?? null,
-    attachments: item.attachments,
-    created_at: item.created_at,
-    updated_at: item.updated_at || item.created_at,
-    user_id: item.author_id ?? null,
-    board_id: item.board_id ?? "",
-    post_count: item.post_count ?? 0,
-    tags: item.tags ?? undefined,
-    profiles: item.author ?? null,
-    boards: item.boards ?? { slug: "", name: "", is_gomosub: false },
-    section: item.section ?? null,
-    subsection: item.subsection ?? null,
-  });
+  const feedToThread = (item: FeedItem): FeedThread => feedItemToThread(item);
 
-  const feedToWallPost = (item: FeedItem): WallPost =>
-    normalizeWallPostRecord({
-      id: item.item_id,
-      user_id: item.wall_user_id,
-      author_id: item.author_id,
-      title: item.title,
-      content: item.content,
-      content_json: item.content_json,
-      image_url: item.image_url,
-      attachments: item.attachments,
-      created_at: item.created_at,
-      updated_at: item.updated_at,
-      likes_count: item.likes_count,
-      comments_count: item.comments_count,
-      reposts_count: item.reposts_count,
-      liked_by_viewer: item.liked_by_viewer,
-      views_count: item.views_count,
-      author: item.author,
-    } as unknown as Record<string, unknown>);
+  const feedToWallPost = (item: FeedItem): WallPost => feedItemToWallPost(item);
 
   const loadInitial = useCallback(async () => {
     setLoading(true);

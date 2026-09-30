@@ -383,6 +383,7 @@ const Thread = () => {
                   <div className="flex flex-wrap items-center gap-2">
                     <UserBadge
                       userId={thread.user_id}
+                      userPublicId={thread.user_public_id}
                       username={authorName}
                       displayName={tx.display_name}
                       emojiId={tx.nickname_emoji_id}

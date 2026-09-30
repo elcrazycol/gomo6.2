@@ -35,6 +35,8 @@ export interface Thread {
 export interface Post {
   id: string;
   public_id?: number | null;
+  /** Public number of the author (the users line). */
+  user_public_id?: number | null;
   thread_id?: string;
   content: string;
   created_at: string;

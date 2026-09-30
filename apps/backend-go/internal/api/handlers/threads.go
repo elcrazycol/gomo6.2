@@ -174,7 +174,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
 		SELECT t.id, t.public_id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
-		       u.username, u.public_id, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
+		       u.username, u.public_id AS user_public_id, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
 		       b.slug as board_slug, b.name as board_name, COALESCE(b.is_gomosub, false) as board_is_gomosub, COALESCE(b.is_rules_board, false) as board_is_rules_board,
 		       s.slug as section_slug, s.name as section_name, s.icon as section_icon, COALESCE(s.is_nsfw, false) as section_is_nsfw,
 		       ss.slug as subsection_slug, ss.name as subsection_name
@@ -527,7 +527,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	query := `
 		SELECT t.id, t.public_id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
-		       u.username, u.public_id, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
+		       u.username, u.public_id AS user_public_id, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
 		       b.slug as board_slug, b.name as board_name, COALESCE(b.is_gomosub, false) as board_is_gomosub, COALESCE(b.is_rules_board, false) as board_is_rules_board,
 		       s.slug as section_slug, s.name as section_name, s.icon as section_icon, COALESCE(s.is_nsfw, false) as section_is_nsfw,
 		       ss.slug as subsection_slug, ss.name as subsection_name

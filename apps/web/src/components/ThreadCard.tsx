@@ -77,7 +77,7 @@ interface ThreadCardProps {
   hideTimestampOnCompactMobile?: boolean;
   initialLikesCount?: number;
   initialUserLiked?: boolean;
-  initialRecentLikers?: { username: string; display_name?: string | null; nickname_emoji_id?: string | null; id: string; avatar_url: string | null; is_anonymous: boolean }[];
+  initialRecentLikers?: { username: string; display_name?: string | null; nickname_emoji_id?: string | null; id: string; public_id?: number | null; avatar_url: string | null; is_anonymous: boolean }[];
   initialRecentPost?: {
     id: string;
     content: string;
@@ -447,6 +447,7 @@ const ThreadCard = ({
                       <div key={liker.id} className="flex items-center">
                         <UserBadge
                           userId={liker.id}
+                          userPublicId={liker.public_id}
                           username={liker.is_anonymous ? "Аноним" : liker.username}
                           displayName={liker.is_anonymous ? undefined : liker.display_name}
                           emojiId={liker.is_anonymous ? undefined : liker.nickname_emoji_id}

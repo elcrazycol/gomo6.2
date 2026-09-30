@@ -24,15 +24,15 @@ func TestGetPosts_Success_NoFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	).AddRow(
 		"p2", "t1", "u2", "World!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"user2", nil, nil,
+		"user2", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -64,11 +64,11 @@ func TestGetPosts_Success_WithThreadFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "550e8400-e29b-41d4-a716-446655440000", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.thread_id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -100,11 +100,11 @@ func TestGetPosts_Success_WithIDFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -128,11 +128,11 @@ func TestGetPosts_Success_WithInFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id IN \(\$1,\$2\).*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -179,7 +179,7 @@ func TestGetPosts_PrivateBoard_AnonymousEmpty(t *testing.T) {
 			"id", "thread_id", "user_id", "content", "content_json",
 			"image_url", "image_urls", "attachments", "reply_to",
 			"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-			"username", "nickname_emoji_id", "avatar_url",
+			"username", "public_id", "nickname_emoji_id", "avatar_url",
 		}))
 
 	handler.GetPosts(c)
@@ -214,11 +214,11 @@ func TestGetPosts_PrivateBoard_MemberVisible(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Member-visible post", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	// Authenticated → the predicate references b.owner_id + gomosub_memberships,
@@ -265,15 +265,15 @@ func TestGetPosts_Latest_Success(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Latest in t1", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	).AddRow(
 		"p2", "t2", "u2", "Latest in t2", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"user2", nil, nil,
+		"user2", 42, nil, nil,
 	)
 
 	// The DISTINCT ON subquery regex must match the generated SQL — including
@@ -311,11 +311,11 @@ func TestGetPost_Success(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
@@ -464,11 +464,11 @@ func TestGetPost_PrivatePost_RecipientSuccess(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "DM content", nil,
 		nil, "[]", "[]", nil, true, "u2", "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	// The private recipient sees the DM. The third arg binds the viewer to the

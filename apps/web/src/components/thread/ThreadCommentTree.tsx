@@ -46,6 +46,8 @@ const MAX_POST_DEPTH = 6;
 
 interface ThreadPost {
   id: string;
+  /** Public number of the author (the users line). */
+  user_public_id?: number | null;
   thread_id: string;
   user_id: string;
   content: string;
@@ -269,7 +271,7 @@ const ThreadPostNode = ({
             </div>
           ) : (
             <Link
-              to={profileUrl({ id: post.user_id, public_id: post.profiles?.public_id })}
+              to={profileUrl({ id: post.user_id, public_id: post.user_public_id ?? post.profiles?.public_id })}
               className="relative z-10 mt-0.5 shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
@@ -298,7 +300,7 @@ const ThreadPostNode = ({
             ) : (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <Link
-                  to={profileUrl({ id: post.user_id, public_id: post.profiles?.public_id })}
+                  to={profileUrl({ id: post.user_id, public_id: post.user_public_id ?? post.profiles?.public_id })}
                   className="text-sm font-semibold text-foreground hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -361,7 +363,7 @@ const ThreadPostNode = ({
                       currentUsername={currentUsername}
                       currentUserColor={currentUserColor}
                       postAuthorId={post.user_id}
-                      postAuthorPublicId={post.profiles?.public_id}
+                      postAuthorPublicId={post.user_public_id ?? post.profiles?.public_id}
                       authorUsername={post.profiles?.username}
                     />
                   )}

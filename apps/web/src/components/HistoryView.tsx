@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/integrations/api/client";
 import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
 import { FeedWallPostCard } from "@/components/FeedWallPostCard";
+import { feedItemToThread, feedItemToWallPost } from "@/utils/threadFeedItem";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { QuietLoading } from "@/components/QuietLoading";
@@ -24,6 +25,9 @@ const PAGE_SIZE = 30;
 interface HistoryItem {
   item_type: "thread" | "wall_post";
   item_id: string;
+  /** Public numbers for the item and (wall posts) its wall owner. */
+  public_id?: number | null;
+  user_public_id?: number | null;
   created_at: string;
   updated_at?: string | null;
   title?: string | null;
@@ -49,45 +53,9 @@ interface HistoryItem {
   viewed_at?: string;
 }
 
-const toFeedThread = (item: HistoryItem): FeedThread => ({
-  id: item.item_id,
-  title: item.title || "",
-  content: item.content || "",
-  content_json: item.content_json,
-  image_url: item.image_url ?? null,
-  image_urls: item.image_urls ?? null,
-  attachments: item.attachments,
-  created_at: item.created_at,
-  updated_at: item.updated_at || item.created_at,
-  user_id: item.author_id ?? null,
-  board_id: item.board_id ?? "",
-  post_count: item.post_count ?? 0,
-  tags: item.tags ?? undefined,
-  profiles: item.author ?? null,
-  boards: item.boards ?? { slug: "", name: "", is_gomosub: false },
-  section: item.section ?? null,
-  subsection: item.subsection ?? null,
-});
+const toFeedThread = (item: HistoryItem): FeedThread => feedItemToThread(item);
 
-const toWallPost = (item: HistoryItem): WallPost =>
-  normalizeWallPostRecord({
-    id: item.item_id,
-    user_id: item.wall_user_id,
-    author_id: item.author_id,
-    title: item.title,
-    content: item.content,
-    content_json: item.content_json,
-    image_url: item.image_url,
-    attachments: item.attachments,
-    created_at: item.created_at,
-    updated_at: item.updated_at,
-    likes_count: item.likes_count,
-    comments_count: item.comments_count,
-    reposts_count: item.reposts_count,
-    liked_by_viewer: item.liked_by_viewer,
-    views_count: item.views_count,
-    author: item.author,
-  } as unknown as Record<string, unknown>);
+const toWallPost = (item: HistoryItem): WallPost => feedItemToWallPost(item);
 
 interface HistoryViewProps {
   currentUserId: string | null;
