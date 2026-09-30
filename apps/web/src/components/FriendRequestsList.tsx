@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
+import { profileUrl } from "@/utils/entityUrl";
 
 export const FriendRequestsList = () => {
   const { incomingRequests, fetchRequests, isLoading } = useFriendsStore();
@@ -79,7 +80,7 @@ const RequestItem = ({ request }: { request: FriendRequest }) => {
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
       {/* Avatar */}
-      <Link to={`/profile/${request.sender_id}`} className="shrink-0">
+      <Link to={profileUrl({ id: request.sender_id, public_id: request.sender_public_id })} className="shrink-0">
         <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center overflow-hidden">
           {request.sender_avatar_url ? (
             <img
@@ -96,7 +97,7 @@ const RequestItem = ({ request }: { request: FriendRequest }) => {
       {/* Info */}
       <div className="flex-1 min-w-0">
         <Link
-          to={`/profile/${request.sender_id}`}
+          to={profileUrl({ id: request.sender_id, public_id: request.sender_public_id })}
           className="font-medium text-sm hover:underline truncate block flex items-center gap-1"
         >
           {request.sender_display_name || request.sender_username}

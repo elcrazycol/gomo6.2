@@ -32,6 +32,8 @@ import { entityParam } from "@/utils/entityUrl";
  * or the subscriptions query in Index.tsx). */
 export interface FeedThread {
   id: string;
+  /** Public number of the author, for /profile/<n> links. */
+  user_public_id?: number | null;
   title: string;
   content: string;
   content_json?: unknown;
@@ -183,6 +185,7 @@ export const FeedThreadCard = ({
       <PostCardHeading>
         <PostCardHeader
           userId={thread.user_id}
+          userPublicId={thread.user_public_id}
           username={thread.profiles?.username || "Аноним"}
           displayName={thread.profiles?.display_name}
           emojiId={thread.profiles?.nickname_emoji_id}
@@ -220,6 +223,7 @@ export const FeedThreadCard = ({
               currentUsername={currentUsername}
               currentUserColor={currentUserColor}
               postAuthorId={thread.user_id}
+              postAuthorPublicId={thread.user_public_id}
               authorUsername={thread.profiles?.username}
               showHiddenIndicators={false}
             />

@@ -20,6 +20,7 @@ import { api } from "@/integrations/api/compat";
 import type { WallComment } from "@/utils/wallNormalizers";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface WallCommentNodeProps {
   comment: WallComment;
@@ -175,7 +176,7 @@ export const WallCommentNode = ({
               </div>
             ) : (
               <Link
-                to={`/profile/${comment.user_id}`}
+                to={profileUrl({ id: comment.user_id, public_id: comment.author?.public_id })}
                 data-wall-avatar="current"
                 className="relative z-10 mt-0.5 shrink-0"
                 onClick={(e) => e.stopPropagation()}
@@ -205,7 +206,7 @@ export const WallCommentNode = ({
               ) : (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <Link
-                    to={`/profile/${comment.user_id}`}
+                    to={profileUrl({ id: comment.user_id, public_id: comment.author?.public_id })}
                     className="text-sm font-semibold text-foreground hover:underline"
                     onClick={(e) => e.stopPropagation()}
                   >

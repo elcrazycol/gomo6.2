@@ -5,15 +5,20 @@ import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibili
 import { MentionLink } from "./MentionLink";
 import { renderBbCode } from "@/utils/bbcodePlugins";
 import { RichContentRenderer } from "./RichContentRenderer";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface ProcessedContentProps {
   content: string;
   contentJson?: unknown;
   currentUserId: string | null;
+  /** Public number of the viewer, for the "Ты" self-link. */
+  currentUserPublicId?: number | null;
   isAdmin: boolean;
   currentUsername: string;
   currentUserColor?: string;
   postAuthorId?: string | null;
+  /** Public number of the post author, for the author link. */
+  postAuthorPublicId?: number | null;
   authorUsername?: string;
   showHiddenIndicators?: boolean; // Whether to show indicators for hidden parts
 }
@@ -22,10 +27,12 @@ export const ProcessedContent = ({
   content,
   contentJson,
   currentUserId,
+  currentUserPublicId,
   isAdmin,
   currentUsername,
   currentUserColor,
   postAuthorId,
+  postAuthorPublicId,
   authorUsername,
   showHiddenIndicators = true
 }: ProcessedContentProps) => {
@@ -145,7 +152,7 @@ export const ProcessedContent = ({
           elements.push(
             <Link
               key={`dude-${key++}`}
-              to={`/profile/${currentUserId || ''}`}
+              to={profileUrl({ id: currentUserId, public_id: currentUserPublicId })}
               className={`font-bold hover:underline ${currentUserColor ? colorClasses[currentUserColor] : "text-quote"}`}
             >
               {currentUsername || 'Ты'}
@@ -161,7 +168,7 @@ export const ProcessedContent = ({
           elements.push(
             <Link
               key={`me-${key++}`}
-              to={`/profile/${postAuthorId || ''}`}
+              to={profileUrl({ id: postAuthorId, public_id: postAuthorPublicId })}
               className="font-bold hover:underline text-quote"
             >
               {text || (authorUsername || 'Автор')}

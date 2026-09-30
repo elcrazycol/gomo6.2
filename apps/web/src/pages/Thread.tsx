@@ -550,6 +550,7 @@ const Thread = () => {
                     currentUsername={currentUserUsername}
                     currentUserColor={currentUserColor}
                     postAuthorId={thread.user_id}
+                    postAuthorPublicId={thread.user_public_id}
                     authorUsername={tx.username}
                   />
                 </div>

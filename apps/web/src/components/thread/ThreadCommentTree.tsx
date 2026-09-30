@@ -361,6 +361,7 @@ const ThreadPostNode = ({
                       currentUsername={currentUsername}
                       currentUserColor={currentUserColor}
                       postAuthorId={post.user_id}
+                      postAuthorPublicId={post.profiles?.public_id}
                       authorUsername={post.profiles?.username}
                     />
                   )}

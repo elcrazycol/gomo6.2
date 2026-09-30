@@ -5,6 +5,8 @@ import { isPublicId } from "@/utils/entityUrl";
 export interface Thread {
   id: string;
   public_id?: number | null;
+  /** Public number of the author, for /profile/<n> links. */
+  user_public_id?: number | null;
   board_id: string;
   user_id: string;
   title: string;

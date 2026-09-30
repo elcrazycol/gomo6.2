@@ -11,9 +11,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface UserBadgeProps {
   userId: string | null;
+  /** Public number of the author, for /profile/<n> links. */
+  userPublicId?: number | null;
   username: string;
   displayName?: string | null;
   /** custom_emojis id shown right of the nickname (users.nickname_emoji_id) */
@@ -28,6 +31,7 @@ interface UserBadgeProps {
 
 export const UserBadge = ({
   userId,
+  userPublicId,
   username,
   displayName,
   emojiId,
@@ -104,7 +108,7 @@ export const UserBadge = ({
   ) : (
     <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
       <Link
-        to={`/profile/${userId}`}
+        to={profileUrl({ id: userId, public_id: userPublicId })}
         className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden"
         onClick={stopPropagationOnClick ? (event) => event.stopPropagation() : undefined}
       >

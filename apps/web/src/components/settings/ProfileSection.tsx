@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { IdCard, Layers, Sparkles } from "lucide-react";
 import { SETTING_BLOCK_CHROME, SettingBlock, SettingGroup, SettingRow } from "./SettingRow";
+import { profileUrl } from "@/utils/entityUrl";
 
 /**
  * Settings → Профиль. Straight navigation into the profile itself and its two
@@ -12,9 +13,11 @@ import { SETTING_BLOCK_CHROME, SettingBlock, SettingGroup, SettingRow } from "./
 
 interface ProfileSectionProps {
   userId: string;
+  /** Public number of the viewer, for /profile/<n> links. */
+  userPublicId?: number | null;
 }
 
-export const ProfileSection = ({ userId }: ProfileSectionProps) => {
+export const ProfileSection = ({ userId, userPublicId }: ProfileSectionProps) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
@@ -32,7 +35,7 @@ export const ProfileSection = ({ userId }: ProfileSectionProps) => {
             icon={IdCard}
             title={t("settings.mainCustomization")}
             description={t("settings.mainCustomizationDescription")}
-            onClick={() => navigate(`/profile/${userId}`)}
+            onClick={() => navigate(profileUrl({ id: userId, public_id: userPublicId }))}
           />
           <SettingRow
             className={SETTING_BLOCK_CHROME}

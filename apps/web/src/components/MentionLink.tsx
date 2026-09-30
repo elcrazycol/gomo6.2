@@ -4,18 +4,20 @@ import { Link } from "react-router-dom";
 import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { UserAvatar } from "@/components/UserAvatar";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface MentionLinkProps {
   username: string;
 }
 
 // Global cache for user mentions
-const userCache = new Map<string, { exists: boolean; data?: unknown; avatarUrl?: string | null }>();
+const userCache = new Map<string, { exists: boolean; data?: unknown; avatarUrl?: string | null; publicId?: number | null }>();
 
 export const MentionLink = ({ username }: MentionLinkProps) => {
   const [userExists, setUserExists] = useState<boolean | null>(null);
   const [userData, setUserData] = useState<unknown>(null);
   const [userId, setUserId] = useState<string>("");
+  const [userPublicId, setUserPublicId] = useState<number | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -25,6 +27,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
       setUserExists(cached.exists);
       setUserData(cached.data);
       setUserId((cached.data as { id?: string })?.id || "");
+      setUserPublicId(cached.publicId ?? null);
       setAvatarUrl(storageUrl("post-images", cached.avatarUrl ?? null));
       return;
     }
@@ -33,7 +36,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
       try {
         const { data, error } = await api
           .from('profiles')
-          .select('id, username, is_anonymous, avatar_url')
+          .select('id, public_id, username, is_anonymous, avatar_url')
           .eq('username', username)
           .single();
 
@@ -44,9 +47,15 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           setUserExists(true);
           setUserData(data);
           setUserId(data.id);
+          setUserPublicId((data as { public_id?: number | null }).public_id ?? null);
           const resolvedAvatar = storageUrl("post-images", data.avatar_url);
           setAvatarUrl(resolvedAvatar);
-          userCache.set(username, { exists: true, data, avatarUrl: resolvedAvatar });
+          userCache.set(username, {
+            exists: true,
+            data,
+            avatarUrl: resolvedAvatar,
+            publicId: (data as { public_id?: number | null }).public_id ?? null,
+          });
         }
       } catch (error) {
         setUserExists(false);
@@ -73,7 +82,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
 
   if (userExists && userData) {
     return (        <Link
-        to={`/profile/${(userData as { id: string }).id}`}
+        to={profileUrl({ id: (userData as { id: string }).id, public_id: userPublicId })}
         className={`inline-flex items-center gap-1.5 h-6 px-2 py-0.5 text-xs font-medium bg-muted/50 hover:bg-primary/10 hover:text-primary border border-border/40 hover:border-primary/30 transition-all duration-200 cursor-pointer rounded-md group`}
         title={`Профиль пользователя ${username}`}
       >

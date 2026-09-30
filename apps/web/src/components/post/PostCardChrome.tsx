@@ -16,6 +16,7 @@ import { safeDate } from "@/utils/safeDate";
 import { formatShortRelativeTime } from "@/utils/relativeTimeShort";
 import { useDateLocale, getIntlLanguage } from "@/i18n/dateLocale";
 import { useTranslation } from "react-i18next";
+import { profileUrl } from "@/utils/entityUrl";
 
 /**
  * Shared chrome for every post card (feed, profile wall, g-sub board, topics).
@@ -134,6 +135,8 @@ export const PostSourceChip = ({ icon, label, to, className }: PostSourceChipPro
 
 interface PostCardHeaderProps {
   userId: string | null;
+  /** Public number of the author, for /profile/<n> links. */
+  userPublicId?: number | null;
   username?: string | null;
   displayName?: string | null;
   emojiId?: string | null;
@@ -159,6 +162,7 @@ interface PostCardHeaderProps {
  */
 export const PostCardHeader = ({
   userId,
+  userPublicId,
   username,
   displayName,
   emojiId,
@@ -193,7 +197,7 @@ export const PostCardHeader = ({
       <span className="flex shrink-0 items-center">{avatar}</span>
     ) : (
       <Link
-        to={`/profile/${linkId}`}
+        to={profileUrl({ id: linkId, public_id: userPublicId })}
         onClick={(event) => event.stopPropagation()}
         className="flex shrink-0 items-center"
       >
@@ -229,6 +233,7 @@ export const PostCardHeader = ({
       <div className="flex min-w-0 flex-1 items-center">
         <UserBadge
           userId={userId}
+          userPublicId={userPublicId}
           username={username || "Аноним"}
           displayName={displayName}
           emojiId={emojiId}

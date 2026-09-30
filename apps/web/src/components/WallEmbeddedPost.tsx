@@ -54,6 +54,7 @@ export const EmbeddedWallPost = ({
 
       <div className={hideHeader ? "" : "mb-3"}>
         <PostCardHeader
+        userPublicId={post.author.public_id}
           userId={post.author_id}
           username={post.author.username}
           displayName={post.author.display_name}

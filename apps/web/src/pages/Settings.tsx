@@ -86,11 +86,13 @@ const Settings = () => {
   const showPreview = mode === "wide";
 
   const [userId, setUserId] = useState<string | null>(null);
+  const [userPublicId, setUserPublicId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void api.auth.getUser().then(({ data }) => {
       setUserId(data.user?.id ?? null);
+      setUserPublicId(data.user?.public_id ?? null);
       setLoading(false);
     });
   }, []);
@@ -241,7 +243,7 @@ const Settings = () => {
           ) : activeSection?.id === "security" ? (
             <SecuritySection userId={userId} />
           ) : activeSection?.id === "profile" ? (
-            <ProfileSection userId={userId} />
+            <ProfileSection userId={userId} userPublicId={userPublicId} />
           ) : activeSection?.id === "notifications" ? (
             <NotificationsSettings />
           ) : activeSection?.id === "integrations" ? (

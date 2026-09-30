@@ -6,6 +6,8 @@ import type { FeedThread } from "@/components/FeedThreadCard";
  */
 export interface ThreadApiRow {
   id: string;
+  /** Public number of the author, for /profile/<n> links. */
+  user_public_id?: number | null;
   title: string | null;
   content: string | null;
   content_json?: unknown;
@@ -31,6 +33,7 @@ export interface ThreadApiRow {
 /** Map an /api/v1/threads row to the shape the feed card renders. */
 export const toFeedThread = (row: ThreadApiRow): FeedThread => ({
   id: row.id,
+  user_public_id: row.user_public_id,
   title: row.title || "",
   content: row.content || "",
   content_json: row.content_json,

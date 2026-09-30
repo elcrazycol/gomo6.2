@@ -6,6 +6,8 @@ export type FriendStatus = "none" | "pending_sent" | "pending_received" | "frien
 export interface Friend {
   friendship_id: string;
   user_id: string;
+  /** Public number of the friend, for /profile/<n> links. */
+  public_id?: number | null;
   username: string;
   display_name?: string | null;
   nickname_emoji_id?: string | null;
@@ -16,6 +18,8 @@ export interface Friend {
 export interface FriendRequest {
   id: string;
   sender_id: string;
+  /** Public number of the sender, for /profile/<n> links. */
+  sender_public_id?: number | null;
   sender_username: string;
   sender_avatar_url?: string | null;
   sender_display_name?: string | null;

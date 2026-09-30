@@ -124,6 +124,7 @@ export const FeedWallPostCard = ({
       cornerAction={currentUserId ? <FavoriteButton itemType="wall_post" itemId={post.id} /> : undefined}
     >
       <PostCardHeader
+        userPublicId={post.author.public_id}
         userId={post.author_id}
         username={post.author.username}
         displayName={post.author.display_name}
@@ -158,6 +159,7 @@ export const FeedWallPostCard = ({
                 currentUsername={currentUsername}
                 currentUserColor={currentUserColor}
                 postAuthorId={post.author_id}
+                postAuthorPublicId={post.author.public_id}
                 authorUsername={post.author.username}
                 showHiddenIndicators={false}
               />

@@ -538,7 +538,7 @@ const Profile = () => {
 
               {profile.bio && !isNonFriendOnPrivate && (
                 <div className="text-sm">
-                  <ProcessedContent content={profile.bio} contentJson={(profile as { bio_json?: unknown }).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
+                  <ProcessedContent content={profile.bio} contentJson={(profile as { bio_json?: unknown }).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} postAuthorPublicId={profile.public_id} authorUsername={profile.username} />
                 </div>
               )}
 

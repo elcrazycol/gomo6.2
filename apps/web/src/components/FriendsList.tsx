@@ -5,6 +5,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { useRealtimeOnlineStatus, type UserStatus } from "@/hooks/useRealtimeStatus";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface FriendsListProps {
   userId?: string;
@@ -16,7 +17,7 @@ const FriendItem = ({ friend, liveStatus }: { friend: Friend; liveStatus?: UserS
   const isOnline = liveStatus?.is_online ?? friend.is_online;
   return (
     <Link
-      to={`/profile/${friend.user_id}`}
+      to={profileUrl({ id: friend.user_id, public_id: friend.public_id })}
       className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors"
     >
       {/* Avatar */}

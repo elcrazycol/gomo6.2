@@ -27,6 +27,8 @@ import { entityParam } from "@/utils/entityUrl";
 /** Thread shape as the g-sub board hands it to the card. */
 export interface GomoThread {
   id: string;
+  /** Public number of the author, for /profile/<n> links. */
+  user_public_id?: number | null;
   title: string;
   content: string;
   content_json?: unknown;
@@ -161,6 +163,7 @@ export const GomoThreadCard = ({
         <PostCardHeading>
           <PostCardHeader
             userId={thread.user_id}
+            userPublicId={thread.user_public_id}
             username={thread.profiles?.username || t("common.anonymous")}
             displayName={thread.profiles?.display_name}
             emojiId={thread.profiles?.nickname_emoji_id}
@@ -230,6 +233,7 @@ export const GomoThreadCard = ({
                     currentUsername={currentUsername}
                     currentUserColor={currentUserColor}
                     postAuthorId={thread.user_id}
+                    postAuthorPublicId={thread.user_public_id}
                     authorUsername={thread.profiles?.username}
                     showHiddenIndicators={false}
                   />

@@ -124,6 +124,7 @@ export const CompactThreadList = ({
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-muted-foreground">
                   <UserBadge
                     userId={thread.user_id}
+                    userPublicId={thread.user_public_id}
                     username={thread.profiles?.username || "Аноним"}
                     displayName={thread.profiles?.display_name}
                     emojiId={thread.profiles?.nickname_emoji_id}
