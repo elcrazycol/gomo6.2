@@ -36,16 +36,22 @@ func NewRandomHandler(db *sql.DB, redisClient *redis.Client) *RandomHandler {
 // randomItem is one row of the random block. The frontend turns it into a link;
 // `href` is intentionally not built here (routing lives in the app).
 type randomItem struct {
-	Type       string  `json:"type"` // thread | wall_post | profile | wall_comment | gomosub
-	ID         string  `json:"id"`
-	Label      string  `json:"label"`
-	Sublabel   string  `json:"sublabel,omitempty"`
-	BoardSlug  string  `json:"board_slug,omitempty"`
-	IsGomosub  bool    `json:"is_gomosub,omitempty"`
-	WallUserID string  `json:"wall_user_id,omitempty"`
-	PostID     string  `json:"post_id,omitempty"`
-	Username   string  `json:"username,omitempty"`
-	AvatarURL  *string `json:"avatar_url,omitempty"`
+	Type       string `json:"type"` // thread | wall_post | profile | wall_comment | gomosub
+	ID         string `json:"id"`
+	PublicID   *int64 `json:"public_id,omitempty"`
+	Label      string `json:"label"`
+	Sublabel   string `json:"sublabel,omitempty"`
+	BoardSlug  string `json:"board_slug,omitempty"`
+	IsGomosub  bool   `json:"is_gomosub,omitempty"`
+	WallUserID string `json:"wall_user_id,omitempty"`
+	// WallUserPublicID is the wall owner's number; PostPublicID is the number of
+	// the wall post a comment hangs off. Both exist so the sidebar can link with
+	// public numbers instead of falling back to UUIDs.
+	WallUserPublicID *int64  `json:"wall_user_public_id,omitempty"`
+	PostID           string  `json:"post_id,omitempty"`
+	PostPublicID     *int64  `json:"post_public_id,omitempty"`
+	Username         string  `json:"username,omitempty"`
+	AvatarURL        *string `json:"avatar_url,omitempty"`
 	// Media preview for the small square on the right of a thread/post row.
 	ThumbURL  string `json:"thumb_url,omitempty"`
 	MediaKind string `json:"media_kind,omitempty"` // "image" | "video"
@@ -127,7 +133,7 @@ func (h *RandomHandler) buildPool() []randomItem {
 
 func (h *RandomHandler) randomThreads(n int) []randomItem {
 	rows, err := h.db.Query(`
-		SELECT t.id, COALESCE(t.title, ''), COALESCE(t.content, ''), COALESCE(b.slug, ''), COALESCE(b.is_gomosub, false),
+		SELECT t.id, t.public_id, COALESCE(t.title, ''), COALESCE(t.content, ''), COALESCE(b.slug, ''), COALESCE(b.is_gomosub, false),
 		       t.image_url, t.image_urls, t.attachments
 		FROM threads t
 		LEFT JOIN boards b ON b.id = t.board_id
@@ -144,10 +150,11 @@ func (h *RandomHandler) randomThreads(n int) []randomItem {
 	out := []randomItem{}
 	for rows.Next() {
 		var id, title, content, slug string
+		var publicID *int64
 		var isGomosub bool
 		var imageURL sql.NullString
 		var imageURLs, attachments []byte
-		if err := rows.Scan(&id, &title, &content, &slug, &isGomosub, &imageURL, &imageURLs, &attachments); err != nil {
+		if err := rows.Scan(&id, &publicID, &title, &content, &slug, &isGomosub, &imageURL, &imageURLs, &attachments); err != nil {
 			continue
 		}
 		thumb, kind := mediaFromColumns(imageURL, imageURLs, attachments)
@@ -168,7 +175,7 @@ func (h *RandomHandler) randomThreads(n int) []randomItem {
 			}
 		}
 		out = append(out, randomItem{
-			Type: "thread", ID: id, Label: label, Sublabel: sublabel,
+			Type: "thread", ID: id, PublicID: publicID, Label: label, Sublabel: sublabel,
 			BoardSlug: slug, IsGomosub: isGomosub, ThumbURL: thumb, MediaKind: kind,
 		})
 	}
@@ -177,11 +184,12 @@ func (h *RandomHandler) randomThreads(n int) []randomItem {
 
 func (h *RandomHandler) randomWallPosts(n int) []randomItem {
 	rows, err := h.db.Query(`
-		SELECT p.id, COALESCE(p.user_id::text, ''), COALESCE(p.content, ''),
+		SELECT p.id, p.public_id, COALESCE(p.user_id::text, ''), COALESCE(p.content, ''),
 		       COALESCE(u.username, ''), COALESCE(u.is_anonymous, false),
-		       p.image_url, p.attachments
+		       p.image_url, p.attachments, ow.public_id
 		FROM profile_wall_posts p
 		JOIN users u ON u.id = p.author_id
+		LEFT JOIN users ow ON ow.id = p.user_id
 		LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 		WHERE NOT COALESCE(ps.private_profile, false)
 		  AND NOT COALESCE(ps.private_hide_wall, false)
@@ -196,10 +204,11 @@ func (h *RandomHandler) randomWallPosts(n int) []randomItem {
 	out := []randomItem{}
 	for rows.Next() {
 		var id, wallUserID, content, username string
+		var publicID, wallUserPublicID *int64
 		var isAnonymous bool
 		var imageURL sql.NullString
 		var attachments []byte
-		if err := rows.Scan(&id, &wallUserID, &content, &username, &isAnonymous, &imageURL, &attachments); err != nil {
+		if err := rows.Scan(&id, &publicID, &wallUserID, &content, &username, &isAnonymous, &imageURL, &attachments, &wallUserPublicID); err != nil {
 			continue
 		}
 		thumb, kind := mediaFromColumns(imageURL, nil, attachments)
@@ -215,8 +224,8 @@ func (h *RandomHandler) randomWallPosts(n int) []randomItem {
 			sublabel = "@" + username
 		}
 		out = append(out, randomItem{
-			Type: "wall_post", ID: id, Label: label,
-			Sublabel: sublabel, WallUserID: wallUserID, Username: username,
+			Type: "wall_post", ID: id, PublicID: publicID, Label: label,
+			Sublabel: sublabel, WallUserID: wallUserID, WallUserPublicID: wallUserPublicID, Username: username,
 			ThumbURL: thumb, MediaKind: kind,
 		})
 	}
@@ -225,7 +234,7 @@ func (h *RandomHandler) randomWallPosts(n int) []randomItem {
 
 func (h *RandomHandler) randomProfiles(n int) []randomItem {
 	rows, err := h.db.Query(`
-		SELECT u.id, COALESCE(u.username, ''), u.avatar_url
+		SELECT u.id, u.public_id, COALESCE(u.username, ''), u.avatar_url
 		FROM users u
 		LEFT JOIN privacy_settings ps ON ps.user_id = u.id
 		WHERE NOT COALESCE(ps.private_profile, false)
@@ -243,12 +252,13 @@ func (h *RandomHandler) randomProfiles(n int) []randomItem {
 	out := []randomItem{}
 	for rows.Next() {
 		var id, username string
+		var publicID *int64
 		var avatar sql.NullString
-		if err := rows.Scan(&id, &username, &avatar); err != nil {
+		if err := rows.Scan(&id, &publicID, &username, &avatar); err != nil {
 			continue
 		}
 		out = append(out, randomItem{
-			Type: "profile", ID: id, Label: username, Sublabel: "профиль",
+			Type: "profile", ID: id, PublicID: publicID, Label: username, Sublabel: "профиль",
 			Username: username, AvatarURL: nullStringPtr(avatar),
 		})
 	}
@@ -258,10 +268,12 @@ func (h *RandomHandler) randomProfiles(n int) []randomItem {
 func (h *RandomHandler) randomWallComments(n int) []randomItem {
 	rows, err := h.db.Query(`
 		SELECT c.id, COALESCE(c.post_id::text, ''), COALESCE(p.user_id::text, ''),
-		       COALESCE(c.content, ''), COALESCE(u.username, ''), COALESCE(u.is_anonymous, false)
+		       COALESCE(c.content, ''), COALESCE(u.username, ''), COALESCE(u.is_anonymous, false),
+		       p.public_id, ow.public_id
 		FROM profile_wall_post_comments c
 		JOIN profile_wall_posts p ON p.id = c.post_id
 		JOIN users u ON u.id = c.user_id
+		LEFT JOIN users ow ON ow.id = p.user_id
 		LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 		WHERE NOT COALESCE(ps.private_profile, false)
 		  AND NOT COALESCE(ps.private_hide_wall, false)
@@ -278,8 +290,9 @@ func (h *RandomHandler) randomWallComments(n int) []randomItem {
 	out := []randomItem{}
 	for rows.Next() {
 		var id, postID, wallUserID, content, username string
+		var postPublicID, wallUserPublicID *int64
 		var isAnonymous bool
-		if err := rows.Scan(&id, &postID, &wallUserID, &content, &username, &isAnonymous); err != nil {
+		if err := rows.Scan(&id, &postID, &wallUserID, &content, &username, &isAnonymous, &postPublicID, &wallUserPublicID); err != nil {
 			continue
 		}
 		sublabel := "комментарий"
@@ -290,7 +303,8 @@ func (h *RandomHandler) randomWallComments(n int) []randomItem {
 		}
 		out = append(out, randomItem{
 			Type: "wall_comment", ID: id, Label: truncate(content, 90),
-			Sublabel: sublabel, PostID: postID, WallUserID: wallUserID, Username: username,
+			Sublabel: sublabel, PostID: postID, PostPublicID: postPublicID,
+			WallUserID: wallUserID, WallUserPublicID: wallUserPublicID, Username: username,
 		})
 	}
 	return out

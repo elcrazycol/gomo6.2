@@ -30,6 +30,7 @@ SELECT * FROM (
   SELECT
     'thread'::text AS item_type,
     t.id AS item_id,
+    t.public_id AS public_id,
     t.created_at, t.updated_at,
     t.title::text, t.content::text, t.content_json, t.image_url, t.image_urls, t.attachments, t.tags, t.post_count,
     t.user_id AS author_id,
@@ -38,6 +39,7 @@ SELECT * FROM (
     t.section_id, ts.slug::text, ts.name::text, ts.icon::text,
     t.subsection_id, tss.slug::text, tss.name::text,
     NULL::uuid AS wall_user_id,
+    NULL::bigint AS user_public_id,
     (SELECT COUNT(*)::bigint FROM thread_likes tl WHERE tl.thread_id = t.id) AS likes_count,
     t.post_count::bigint AS comments_count,
     0::bigint AS reposts_count,
@@ -57,6 +59,7 @@ SELECT * FROM (
   SELECT
     'wall_post'::text,
     p.id,
+    p.public_id,
     p.created_at, p.updated_at,
     p.title::text, p.content::text, p.content_json, p.image_url, NULL::jsonb, p.attachments, NULL::jsonb, NULL::integer,
     p.author_id,
@@ -65,6 +68,7 @@ SELECT * FROM (
     NULL::uuid, NULL::text, NULL::text, NULL::text,
     NULL::uuid, NULL::text, NULL::text,
     p.user_id,
+    ow.public_id,
     (SELECT COUNT(*)::bigint FROM profile_wall_post_likes l WHERE l.post_id = p.id),
     (SELECT COUNT(*)::bigint FROM profile_wall_post_comments cm WHERE cm.post_id = p.id),
     (SELECT COUNT(*)::bigint FROM profile_wall_post_reposts r WHERE r.post_id = p.id),
@@ -74,6 +78,7 @@ SELECT * FROM (
   FROM content_favorites f
   JOIN profile_wall_posts p ON p.id = f.item_id
   LEFT JOIN users u ON u.id = p.author_id
+  LEFT JOIN users ow ON ow.id = p.user_id
   WHERE f.user_id = $1 AND f.item_type = 'wall_post'
 ) fav
 ORDER BY saved_at DESC
@@ -250,7 +255,7 @@ func (h *FavoritesHandler) GetFavorites(c *gin.Context) {
 		var wallUserID sql.NullString
 
 		if err := rows.Scan(
-			&it.ItemType, &it.ItemID, &it.CreatedAt, &updatedAt,
+			&it.ItemType, &it.ItemID, &it.PublicID, &it.CreatedAt, &updatedAt,
 			&title, &content, &contentJSON, &imageURL, &imageURLs, &attachments,
 			&tags, &postCount,
 			&authorID, &authorUsername, &authorDisplayName, &authorNicknameEmojiID,
@@ -258,7 +263,7 @@ func (h *FavoritesHandler) GetFavorites(c *gin.Context) {
 			&boardID, &boardSlug, &boardName, &boardIsGomosub,
 			&sectionID, &sectionSlug, &sectionName, &sectionIcon,
 			&subsectionID, &subsectionSlug, &subsectionName,
-			&wallUserID,
+			&wallUserID, &it.UserPublicID,
 			&it.LikesCount, &it.CommentsCount, &it.RepostsCount, &it.LikedByViewer,
 			&it.ViewsCount, &savedAt,
 		); err != nil {

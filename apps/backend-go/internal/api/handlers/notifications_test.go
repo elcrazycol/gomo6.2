@@ -583,3 +583,56 @@ func TestCreateNotification_DBErrorPackage(t *testing.T) {
 func strPtr(s string) *string {
 	return &s
 }
+
+// TestGetNotifications_AttachesPublicIDs proves the read path resolves the
+// related UUIDs to numbers so the client can link /profile/<n>, /thread/<n> and
+// /profile/<wallUser>/wall/<post> instead of falling back to UUIDs.
+func TestGetNotifications_AttachesPublicIDs(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	c, w := newGETContext("/api/v1/notifications", nil)
+	c.Set("claims", claims)
+
+	rows := sqlmock.NewRows(notificationColumns).
+		AddRow("n1", "u1", "like", "New like", "Someone liked your post",
+			"t1", nil, "actor-1", "wp1", nil, "owner-1", "[]", false, time.Now(), 1, []byte("{}"))
+
+	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*`).
+		WithArgs("u1", 51, 0).
+		WillReturnRows(rows)
+
+	mock.ExpectQuery(`SELECT 'user'::text AS kind`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "id", "public_id"}).
+			AddRow("user", "actor-1", int64(10)).
+			AddRow("user", "owner-1", int64(42)).
+			AddRow("thread", "t1", int64(315)).
+			AddRow("wall_post", "wp1", int64(1337)))
+
+	handler.GetNotifications(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	items := resp.Data.([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(items))
+	}
+	n := items[0].(map[string]interface{})
+	for key, want := range map[string]float64{
+		"related_user_public_id":      10,
+		"related_wall_user_public_id": 42,
+		"related_thread_public_id":    315,
+		"related_wall_post_public_id": 1337,
+	} {
+		if n[key] != want {
+			t.Errorf("%s = %v, want %v", key, n[key], want)
+		}
+	}
+}

@@ -32,6 +32,7 @@ func (j *JSONB) Scan(value interface{}) error {
 // User with federation support
 type User struct {
 	ID                 string          `json:"id" db:"id"`
+	PublicID           *int64          `json:"public_id,omitempty" db:"public_id"`
 	Username           string          `json:"username" db:"username"`
 	DisplayName        *string         `json:"display_name" db:"display_name"`
 	NicknameEmojiID    *string         `json:"nickname_emoji_id,omitempty" db:"nickname_emoji_id"`
@@ -152,6 +153,7 @@ type Thread struct {
 // ThreadWithBoards extends Thread with board information for frontend compatibility
 type ThreadWithBoards struct {
 	ID              string          `json:"id" db:"id"`
+	PublicID        *int64          `json:"public_id,omitempty" db:"public_id"`
 	BoardID         string          `json:"board_id" db:"board_id"`
 	ChannelID       *string         `json:"channel_id,omitempty" db:"channel_id"`
 	SectionID       *string         `json:"section_id,omitempty" db:"section_id"`
@@ -170,6 +172,7 @@ type ThreadWithBoards struct {
 	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
 	IsRemote        bool            `json:"is_remote" db:"is_remote"`
 	Username        string          `json:"username"`
+	UserPublicID    *int64          `json:"user_public_id,omitempty"`
 	DisplayName     *string         `json:"display_name"`
 	NicknameEmojiID *string         `json:"nickname_emoji_id"`
 	AvatarURL       *string         `json:"avatar_url"`
@@ -242,22 +245,29 @@ type ThreadLike struct {
 
 // Notification
 type Notification struct {
-	ID                   string          `json:"id" db:"id"`
-	UserID               string          `json:"user_id" db:"user_id"`
-	Type                 string          `json:"type" db:"type"`
-	Title                string          `json:"title" db:"title"`
-	Message              string          `json:"message" db:"message"`
-	RelatedThreadID      *string         `json:"related_thread_id" db:"related_thread_id"`
-	RelatedPostID        *string         `json:"related_post_id" db:"related_post_id"`
-	RelatedUserID        *string         `json:"related_user_id" db:"related_user_id"`
-	RelatedWallPostID    *string         `json:"related_wall_post_id" db:"related_wall_post_id"`
-	RelatedWallCommentID *string         `json:"related_wall_comment_id" db:"related_wall_comment_id"`
-	RelatedWallUserID    *string         `json:"related_wall_user_id" db:"related_wall_user_id"`
-	RelatedWallPostIDs   JSONB           `json:"related_wall_post_ids" db:"related_wall_post_ids"`
-	IsRead               bool            `json:"is_read" db:"is_read"`
-	GroupCount           int             `json:"group_count" db:"group_count"`
-	Params               json.RawMessage `json:"params,omitempty" db:"params"`
-	CreatedAt            *time.Time      `json:"created_at" db:"created_at"`
+	ID                   string  `json:"id" db:"id"`
+	UserID               string  `json:"user_id" db:"user_id"`
+	Type                 string  `json:"type" db:"type"`
+	Title                string  `json:"title" db:"title"`
+	Message              string  `json:"message" db:"message"`
+	RelatedThreadID      *string `json:"related_thread_id" db:"related_thread_id"`
+	RelatedPostID        *string `json:"related_post_id" db:"related_post_id"`
+	RelatedUserID        *string `json:"related_user_id" db:"related_user_id"`
+	RelatedWallPostID    *string `json:"related_wall_post_id" db:"related_wall_post_id"`
+	RelatedWallCommentID *string `json:"related_wall_comment_id" db:"related_wall_comment_id"`
+	RelatedWallUserID    *string `json:"related_wall_user_id" db:"related_wall_user_id"`
+	RelatedWallPostIDs   JSONB   `json:"related_wall_post_ids" db:"related_wall_post_ids"`
+	// Human-readable numbers resolved at read time (see NotificationsHandler):
+	// the client builds /profile/<n> and /thread/<n> links from these instead of
+	// the UUIDs above. Nil when the target row no longer exists.
+	RelatedUserPublicID     *int64          `json:"related_user_public_id,omitempty"`
+	RelatedThreadPublicID   *int64          `json:"related_thread_public_id,omitempty"`
+	RelatedWallPostPublicID *int64          `json:"related_wall_post_public_id,omitempty"`
+	RelatedWallUserPublicID *int64          `json:"related_wall_user_public_id,omitempty"`
+	IsRead                  bool            `json:"is_read" db:"is_read"`
+	GroupCount              int             `json:"group_count" db:"group_count"`
+	Params                  json.RawMessage `json:"params,omitempty" db:"params"`
+	CreatedAt               *time.Time      `json:"created_at" db:"created_at"`
 }
 
 // NotificationParams carries the structured, language-neutral data the frontend

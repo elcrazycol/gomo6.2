@@ -18,6 +18,7 @@ import (
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/moderation"
 	"github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/publicid"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -171,9 +172,9 @@ func (h *ThreadsHandler) canAccessBoard(userID string, boardID string) (bool, er
 // @Router       /threads [get]
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
-		SELECT t.id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
+		SELECT t.id, t.public_id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
-		       u.username, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
+		       u.username, u.public_id, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
 		       b.slug as board_slug, b.name as board_name, COALESCE(b.is_gomosub, false) as board_is_gomosub, COALESCE(b.is_rules_board, false) as board_is_rules_board,
 		       s.slug as section_slug, s.name as section_name, s.icon as section_icon, COALESCE(s.is_nsfw, false) as section_is_nsfw,
 		       ss.slug as subsection_slug, ss.name as subsection_name
@@ -243,6 +244,37 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		} else {
 			conditions = append(conditions, "t.id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, id)
+		}
+	}
+
+	// Handle public_id filter (eq.315 or in.(315,316)) — the human-readable
+	// thread number. Unparseable values are a 400, matching the single-thread
+	// endpoint's contract for a malformed id.
+	if pid := c.Query("public_id"); pid != "" {
+		if strings.HasPrefix(pid, "in.(") && strings.HasSuffix(pid, ")") {
+			raw := strings.TrimSuffix(strings.TrimPrefix(pid, "in.("), ")")
+			ids := strings.Split(raw, ",")
+			placeholders := make([]string, 0, len(ids))
+			for _, candidate := range ids {
+				n, ok := publicid.Parse(strings.TrimSpace(candidate))
+				if !ok {
+					c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid public_id format"))
+					return
+				}
+				placeholders = append(placeholders, "$"+strconv.Itoa(len(args)+1))
+				args = append(args, n)
+			}
+			if len(placeholders) > 0 {
+				conditions = append(conditions, "t.public_id IN ("+strings.Join(placeholders, ",")+")")
+			}
+		} else {
+			n, ok := publicid.Parse(strings.TrimPrefix(pid, "eq."))
+			if !ok {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid public_id format"))
+				return
+			}
+			conditions = append(conditions, "t.public_id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, n)
 		}
 	}
 
@@ -401,9 +433,9 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		var channelID, sectionID, subsectionID sql.NullString
 
 		err := rows.Scan(
-			&thread.ID, &boardID, &channelID, &sectionID, &subsectionID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
+			&thread.ID, &thread.PublicID, &boardID, &channelID, &sectionID, &subsectionID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 			&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
-			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL, &thread.IsAnonymous,
+			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &thread.UserPublicID, &avatarURL, &thread.IsAnonymous,
 			&displayName, &nicknameEmojiID,
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 			&sectionSlug, &sectionName, &sectionIcon, &sectionIsNSFW,
@@ -486,18 +518,16 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 // @Failure      404 {object} models.APIResponse
 // @Router       /threads/{id} [get]
 func (h *ThreadsHandler) GetThread(c *gin.Context) {
-	idStr := c.Param("id")
-
-	id, err := uuid.Parse(idStr)
-	if err != nil {
+	param := publicid.ParseParamStrict(c.Param("id"))
+	if !param.OK {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
 		return
 	}
 
 	query := `
-		SELECT t.id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
+		SELECT t.id, t.public_id, t.board_id, t.channel_id, t.section_id, t.subsection_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
-		       u.username, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
+		       u.username, u.public_id, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
 		       b.slug as board_slug, b.name as board_name, COALESCE(b.is_gomosub, false) as board_is_gomosub, COALESCE(b.is_rules_board, false) as board_is_rules_board,
 		       s.slug as section_slug, s.name as section_name, s.icon as section_icon, COALESCE(s.is_nsfw, false) as section_is_nsfw,
 		       ss.slug as subsection_slug, ss.name as subsection_name
@@ -506,7 +536,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		LEFT JOIN boards b ON t.board_id = b.id
 		LEFT JOIN thread_sections s ON s.id = t.section_id
 		LEFT JOIN thread_subsections ss ON ss.id = t.subsection_id
-		WHERE t.id = $1
+		WHERE t.` + param.Column + ` = $1
 	`
 
 	var thread models.ThreadWithBoards
@@ -522,10 +552,10 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 	var channelID, sectionID, subsectionID sql.NullString
 
-	err = h.db.QueryRow(query, id.String()).Scan(
-		&thread.ID, &boardID, &channelID, &sectionID, &subsectionID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
+	err := h.db.QueryRow(query, param.Value).Scan(
+		&thread.ID, &thread.PublicID, &boardID, &channelID, &sectionID, &subsectionID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
-		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL, &thread.IsAnonymous,
+		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &thread.UserPublicID, &avatarURL, &thread.IsAnonymous,
 		&displayName, &nicknameEmojiID,
 		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 		&sectionSlug, &sectionName, &sectionIcon, &sectionIsNSFW,

@@ -214,3 +214,81 @@ func TestGetUserFeed_DBError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", w.Code)
 	}
 }
+
+// TestGetUserFeed_AttachesPublicIDs proves the second-pass enrichment attaches
+// the human-readable numbers the client links with: the item's own public_id,
+// the wall owner's user_public_id, and the author's public_id.
+func TestGetUserFeed_AttachesPublicIDs(t *testing.T) {
+	handler, mock := setupFeedHandler(t)
+
+	now := time.Now()
+	claims := &auth.Claims{UserID: "viewer-1", Username: "viewer"}
+	c, w := newGETContextWithClaims("/api/v1/feed", map[string]string{"limit": "20"}, claims)
+
+	rows := sqlmock.NewRows(feedColumnNames()).
+		AddRow(
+			"thread", "thread-1", 12.345, now, now,
+			"Hello", "World", `{"type":"doc"}`, "img1", `["img1"]`, nil,
+			`{"content":"games"}`, 3,
+			"author-1", "alice", "Alice", nil, false, "avatar1",
+			"board-1", "b", "Board", false,
+			"sec-1", "general", "Общение", "💬", nil, nil, nil,
+			nil,
+			5, 3, 0, true, 42,
+		).
+		AddRow(
+			"wall_post", "post-1", 8.5, now, now,
+			"Wall title", "Wall content", nil, "img2", nil, `[{"url":"img2","type":"image"}]`,
+			nil, nil,
+			"author-2", "bob", "Bob", nil, false, "avatar2",
+			nil, nil, nil, false,
+			nil, nil, nil, nil, nil, nil, nil,
+			"wall-owner-2",
+			2, 1, 0, false, 7,
+		)
+
+	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3, \$4, \$5\)`).
+		WithArgs("viewer-1", 20, nil, nil, nil).
+		WillReturnRows(rows)
+
+	// The enrichment lookup: numbers for the thread, the wall post, its owner and
+	// both authors, in one UNION query.
+	mock.ExpectQuery(`SELECT 'thread'::text AS kind`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "id", "public_id", "owner_public_id"}).
+			AddRow("thread", "thread-1", int64(315), nil).
+			AddRow("wall_post", "post-1", int64(1337), int64(42)).
+			AddRow("user", "author-1", int64(10), nil).
+			AddRow("user", "author-2", int64(11), nil))
+
+	handler.GetUserFeed(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	items := resp.Data.([]interface{})
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	thread := items[0].(map[string]interface{})
+	if thread["public_id"] != float64(315) {
+		t.Errorf("thread public_id = %v, want 315", thread["public_id"])
+	}
+	if author := thread["author"].(map[string]interface{}); author["public_id"] != float64(10) {
+		t.Errorf("thread author public_id = %v, want 10", author["public_id"])
+	}
+
+	post := items[1].(map[string]interface{})
+	if post["public_id"] != float64(1337) {
+		t.Errorf("wall post public_id = %v, want 1337", post["public_id"])
+	}
+	if post["user_public_id"] != float64(42) {
+		t.Errorf("wall owner user_public_id = %v, want 42", post["user_public_id"])
+	}
+}

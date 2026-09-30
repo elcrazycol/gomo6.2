@@ -17,6 +17,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	profilepkg "github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/publicid"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -147,7 +148,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 // @Router       /profiles [get]
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
-		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
+		SELECT u.id, u.public_id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
 		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,
 		       COALESCE(pc.background_url, '') AS background_url,
@@ -183,6 +184,37 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		} else {
 			conditions = append(conditions, "u.id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, id)
+		}
+	}
+
+	// Handle public_id filter (eq.42 or in.(42,43)) — the human-readable number.
+	// An unparseable value is a 404, not a 500: numbers are user-visible, so
+	// typos must not reach PostgreSQL as a bigint cast error.
+	if pid := c.Query("public_id"); pid != "" {
+		if strings.HasPrefix(pid, "in.(") && strings.HasSuffix(pid, ")") {
+			raw := strings.TrimSuffix(strings.TrimPrefix(pid, "in.("), ")")
+			ids := strings.Split(raw, ",")
+			placeholders := make([]string, 0, len(ids))
+			for _, candidate := range ids {
+				n, ok := publicid.Parse(strings.TrimSpace(candidate))
+				if !ok {
+					c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
+					return
+				}
+				placeholders = append(placeholders, "$"+strconv.Itoa(len(args)+1))
+				args = append(args, n)
+			}
+			if len(placeholders) > 0 {
+				conditions = append(conditions, "u.public_id IN ("+strings.Join(placeholders, ",")+")")
+			}
+		} else {
+			n, ok := publicid.Parse(strings.TrimPrefix(pid, "eq."))
+			if !ok {
+				c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
+				return
+			}
+			conditions = append(conditions, "u.public_id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, n)
 		}
 	}
 
@@ -243,7 +275,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		var backgroundURL sql.NullString
 		var themeTokensJSON sql.NullString
 		err := rows.Scan(
-			&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
+			&profile.ID, &profile.PublicID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 			&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 			&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 			&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
@@ -371,10 +403,14 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 // @Failure      404 {object} models.APIResponse
 // @Router       /profiles/{id} [get]
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {
-	id := c.Param("id")
+	param := publicid.ParseParam(c.Param("id"))
+	if !param.OK {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
+		return
+	}
 
 	query := `
-		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
+		SELECT u.id, u.public_id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
 		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,	       COALESCE(pc.background_url, '') AS background_url,
 	       COALESCE(pc.background_variant, 'banner') AS background_variant,
@@ -382,15 +418,15 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	       COALESCE(pc.theme_tokens, '{}') AS theme_tokens
 		FROM users u
 		LEFT JOIN profile_customization pc ON pc.user_id = u.id
-		WHERE u.id = $1
+		WHERE u.` + param.Column + ` = $1
 	`
 
 	var profile models.User
 	var bioJSON sql.NullString
 	var backgroundURL sql.NullString
 	var themeTokensJSON sql.NullString
-	err := h.db.QueryRow(query, id).Scan(
-		&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
+	err := h.db.QueryRow(query, param.Value).Scan(
+		&profile.ID, &profile.PublicID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 		&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 		&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 		&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
@@ -447,16 +483,18 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 			viewerID = uc.UserID
 		}
 	}
-	// Email is private PII — only the profile owner may ever see it.
-	if viewerID != id {
+	// Email is private PII — only the profile owner may ever see it. Compared
+	// against the row's canonical UUID (not the raw route parameter) so that
+	// resolving the same profile by UUID or by public number behaves identically.
+	if viewerID != profile.ID {
 		profile.Email = nil
 	}
-	visibility, err := privacy.ResolveProfileVisibilityBatch(h.db, viewerID, []string{id})
+	visibility, err := privacy.ResolveProfileVisibilityBatch(h.db, viewerID, []string{profile.ID})
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	vis := visibility[id]
+	vis := visibility[profile.ID]
 	if vis.Filter {
 		if vis.HideAvatar {
 			profile.AvatarURL = nil

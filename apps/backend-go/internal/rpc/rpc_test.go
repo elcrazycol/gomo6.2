@@ -363,11 +363,11 @@ func TestGetRecentPostLikers_Success(t *testing.T) {
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	// M-1: the likers list (usernames/ids/avatars — PII) must be filtered by
 	// board/channel visibility for anonymous callers.
-	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM post_likes pl.*JOIN users u.*LEFT JOIN boards b.*WHERE pl\.post_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*ORDER BY.*LIMIT \$2`).
+	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.public_id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM post_likes pl.*JOIN users u.*LEFT JOIN boards b.*WHERE pl\.post_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*ORDER BY.*LIMIT \$2`).
 		WithArgs(postID, 10).
-		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
-			AddRow("user1", "u1", nil, nil, false).
-			AddRow("user2", "u2", nil, nil, true))
+		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "public_id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
+			AddRow("user1", "u1", 42, nil, nil, false).
+			AddRow("user2", "u2", 43, nil, nil, true))
 
 	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": postID})
 	h.GetRecentPostLikers(c)
@@ -396,10 +396,10 @@ func TestGetRecentThreadLikers_Success(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	// M-1: same visibility gate as GetRecentPostLikers.
-	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM thread_likes tl.*JOIN users u.*LEFT JOIN boards b.*WHERE tl\.thread_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*ORDER BY.*LIMIT \$2`).
+	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.public_id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM thread_likes tl.*JOIN users u.*LEFT JOIN boards b.*WHERE tl\.thread_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*ORDER BY.*LIMIT \$2`).
 		WithArgs(threadID, 10).
-		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
-			AddRow("user1", "u1", nil, nil, false))
+		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "public_id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
+			AddRow("user1", "u1", 42, nil, nil, false))
 
 	c, w := testutil.NewRPCGETContext(map[string]string{"thread_uuid": threadID})
 	h.GetRecentThreadLikers(c)

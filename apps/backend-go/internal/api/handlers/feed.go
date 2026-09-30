@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/lib/pq"
 )
 
 // FeedHandler serves the unified personalized feed (threads + wall posts).
@@ -29,6 +31,8 @@ func NewFeedHandler(db *sql.DB) *FeedHandler {
 type feedItem struct {
 	ItemType      string          `json:"item_type"` // "thread" | "wall_post"
 	ItemID        string          `json:"item_id"`
+	PublicID      *int64          `json:"public_id,omitempty"`
+	UserPublicID  *int64          `json:"user_public_id,omitempty"`
 	Score         float64         `json:"score"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     *time.Time      `json:"updated_at,omitempty"`
@@ -62,6 +66,7 @@ type feedItem struct {
 
 type feedAuthor struct {
 	Username        string  `json:"username"`
+	PublicID        *int64  `json:"public_id,omitempty"`
 	DisplayName     *string `json:"display_name"`
 	NicknameEmojiID *string `json:"nickname_emoji_id"`
 	IsAnonymous     bool    `json:"is_anonymous"`
@@ -269,8 +274,104 @@ func (h *FeedHandler) GetUserFeed(c *gin.Context) {
 		items = append(items, it)
 	}
 
+	h.fillPublicIDs(items)
+
 	itemCount := len(items)
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: items, Count: &itemCount})
+}
+
+// fillPublicIDs attaches the human-readable numbers the client needs to build
+// links. It is a second pass on purpose: wrapping get_user_feed in a join would
+// risk reordering the score-ordered feed, so the function stays the single
+// source of truth for order and only the numbers are looked up by primary key.
+//
+// One query for the whole page: the feed is behind the viewer-keyed data cache,
+// so this runs on cache misses only.
+func (h *FeedHandler) fillPublicIDs(items []feedItem) {
+	if len(items) == 0 {
+		return
+	}
+	var threadIDs, wallPostIDs, authorIDs []string
+	seenAuthors := make(map[string]bool, len(items))
+	for _, it := range items {
+		switch it.ItemType {
+		case "thread":
+			threadIDs = append(threadIDs, it.ItemID)
+		case "wall_post":
+			wallPostIDs = append(wallPostIDs, it.ItemID)
+		}
+		if it.AuthorID != nil && !seenAuthors[*it.AuthorID] {
+			seenAuthors[*it.AuthorID] = true
+			authorIDs = append(authorIDs, *it.AuthorID)
+		}
+	}
+
+	threadPublic := make(map[string]int64, len(threadIDs))
+	wallPostPublic := make(map[string]int64, len(wallPostIDs))
+	wallOwnerPublic := make(map[string]int64, len(wallPostIDs))
+	authorPublic := make(map[string]int64, len(authorIDs))
+
+	rows, err := h.db.Query(`
+		SELECT 'thread'::text AS kind, t.id, t.public_id, NULL::bigint
+		  FROM threads t WHERE t.id = ANY($1::uuid[])
+		UNION ALL
+		SELECT 'wall_post', p.id, p.public_id, ow.public_id
+		  FROM profile_wall_posts p
+		  LEFT JOIN users ow ON ow.id = p.user_id
+		 WHERE p.id = ANY($1::uuid[])
+		UNION ALL
+		SELECT 'user', u.id, u.public_id, NULL::bigint
+		  FROM users u WHERE u.id = ANY($2::uuid[])`,
+		pq.Array(threadIDs), pq.Array(authorIDs))
+	if err != nil {
+		// Best-effort enrichment: a failure here must not fail the feed — the
+		// client falls back to UUID links.
+		log.Printf("[feed] public_id lookup failed: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var kind, id string
+		var publicID int64
+		var ownerPublicID sql.NullInt64
+		if err := rows.Scan(&kind, &id, &publicID, &ownerPublicID); err != nil {
+			continue
+		}
+		switch kind {
+		case "thread":
+			threadPublic[id] = publicID
+		case "wall_post":
+			wallPostPublic[id] = publicID
+			if ownerPublicID.Valid {
+				wallOwnerPublic[id] = ownerPublicID.Int64
+			}
+		case "user":
+			authorPublic[id] = publicID
+		}
+	}
+
+	for i := range items {
+		it := &items[i]
+		switch it.ItemType {
+		case "thread":
+			if n, ok := threadPublic[it.ItemID]; ok {
+				it.PublicID = &n
+			}
+		case "wall_post":
+			if n, ok := wallPostPublic[it.ItemID]; ok {
+				it.PublicID = &n
+			}
+			if n, ok := wallOwnerPublic[it.ItemID]; ok {
+				it.UserPublicID = &n
+			}
+		}
+		if it.AuthorID != nil && it.Author != nil {
+			if n, ok := authorPublic[*it.AuthorID]; ok {
+				it.Author.PublicID = &n
+			}
+		}
+	}
 }
 
 func nullStringPtr(ns sql.NullString) *string {

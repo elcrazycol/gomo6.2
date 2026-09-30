@@ -522,3 +522,106 @@ func TestIsSocialCrawler(t *testing.T) {
 		}
 	}
 }
+
+// ── Numeric public_id paths ─────────────────────────────────────────────────
+
+// TestRenderProfileByPublicID proves the crawler path accepts the human-readable
+// number (/profile/42) and resolves it against users.public_id, so previews for
+// the new-style links do not silently disappear.
+func TestRenderProfileByPublicID(t *testing.T) {
+	h, mock := setupSocialPreview(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COALESCE(u.display_name, ''), u.username, COALESCE(u.avatar_url, ''),
+       COALESCE(u.bio, ''), COALESCE(u.is_anonymous, false),
+       COALESCE(ps.private_profile, false), COALESCE(ps.private_hide_avatar, false)
+FROM users u
+LEFT JOIN privacy_settings ps ON ps.user_id = u.id
+WHERE u.public_id = $1`)).
+		WithArgs(int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"display_name", "username", "avatar_url", "bio", "is_anonymous", "private_profile", "private_hide_avatar",
+		}).AddRow(
+			"", "alice", "u1/avatar.webp", "Люблю посты и треды", false, false, false,
+		))
+
+	c, w := newOGContext(http.MethodGet, "/profile/42", "Discordbot/2.0")
+	h.Render(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		`property="og:title" content="@alice · gomo6"`,
+		`property="og:url" content="https://gomo6.wtf/profile/42"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response missing %q", want)
+		}
+	}
+}
+
+// TestRenderThreadByPublicID is the same guarantee for /g/:slug/thread/:number.
+func TestRenderThreadByPublicID(t *testing.T) {
+	h, mock := setupSocialPreview(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
+       COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
+       COALESCE(b.visibility, 'public')
+FROM threads t
+LEFT JOIN users u ON u.id = t.user_id
+LEFT JOIN boards b ON t.board_id = b.id
+WHERE t.public_id = $1 AND b.slug = $2`)).
+		WithArgs(int64(315), "my-sub").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"title", "content", "image_url", "image_urls", "attachments",
+			"display_name", "username", "avatar_url", "visibility",
+		}).AddRow(
+			"Как дела на планете?", "Тред про всё подряд", "/storage/v1/object/content/u1/thread.webp", nil, nil,
+			"Alice", "alice", "u1/avatar.webp", "public",
+		))
+
+	c, w := newOGContext(http.MethodGet, "/g/my-sub/thread/315", "Twitterbot/1.0")
+	h.Render(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if body := w.Body.String(); !strings.Contains(body, `property="og:title" content="Как дела на планете?"`) {
+		t.Errorf("response missing the thread title, got: %s", body)
+	}
+}
+
+// TestRenderWallPostByPublicID is the same guarantee for
+// /profile/:userNumber/wall/:postNumber.
+func TestRenderWallPostByPublicID(t *testing.T) {
+	h, mock := setupSocialPreview(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT p.title, p.content, p.image_url, p.attachments,
+       u.username, COALESCE(u.display_name, ''), COALESCE(u.avatar_url, ''),
+       COALESCE(ps.private_profile, false), COALESCE(ps.private_hide_wall, false),
+       COALESCE(author_ps.private_hide_avatar, false)
+FROM profile_wall_posts p
+LEFT JOIN users u ON u.id = p.author_id
+LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
+WHERE p.public_id = $1`)).
+		WithArgs(int64(1337)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"title", "content", "image_url", "attachments",
+			"username", "display_name", "avatar_url", "private_profile", "private_hide_wall", "private_hide_avatar",
+		}).AddRow(
+			"Мой первый пост", "Смотрите, что я нашёл!", "/storage/v1/object/wall/u1/img.webp", nil,
+			"alice", "Alice", "u1/avatar.webp", false, false, false,
+		))
+
+	c, w := newOGContext(http.MethodGet, "/profile/42/wall/1337", "TelegramBot (like TwitterBot)")
+	h.Render(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if body := w.Body.String(); !strings.Contains(body, `property="og:url" content="https://gomo6.wtf/profile/42/wall/1337"`) {
+		t.Errorf("response missing the numeric canonical url, got: %s", body)
+	}
+}

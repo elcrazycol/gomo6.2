@@ -68,7 +68,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	// The avatar CASE additionally strips avatars of private_hide_avatar
 	// profiles from everyone but the owner or a mutual friend.
 	result.Users = h.searchTable(
-		`SELECT u.id, u.username, u.display_name,
+		`SELECT u.id, u.public_id, u.username, u.display_name,
 		        CASE WHEN ps.private_profile IS TRUE AND ps.private_hide_avatar IS TRUE
 		                  AND ($2::uuid IS NULL OR (u.id <> $2::uuid AND NOT EXISTS (
 		                      SELECT 1 FROM friendships f
@@ -102,7 +102,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 
 	// ── Threads ───────────────────────────────────────────────────────
 	result.Threads = h.searchTable(
-		`SELECT t.id, t.title, t.content, t.created_at, t.updated_at, t.board_id,
+		`SELECT t.id, t.public_id, t.title, t.content, t.created_at, t.updated_at, t.board_id,
 		        b.slug AS board_slug, b.name AS board_name, b.is_gomosub AS board_is_gomosub
 		 FROM threads t
 		 JOIN boards b ON b.id = t.board_id
@@ -113,7 +113,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	// ── Posts ─────────────────────────────────────────────────────────
 	result.Posts = h.searchTable(
 		`SELECT p.id, p.content, p.created_at, p.thread_id,
-		        t.title AS thread_title, t.board_id,
+		        t.title AS thread_title, t.board_id, t.public_id AS thread_public_id,
 		        b.slug AS board_slug, b.name AS board_name, b.is_gomosub AS board_is_gomosub,
 		        u.username, u.avatar_url
 		 FROM posts p

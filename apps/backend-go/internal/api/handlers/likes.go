@@ -421,7 +421,7 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 
 	query := `
 		SELECT tl.id, tl.thread_id, tl.user_id, tl.created_at,
-		       u.username, u.avatar_url
+		       u.username, u.public_id, u.avatar_url
 		FROM thread_likes tl
 		LEFT JOIN users u ON tl.user_id = u.id
 		WHERE tl.thread_id = $1
@@ -439,14 +439,16 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 	var likes []struct {
 		models.ThreadLike
 		Username  string  `json:"username"`
+		PublicID  *int64  `json:"public_id,omitempty"`
 		AvatarURL *string `json:"avatar_url"`
 	}
 
 	for rows.Next() {
 		var like models.ThreadLike
 		var username, avatarURL sql.NullString
+		var publicID *int64
 
-		err := rows.Scan(&like.ID, &like.ThreadID, &like.UserID, &like.CreatedAt, &username, &avatarURL)
+		err := rows.Scan(&like.ID, &like.ThreadID, &like.UserID, &like.CreatedAt, &username, &publicID, &avatarURL)
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
@@ -455,10 +457,12 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 		likes = append(likes, struct {
 			models.ThreadLike
 			Username  string  `json:"username"`
+			PublicID  *int64  `json:"public_id,omitempty"`
 			AvatarURL *string `json:"avatar_url"`
 		}{
 			ThreadLike: like,
 			Username:   username.String,
+			PublicID:   publicID,
 			AvatarURL: func() *string {
 				if avatarURL.Valid {
 					return &avatarURL.String

@@ -466,9 +466,9 @@ func TestGetThreadLikes_Success(t *testing.T) {
 	c, w := newGETContext("/api/v1/threads/"+threadID+"/likes", nil)
 	c.Params = []gin.Param{{Key: "id", Value: threadID}}
 
-	rows := sqlmock.NewRows([]string{"id", "thread_id", "user_id", "created_at", "username", "avatar_url"}).
-		AddRow("l1", threadID, "u1", time.Now(), "user1", nil).
-		AddRow("l2", threadID, "u2", time.Now(), "user2", nil)
+	rows := sqlmock.NewRows([]string{"id", "thread_id", "user_id", "created_at", "username", "public_id", "avatar_url"}).
+		AddRow("l1", threadID, "u1", time.Now(), "user1", 42, nil).
+		AddRow("l2", threadID, "u2", time.Now(), "user2", 43, nil)
 
 	mock.ExpectQuery(`SELECT tl\.id, tl\.thread_id.*FROM thread_likes tl.*WHERE tl\.thread_id = \$1.*ORDER BY tl\.created_at DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs(threadID, 10, 0).
