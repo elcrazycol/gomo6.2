@@ -24,7 +24,9 @@ func day(offset int) time.Time {
 }
 
 func TestSeedFor_Stable(t *testing.T) {
-	if SeedFor("user-1") != SeedFor("user-1") {
+	first := SeedFor("user-1")
+	second := SeedFor("user-1")
+	if first != second {
 		t.Fatal("seed must be stable for the same user")
 	}
 	if SeedFor("user-1") == SeedFor("user-2") {

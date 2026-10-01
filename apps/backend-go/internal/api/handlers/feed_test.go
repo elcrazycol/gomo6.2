@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"github.com/lib/pq"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/lib/pq"
 )
 
 // setupFeedHandler creates a FeedHandler with a mock DB.

@@ -53,8 +53,14 @@ func TestGlobalRateLimiter_PerUserAndPerIPIndependent(t *testing.T) {
 func TestGlobalRateLimiter_WindowRefill(t *testing.T) {
 	mr, rl := newGlobalLimiter(t, 2, 2)
 
-	if !rl.Allow("ip:9.9.9.9", rl.maxRequestsPerIP) || !rl.Allow("ip:9.9.9.9", rl.maxRequestsPerIP) {
-		t.Fatal("requests within limit should be allowed")
+	// Two separate statements, not `!a || !b`: with || the second Allow would be
+	// skipped whenever the first is denied, so the bucket would consume only one
+	// token and the assertions below would pass for the wrong reason.
+	if !rl.Allow("ip:9.9.9.9", rl.maxRequestsPerIP) {
+		t.Fatal("first request within limit should be allowed")
+	}
+	if !rl.Allow("ip:9.9.9.9", rl.maxRequestsPerIP) {
+		t.Fatal("second request within limit should be allowed")
 	}
 	if rl.Allow("ip:9.9.9.9", rl.maxRequestsPerIP) {
 		t.Fatal("request over limit should be denied")
