@@ -37,28 +37,33 @@ Backend — **Go (Gin)** on PostgreSQL, Redis, Garage (S3-compatible storage) an
 
 ## Screenshots
 
-Everything below is a real instance running the [demo dataset](scripts/seed.sh) locally.
+Every screenshot below is a real instance running the [demo dataset](scripts/seed.sh) locally.
 
 **Feed** — boards, threads and wall posts in one stream, with the section sidebar and subscriptions.
 
 ![Feed, ash theme](docs/assets/readme/feed-dark.png)
 
-**18 built-in themes**, light and dark, applied instantly across the whole app.
+**Themes** — 18 built-in themes, light and dark, applied instantly across the whole app.
 
 ![Switching themes on the appearance page](docs/assets/readme/themes.gif)
 
-<table>
-<tr>
-<td width="50%"><img src="docs/assets/readme/profile-dark.png" alt="Profile"><br><sub><b>Profile</b> — wall, guest posts, stats (posts / likes / views / garma), tabs for achievements, posts, gifts and friends</sub></td>
-<td width="50%"><img src="docs/assets/readme/messenger-dark.png" alt="Messenger"><br><sub><b>Messenger</b> — conversations, notes to self (E2E in the browser), read receipts, presence</sub></td>
-</tr>
-<tr>
-<td><img src="docs/assets/readme/settings-appearance-light.png" alt="Settings"><br><sub><b>Settings → appearance</b> — themes with live preview, light / dark / system mode</sub></td>
-<td><img src="docs/assets/readme/moderation-dark.png" alt="Moderation"><br><sub><b>Moderation</b> — report queue, appeals, staff and the action log</sub></td>
-</tr>
-</table>
+**Profile** — wall with guest posts, stats (posts / likes / views / garma) and tabs for achievements, posts, gifts and friends.
 
-<sub>More: <a href="docs/assets/readme/feed-lavender.png">feed in the cosmic-lavender theme</a> · <a href="docs/assets/readme/feed-scroll.gif">feed scroll</a></sub>
+![Profile](docs/assets/readme/profile-dark.png)
+
+**Messenger** — 1:1 and group chats, notes to self encrypted in the browser, read receipts and presence.
+
+![Messenger](docs/assets/readme/messenger-dark.png)
+
+**Settings → appearance** — themes with live preview and the light / dark / system mode switch.
+
+![Settings, appearance section](docs/assets/readme/settings-appearance-light.png)
+
+**Moderation** — report queue, appeals, staff and the action log. Available to instance admins and moderators.
+
+![Moderation](docs/assets/readme/moderation-dark.png)
+
+<sub><b>More:</b> <a href="docs/assets/readme/feed-lavender.png">feed in the cosmic-lavender theme</a> · <a href="docs/assets/readme/feed-scroll.gif">feed scroll</a></sub>
 
 ## Features
 
