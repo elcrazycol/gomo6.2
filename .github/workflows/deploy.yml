@@ -43,6 +43,11 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Теги не деплоят: версия образа берётся из файла VERSION, а git-тег нужен
+    # только release.yml для GitHub Release. Без этой строки пуш тега поднимал
+    # ВТОРОЙ Deploy на тот же коммит (наблюдалось на релизе 2.16.0) — concurrency
+    # его сериализует, но это лишняя полная пересборка.
+    tags-ignore: ['**']
   workflow_dispatch:
     inputs:
       services:
@@ -128,7 +133,11 @@ jobs:
             if echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore|VERSION|package\.json|package-lock\.json|turbo\.json)$'; then
               ALL=true
             fi
-            if echo "$DIFF" | grep -qE '^(packages/|scripts/|\.github/workflows/)'; then
+            # Правки .github/workflows/ сознательно НЕ пересобирают образы:
+            # они не входят ни в один build-контекст, а их влияние на сборку
+            # применится к следующему же изменению кода (или через ручной запуск
+            # services=all). Иначе любой чих в воркфлоу гнал бы полную пересборку.
+            if echo "$DIFF" | grep -qE '^(packages/|scripts/)'; then
               ALL=true
             fi
             # Caddyfile bind-mount'ится в контейнер, Compose не видит правку —
