@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/wall"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +35,10 @@ type Engine struct {
 	redis     *redis.Client
 	achEngine *achievements.Engine
 	wall      *wall.Service
+	// searchIndexer mirrors generic-table writes into Meilisearch (e.g. a
+	// privacy_settings change must drop the user from the index). Nil disables
+	// the sync path.
+	searchIndexer *search.Indexer
 
 	// achievementRecomputeAt debounces per-user achievement reconciliation
 	// (M-02/M-03): reconciling on EVERY page open would run 20+ source-count
@@ -69,6 +74,13 @@ func (h *Engine) SetAchievementEngine(e *achievements.Engine) {
 // surface keeps working.
 func (h *Engine) SetWall(s *wall.Service) {
 	h.wall = s
+}
+
+// SetSearchIndexer wires the best-effort search indexer for generic-table
+// writes that affect the search index (currently privacy_settings). Nil
+// disables the sync path.
+func (h *Engine) SetSearchIndexer(idx *search.Indexer) {
+	h.searchIndexer = idx
 }
 
 // ─── Main Router ────────────────────────────────────────────────────────────

@@ -19,19 +19,24 @@ import (
 	"github.com/gomo6/backend/internal/moderation"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/publicid"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type ThreadsHandler struct {
-	db          *sql.DB
-	redis       *redis.Client
-	authService *auth.AuthService
+	db            *sql.DB
+	redis         *redis.Client
+	authService   *auth.AuthService
+	searchIndexer *search.Indexer
 }
 
 func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
 	return &ThreadsHandler{db: db}
 }
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *ThreadsHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
 
 // SetRedis sets the Redis client for cache invalidation
 func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
@@ -750,6 +755,9 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		cache.InvalidateCacheForFeed(h.redis)
 	}
 
+	// The thread row is gone — the indexer finds no row and drops the document.
+	h.searchIndexer.SyncThread(id)
+
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
 
@@ -837,6 +845,9 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 	if h.redis != nil {
 		cache.InvalidateCacheForThread(h.redis, thread.ID)
 	}
+
+	// Title/content changed — refresh the search document.
+	h.searchIndexer.SyncThread(thread.ID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(thread))
 }

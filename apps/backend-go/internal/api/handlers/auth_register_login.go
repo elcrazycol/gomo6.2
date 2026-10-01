@@ -141,6 +141,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	metrics.App.RegistrationCreated()
+	// Index the new profile (best-effort, off the request path).
+	h.searchIndexer.SyncUser(user.ID)
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"user":          user,
 		"token":         tokenPair.AccessToken,

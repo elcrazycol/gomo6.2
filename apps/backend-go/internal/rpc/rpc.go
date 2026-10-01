@@ -24,6 +24,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -37,6 +38,7 @@ type RPCHandler struct {
 	recomputeStatsFn func(*sql.DB, string)
 	achEngine        *achievements.Engine
 	notif            *notifications.Service
+	searchIndexer    *search.Indexer
 }
 
 // NewRPCHandler creates a new RPCHandler.
@@ -47,6 +49,11 @@ func NewRPCHandler(db *sql.DB) *RPCHandler {
 			profiles.RecomputeUserProfileStats(db, userID)
 		},
 	}
+}
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *RPCHandler) SetSearchIndexer(idx *search.Indexer) {
+	h.searchIndexer = idx
 }
 
 func (h *RPCHandler) SetAchievementEngine(e *achievements.Engine) {
@@ -315,6 +322,10 @@ func (h *RPCHandler) insertPostAndNotify(userID, username string, req *models.Cr
 	if len(retContentJSON) > 0 {
 		post.ContentJSON = json.RawMessage(retContentJSON)
 	}
+
+	// Index the new reply. Private posts are excluded by the index query, so
+	// this is a no-op for them.
+	h.searchIndexer.SyncPost(post.ID)
 
 	_, err = h.db.Exec("UPDATE threads SET post_count = post_count + 1, updated_at = NOW() WHERE id = $1", req.ThreadID)
 	if err != nil {
@@ -670,6 +681,9 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 	if err := tx.Commit(); err != nil {
 		return models.Thread{}, err
 	}
+
+	// Index the new thread (best-effort, off the request path).
+	h.searchIndexer.SyncThread(thread.ID)
 
 	h.recomputeStatsFn(h.db, userID)
 

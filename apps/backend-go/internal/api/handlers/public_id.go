@@ -11,6 +11,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -21,14 +22,18 @@ import (
 // public_id is deliberately absent from every writable-column allow-list and
 // from the typed update structs, so nothing else can set it.
 type PublicIDHandler struct {
-	db    *sql.DB
-	redis *redis.Client
-	hub   *websocket.Hub
+	db            *sql.DB
+	redis         *redis.Client
+	hub           *websocket.Hub
+	searchIndexer *search.Indexer
 }
 
 func NewPublicIDHandler(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub) *PublicIDHandler {
 	return &PublicIDHandler{db: db, redis: redisClient, hub: hub}
 }
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *PublicIDHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
 
 type assignPublicIDRequest struct {
 	UserID   string `json:"user_id"`
@@ -216,6 +221,8 @@ func (h *PublicIDHandler) invalidate(targetID, previousOwnerID string) {
 		if id == "" {
 			continue
 		}
+		// public_id is part of the indexed user document.
+		h.searchIndexer.SyncUser(id)
 		if h.redis != nil {
 			cache.InvalidateCacheForProfileWall(h.redis, id)
 		}

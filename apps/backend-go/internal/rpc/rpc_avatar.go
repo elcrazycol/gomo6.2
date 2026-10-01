@@ -275,5 +275,8 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		return
 	}
 
+	// The avatar URL is part of the indexed user document.
+	h.searchIndexer.SyncUser(avatarUserID)
+
 	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }

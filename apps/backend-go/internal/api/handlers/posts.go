@@ -17,19 +17,24 @@ import (
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/moderation"
 	"github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type PostsHandler struct {
-	db    *sql.DB
-	redis *redis.Client
+	db            *sql.DB
+	redis         *redis.Client
+	searchIndexer *search.Indexer
 }
 
 // NewPostsHandler creates a new PostsHandler
 func NewPostsHandler(db *sql.DB) *PostsHandler {
 	return &PostsHandler{db: db}
 }
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *PostsHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
 
 // SetRedis sets the Redis client for cache invalidation
 func (h *PostsHandler) SetRedis(redis *redis.Client) {
@@ -578,6 +583,9 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		cache.InvalidateCacheForFeed(h.redis)
 	}
 
+	// The post row is gone — the indexer drops the document.
+	h.searchIndexer.SyncPost(id)
+
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
 
@@ -666,6 +674,9 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 	if h.redis != nil {
 		cache.InvalidateCacheForPost(h.redis, post.ID, post.ThreadID)
 	}
+
+	// Content changed — refresh the search document.
+	h.searchIndexer.SyncPost(post.ID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(post))
 }

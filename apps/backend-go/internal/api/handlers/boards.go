@@ -18,18 +18,23 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/redis/go-redis/v9"
 )
 
 type BoardsHandler struct {
-	db          *sql.DB
-	redis       *redis.Client
-	authService *auth.AuthService
+	db            *sql.DB
+	redis         *redis.Client
+	authService   *auth.AuthService
+	searchIndexer *search.Indexer
 }
 
 func NewBoardsHandler(db *sql.DB) *BoardsHandler {
 	return &BoardsHandler{db: db}
 }
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *BoardsHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
 
 func (h *BoardsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
@@ -313,6 +318,8 @@ func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 		return
 	}
 
+	// New board/gomosub — index it (best-effort, off the request path).
+	h.searchIndexer.SyncBoard(board.ID)
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }
 
@@ -353,6 +360,10 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
+
+	// Name/description/visibility may have changed — refresh the document
+	// (a switch to private removes it, the indexer re-reads the row).
+	h.searchIndexer.SyncBoard(id)
 
 	h.invalidateBoardCache(c, id)
 

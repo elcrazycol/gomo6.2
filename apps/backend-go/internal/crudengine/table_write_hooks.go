@@ -338,6 +338,13 @@ func afterUserSessionTimeWrite(h *Engine, c *gin.Context, method string, result 
 // wall write domain lives in the wall service).
 func afterPrivacySettingsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
 	h.revokeSubscriptionsAfterPrivacyChange("privacy_settings", result)
+	// A privacy flip adds or removes the user from search: private profiles are
+	// never indexed, so turning the flag on must delete the document and
+	// turning it off must add it back. The indexer re-reads the row, so the
+	// same call covers both directions.
+	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
+		h.searchIndexer.SyncUser(uid)
+	}
 }
 
 // afterProfileCustomizationWrite broadcasts the new nickname style (and badge)

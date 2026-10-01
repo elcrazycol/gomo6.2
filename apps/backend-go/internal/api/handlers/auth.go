@@ -13,13 +13,15 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/redis/go-redis/v9"
 )
 
 type AuthHandler struct {
-	db          *sql.DB
-	authService *auth.AuthService
-	redis       *redis.Client // optional — enables lockout and token blacklist
+	db            *sql.DB
+	authService   *auth.AuthService
+	redis         *redis.Client // optional — enables lockout and token blacklist
+	searchIndexer *search.Indexer
 }
 
 func NewAuthHandler(db *sql.DB) *AuthHandler {
@@ -34,6 +36,9 @@ func (h *AuthHandler) SetRedis(rdb *redis.Client) {
 	h.redis = rdb
 	h.authService.SetRedis(rdb)
 }
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *AuthHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
 
 // ─── Internal helpers shared across auth modules ─────────────────────────────
 

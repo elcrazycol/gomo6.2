@@ -18,21 +18,26 @@ import (
 	"github.com/gomo6/backend/internal/models"
 	profilepkg "github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/publicid"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type ProfilesHandler struct {
-	db        *sql.DB
-	redis     *redis.Client
-	achEngine *achievements.Engine
-	hub       *websocket.Hub
+	db            *sql.DB
+	redis         *redis.Client
+	achEngine     *achievements.Engine
+	hub           *websocket.Hub
+	searchIndexer *search.Indexer
 }
 
 func NewProfilesHandler(db *sql.DB) *ProfilesHandler {
 	return &ProfilesHandler{db: db}
 }
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *ProfilesHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
 
 // SetHub wires the realtime hub so profile edits can be broadcast to every
 // connected client (see PublishProfileUpdated).
@@ -704,6 +709,9 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
+
+	// Username / display_name / avatar changed — refresh the search document.
+	h.searchIndexer.SyncUser(id)
 
 	// Invalidate cache for this profile (and its profile wall, whose posts
 	// embed the author's nickname emoji in the cached JSON).
