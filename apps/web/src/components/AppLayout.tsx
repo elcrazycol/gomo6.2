@@ -28,7 +28,7 @@ import { useProfileRealtimeInvalidation } from "@/hooks/useProfileRealtimeInvali
 import { getHeaderBehavior, HEADER_BEHAVIOR_EVENT, type HeaderBehavior } from "@/lib/headerBehavior";
 import { useFavoritesStore } from "@/stores/favoritesStore";
 import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
-import { entityParam, profileUrl } from "@/utils/entityUrl";
+import { entityParam, profileUrl, wallPostUrl } from "@/utils/entityUrl";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -960,7 +960,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     const timeoutId = window.setTimeout(async () => {
       setSearchLoading(true);
-      const result = await searchGlobal(term, { users: 4, boards: 4, threads: 4 });
+      const result = await searchGlobal(term, { users: 4, boards: 4, threads: 4, posts: 4, wall_posts: 4 });
       setSearchResults(result);
       setSearchOpen(true);
       setSearchLoading(false);
@@ -995,7 +995,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => window.clearTimeout(id);
   }, [desktopSearchExpanded]);
 
-  const totalSearchHits = searchResults.users.length + searchResults.boards.length + searchResults.threads.length + searchResults.posts.length;
+  const totalSearchHits =
+    searchResults.users.length +
+    searchResults.boards.length +
+    searchResults.threads.length +
+    searchResults.posts.length +
+    searchResults.wall_posts.length;
 
   const submitSearch = (event?: FormEvent) => {
     if (event) event.preventDefault();
@@ -1004,6 +1009,103 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     navigate(`/search?q=${encodeURIComponent(term)}`);
     setSearchOpen(false);
   };
+
+  // Shared content for the desktop and mobile quick-search dropdowns: EVERY
+  // category that has hits, so a post or wall-post match is never hidden behind
+  // a panel that only knew about users/boards/threads (and never says "nothing
+  // found" while a category actually matched).
+  const quickResultsContent = (
+    <>
+      {searchResults.users.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.users')}</div>
+          {searchResults.users.slice(0, 4).map((item) => (
+            <Link
+              key={item.id}
+              to={profileUrl(item)}
+              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+            >
+              @<HighlightText text={item.username} query={searchQuery} />
+            </Link>
+          ))}
+        </div>
+      )}
+      {searchResults.boards.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.boardsAndSubs')}</div>
+          {searchResults.boards.slice(0, 4).map((item) => (
+            <Link
+              key={item.id}
+              to={item.is_gomosub ? `/g/${item.slug}` : `/${item.slug}`}
+              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+            >
+              {item.is_gomosub ? "g/" : "/"}{item.slug} — <HighlightText text={item.name} query={searchQuery} />
+            </Link>
+          ))}
+        </div>
+      )}
+      {searchResults.threads.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.threads')}</div>
+          {searchResults.threads.slice(0, 4).map((item) => {
+            const isGomo = item.board_is_gomosub && item.board_slug;
+            const link = isGomo
+              ? `/g/${item.board_slug}/thread/${entityParam(item)}`
+              : `/thread/${entityParam(item)}`;
+            return (
+              <Link
+                key={item.id}
+                to={link}
+                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+              >
+                <HighlightText text={item.title} query={searchQuery} />
+              </Link>
+            );
+          })}
+        </div>
+      )}
+      {searchResults.posts.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.posts')}</div>
+          {searchResults.posts.slice(0, 4).map((item) => {
+            const isGomo = item.board_is_gomosub && item.board_slug;
+            const param = entityParam({ id: item.thread_id, public_id: item.thread_public_id });
+            const link = isGomo ? `/g/${item.board_slug}/thread/${param}` : `/thread/${param}`;
+            return (
+              <Link
+                key={item.id}
+                to={link}
+                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+              >
+                <span className="text-muted-foreground">{item.thread_title} — </span>
+                <HighlightText text={item.content} query={searchQuery} />
+              </Link>
+            );
+          })}
+        </div>
+      )}
+      {searchResults.wall_posts.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.wallPosts')}</div>
+          {searchResults.wall_posts.slice(0, 4).map((item) => (
+            <Link
+              key={item.id}
+              to={wallPostUrl({ id: item.wall_user_id }, { id: item.id, public_id: item.public_id })}
+              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+            >
+              {item.author_username && (
+                <span className="text-muted-foreground">@{item.author_username} — </span>
+              )}
+              <HighlightText text={item.content || item.title || ""} query={searchQuery} />
+            </Link>
+          ))}
+        </div>
+      )}
+      <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
+        {t('nav.showAllResults')}
+      </Button>
+    </>
+  );
 
   // Global auth:expired handler — redirect to login when refresh token fails
   useEffect(() => {
@@ -1182,59 +1284,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                   ) : totalSearchHits === 0 ? (
                     <div className="text-sm text-muted-foreground">{t('nav.nothingFound')}</div>
                   ) : (
-                    <>
-                      {searchResults.users.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.users')}</div>
-                          {searchResults.users.map((item) => (
-                            <Link
-                              key={item.id}
-                              to={profileUrl(item)}
-                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                            >
-                              @<HighlightText text={item.username} query={searchQuery} />
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                      {searchResults.boards.filter((item) => item.is_gomosub).length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.boardsAndSubs')}</div>
-                          {searchResults.boards.filter((item) => item.is_gomosub).map((item) => (
-                            <Link
-                              key={item.id}
-                              to={`/g/${item.slug}`}
-                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                            >
-                              g/{item.slug} - <HighlightText text={item.name} query={searchQuery} />
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                      {searchResults.threads.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.threads')}</div>
-                          {searchResults.threads.map((item) => {
-                            const isGomo = item.board_is_gomosub && item.board_slug;
-                            const link = isGomo
-                              ? `/g/${item.board_slug}/thread/${entityParam(item)}`
-                              : `/thread/${entityParam(item)}`;
-                            return (
-                              <Link
-                                key={item.id}
-                                to={link}
-                                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                              >
-                                <HighlightText text={item.title} query={searchQuery} />
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
-                        {t('nav.showAllResults')}
-                      </Button>
-                    </>
+                    quickResultsContent
                   )}
                 </div>
               )}
@@ -1286,32 +1336,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                 ) : totalSearchHits === 0 ? (
                   <div className="text-sm text-muted-foreground">{t('nav.nothingFound')}</div>
                 ) : (
-                  <>
-                    {searchResults.users.map((item) => (
-                      <Link key={item.id} to={profileUrl(item)} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                        @<HighlightText text={item.username} query={searchQuery} />
-                      </Link>
-                    ))}
-                    {searchResults.boards.filter((item) => item.is_gomosub).map((item) => (
-                      <Link key={item.id} to={`/g/${item.slug}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                        g/{item.slug} - <HighlightText text={item.name} query={searchQuery} />
-                      </Link>
-                    ))}
-                    {searchResults.threads.map((item) => {
-                      const isGomo = item.board_is_gomosub && item.board_slug;
-                      const link = isGomo
-                        ? `/g/${item.board_slug}/thread/${entityParam(item)}`
-                        : `/thread/${entityParam(item)}`;
-                      return (
-                        <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                          <HighlightText text={item.title} query={searchQuery} />
-                        </Link>
-                      );
-                    })}
-                    <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
-                      {t('nav.showAllResults')}
-                    </Button>
-                  </>
+                  quickResultsContent
                 )}
               </div>
             )}

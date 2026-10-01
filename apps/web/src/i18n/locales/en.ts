@@ -218,6 +218,8 @@ const en: LocaleResources = {
     users: "Users",
     boardsAndSubs: "Boards and G-subs",
     threads: "Posts",
+    posts: "Replies",
+    wallPosts: "Wall posts",
     showAllResults: "Show all results",
     subscriptions: "Subscriptions",
     noSubscriptions: "No subscriptions yet",

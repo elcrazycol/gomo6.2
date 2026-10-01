@@ -219,6 +219,8 @@ const ru: LocaleResources = {
     users: "Пользователи",
     boardsAndSubs: "Доски и G-сабы",
     threads: "Записи",
+    posts: "Посты",
+    wallPosts: "Записи на стене",
     showAllResults: "Показать все результаты",
     subscriptions: "Подписки",
     noSubscriptions: "Пока нет подписок",

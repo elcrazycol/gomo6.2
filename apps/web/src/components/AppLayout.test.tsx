@@ -273,6 +273,7 @@ describe("AppLayout", () => {
         boards: [],
         threads: [],
         posts: [],
+        wall_posts: [],
       });
       renderLayout();
 
@@ -326,6 +327,7 @@ describe("AppLayout", () => {
         boards: [],
         threads: [],
         posts: [],
+        wall_posts: [],
       });
       const { rerender } = renderLayout();
 
