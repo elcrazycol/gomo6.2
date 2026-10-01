@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { PentagramLoader } from "@/components/PentagramLoader";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Gift, Send, User, Sparkles } from "lucide-react";
@@ -9,6 +8,8 @@ import type { GiftCatalogItem } from "@/components/GiftCard";
 import { UpgradedGiftCard } from "@/components/UpgradedGiftCard";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { transitionEnterClass } from "@/lib/viewTransitions";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 import { toast } from "sonner";
 
 interface UserGiftItem {
@@ -48,6 +49,7 @@ interface GiftsTabProps {
 }
 
 export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername, onGiftSent }: GiftsTabProps) {
+  const transitionStyle = useTransitionStyle();
   const [gifts, setGifts] = useState<UserGiftItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
@@ -188,14 +190,13 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
 
   const sendDialogImage = selectedCatalogGift ? giftImageUrl(selectedCatalogGift.image_url) : null;
 
+  // Nothing (not a spinner) until the first load settles — the header loading
+  // bar is the indicator, and the grid then fades in.
+  if (loading && gifts.length === 0) return null;
+
   return (
-    <div className="relative">
-      {/* Gift grid */}
-      {loading && gifts.length === 0 ? (
-        <div className="flex items-center justify-center py-8">
-          <PentagramLoader size="lg" />
-        </div>
-      ) : gifts.length === 0 ? (
+    <div className={`relative ${transitionEnterClass(transitionStyle)}`}>
+      {gifts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <Gift className="w-10 h-10 mb-3 opacity-50" />
           <p>Подарков пока нет</p>

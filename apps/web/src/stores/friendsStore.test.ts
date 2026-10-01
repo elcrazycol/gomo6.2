@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { useFriendsStore, type Friend, type FriendRequest } from "./friendsStore";
+import { useFriendsStore, type Friend, type SubscriptionUser } from "./friendsStore";
 
 const { mockGetSession } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
@@ -27,21 +27,19 @@ const friend: Friend = {
   is_online: true,
 };
 
-const request: FriendRequest = {
-  id: "req-1",
-  sender_id: "u-2",
-  sender_username: "bob",
-  receiver_id: "u-1",
-  status: "pending",
-  created_at: new Date().toISOString(),
+const subscriber: SubscriptionUser = {
+  user_id: "u-2",
+  username: "bob",
+  display_name: "Bob",
+  is_online: true,
+  is_friend: false,
+  subscribed_at: new Date().toISOString(),
 };
 
 describe("friendsStore", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
-    // mockReset clears queued mockResolvedValueOnce values that a previous
-    // test may not have consumed (clearAllMocks does not).
     fetchMock.mockReset();
     vi.clearAllMocks();
     mockGetSession.mockResolvedValue({
@@ -49,11 +47,11 @@ describe("friendsStore", () => {
       error: null,
     });
     vi.stubGlobal("fetch", fetchMock);
-    // Reset store state between tests.
     useFriendsStore.setState({
       friends: [],
       profileFriends: [],
-      incomingRequests: [],
+      profileSubscribers: [],
+      profileSubscriptions: [],
       friendStatusMap: {},
       isLoading: false,
     });
@@ -67,7 +65,8 @@ describe("friendsStore", () => {
     const state = useFriendsStore.getState();
     expect(state.friends).toEqual([]);
     expect(state.profileFriends).toEqual([]);
-    expect(state.incomingRequests).toEqual([]);
+    expect(state.profileSubscribers).toEqual([]);
+    expect(state.profileSubscriptions).toEqual([]);
     expect(state.friendStatusMap).toEqual({});
     expect(state.isLoading).toBe(false);
   });
@@ -90,194 +89,132 @@ describe("friendsStore", () => {
     expect(useFriendsStore.getState().isLoading).toBe(false);
   });
 
-  it("fetchFriends keeps previous list on API failure", async () => {
-    useFriendsStore.setState({ friends: [friend] });
-    fetchMock.mockResolvedValue(jsonResponse({ success: false, error: "boom" }));
+  it("fetchProfileSubscribers loads subscribers for a specific user", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: [subscriber] }));
 
-    await useFriendsStore.getState().fetchFriends();
-
-    expect(useFriendsStore.getState().friends).toEqual([friend]);
-    expect(useFriendsStore.getState().isLoading).toBe(false);
-  });
-
-  it("fetchProfileFriends loads friends for a specific user", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: [friend] }));
-
-    await useFriendsStore.getState().fetchProfileFriends("u-2");
+    await useFriendsStore.getState().fetchProfileSubscribers("u-2");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/friends?user_id=u-2",
+      "/api/v1/friends/subscribers?user_id=u-2",
       expect.anything(),
     );
-    expect(useFriendsStore.getState().profileFriends).toEqual([friend]);
+    expect(useFriendsStore.getState().profileSubscribers).toEqual([subscriber]);
   });
 
-  it("fetchRequests loads incoming requests", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: [request] }));
+  it("fetchProfileSubscriptions loads subscriptions for a specific user", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: [subscriber] }));
 
-    await useFriendsStore.getState().fetchRequests();
-
-    expect(useFriendsStore.getState().incomingRequests).toEqual([request]);
-  });
-
-  it("sendRequest optimistically marks pending_sent and keeps it on success", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: { status: "pending" } }));
-
-    await useFriendsStore.getState().sendRequest("u-2");
+    await useFriendsStore.getState().fetchProfileSubscriptions("u-2");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/friends/request",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ receiver_id: "u-2" }),
-      }),
+      "/api/v1/friends/subscriptions?user_id=u-2",
+      expect.anything(),
     );
-    expect(useFriendsStore.getState().friendStatusMap["u-2"].status).toBe("pending_sent");
+    expect(useFriendsStore.getState().profileSubscriptions).toEqual([subscriber]);
   });
 
-  it("sendRequest marks friends and refreshes when already friends", async () => {
+  it("fetchProfileSubscribers skips the request for guests", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
+
+    await useFriendsStore.getState().fetchProfileSubscribers("u-2");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useFriendsStore.getState().profileSubscribers).toEqual([]);
+  });
+
+  it("subscribe marks subscribed and stays on success", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: { status: "subscribed" } }));
+
+    await useFriendsStore.getState().subscribe("u-2");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/friends/subscribe",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ user_id: "u-2" }),
+      }),
+    );
+    expect(useFriendsStore.getState().friendStatusMap["u-2"].status).toBe("subscribed");
+  });
+
+  it("subscribe becomes friends and refreshes when mutual", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ success: true, data: { status: "friends" } }))
+      .mockResolvedValueOnce(jsonResponse({ success: true, data: { status: "friends", became_friends: true } }))
       .mockResolvedValueOnce(jsonResponse({ success: true, data: [friend] }));
 
-    await useFriendsStore.getState().sendRequest("u-2");
+    await useFriendsStore.getState().subscribe("u-2");
 
-    // fetchFriends() is fire-and-forget inside sendRequest — wait for it.
     await vi.waitFor(() => {
       expect(useFriendsStore.getState().friends).toEqual([friend]);
     });
-    expect(useFriendsStore.getState().friendStatusMap["u-2"].status).toBe("friends");
+    expect(useFriendsStore.getState().friendStatusMap["u-2"]).toEqual({
+      status: "friends",
+      followsYou: true,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2); // POST + refresh
   });
 
-  it("sendRequest rolls back the optimistic status on failure", async () => {
-    useFriendsStore.setState({
-      friendStatusMap: { "u-2": { status: "none" } },
-    });
+  it("subscribe rolls back the optimistic status on failure", async () => {
+    useFriendsStore.setState({ friendStatusMap: { "u-2": { status: "none" } } });
     fetchMock.mockResolvedValue(jsonResponse({ success: false, error: "denied" }));
 
-    await expect(useFriendsStore.getState().sendRequest("u-2")).rejects.toThrow("denied");
+    await expect(useFriendsStore.getState().subscribe("u-2")).rejects.toThrow("denied");
 
     expect(useFriendsStore.getState().friendStatusMap["u-2"].status).toBe("none");
   });
 
-  it("sendRequest removes the status entry when there was no previous status", async () => {
+  it("subscribe removes the status entry when there was no previous status", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ success: false, error: "denied" }));
 
-    await expect(useFriendsStore.getState().sendRequest("u-9")).rejects.toThrow("denied");
+    await expect(useFriendsStore.getState().subscribe("u-9")).rejects.toThrow("denied");
 
     expect(useFriendsStore.getState().friendStatusMap["u-9"]).toBeUndefined();
   });
 
-  it("acceptRequest removes the request and marks the user as friend", async () => {
-    useFriendsStore.setState({ incomingRequests: [request] });
-    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: { ok: true } }));
-
-    await useFriendsStore.getState().acceptRequest("req-1", "u-2");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/friends/request/req-1/accept",
-      expect.objectContaining({ method: "PUT" }),
-    );
-    expect(useFriendsStore.getState().incomingRequests).toEqual([]);
-    expect(useFriendsStore.getState().friendStatusMap["u-2"].status).toBe("friends");
-  });
-
-  it("acceptRequest restores the request list and re-checks status on failure", async () => {
-    useFriendsStore.setState({ incomingRequests: [request] });
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ success: false, error: "boom" }))
-      .mockResolvedValueOnce(jsonResponse({ success: true, data: { status: "pending_received", request_id: "req-1" } }));
-
-    await expect(useFriendsStore.getState().acceptRequest("req-1", "u-2")).rejects.toThrow("boom");
-
-    expect(useFriendsStore.getState().incomingRequests).toEqual([request]);
-    // checkStatus() is fire-and-forget in the catch path — wait for it to
-    // re-populate the map from the server.
-    await vi.waitFor(() => {
-      expect(useFriendsStore.getState().friendStatusMap["u-2"]).toEqual({
-        status: "pending_received",
-        requestId: "req-1",
-      });
-    });
-  });
-
-  it("rejectRequest removes the request optimistically and restores on failure", async () => {
-    useFriendsStore.setState({ incomingRequests: [request] });
-    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: {} }));
-
-    await useFriendsStore.getState().rejectRequest("req-1");
-
-    expect(useFriendsStore.getState().incomingRequests).toEqual([]);
-
-    // Failure path restores the list.
-    useFriendsStore.setState({ incomingRequests: [request] });
-    fetchMock.mockResolvedValue(jsonResponse({ success: false, error: "nope" }));
-    await expect(useFriendsStore.getState().rejectRequest("req-1")).rejects.toThrow("nope");
-    expect(useFriendsStore.getState().incomingRequests).toEqual([request]);
-  });
-
-  it("cancelRequest deletes the pending request", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: {} }));
-
-    await useFriendsStore.getState().cancelRequest("req-1");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/friends/request/req-1",
-      expect.objectContaining({ method: "DELETE" }),
-    );
-  });
-
-  it("cancelRequest throws on failure", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ success: false, error: "gone" }));
-
-    await expect(useFriendsStore.getState().cancelRequest("req-1")).rejects.toThrow("gone");
-  });
-
-  it("removeFriend removes from list optimistically and sets status none", async () => {
+  it("unsubscribe removes the friend and sets status none", async () => {
     useFriendsStore.setState({
       friends: [friend],
-      friendStatusMap: { "u-2": { status: "friends" } },
+      friendStatusMap: { "u-2": { status: "friends", followsYou: true } },
     });
     fetchMock.mockResolvedValue(jsonResponse({ success: true, data: {} }));
 
-    await useFriendsStore.getState().removeFriend("u-2");
+    await useFriendsStore.getState().unsubscribe("u-2");
 
     expect(useFriendsStore.getState().friends).toEqual([]);
     expect(useFriendsStore.getState().friendStatusMap["u-2"].status).toBe("none");
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/friends/u-2",
+      "/api/v1/friends/subscribe/u-2",
       expect.objectContaining({ method: "DELETE" }),
     );
   });
 
-  it("removeFriend restores previous state on failure", async () => {
+  it("unsubscribe restores the previous state on failure", async () => {
     useFriendsStore.setState({
       friends: [friend],
-      friendStatusMap: { "u-2": { status: "friends", requestId: "req-1" } },
+      friendStatusMap: { "u-2": { status: "friends", followsYou: true } },
     });
     fetchMock.mockResolvedValue(jsonResponse({ success: false, error: "boom" }));
 
-    await expect(useFriendsStore.getState().removeFriend("u-2")).rejects.toThrow("boom");
+    await expect(useFriendsStore.getState().unsubscribe("u-2")).rejects.toThrow("boom");
 
     expect(useFriendsStore.getState().friends).toEqual([friend]);
     expect(useFriendsStore.getState().friendStatusMap["u-2"]).toEqual({
       status: "friends",
-      requestId: "req-1",
+      followsYou: true,
     });
   });
 
-  it("checkStatus stores the server status and request id", async () => {
+  it("checkStatus stores the server status and follows_you flag", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ success: true, data: { status: "pending_received", request_id: "req-1" } }),
+      jsonResponse({ success: true, data: { status: "subscribed", follows_you: true } }),
     );
 
     const status = await useFriendsStore.getState().checkStatus("u-2");
 
-    expect(status).toBe("pending_received");
+    expect(status).toBe("subscribed");
     expect(useFriendsStore.getState().friendStatusMap["u-2"]).toEqual({
-      status: "pending_received",
-      requestId: "req-1",
+      status: "subscribed",
+      followsYou: true,
     });
   });
 
@@ -290,11 +227,11 @@ describe("friendsStore", () => {
   });
 
   it("setStatus writes the map directly", () => {
-    useFriendsStore.getState().setStatus("u-2", "pending_sent");
+    useFriendsStore.getState().setStatus("u-2", "subscribed", false);
 
     expect(useFriendsStore.getState().friendStatusMap["u-2"]).toEqual({
-      status: "pending_sent",
-      requestId: undefined,
+      status: "subscribed",
+      followsYou: false,
     });
   });
 });

@@ -495,7 +495,7 @@ describe("ProfileWall", () => {
 
   // ─── ProfileWall: loading ───────────────────────────────────────────────────
 
-  it("shows loading skeleton while fetching posts", () => {
+  it("renders nothing (no skeleton) while fetching posts", () => {
     // Use makeChain with a never-resolving promise to keep loading=true
     mockFrom.mockReturnValue({
       ...makeChain(null),
@@ -526,8 +526,9 @@ describe("ProfileWall", () => {
       />
     );
 
+    // No skeleton: the wall renders nothing until its first page has loaded.
     const skeletonDivs = container.querySelectorAll(".animate-pulse");
-    expect(skeletonDivs.length).toBeGreaterThan(0);
+    expect(skeletonDivs.length).toBe(0);
   });
 
   // ─── ProfileWall: empty state ───────────────────────────────────────────────

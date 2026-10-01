@@ -10,6 +10,8 @@ import { CreateWallPost } from "@/components/CreateWallPost";
 import { CreateWallPostInline } from "@/components/CreateWallPostInline";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import { WallPostCard } from "@/components/WallPostCard";
+import { transitionEnterClass } from "@/lib/viewTransitions";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 import {
   type WallPost,
   normalizeWallPostRecord,
@@ -116,6 +118,7 @@ export const ProfileWall = ({
   createOpen = false,
   onCreateOpenChange,
 }: ProfileWallProps) => {
+  const transitionStyle = useTransitionStyle();
   const [posts, setPosts] = useState<WallPost[]>(() => initialPost ? [initialPost] : []);
   const [loading, setLoading] = useState(!initialPost);
   const [internalCreateOpen, setInternalCreateOpen] = useState(false);
@@ -147,7 +150,6 @@ export const ProfileWall = ({
   const [pendingPostTimestamp, setPendingPostTimestamp] = useState<number | undefined>(undefined);
 
   const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   // Next server-side keyset cursor (opaque) — independent of the rendered
@@ -315,7 +317,6 @@ export const ProfileWall = ({
     if (loadingMoreRef.current || loading || !hasMoreRef.current) return;
     const ownerAtFetch = lastOwnerRef.current;
     loadingMoreRef.current = true;
-    setLoadingMore(true);
     try {
       const cursor = nextCursorRef.current;
       // hasMore without a cursor means there is nothing more to fetch — stop
@@ -344,7 +345,6 @@ export const ProfileWall = ({
       toast.error("Ошибка загрузки постов стены");
     } finally {
       loadingMoreRef.current = false;
-      setLoadingMore(false);
       // The observer only fires on intersection changes, so an append that
       // leaves the sentinel visible (fast scrolling past the bottom) would
       // never re-trigger it by itself. Re-check right after settling —
@@ -644,20 +644,14 @@ export const ProfileWall = ({
   }
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="animate-pulse space-y-4">
-          <div className="h-14 rounded-3xl bg-muted" />
-          <div className="h-40 rounded-3xl bg-muted" />
-          <div className="h-40 rounded-3xl bg-muted" />
-        </div>
-      </div>
-    );
+    // No skeleton: the header loading bar is the signal, content appears once
+    // the first page has fully loaded.
+    return null;
   }
 
   return (
     <>
-      <div className="space-y-4">
+      <div className={`space-y-4 ${transitionEnterClass(transitionStyle)}`}>
         {canPost && !standalone && !focusedPostId && showCreateForm && currentUserId && (
           <WallComposer
             profileUserId={profileUserId}
@@ -711,11 +705,7 @@ export const ProfileWall = ({
             ref={sentinelRef}
             data-testid="wall-sentinel"
             className="flex justify-center py-4"
-          >
-            {loadingMore && (
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-            )}
-          </div>
+          />
         )}
       </div>
       {!!galleryItems && (

@@ -77,8 +77,8 @@ export function ProfileHeader({
   const nicknameEmojiButtonRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3 sm:gap-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         {/* Avatar */}
         {avatarVisible && (
           <div className="relative">
@@ -109,7 +109,7 @@ export function ProfileHeader({
         )}
 
         {/* User Info */}
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1">
             {isEditing && isOwnProfile ? (
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -193,41 +193,43 @@ export function ProfileHeader({
         </div>
       </div>
 
-      {/* Edit Button */}
+      {/* Edit Button (own profile) */}
       {isOwnProfile && (
         <Button
           variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8 hover:bg-primary/10 hover:text-primary transition-colors"
+          size="icon"
+          className="h-9 w-9 shrink-0 self-end rounded-xl text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary sm:self-auto"
           onClick={onEditClick}
         >
           {isEditing ? (
-            <span className="text-green-500 text-lg">✓</span>
+            <span className="text-lg leading-none text-green-500">✓</span>
           ) : (
-            <Edit2 className="w-4 h-4" />
+            <Edit2 className="h-4 w-4" />
           )}
         </Button>
       )}
 
-      {/* Write Button and Friend Button for other users */}
+      {/* Message + subscribe + actions (other profiles) */}
       {!isOwnProfile && currentUser && (
-        <div className="flex gap-2">
-          <FriendButton userId={profile.id} isOwnProfile={isOwnProfile} />
+        <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
           <Button
             variant="default"
             size="sm"
             onClick={onOpenMessages}
-            className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
+            className="h-9 gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            title={t("profile.write")}
           >
-            <MessageSquare className="w-4 h-4" />
-            <span className="hidden sm:inline">{t("profile.write")}</span>
+            <MessageSquare className="h-4 w-4" />
+            <span>{t("profile.write")}</span>
           </Button>
+          <FriendButton userId={profile.id} isOwnProfile={isOwnProfile} />
           <PostActionsMenu
             targetType="user"
             targetId={profile.id}
             reportLabel="Пожаловаться на пользователя"
             reportTargetLabel="на пользователя"
             triggerTitle="Действия"
+            triggerClassName="rounded-xl border border-border/60 bg-background/85 backdrop-blur-md hover:bg-background"
           />
         </div>
       )}

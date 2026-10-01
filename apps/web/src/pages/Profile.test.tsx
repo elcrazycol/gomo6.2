@@ -152,7 +152,7 @@ describe("Profile", () => {
     mockRpc.mockResolvedValue({ data: 0, error: null });
   }
 
-  it("shows skeleton loader only after a slow profile load", () => {
+  it("never flashes a skeleton while the profile loads", () => {
     vi.useFakeTimers();
     try {
       mockAuth.getSession.mockReturnValue(new Promise(() => {}));
@@ -160,13 +160,12 @@ describe("Profile", () => {
       mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
 
       const { container } = renderWithProviders(<ProfileComponent />);
-      // A fast return must not flash the skeleton before the delayed threshold.
-      expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
-
+      // No skeleton, ever: the header loading bar is the only indicator, and
+      // the profile paints once its row has loaded.
       act(() => {
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
       });
-      expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+      expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -334,7 +333,7 @@ describe("Profile", () => {
     expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Записи" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Друзья/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Подписчики/)).not.toBeInTheDocument();
   });
 
   it("opens the album row from the wall tab chevron and shows album chips", async () => {
@@ -373,8 +372,8 @@ describe("Profile", () => {
     expect(screen.getByText("Лучшее")).toBeInTheDocument();
   });
 
-  it("shows the friends tab when the owner keeps friends visible on a private profile", async () => {
-    // Override privacy: friends NOT hidden → the tab must appear.
+  it("shows the subscription tab when the owner keeps it visible on a private profile", async () => {
+    // Override privacy: lists NOT hidden → the tab must appear.
     setupForeignPrivateProfile({ private_hide_friends: false });
 
     renderWithProviders(<ProfileComponent />);
@@ -383,9 +382,12 @@ describe("Profile", () => {
       expect(screen.getByText("Стена")).toBeInTheDocument();
     });
 
-    // Friends not hidden → the friends tab shows (wall + friends only).
+    // Lists not hidden → the single subscribers tab shows (it hosts both lists).
     expect(screen.getByText("Стена")).toBeInTheDocument();
-    expect(screen.getByText(/^Друзья/)).toBeInTheDocument();
+    expect(screen.getByText(/^Подписчики/)).toBeInTheDocument();
+    // The subscriptions list is reachable only through the in-panel toggle, so
+    // its label is not rendered while the tab is closed.
+    expect(screen.queryByText(/^Подписки/)).not.toBeInTheDocument();
     // Hidden sections stay hidden.
     expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();

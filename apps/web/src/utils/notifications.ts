@@ -46,7 +46,7 @@ export function notificationLink(notif: Notification, threadSlug?: string): stri
     return ownerId ? profileUrl({ id: ownerId, public_id: notif.related_wall_user_public_id }) : "#";
   }
 
-  if (type === "friend_request" || type === "friend_accepted") {
+  if (type === "friend_request" || type === "friend_accepted" || type === "new_subscriber" || type === "friend_mutual") {
     return notif.related_user_id
       ? profileUrl({ id: notif.related_user_id, public_id: notif.related_user_public_id })
       : "#";
@@ -147,6 +147,14 @@ export function notificationTitle(notif: Notification, t: TFunction, actorName?:
         break;
       case "friend_accepted":
         key = "notif.friendAccepted";
+        values = { actor: params.actor };
+        break;
+      case "new_subscriber":
+        key = "notif.newSubscriber";
+        values = { actor: params.actor };
+        break;
+      case "friend_mutual":
+        key = "notif.friendMutual";
         values = { actor: params.actor };
         break;
       case "gift_received":

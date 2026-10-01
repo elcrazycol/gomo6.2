@@ -42,6 +42,8 @@ const TYPE_STYLES: Record<string, TypeStyle> = {
   wall_post: { Icon: Pencil, text: "text-sky-500", bg: "bg-sky-500/15" },
   friend_request: { Icon: UserPlus, text: "text-sky-500", bg: "bg-sky-500/15" },
   friend_accepted: { Icon: UserCheck, text: "text-emerald-500", bg: "bg-emerald-500/15" },
+  new_subscriber: { Icon: UserPlus, text: "text-sky-500", bg: "bg-sky-500/15" },
+  friend_mutual: { Icon: UserCheck, text: "text-emerald-500", bg: "bg-emerald-500/15" },
   gift_received: { Icon: Gift, text: "text-purple-500", bg: "bg-purple-500/15" },
   sanction: { Icon: Gavel, text: "text-destructive", bg: "bg-destructive/15" },
 };

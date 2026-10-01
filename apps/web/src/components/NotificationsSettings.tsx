@@ -26,6 +26,8 @@ const TYPE_LABELS: Record<string, { key: string; icon: string }> = {
   wall_repost: { key: "notifTypes.wallRepost", icon: "🔁" },
   friend_request: { key: "notifTypes.friendRequest", icon: "👥" },
   friend_accepted: { key: "notifTypes.friendAccepted", icon: "👥" },
+  new_subscriber: { key: "notifTypes.newSubscriber", icon: "👤" },
+  friend_mutual: { key: "notifTypes.friendMutual", icon: "👥" },
   gift_received: { key: "notifTypes.giftReceived", icon: "🎁" },
   message: { key: "notifTypes.message", icon: "💬" },
 };

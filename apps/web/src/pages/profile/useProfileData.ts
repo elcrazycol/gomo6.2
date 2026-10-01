@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
+import { useLoadingBarStore } from "@/stores/loadingBarStore";
 import { getGiftCatalog } from "@/utils/currentUserMeta";
 import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
@@ -27,9 +28,6 @@ export interface UseProfileDataResult {
   achievements: AchievementData[];
   pinnedAchievements: AchievementData[];
   achievementsLoaded: boolean;
-  userThreads: any[];
-  profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
-  threadsLoading: boolean;
   avatarHistory: AvatarHistoryItem[];
   showAvatarGallery: boolean;
   avatarGalleryIndex: number;
@@ -38,7 +36,6 @@ export interface UseProfileDataResult {
   giftCountLoaded: boolean;
   loadPinnedAchievements: () => Promise<void>;
   loadAchievements: () => Promise<void>;
-  loadUserThreads: () => Promise<void>;
   toggleAchievementPin: (achievementId: string) => Promise<void>;
   loadAvatarHistory: () => Promise<AvatarHistoryItem[]>;
   openAvatarGallery: () => Promise<void>;
@@ -88,6 +85,8 @@ export function useProfileData({
 
   const loadAchievements = useCallback(async () => {
     if (!userId) return;
+    const { begin, end } = useLoadingBarStore.getState();
+    begin();
     try {
       const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc`);
       const achResult = await achRes.json();
@@ -103,6 +102,7 @@ export function useProfileData({
       // rejections — the profile page just renders without achievements.
       console.error('Error loading achievements:', error);
     } finally {
+      end();
       setAchievementsLoaded(true);
     }
   }, [userId]);
@@ -131,83 +131,17 @@ export function useProfileData({
     }
   }, [userId, loadAchievements]);
 
-  // ── User threads + likes ───────────────────────────────────────────────────
-  const [userThreads, setUserThreads] = useState<any[]>([]);
-  const [profileLikesMap, setProfileLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
-  const [threadsLoading, setThreadsLoading] = useState(false);
+  // ── Threads ────────────────────────────────────────────────────────────────
+  // The «Записи» tab owns its own paging (ProfileThreadsTab); it is not part of
+  // this hook anymore.
 
-  const loadUserThreads = useCallback(async () => {
-    if (!userId) return;
-
-    setThreadsLoading(true);
-    try {
-      // Fetch threads
-      const threadsRes = await fetch(`/api/v1/threads?user_id=eq.${userId}&order=created_at.desc&limit=20`);
-      const threadsResult = await threadsRes.json();
-      const threadsData = threadsResult.data || [];
-
-      if (threadsData.length === 0) {
-        setUserThreads([]);
-        return;
-      }
-
-      // Get profiles for all threads
-      const userIds = [...new Set(threadsData.map((t: { user_id: string }) => t.user_id).filter(Boolean))];
-      const profilesMap: Record<string, unknown> = {};
-      if (userIds.length > 0) {
-        const profilesRes = await fetch(`/api/v1/profiles?id=in.(${userIds.join(',')})`);
-        const profilesResult = await profilesRes.json();
-        (profilesResult.data || []).forEach((p: { id: string }) => { profilesMap[p.id] = p; });
-      }
-
-      // Get post counts for threads
-      const threadIds = threadsData.map((t: { id: string }) => t.id);
-      const postCountMap: Record<string, number> = {};
-      if (threadIds.length > 0) {
-        const postsRes = await fetch(`/api/v1/posts?thread_id=in.(${threadIds.join(',')})`);
-        const postsResult = await postsRes.json();
-        (postsResult.data || []).forEach((p: { thread_id: string }) => {
-          postCountMap[p.thread_id] = (postCountMap[p.thread_id] || 0) + 1;
-        });
-      }
-
-      // Combine data
-      const threadsWithData = threadsData.map((thread: { id: string; user_id: string; [key: string]: unknown }) => ({
-        ...thread,
-        profiles: profilesMap[thread.user_id] || null,
-        post_count: postCountMap[thread.id] || 0
-      }));
-
-      setUserThreads(threadsWithData);
-
-      // Batch fetch likes for all user threads
-      if (threadIds.length > 0) {
-        try {
-          const likesResp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${threadIds.join(",")}&user_uuid=${currentUser?.id || ""}`);
-          const likesResult = await likesResp.json();
-          if (likesResult.data && Array.isArray(likesResult.data)) {
-            const newMap = new Map<string, { count: number; isLiked: boolean }>();
-            for (const item of likesResult.data) {
-              newMap.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
-            }
-            setProfileLikesMap(newMap);
-          }
-        } catch { /* ignore */ }
-      }
-    } catch (error) {
-      console.error('Error loading user threads:', error);
-      toast.error(t("profile.threadsLoadError"));
-    } finally {
-      setThreadsLoading(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, t]);
-
+  // Switching profiles must not show the previous user's achievements while the
+  // next one loads — reset the loaded flag so the tab gates on its own fetch.
   useEffect(() => {
-    if (activeTab === 'threads' && userThreads.length === 0) {
-      loadUserThreads();
-    }
-  }, [activeTab, userId, userThreads.length, loadUserThreads]);
+    setAchievements([]);
+    setPinnedAchievements([]);
+    setAchievementsLoaded(false);
+  }, [userId]);
 
   // ── Avatar history + gallery ───────────────────────────────────────────────
   const [avatarHistory, setAvatarHistory] = useState<AvatarHistoryItem[]>([]);
@@ -322,9 +256,6 @@ export function useProfileData({
     achievements,
     pinnedAchievements,
     achievementsLoaded,
-    userThreads,
-    profileLikesMap,
-    threadsLoading,
     avatarHistory,
     showAvatarGallery,
     avatarGalleryIndex,
@@ -333,7 +264,6 @@ export function useProfileData({
     giftCountLoaded,
     loadPinnedAchievements,
     loadAchievements,
-    loadUserThreads,
     toggleAchievementPin,
     loadAvatarHistory,
     openAvatarGallery,

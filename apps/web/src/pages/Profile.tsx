@@ -7,7 +7,9 @@ import { getCached } from "@/integrations/api/queryCache";
 import { storageUrl } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { ProfileSkeleton } from "@/components/skeletons/ContentSkeletons";
+import { useLoadingBarStore } from "@/stores/loadingBarStore";
+import { transitionEnterClass } from "@/lib/viewTransitions";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { SpotifyNowPlaying } from "@/components/SpotifyNowPlaying";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
@@ -16,6 +18,7 @@ import { normalizeProfileBackgroundVariant, type ProfileBackgroundVariant } from
 import { isValidThemeTokens, applyProfileThemeTokens } from "@/utils/profileTheme";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { useProfileData } from "./profile/useProfileData";
+import { profilePageCacheKey } from "./profile/profilePreload";
 import { useProfileEditing } from "./profile/useProfileEditing";
 import { ProfileHeader } from "./profile/ProfileHeader";
 import { ProfileStats } from "./profile/ProfileStats";
@@ -36,17 +39,13 @@ const Profile = () => {
   const { t } = useTranslation();
   const { userId } = useParams();
   const navigate = useNavigate();
+  const transitionStyle = useTransitionStyle();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
-  const [pageLoading, setPageLoading] = useState(true);
-  // Do not flash the full-page skeleton during a fast back navigation. It is
-  // useful for a genuinely slow first load, but a short delayed threshold
-  // keeps cached/already loaded profiles visually continuous.
-  const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
   const [nicknameEmojiId, setNicknameEmojiId] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -132,15 +131,6 @@ const Profile = () => {
     return cleanup;
   }, [profile?.theme_enabled, profile?.theme_tokens]);
 
-  useEffect(() => {
-    if (!profile || pageLoading) {
-      const timeoutId = window.setTimeout(() => setShowLoadingSkeleton(true), 250);
-      return () => window.clearTimeout(timeoutId);
-    }
-
-    setShowLoadingSkeleton(false);
-  }, [pageLoading, profile]);
-
   const loadProfile = useCallback(async () => {
     const sessionAuth = await api.auth.getSession();
     const token = sessionAuth.data.session?.access_token;
@@ -154,7 +144,7 @@ const Profile = () => {
     // through the TTL cache (viewer-scoped key) so back-navigation within the
     // TTL renders the header instantly instead of re-fetching.
     const profileData = await getCached<Profile | null>(
-      `profile-page:${localSessionUser?.id ?? "guest"}:${userId}`,
+      profilePageCacheKey(localSessionUser?.id, userId ?? ""),
       async () => {
         // The parameter is a public number on new links and a UUID on old ones;
         // the helper picks the matching column.
@@ -165,7 +155,30 @@ const Profile = () => {
       { ttlMs: 60_000 }
     );
 
-    const profileId = profileData?.id ?? "";
+    const data = profileData;
+
+    // Paint the row the moment it is known — the route preloader usually has it
+    // cached already, so this lands immediately after the swap. Privacy,
+    // friendship and customization then fill in as they arrive; nothing
+    // sensitive flashes (private content is stripped server-side and the derived
+    // guards self-correct).
+    if (data) {
+      setProfile({
+        ...data,
+        bio_json: (data as { bio_json?: unknown }).bio_json ?? undefined,
+        garma: data.garma ?? 0,
+        drops: data.drops ?? 0,
+        wall_post_count: data.wall_post_count ?? 0,
+        comment_count: data.comment_count ?? 0,
+        likes_received_count: data.likes_received_count ?? 0,
+        views_received_count: data.views_received_count ?? 0,
+      });
+      setAvatarUrl(data.avatar_url);
+      setLastSeen(data.last_seen_at);
+      setIsOnline(data.is_online || false);
+    }
+
+    const profileId = data?.id ?? "";
     const isOwnProfileBySession = !!localSessionUser?.id && localSessionUser.id === profileId;
 
     // The three dependent reads stay parallel with each other.
@@ -190,23 +203,7 @@ const Profile = () => {
       ]);
     }
 
-    const data = profileData;
-
     if (data) {
-      setProfile({
-        ...data,
-        bio_json: (data as { bio_json?: unknown }).bio_json ?? undefined,
-        garma: data.garma ?? 0,
-        drops: data.drops ?? 0,
-        wall_post_count: data.wall_post_count ?? 0,
-        comment_count: data.comment_count ?? 0,
-        likes_received_count: data.likes_received_count ?? 0,
-        views_received_count: data.views_received_count ?? 0,
-      });
-      setAvatarUrl(data.avatar_url);
-      setLastSeen(data.last_seen_at);
-      setIsOnline(data.is_online || false);
-
       // Privacy flags for online status, wall and stats. Parsed from the two
       // response shapes: the owner's row comes back as an array, the foreign
       // endpoint returns an object.
@@ -354,18 +351,20 @@ const Profile = () => {
   useEffect(() => {
     if (userId) {
       const loadAll = async () => {
-        setPageLoading(true);
+        const { begin, end } = useLoadingBarStore.getState();
+        begin();
         try {
           // Only the profile row + privacy/friendship/customization are needed
           // for the first paint. Pinned achievements (wall tab) come with a
           // cheap limit-4 fetch; the full achievement list, avatar history,
           // gift counts and friends lists load lazily when their tab/action
-          // is first used.
+          // is first used. No skeleton/spinner — the header loading bar is the
+          // only indicator and the profile paints once it has loaded.
           await Promise.all([loadProfile(), data.loadPinnedAchievements()]);
         } catch (error) {
           console.error('Error loading profile data:', error);
         } finally {
-          setPageLoading(false);
+          end();
         }
       };
       loadAll();
@@ -396,10 +395,9 @@ const Profile = () => {
     return isOwn || (showProfileStats && canViewSection(privateHideStats));
   })();
 
-  // The skeleton hides as soon as the profile row is loaded — the remaining
-  // parallel reads (privacy, friendship, achievements, avatar history) fill
-  // the already-painted page in place instead of blocking the first paint.
-  const showSkeleton = showLoadingSkeleton && !profile;
+  // The profile paints as soon as its row is loaded (the header loading bar
+  // covers the wait); the parallel reads (privacy, friendship, achievements,
+  // avatar history) fill the already-painted page in place.
 
   const headerElement = profile ? (
     <ProfileHeader
@@ -445,9 +443,8 @@ const Profile = () => {
             )}
           </>
         )}
-        {showSkeleton && <ProfileSkeleton />}
-        {!showSkeleton && profile && (
-          <div className="space-y-6 animate-in fade-in duration-300">
+        {profile && (
+          <div className={`space-y-6 ${transitionEnterClass(transitionStyle)}`}>
           {/* Profile content — painted as soon as the profile row is loaded.
               The privacy/friendship flags arrive in parallel and the derived
               guards (wallHiddenFromViewer, canViewSection) self-correct when
@@ -569,7 +566,7 @@ const Profile = () => {
                 canViewAchievements={canViewSection(privateHideAchievements)}
                 canViewThreads={canViewSection(privateHideThreads)}
                 canViewGifts={canViewSection(privateHideGifts)}
-                canViewFriends={canViewSection(privateHideFriends)}
+                canViewSubscriptions={canViewSection(privateHideFriends)}
                 showProfileWall={showProfileWall}
                 allowWallPostsFromOthers={allowWallPostsFromOthers}
                 wallHiddenFromViewer={wallHiddenFromViewer}
@@ -581,9 +578,6 @@ const Profile = () => {
                 pinnedAchievements={data.pinnedAchievements}
                 achievementsLoaded={data.achievementsLoaded}
                 onTogglePin={data.toggleAchievementPin}
-                userThreads={data.userThreads}
-                profileLikesMap={data.profileLikesMap}
-                threadsLoading={data.threadsLoading}
                 giftCatalog={data.giftCatalog}
                 giftCount={data.giftCount}
                 giftCountLoaded={data.giftCountLoaded}

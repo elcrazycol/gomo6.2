@@ -86,7 +86,7 @@ describe("PrivacySection", () => {
     });
 
     expect(screen.getByRole("switch", { name: "Скрывать записи" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Скрывать список друзей" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Скрывать подписчиков и подписки" })).toBeDisabled();
   });
 
   it("marks the row dirty and saves stats_visibility with the rest of the payload", async () => {
