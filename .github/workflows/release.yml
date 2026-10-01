@@ -1,28 +1,22 @@
 # =============================================================================
-# release.yml — релиз по тегу: CHANGELOG.md + GitHub Release.
+# release.yml — GitHub Release по тегу.
 # =============================================================================
-# Триггер: push тега вида v1.2.3.
+# Триггер: push аннотированного тега vX.Y.Z.
 #
-# Что делает:
-#   1. собирает коммиты между предыдущим и текущим тегом и группирует их по
-#      conventional-commit префиксам (feat:/fix:/docs:/refactor:/test:/security:);
-#   2. вставляет готовую секцию в начало CHANGELOG.md и коммитит её в main;
-#   3. создаёт GitHub Release с тем же текстом.
+# ЧЕГО ЗДЕСЬ СОЗНАТЕЛЬНО НЕТ: этот воркфлоу НЕ правит CHANGELOG.md. Текст
+# релиза берётся из секции, которую уже написал ритуал релиза (CONTRIBUTING.md:
+# бамп VERSION → `## [X.Y.Z] — дата` в CHANGELOG → аннотированный тег). Одно
+# место правды: если бы воркфлоу генерировал секцию сам, в CHANGELOG попадали
+# бы две записи на одну версию — написанная руками и сгенерированная.
 #
-# Образы здесь НЕ собираются: их штатно собирает deploy.yml на push в main и
-# вешает три тега — :latest, :vX.Y.Z и :sha-<commit>. Дублировать сборку на
-# тег смысла нет, а VERSION из репозитория уже вшит в образ.
+# Образы здесь тоже не собираются: deploy.yml собирает их на каждый push в main
+# и вешает три тега — :latest, :vX.Y.Z и :sha-<commit>. Git-тег нужен только
+# ради Release, версия в образе берётся из файла VERSION.
 #
-# Побочный эффект: коммит CHANGELOG.md уезжает в main и зажигает deploy.yml.
-# Это безопасно и дёшево — в плане сборки CHANGELOG.md не попадает ни под одно
-# правило пересборки, поэтому deploy не собирает ни один образ.
+# Требуется: переменная PRIMARY_FORGE=github. До переезда job пропускается,
+# чтобы main на GitHub и на Codeberg не разъезжались.
 #
-# Требуется: переменная PRIMARY_FORGE=github. Без неё job пропускается, чтобы
-# до переезда не разъезжались main на GitHub и на Codeberg.
-#
-# Права: contents: write — иначе не запушить CHANGELOG и не создать Release.
-# Settings → Actions → General → Workflow permissions должно быть
-# "Read and write permissions".
+# Права: contents: write — иначе Release не создать.
 # =============================================================================
 
 name: Release
@@ -37,104 +31,39 @@ permissions:
 
 jobs:
   release:
-    name: CHANGELOG + GitHub Release
+    name: GitHub Release
     if: vars.PRIMARY_FORGE == 'github'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
-      - name: Generate changelog entry
-        id: changelog
+      - name: Extract release notes from CHANGELOG.md
         env:
-          CURRENT_TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          VER="${TAG#v}"
+          OUT="$RUNNER_TEMP/release-body.md"
 
-          PREV_TAG="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -2 | tail -1)"
-          if [ "$PREV_TAG" = "$CURRENT_TAG" ] || [ -z "$PREV_TAG" ]; then
-            RANGE="$CURRENT_TAG"
-          else
-            RANGE="$PREV_TAG..$CURRENT_TAG"
-          fi
-          echo "Диапазон: $RANGE"
+          # Берём секцию от `## [VER]` до следующего заголовка версии. awk, а не
+          # sed: нужен выход по второму `## [`. Скобка в шаблоне обязательна —
+          # иначе `## [2.16.0]` совпал бы с `## [2.16.01]`.
+          awk -v ver="$VER" '
+            index($0, "## [" ver "]") == 1 { found = 1; next }
+            found && index($0, "## [") == 1 { exit }
+            found { print }
+          ' CHANGELOG.md > "$OUT"
 
-          # Служебные коммиты от прошлого релиза ("docs(changelog): v…") лежат
-          # между тегами и без фильтра попадали бы в Miscellaneous каждого
-          # релиза как шум.
-          COMMITS="$(git log "$RANGE" --no-merges --pretty=format:'%s' 2>/dev/null | grep -v '^docs(changelog):' || true)"
-          DATE="$(date -u +%Y-%m-%d)"
-          echo "Коммитов в диапазоне (без служебных): $(printf '%s' "$COMMITS" | grep -c . || true)"
-
-          # Теги в заголовках коммитов начинаются с префикса, но у нас в истории
-          # встречаются и русские тексты без префикса — они уезжают в Miscellaneous.
-          section() { echo "$COMMITS" | grep -iE "$1" | sed 's/^[^:]*: //' | sed 's/^/- /' || true; }
-          feat="$(section '^feat!?[(:]')"
-          fix="$(section '^fix!?[(:]')"
-          security="$(section '^security!?[(:]')"
-          refactor="$(section '^refactor!?[(:]')"
-          docs="$(section '^docs!?[(:]')"
-          test="$(section '^test!?[(:]')"
-          # Пустой COMMITS нельзя прогонять через этот фильтр: `echo ""` даёт одну
-          # пустую строку, `grep -v` её сохраняет, а sed превращает в пункт "- " —
-          # то есть релиз без коммитов получал бы фальшивую запись и entries=1.
-          other=""
-          if [ -n "$COMMITS" ]; then
-            other="$(echo "$COMMITS" | grep -viE '^(feat|fix|docs|refactor|test|security)!?[(:]' | sed 's/^/- /' || true)"
+          if [ ! -s "$OUT" ]; then
+            echo "::warning::В CHANGELOG.md нет секции ## [$VER]"
+            echo "Секция для $VER не найдена в CHANGELOG.md — добавьте её ритуалом релиза." > "$OUT"
           fi
 
-          OUT="$RUNNER_TEMP/changelog-entry.md"
-          {
-            echo "## [${CURRENT_TAG#v}] — $DATE"
-            echo ""
-            [ -n "$feat" ]     && { echo "### Added";         echo "$feat";     echo ""; }
-            [ -n "$fix" ]      && { echo "### Fixed";         echo "$fix";      echo ""; }
-            [ -n "$security" ] && { echo "### Security";      echo "$security"; echo ""; }
-            [ -n "$refactor" ] && { echo "### Changed";       echo "$refactor"; echo ""; }
-            [ -n "$docs" ]     && { echo "### Documentation"; echo "$docs";     echo ""; }
-            [ -n "$test" ]     && { echo "### Tests";         echo "$test";     echo ""; }
-            [ -n "$other" ]    && { echo "### Miscellaneous"; echo "$other";    echo ""; }
-            echo "---"
-            echo ""
-            echo "[${CURRENT_TAG#v}]: https://github.com/${REPO}/releases/tag/${CURRENT_TAG}"
-          } > "$OUT"
-
-          TOTAL="$(grep -c '^- ' "$OUT" || true)"
-          echo "entries=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "--- тело релиза ---"
           cat "$OUT"
-
-      - name: Prepend entry to CHANGELOG.md
-        if: steps.changelog.outputs.entries != '0'
-        run: |
-          set -euo pipefail
-          HEADER="$(head -1 CHANGELOG.md)"
-          BODY="$(tail -n +2 CHANGELOG.md)"
-          {
-            echo "$HEADER"
-            echo ""
-            cat "$RUNNER_TEMP/changelog-entry.md"
-            echo "$BODY"
-          } > CHANGELOG.md
-
-      - name: Commit CHANGELOG.md
-        if: steps.changelog.outputs.entries != '0'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          if git diff --cached --quiet; then
-            echo "CHANGELOG.md не изменился — коммитить нечего"
-            exit 0
-          fi
-          git commit -m "docs(changelog): ${{ github.ref_name }}"
-          git push origin HEAD:main
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: ${{ runner.temp }}/changelog-entry.md
+          body_path: ${{ runner.temp }}/release-body.md
           generate_release_notes: false
