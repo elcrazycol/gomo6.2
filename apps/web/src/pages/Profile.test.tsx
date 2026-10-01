@@ -390,4 +390,19 @@ describe("Profile", () => {
     expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
   });
+
+  it("shows the stats block on a foreign public profile when the owner never set the flag", async () => {
+    // Regression: show_profile_stats used to default to false, so stats were
+    // owner-only. A missing flag must now be treated as "visible".
+    setupForeignPrivateProfile({
+      private_profile: false,
+      show_profile_stats: undefined,
+    });
+
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Просмотры")).toBeInTheDocument();
+    });
+  });
 });

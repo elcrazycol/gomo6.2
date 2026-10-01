@@ -92,7 +92,7 @@ func (h *PrivacyHandler) GetUserPrivacy(c *gin.Context) {
 	err := h.db.QueryRow(`SELECT `+privacy.SettingsFlagColumns+`,
 	       COALESCE(show_profile_wall, true),
 	       COALESCE(allow_wall_posts_from_others, true),
-	       COALESCE(show_profile_stats, false),
+	       COALESCE(show_profile_stats, true),
 	       COALESCE(show_detailed_stats, false),
 	       COALESCE(show_last_seen, true),
 	       COALESCE(stats_visibility, '{}'::jsonb)
@@ -111,6 +111,7 @@ func (h *PrivacyHandler) GetUserPrivacy(c *gin.Context) {
 			// No privacy row → fully public defaults.
 			resp.ShowProfileWall = true
 			resp.AllowWallPostsFromOthers = true
+			resp.ShowProfileStats = true
 			resp.ShowLastSeen = true
 			vis = json.RawMessage("{}")
 		} else {

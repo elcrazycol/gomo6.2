@@ -228,7 +228,7 @@ const Profile = () => {
         setShowProfileWall(privacyData.show_profile_wall ?? true);
         setAllowWallPostsFromOthers(privacyData.allow_wall_posts_from_others ?? true);
         setShowThreadsTab(privacyData.show_threads_tab ?? true);
-        setShowProfileStats(privacyData.show_profile_stats ?? false);
+        setShowProfileStats(privacyData.show_profile_stats ?? true);
         setShowDetailedStats(privacyData.show_detailed_stats ?? false);
         setStatsVisibility({
           garma: false,

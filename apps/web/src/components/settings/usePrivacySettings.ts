@@ -75,7 +75,7 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
   show_online_status: true,
   show_profile_wall: true,
   allow_wall_posts_from_others: true,
-  show_profile_stats: false,
+  show_profile_stats: true,
   show_detailed_stats: false,
   // The DB column defaults to false, but the image pipeline falls back to
   // "strip metadata" when no row exists — keep the privacy-safe default.
