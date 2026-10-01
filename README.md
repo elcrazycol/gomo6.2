@@ -35,6 +35,34 @@ gomo6 is a full-stack social network: a personalized feed of boards and threads,
 
 Backend — **Go (Gin)** on PostgreSQL, Redis, Garage (S3-compatible storage) and Meilisearch. Frontend — **React 18 + TypeScript + Vite**. Everything is a single Turborepo / npm-workspaces monorepo and ships as Docker Compose behind Caddy on one VPS. Deploys go through GitHub Actions to `ghcr.io`, and the VPS only pulls finished images — it never builds.
 
+## Screenshots
+
+Every screenshot below is a real instance running the [demo dataset](scripts/seed.sh) locally.
+
+**Feed** — boards, threads and wall posts in one stream, with the section sidebar and subscriptions.
+
+![Feed, ash theme](docs/assets/readme/feed-dark.png)
+
+**Themes** — 18 built-in themes, light and dark, applied instantly across the whole app.
+
+![Switching themes on the appearance page](docs/assets/readme/themes.gif)
+
+**Profile** — wall with guest posts, stats (posts / likes / views / garma) and tabs for achievements, posts, gifts and friends.
+
+![Profile](docs/assets/readme/profile-dark.png)
+
+**Messenger** — 1:1 and group chats, notes to self encrypted in the browser, read receipts and presence.
+
+![Messenger](docs/assets/readme/messenger-dark.png)
+
+**Settings → appearance** — themes with live preview and the light / dark / system mode switch.
+
+![Settings, appearance section](docs/assets/readme/settings-appearance-light.png)
+
+**Moderation** — report queue, appeals, staff and the action log. Available to instance admins and moderators.
+
+![Moderation](docs/assets/readme/moderation-dark.png)
+
 ## Features
 
 | Area | What's there |
