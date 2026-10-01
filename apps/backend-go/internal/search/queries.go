@@ -29,10 +29,11 @@ const threadsBaseQuery = `
 	SELECT t.id, t.public_id, t.title, COALESCE(t.content, ''),
 	       COALESCE(EXTRACT(EPOCH FROM t.created_at)::bigint, 0),
 	       COALESCE(EXTRACT(EPOCH FROM t.updated_at)::bigint, 0),
-	       t.board_id, b.slug, b.name, COALESCE(b.is_gomosub, false), 'public',
+	       COALESCE(t.board_id::text, ''), COALESCE(b.slug, ''), COALESCE(b.name, ''),
+	       COALESCE(b.is_gomosub, false), COALESCE(b.visibility, 'public'),
 	       COALESCE(t.user_id::text, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, '')
 	FROM threads t
-	JOIN boards b ON b.id = t.board_id
+	LEFT JOIN boards b ON b.id = t.board_id
 	LEFT JOIN users u ON u.id = t.user_id
 	WHERE COALESCE(b.visibility, 'public') = 'public'`
 
@@ -40,11 +41,12 @@ const postsBaseQuery = `
 	SELECT p.id, COALESCE(p.content, ''),
 	       COALESCE(EXTRACT(EPOCH FROM p.created_at)::bigint, 0),
 	       p.thread_id, t.public_id, t.title,
-	       t.board_id, b.slug, b.name, COALESCE(b.is_gomosub, false), 'public',
+	       COALESCE(t.board_id::text, ''), COALESCE(b.slug, ''), COALESCE(b.name, ''),
+	       COALESCE(b.is_gomosub, false), COALESCE(b.visibility, 'public'),
 	       COALESCE(p.user_id::text, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, '')
 	FROM posts p
 	JOIN threads t ON t.id = p.thread_id
-	JOIN boards b ON b.id = t.board_id
+	LEFT JOIN boards b ON b.id = t.board_id
 	LEFT JOIN users u ON u.id = p.user_id
 	WHERE COALESCE(b.visibility, 'public') = 'public'
 	  AND COALESCE(p.is_private, false) = false`

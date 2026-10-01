@@ -276,8 +276,8 @@ func (h *SearchHandler) searchViaSQL(ctx context.Context, q string, viewerID int
 		`SELECT t.id, t.public_id, t.title, t.content, t.created_at, t.updated_at, t.board_id,
 		        b.slug AS board_slug, b.name AS board_name, b.is_gomosub AS board_is_gomosub
 		 FROM threads t
-		 JOIN boards b ON b.id = t.board_id
-		 WHERE t.search_vector @@ plainto_tsquery('russian', $1) AND b.visibility != 'private'
+		 LEFT JOIN boards b ON b.id = t.board_id
+		 WHERE t.search_vector @@ plainto_tsquery('russian', $1) AND COALESCE(b.visibility, 'public') != 'private'
 		 ORDER BY ts_rank(t.search_vector, plainto_tsquery('russian', $1)) DESC
 		 LIMIT 60`, q)
 
@@ -289,9 +289,9 @@ func (h *SearchHandler) searchViaSQL(ctx context.Context, q string, viewerID int
 		        u.username, u.avatar_url
 		 FROM posts p
 		 JOIN threads t ON t.id = p.thread_id
-		 JOIN boards b ON b.id = t.board_id
+		 LEFT JOIN boards b ON b.id = t.board_id
 		 LEFT JOIN users u ON u.id = p.user_id
-		 WHERE p.search_vector @@ plainto_tsquery('russian', $1) AND b.visibility != 'private'
+		 WHERE p.search_vector @@ plainto_tsquery('russian', $1) AND COALESCE(b.visibility, 'public') != 'private'
 		 ORDER BY ts_rank(p.search_vector, plainto_tsquery('russian', $1)) DESC
 		 LIMIT 30`, q)
 
