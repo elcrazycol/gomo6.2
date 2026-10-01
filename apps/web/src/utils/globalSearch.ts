@@ -52,6 +52,22 @@ export type GlobalSearchResult = {
   posts: SearchPost[];
 };
 
+// SearchFilters mirror the optional query parameters the engine-backed
+// endpoint understands. All are additive: omitting them keeps the legacy
+// "search everything" behaviour.
+export type SearchFilters = {
+  /** Restrict to a subset of users,boards,threads,posts. */
+  types?: string[];
+  /** Restrict threads/posts to an author (UUID or exact username). */
+  author?: string;
+  /** Only results created after: "24h" | "7d" | "30d" | "1y" or unix seconds. */
+  since?: string;
+  /** "recent" sorts by creation date; otherwise relevance. */
+  sort?: "recent";
+  /** Per-category cap (server clamps to 100). */
+  limit?: number;
+};
+
 // Normalise thread results to the shape expected by the UI (with boards object)
 const normaliseThread = (t: Record<string, unknown>): SearchThread => ({
   id: t.id as string,
@@ -68,7 +84,8 @@ const normaliseThread = (t: Record<string, unknown>): SearchThread => ({
 
 export const searchGlobal = async (
   query: string,
-  limits?: { users?: number; boards?: number; threads?: number; posts?: number }
+  limits?: { users?: number; boards?: number; threads?: number; posts?: number },
+  filters?: SearchFilters
 ): Promise<GlobalSearchResult> => {
   const term = query.trim();
   if (term.length < 2) {
@@ -76,9 +93,14 @@ export const searchGlobal = async (
   }
 
   try {
-    const response = await apiClient.rawRequest(
-      `/api/v1/search?q=${encodeURIComponent(term)}`
-    );
+    const params = new URLSearchParams({ q: term });
+    if (filters?.types && filters.types.length > 0) params.set("type", filters.types.join(","));
+    if (filters?.author && filters.author.trim()) params.set("author", filters.author.trim());
+    if (filters?.since) params.set("since", filters.since);
+    if (filters?.sort) params.set("sort", filters.sort);
+    if (filters?.limit) params.set("limit", String(filters.limit));
+
+    const response = await apiClient.rawRequest(`/api/v1/search?${params.toString()}`);
 
     if (!response.success || !response.data) {
       return { users: [], boards: [], threads: [], posts: [] };

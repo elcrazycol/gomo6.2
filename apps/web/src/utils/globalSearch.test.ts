@@ -99,4 +99,29 @@ describe("searchGlobal", () => {
     const result = await searchGlobal("test");
     expect(result.threads[0].board_is_gomosub).toBe(true);
   });
+
+  it("omits filter params when none are provided", async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: { users: [], boards: [], threads: [], posts: [] } });
+    await searchGlobal("hello");
+    expect(mockRawRequest.mock.calls[0][0]).toBe("/api/v1/search?q=hello");
+  });
+
+  it("forwards filters as query parameters", async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: { users: [], boards: [], threads: [], posts: [] } });
+    await searchGlobal("hello", undefined, {
+      types: ["users", "posts"],
+      author: "neo",
+      since: "7d",
+      sort: "recent",
+      limit: 10,
+    });
+
+    const url = mockRawRequest.mock.calls[0][0] as string;
+    expect(url).toContain("q=hello");
+    expect(url).toContain("type=users%2Cposts");
+    expect(url).toContain("author=neo");
+    expect(url).toContain("since=7d");
+    expect(url).toContain("sort=recent");
+    expect(url).toContain("limit=10");
+  });
 });

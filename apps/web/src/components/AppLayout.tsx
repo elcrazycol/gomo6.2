@@ -17,6 +17,7 @@ import { Gomo6Mark } from "@/components/Gomo6Mark";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
+import { HighlightText } from "@/components/search/HighlightText";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1191,7 +1192,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                               to={profileUrl(item)}
                               className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
                             >
-                              @{item.username}
+                              @<HighlightText text={item.username} query={searchQuery} />
                             </Link>
                           ))}
                         </div>
@@ -1205,7 +1206,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                               to={`/g/${item.slug}`}
                               className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
                             >
-                              g/{item.slug} - {item.name}
+                              g/{item.slug} - <HighlightText text={item.name} query={searchQuery} />
                             </Link>
                           ))}
                         </div>
@@ -1224,7 +1225,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                                 to={link}
                                 className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
                               >
-                                {item.title}
+                                <HighlightText text={item.title} query={searchQuery} />
                               </Link>
                             );
                           })}
@@ -1288,12 +1289,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                   <>
                     {searchResults.users.map((item) => (
                       <Link key={item.id} to={profileUrl(item)} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                        @{item.username}
+                        @<HighlightText text={item.username} query={searchQuery} />
                       </Link>
                     ))}
                     {searchResults.boards.filter((item) => item.is_gomosub).map((item) => (
                       <Link key={item.id} to={`/g/${item.slug}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                        g/{item.slug} - {item.name}
+                        g/{item.slug} - <HighlightText text={item.name} query={searchQuery} />
                       </Link>
                     ))}
                     {searchResults.threads.map((item) => {
@@ -1303,7 +1304,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                         : `/thread/${entityParam(item)}`;
                       return (
                         <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                          {item.title}
+                          <HighlightText text={item.title} query={searchQuery} />
                         </Link>
                       );
                     })}

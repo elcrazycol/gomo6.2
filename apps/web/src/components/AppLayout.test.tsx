@@ -286,7 +286,7 @@ describe("AppLayout", () => {
         expect(mockSearchGlobal).toHaveBeenCalledWith("ali", expect.anything());
       });
       await waitFor(() => {
-        expect(screen.getByText("@alice")).toBeInTheDocument();
+        expect(screen.getByText((_, el) => el?.tagName === "A" && el.textContent === "@alice")).toBeInTheDocument();
       });
     });
 
@@ -335,14 +335,14 @@ describe("AppLayout", () => {
         target: { value: "ali" },
       });
       await waitFor(() => {
-        expect(screen.getByText("@alice")).toBeInTheDocument();
+        expect(screen.getByText((_, el) => el?.tagName === "A" && el.textContent === "@alice")).toBeInTheDocument();
       });
 
       // Route change on the SAME instance must close the search panel
       mockLocation.pathname = "/new";
       rerender(<AppLayout><div>content</div></AppLayout>);
 
-      expect(screen.queryByText("@alice")).not.toBeInTheDocument();
+      expect(screen.queryByText((_, el) => el?.tagName === "A" && el.textContent === "@alice")).not.toBeInTheDocument();
       expect(screen.queryByText("Ничего не найдено")).not.toBeInTheDocument();
     });
   });
