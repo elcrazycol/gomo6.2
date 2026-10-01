@@ -226,6 +226,23 @@ describe("isInteractiveTarget", () => {
     expect(isInteractiveTarget(div)).toBe(true);
   });
 
+  it("returns true for an SVG icon inside a button (icons must not open the post)", () => {
+    const btn = document.createElement("button");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    svg.appendChild(path);
+    btn.appendChild(svg);
+    // Sanity: SVG is not an HTMLElement — the original bug bailed out here.
+    expect(svg instanceof HTMLElement).toBe(false);
+    expect(isInteractiveTarget(svg)).toBe(true);
+    expect(isInteractiveTarget(path)).toBe(true);
+  });
+
+  it("returns false for an SVG icon that is not inside an interactive element", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    expect(isInteractiveTarget(svg)).toBe(false);
+  });
+
   it("returns true for media elements (photos/videos never open the post)", () => {
     const img = document.createElement("img");
     expect(isInteractiveTarget(img)).toBe(true);

@@ -150,7 +150,12 @@ export const getWallPostPath = (
 ) => wallPostUrl(owner, post);
 
 export const isInteractiveTarget = (target: EventTarget | null, currentTarget?: HTMLElement | null) => {
-  if (!(target instanceof HTMLElement)) return false;
+  // `Element`, not `HTMLElement`: icons render as SVG (SVGSVGElement/SVGPathElement),
+  // which is NOT an HTMLElement. Checking for HTMLElement made clicks land on the
+  // card's open-post handler whenever they hit an icon inside a button (spoiler's
+  // reveal chevron/eye, like/share hearts…), so the button's own action was
+  // skipped as the post opened instead.
+  if (!(target instanceof Element)) return false;
   const interactiveElement = target.closest(
     "a, button, input, textarea, select, summary, [role='button'], [contenteditable='true'], [data-wall-no-open='true'], img, video, audio, picture, [data-media-block], [data-media-content], [data-media-group], [data-compare-handle]"
   );
