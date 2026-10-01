@@ -42,6 +42,7 @@ go vet ./...                       # vet
 golangci-lint run --timeout=5m ./...  # lint (v2.12.2)
 go test ./...                      # test (no DB needed for unit tests)
 go test -race -count=1 ./...       # test with race detector (needs Postgres+Redis)
+go run ./cmd/reindex               # rebuild Meilisearch indexes from Postgres (needs engine up)
 
 # Local CI (mirrors GitHub Actions)
 ./scripts/ci-local.sh quick        # lint + typecheck only
@@ -145,6 +146,12 @@ METRICS_TOKEN=
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:admin@gomo6.wtf
+# Search (Meilisearch) — движок поднимается Compose'ом, порт наружу не
+# публикуется. Пусто/unset MEILISEARCH_URL = поиск отключён (падаем на Postgres
+# FTS). Ключ: openssl rand -hex 32 (генератор .env создаёт сам).
+MEILI_MASTER_KEY=
+# MEILISEARCH_URL=http://meilisearch:7700
+# MEILISEARCH_INDEX_PREFIX=gomo6_
 ALLOWED_ORIGINS=https://gomo6.wtf,http://gomo6.wtf,https://docs.gomo6.wtf,http://docs.gomo6.wtf,https://dev.gomo6.wtf,http://dev.gomo6.wtf
 EOF
 chmod 600 .env
@@ -224,6 +231,7 @@ docker compose up -d
 - **React infinite loops**: circular useEffect dependencies cause error #310. Use refs or pass values as params to break cycles.
 - **Channel switching**: `channelSlug` must be in `loadBoard` effect deps in Board.tsx. Missing it = stale threads on channel nav.
 - **CI billing**: GitHub Actions billing failure blocks ALL CI jobs.
+- **Search is optional and rebuildable**: Meilisearch runs in Compose but is disabled when `MEILISEARCH_URL` is unset (Postgres FTS fallback stays in charge). `GET /api/v1/search` is served by the engine when configured — via one `/multi-search` round trip with `type`/`author`/`since`/`sort`/`limit` filters — and degrades to the SQL path on any engine error. Index-time privacy: private profiles and private-board content are *never* indexed (no query can leak them); `is_private` posts too. Because those rows are absent from the index, the owner/mutual-friend view of their own private profile is merged back by a small SQL fallback in the handler. The index is disposable — `make reindex` (`go run ./cmd/reindex`) rebuilds it from Postgres and re-applies index settings, so **schema/settings changes need a reindex**. The write-path sync is best-effort: `search.Indexer` (`bg.Pool`, nil-safe) re-reads the row after each write and upserts-or-deletes, called explicitly at the users/boards/threads/posts write sites plus the `privacy_settings` generic-engine hook — a dropped event is recovered by the next write or a reindex. Because `users`/`boards`/`threads`/`posts` bypass the generic CRUD engine, a NEW write path for one of them must call the matching `Sync*` method. Ops: the backend image ships both `main` and `reindex`, so on the VPS `docker compose run --rm backend ./reindex` rebuilds the indexes (do it after a DB restore or an index-settings change); `/ready` reports `search: true|false`; watch `app_search_engine_fallback_total` (engine errors → SQL fallback) and `bg_dropped_total{pool="search"}` (dropped write-path events) in VictoriaMetrics.
 
 ## Testing
 
@@ -257,6 +265,7 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 | `gomosubchat` | 2 | GomoSub text channels (Discord-style chat): keyset-paginated history, send/edit/delete REST (`/api/v1/gomosubchat/channels/:id/messages`) with own rate-limit namespace, realtime fan-out via `realtime:channel_chat` |
 | `httpx` | 1 | Shared HTTP helpers: `ServerError`, `AuthenticatedUserID` |
 | `textutil` | 1 | Shared string helpers: `TruncateRunes` |
+| `search` | 7 | Meilisearch integration: stdlib REST client, index schemas/docs, shared base queries + scanners, index-time privacy rules, `Service` (engine ops), `Indexer` (best-effort write-path sync), full `ReindexAll`. Engine optional — empty `MEILISEARCH_URL` disables it |
 | `auth` | 1 | JWT, WebAuthn, 2FA |
 | `middleware` | 20 | Rate limiting, auth, CORS, uploads |
 | `cache` | 2 | Redis cache layer |
