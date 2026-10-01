@@ -1,690 +1,166 @@
-# 🚀 Gomo6 — Развёртывание на выделенном сервере
+# Деплой
 
-> Полное руководство по запуску Gomo6 на VPS / выделенном сервере с нуля за 10 минут.
-> Всё, что нужно — Docker, домен и 3 команды в терминале.
+Как gomo6 попадает в прод. Короткая версия — в [README](../../README.md), здесь детали.
 
----
-
-## 📋 Оглавление
-
-- [Требования к серверу](#-требования-к-серверу)
-- [Архитектура](#-архитектура)
-- [Быстрый старт (3 команды)](#-быстрый-старт-3-команды)
-- [Пошаговая установка](#-пошаговая-установка)
-  - [1. Подготовка сервера](#1-подготовка-сервера)
-  - [2. Клонирование проекта](#2-клонирование-проекта)
-  - [3. Настройка окружения](#3-настройка-окружения)
-  - [4. Настройка домена и HTTPS](#4-настройка-домена-и-https)
-  - [5. Запуск](#5-запуск)
-  - [6. Проверка](#6-проверка)
-- [Локальная разработка](#-локальная-разработка)
-- [Переменные окружения](#-переменные-окружения)
-- [Файрвол](#-файрвол)
-- [Резервное копирование](#-резервное-копирование)
-- [Обновление приложения](#-обновление-приложения)
-- [Мониторинг и логи](#-мониторинг-и-логи)
-- [Troubleshooting](#-troubleshooting)
-- [Полезные команды](#-полезные-команды)
-
----
-
-## 💻 Требования к серверу
-
-| Ресурс | Минимум | Рекомендуется |
-|--------|---------|---------------|
-| **ОС** | Ubuntu 22.04+ / Debian 12+ | Ubuntu 24.04 LTS |
-| **CPU** | 2 vCPU | 4 vCPU |
-| **RAM** | 4 GB | 8 GB |
-| **Диск** | 30 GB SSD | 60 GB SSD |
-| **Docker** | 24+ | 27+ |
-| **Docker Compose** | v2+ | v2.30+ |
-
-> 💡 **Где купить сервер?** Hetzner, DigitalOcean, VDSina, FirstVDS — любой VPS с Ubuntu подойдёт.
-
----
-
-## 🏗️ Архитектура
+## Схема
 
 ```
-                         ┌──────────────────────────────────┐
-                         │          Caddy (:80 / :443)       │
-                         │     Авто-HTTPS (Let's Encrypt)    │
-                         │    Subdomain-based routing        │
-                         └──────┬───────────┬────────────────┘
-                                │           │
-            ┌───────────────────┘           └──────────────────────┐
-            ▼                                                      ▼
- ┌─────────────────────┐               ┌──────────────────────────────┐
- │  docs.DOMAIN        │               │   dev.DOMAIN                 │
- │  docs (nginx)       │               │   dev-dashboard (nginx)      │
- │  Документация       │               │   Dev Dashboard              │
- └─────────────────────┘               └──────────────────────────────┘
-            │                                                          │
-            └──────────────────┬───────────────────────────────────────┘
-                               ▼
-      ┌─────────────────────────────────────────────────────────────────┐
-      │              DOMAIN (основной — web, nginx)                     │
-      │              Основной сайт                                      │
-      └─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-      ┌─────────────────────────────────────────────────────────────────┐
-      │                    backend:8080 (Go API)                        │
-      │     /api  /oauth  /ws  /rest  /rpc  /.well-known  /health      │
-      └──────────────┬──────────────────────┬───────────────────────────┘
-                     │                      │
-                     ▼                      ▼
-            ┌──────────────┐       ┌──────────────┐
-            │ PostgreSQL 18│       │   Redis 7    │
-            └──────────────┘       └──────────────┘
-                     │
-                     ▼
-      ┌─────────────────────────────────────────────────────────────────┐
-      │  Garage S3 (:3900)  ←  объектное хранилище (аватары, файлы)    │
-      └─────────────────────────────────────────────────────────────────┘
+push в main
+  │
+  ├─ job `ci`            проверки на GitHub-hosted раннерах (гейт: красный CI = нет деплоя)
+  ├─ job `plan`          git diff github.event.before..sha → какие сервисы пересобирать
+  └─ job `ship` (matrix) по одному сервису на раннер, параллельно:
+                          buildx build --push  →  ghcr.io/elcrazycol/gomo6-<service>
+                          ↓
+                          ssh на VPS: pull + `docker compose up -d --no-build <service>`
 ```
 
-### Subdomain-based маршрутизация
+Каждый сервис выкатывается сразу, как только собрался, а не ждёт самый медленный. Деплой сериализован
+(`concurrency: deploy-main`, `cancel-in-progress: false`), потому что прерванный на середине выкат оставил бы
+часть сервисов на новом образе, а часть на старом.
 
-Вся маршрутизация строится на поддоменах. Достаточно задать **одну переменную `DOMAIN`** в `.env`:
+**VPS ничего не собирает.** 1 vCPU / 1 ГБ, только `docker pull` + `docker compose up`. Образы берутся из
+`ghcr.io/elcrazycol/gomo6-*` анонимно (пакеты публичные), логин на VPS не нужен.
 
-| Поддомен | Назначение | Пример (`DOMAIN=example.com`) |
-|----------|-----------|------|
-| `DOMAIN` | Основной сайт (web SPA) | `example.com` |
-| `docs.DOMAIN` | Документация API и ботов | `docs.example.com` |
-| `dev.DOMAIN` | Dev Dashboard (OAuth приложения) | `dev.example.com` |
+## Что нужно на VPS
 
-**Локально** (`DOMAIN=localhost`): `docs.localhost` и `dev.localhost` работают без DNS — `.localhost` TLD всегда резолвится в `127.0.0.1`.
+| Что | Зачем |
+|---|---|
+| Docker + Compose | запуск стека |
+| Репозиторий в `/root/gomo6.2` (или `/home/*/gomo6.2`) | `restart-service.sh` синкает его сам; имя каталога обязательное |
+| `origin` → `https://github.com/elcrazycol/gomo6.2.git` | публичный HTTPS, креды не нужны |
+| `.env` рядом с `docker-compose.yml` | все обязательные переменные (ниже) |
+| Свободные ~5 ГБ | образы и слои |
 
-**API эндпоинты** доступны на **любом поддомене** (Caddy проксирует на backend):
+Обязательные переменные `.env` (те, что помечены в `docker-compose.yml` как `${VAR:?…}`): `POSTGRES_PASSWORD`,
+`REDIS_PASSWORD`, `JWT_SECRET`, `MESSENGER_ENCRYPTION_KEY`, `MEILI_MASTER_KEY`. Плюс `FEDERATION_KEY` — кодом не
+используется, но Compose всё равно требует непустое значение (оставьте прежнее, чтобы не трогать `.env`).
 
-| Путь | Назначение |
-|------|-----------|
-| `/api/*` | REST API |
-| `/oauth/*` | OAuth 2.0 эндпоинты |
-| `/ws` | WebSocket (чат, realtime) |
-| `/health` | Health-check бекенда |
+`JWT_SECRET` и `MESSENGER_ENCRYPTION_KEY` **нельзя терять и нельзя менять**: первый инвалидирует все сессии, второй —
+все зашифрованные сообщения. Остальные секреты можно добить генератором: `bash scripts/generate-keys.sh --quiet .env`
+(он не трогает уже заполненные значения).
 
----
+## Секреты и переменные GitHub
 
-## ⚡ Быстрый старт (3 команды)
+Settings → Secrets and variables → Actions → **Secrets**:
 
-Если у вас уже настроен сервер (Docker, домен) — просто выполните:
+| Секрет | Обязателен | Откуда |
+|---|---|---|
+| `VPS_HOST` | да | **IP-адрес сервера**, не домен: домен идёт через Cloudflare, а она не проксирует 22-й порт |
+| `VPS_USER` | да | `root` |
+| `VPS_SSH_KEY` | да | приватный ключ целиком, с переводом строки (`pbcopy < ~/.ssh/…`) |
+| `VPS_PORT` | нет | по умолчанию 22 |
+| `VITE_TURNSTILE_SITEKEY` | да | публичный sitekey Turnstile (сборка web) |
+| `VITE_SENTRY_DSN` | нет | публичный DSN Sentry; без него SDK — no-op |
+| `VITE_DEPAY_INTEGRATION_ID` | нет | сборка web |
+| `CODEBERG_TOKEN` | для зеркала | codeberg.org, скоуп `write:repository` |
+| `GITLAB_TOKEN` | для зеркала | GitLab, Maintainer + `write_repository` |
+| `CODECOV_TOKEN` | нет | покрытие; без него загрузка деградирует, CI не падает |
+
+Та же страница → **Variables**:
+
+| Переменная | Значение |
+|---|---|
+| `PRIMARY_FORGE` | `github` — рубильник: пока не задана, деплой, зеркало и релизы не запускаются |
+| `BUILD_RUNNER` | необязательно; по умолчанию сборка идёт на self-hosted Mac. `["ubuntu-latest"]` переводит её на GitHub-hosted (медленнее: нет персистентного кэша) |
+
+## Что делает `scripts/restart-service.sh` (на VPS)
+
+1. `git fetch origin main && git reset --hard origin/main` — так `Caddyfile`, `docker-compose.yml` и скрипты всегда
+   актуальны. `reset --hard` не трогает неотслеживаемые файлы, поэтому `.env` и `.garage.toml` живут.
+2. `docker pull <реестр>/gomo6-<service>:latest` с ретраями, под `flock`: параллельные пуллы четырёх сервисов
+   гоняются внутри containerd, а на этом VPS это даёт «failed commit on ref … no such file or directory».
+3. Ретаг в имя из `docker-compose.yml` (`REG` и `COMPOSE_NAMESPACE` совпадают → шаг вырождается в no-op).
+4. `docker compose up -d --no-build <service>` — пересоздаёт только этот контейнер.
+5. `docker image prune -f`.
+
+Флаг `CADDY_CHANGED=true` (его ставит только web-нога) дополнительно перезапускает Caddy: `Caddyfile`
+примонтирован, и Compose не замечает правку содержимого.
+
+## Пакеты ghcr
+
+VPS тянет образы **анонимно**, поэтому пакеты должны быть публичными: профиль `elcrazycol` → Packages → каждый
+`gomo6-*` → Package settings → Change visibility → **Public**. Новые пакеты создаются приватными.
+
+Если в `/root/.docker/config.json` остался старый `auths.ghcr.io` (например, от прежнего пайплайна), Docker будет
+слать устаревшие креды вместо анонимного запроса и получит `denied`, даже когда пакет публичный. Лечится одной
+командой:
 
 ```bash
-git clone https://github.com/scramble22/gomo6.2.git && cd gomo6.2
-echo 'DOMAIN=ваш-домен.ru' > .env
+ssh root@VPS 'docker logout ghcr.io'
+```
+
+## Первый деплой после смены схемы
+
+`MEILI_MASTER_KEY` обязателен для Compose, а `.env` на сервере мог его не иметь. Если его нет, интерполяция Compose
+падает и **ни один** сервис не перезапустится (и откат по тегу не поможет — compose всё равно не соберётся).
+Поэтому перед первым выкатом с Meilisearch:
+
+```bash
+ssh root@VPS 'cd /root/gomo6.2 && grep -q "^MEILI_MASTER_KEY=." .env || echo "MEILI_MASTER_KEY=$(openssl rand -hex 32)" >> .env'
+ssh root@VPS 'cd /root/gomo6.2 && docker compose config >/dev/null && echo "compose OK"'
+```
+
+## Индексы поиска
+
+Индекс объявлен расходным: он живёт в Meilisearch и пересобирается из Postgres. Пересобирать нужно после смены
+схемы/настроек индекса или после восстановления БД:
+
+```bash
+ssh root@VPS 'cd /root/gomo6.2 && docker compose run --rm -T backend ./reindex'
+```
+
+Готовность движка видна в `/ready`: `{"search":true|false}`. В деплой-воркфлоу есть ручной запуск с галочкой
+`reindex` (Actions → Deploy → Run workflow).
+
+## Откат
+
+```bash
+# один сервис на точный снимок прошлого деплоя
+ssh root@VPS "REG=ghcr.io/elcrazycol COMPOSE_NAMESPACE=ghcr.io/elcrazycol \
+  TAG=sha-<commit> bash /tmp/gomo6-restart-service.sh web"
+
+# весь стек: тот же пуш, но с нужной версией кода
+git revert <commit> && git push        # VERSION входит в список «пересобрать всё»
+```
+
+Каждый деплой вешает на образ три тега: `:latest`, `:v<версия из VERSION>` и `:sha-<commit>`.
+
+## Ручной деплой с нуля
+
+```bash
+git clone https://github.com/elcrazycol/gomo6.2.git && cd gomo6.2
+cat > .env <<'EOF'
+DOMAIN=your-domain.com
+JWT_SECRET=<openssl rand -hex 32>
+MESSENGER_ENCRYPTION_KEY=<openssl rand -hex 32>
+REDIS_PASSWORD=<openssl rand -hex 16>
+POSTGRES_PASSWORD=<openssl rand -hex 16>
+ENVIRONMENT=production
+ALLOWED_ORIGINS=https://your-domain.com,http://your-domain.com
+EOF
+bash scripts/generate-keys.sh --quiet .env       # добивает VAPID, METRICS_TOKEN, MEILI_MASTER_KEY…
+bash scripts/generate-garage-config.sh .env      # рендерит .garage.toml из .env
 docker compose up -d
 ```
 
-Через пару минут:
-- **`https://ваш-домен.ru`** — основной сайт 🎉
-- **`https://docs.ваш-домен.ru`** — документация
-- **`https://dev.ваш-домен.ru`** — dev dashboard
-
----
-
-## 📦 Пошаговая установка
-
-### 1. Подготовка сервера
-
-Подключитесь к серверу по SSH и установите Docker:
+## Бэкапы перед переездом сервера
 
 ```bash
-# Установка Docker (официальный скрипт)
-curl -fsSL https://get.docker.com | sh
-
-# Добавляем пользователя в группу docker (чтобы не писать sudo)
-sudo usermod -aG docker $USER
-
-# Перезаходим в сессию или выполняем:
-newgrp docker
-
-# Проверяем установку
-docker --version       # Docker version 27+
-docker compose version  # Docker Compose version v2+
+cd /root/gomo6.2
+docker compose exec postgres pg_dump -U gomo6 gomo6 > gomo6_db_$(date +%Y%m%d).sql
+cp .env .env.backup            # внутри JWT_SECRET и MESSENGER_ENCRYPTION_KEY
 ```
 
-### 2. Клонирование проекта
-
-```bash
-git clone https://github.com/scramble22/gomo6.2.git
-cd gomo6.2
-```
-
-### 3. Настройка окружения
-
-Создайте файл `.env` в корне проекта:
-
-```bash
-nano .env
-```
-
-**Минимальная конфигурация:**
-
-```bash
-# Домен (обязательно — от него автоматически строятся поддомены)
-DOMAIN=your-domain.ru
-
-# JWT-секрет (сгенерируйте уникальный ключ)
-JWT_SECRET=$(openssl rand -hex 32)
-
-# Ключ федерации (для ActivityPub)
-FEDERATION_KEY=$(openssl rand -hex 16)
-
-# Сгенерировать остальные обязательные секреты (сохраняет существующие)
-./scripts/generate-keys.sh --quiet .env
-
-# Окружение
-ENVIRONMENT=production
-```
-
-> ⚠️ **Важно:** Замените `your-domain.ru` на ваш реальный домен. От `DOMAIN` автоматически строятся:
-> - `docs.your-domain.ru` — документация
-> - `dev.your-domain.ru` — dev dashboard
-
-Сохраните и закройте (`Ctrl+O`, `Enter`, `Ctrl+X`).
-
-### 4. Настройка домена и HTTPS
-
-#### DNS-записи
-
-Создайте A-записи для основного домена и поддоменов:
-
-```dns
-Тип: A
-Имя: @
-Значение: <IP-адрес сервера>
-TTL: 3600
-
-Тип: A
-Имя: docs
-Значение: <IP-адрес сервера>
-TTL: 3600
-
-Тип: A
-Имя: dev
-Значение: <IP-адрес сервера>
-TTL: 3600
-```
-
-Проверить DNS можно командой:
-
-```bash
-dig +short your-domain.ru
-dig +short docs.your-domain.ru
-dig +short dev.your-domain.ru
-# или если dig не установлен:
-nslookup your-domain.ru
-# Все три должны вернуть IP вашего сервера
-```
-
-#### Включаем HTTPS в Caddyfile
-
-По умолчанию HTTPS отключён (для локальной разработки). Для production откройте `Caddyfile` и **удалите или закомментируйте** блок:
-
-```caddy
-# Удалите эти 3 строки для production:
-{
-    auto_https off
-}
-```
-
-Также **уберите `http://`** в начале всех директив — Caddy сам добавит HTTPS для каждого поддомена:
-
-```caddy
-# Было:
-http://{$DOMAIN:localhost} {
-http://docs.{$DOMAIN:localhost} {
-http://dev.{$DOMAIN:localhost} {
-
-# Стало (для production с авто-HTTPS):
-{$DOMAIN:localhost} {
-docs.{$DOMAIN:localhost} {
-dev.{$DOMAIN:localhost} {
-```
-
-После удаления `http://` Caddyfile будет выглядеть так:
-
-```caddy
-{$DOMAIN:localhost} {
-    # ... handlers ...
-}
-
-docs.{$DOMAIN:localhost} {
-    # ... handlers ...
-}
-
-dev.{$DOMAIN:localhost} {
-    # ... handlers ...
-}
-```
-
-> 💡 Caddy автоматически получит и будет обновлять SSL-сертификаты от Let's Encrypt для **всех трёх доменов**: ваш-домен.ru, docs.ваш-домен.ru, dev.ваш-домен.ru.
-
-### 5. Запуск
-
-```bash
-# Сборка и запуск всех сервисов в фоне
-docker compose up -d --build
-
-# Первая сборка займёт 3-5 минут (загрузка образов + компиляция)
-```
-
-Наблюдайте за процессом:
-
-```bash
-# Логи всех сервисов
-docker compose logs -f
-
-# Только бекенд
-docker compose logs -f backend
-```
-
-### 6. Проверка
-
-```bash
-# Health-check бекенда
-curl http://localhost:8080/health
-
-# Проверка сайтов (должны вернуть HTML)
-curl -I https://your-domain.ru
-curl -I https://docs.your-domain.ru
-curl -I https://dev.your-domain.ru
-
-# Проверка HTTPS-сертификатов
-curl -I https://your-domain.ru 2>&1 | grep -i "HTTP/2\|SSL"
-```
-
----
-
-## 💻 Локальная разработка
-
-### Без Docker (npm run dev)
-
-```bash
-npm install
-npm run dev
-```
-
-Затем открывайте в браузере:
-
-| Адрес | Приложение |
-|-------|-----------|
-| `http://localhost:8081` | Основной сайт |
-| `http://docs.localhost:3001` | Документация |
-| `http://dev.localhost:3002` | Dev Dashboard |
-
-> **Почему `.localhost` работает?** TLD `.localhost` зарезервирован IANA и всегда указывает на `127.0.0.1`. Браузеры понимают это нативно — не нужны ни `/etc/hosts`, ни DNS-настройки.
-
-### С Docker (docker compose)
-
-```bash
-# Просто укажите DOMAIN=localhost (или не указывайте — значение по умолчанию)
-echo 'DOMAIN=localhost' > .env
-docker compose up -d --build
-```
-
-Открывайте:
-
-| Адрес | Приложение |
-|-------|-----------|
-| `http://localhost` | Основной сайт |
-| `http://docs.localhost` | Документация |
-| `http://dev.localhost` | Dev Dashboard |
-
----
-
-## 🔧 Переменные окружения
-
-Полный список переменных в `.env`:
-
-| Переменная | По умолчанию | Описание |
-|-----------|-------------|----------|
-| `DOMAIN` | `localhost` | Домен сайта. **Автоматически** строит поддомены `docs.*`, `dev.*` |
-| `JWT_SECRET` | — | Секретный ключ для JWT-токенов |
-| `FEDERATION_KEY` | — | Ключ для ActivityPub-федерации |
-| `MESSENGER_ENCRYPTION_KEY` | — | AES-256 ключ серверного шифрования сообщений |
-| `REDIS_PASSWORD` | — | Пароль Redis |
-| `POSTGRES_PASSWORD` | — | Пароль PostgreSQL |
-| `GARAGE_RPC_SECRET` | — | Внутренний RPC-секрет Garage (генерируется, ротация `--rotate-garage`) |
-| `GARAGE_ADMIN_TOKEN` | — | Токен admin API Garage (генерируется) |
-| `ENVIRONMENT` | `production` | Окружение (`production` / `development`) |
-| `ALLOWED_ORIGINS` | auto | CORS origins (через запятую) |
-| `WEBAUTHN_RP_ID` | `$DOMAIN` | WebAuthn Relying Party ID (домен без схемы/порта) |
-| `WEBAUTHN_RP_ORIGIN` | `https://$DOMAIN` | WebAuthn Relying Party Origin (полный origin с https://) |
-| `WEBAUTHN_RP_NAME` | `gomo6` | WebAuthn Relying Party display name |
-| `DATABASE_URL` | auto | Строка подключения к PostgreSQL |
-| `REDIS_URL` | auto | Строка подключения к Redis |
-| `METRICS_TOKEN` | — | Токен доступа к `/metrics` на бэкенде (пусто = 404; его же использует контейнер `alloy`) |
-| `GRAFANA_CLOUD_METRICS_URL` | — | Push-эндпоинт hosted Prometheus Grafana Cloud (например `https://prometheus-prod-XX-prod-XX.grafana.net/api/prom/push`) |
-| `GRAFANA_CLOUD_METRICS_USERNAME` | — | Instance ID Grafana Cloud |
-| `GRAFANA_CLOUD_METRICS_PASSWORD` | — | API-токен Grafana Cloud (write) |
-| `VITE_SENTRY_DSN` | — | Sentry public DSN (RUM: ошибки + трейсы + Web Vitals). Секрет в Codeberg Actions (`VITE_SENTRY_DSN`) + в `.env` на VPS; без него SDK — no-op |
-
-Обязательные production-секреты (`JWT_SECRET`, `FEDERATION_KEY`, `MESSENGER_ENCRYPTION_KEY`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`, `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`) можно безопасно заполнить командой `./scripts/generate-keys.sh --quiet .env`. Непустые значения сохраняются; не используйте `--force` без осознанной ротации ключей.
-
-> ⚠️ **Garage-секреты никогда не коммитьте.** `apps/backend-go/garage.toml` в Git — это шаблон с плейсхолдерами. Перед каждым `docker compose up` обязателен рендер runtime-конфига:
-> ```bash
-> bash scripts/generate-garage-config.sh .env   # создаёт .garage.toml (mode 600)
-> ```
-> Рендер выполняется при первичной настройке и при ротации ключей — автодеплой (Codeberg Actions) `.garage.toml` не трогает. Ротация только Garage-ключей: `bash scripts/generate-keys.sh --rotate-garage --quiet .env` (не трогает JWT/сессии пользователей).
-
----
-
-### Passkeys (WebAuthn)
-
-Gomo6 поддерживает вход без пароля через Passkeys (WebAuthn). Passkeys используют биометрию устройства (Touch ID, Face ID, Windows Hello) или PIN для аутентификации.
-
-**Как это работает:**
-- Пользователь регистрирует passkey в настройках профиля
-- При входе нажимает «Войти по Passkey» — браузер предлагает выбрать сохранённый passkey
-- Юзернейм не требуется — passkey сам идентифицирует пользователя (discoverable credential)
-
-**Требования к домену:**
-- Passkeys работают **только на HTTPS** (или localhost для разработки)
-- RP ID должен совпадать с доменом сайта
-
-**Настройка:**
-```bash
-# .env (значения по умолчанию работают автоматически от DOMAIN)
-WEBAUTHN_RP_ID=your-domain.ru          # домен без https:// и порта
-WEBAUTHN_RP_ORIGIN=https://your-domain.ru  # полный origin
-WEBAUTHN_RP_NAME=gomo6                    # отображаемое имя
-```
-
-**Проверка в production:**
-- [ ] Сайт открывается по HTTPS
-- [ ] `WEBAUTHN_RP_ID` совпадает с доменом (без порта)
-- [ ] `WEBAUTHN_RP_ORIGIN` содержит `https://`
-
----
-
-## 🔥 Файрвол
-
-Откройте только нужные порты:
-
-```bash
-# UFW (Ubuntu)
-sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 80/tcp    # HTTP
-sudo ufw allow 443/tcp   # HTTPS
-sudo ufw allow 443/udp   # HTTP/3 (QUIC) — без этого браузеры молча откатываются на TCP
-sudo ufw enable
-
-# Проверить статус
-sudo ufw status verbose
-```
-
-> 💡 **HTTP/3 (QUIC)** включён в Caddy (см. глобальный блок `servers { protocols h1 h2 h3 }` в Caddyfile) и работает поверх **UDP 443**. Для него нужны две вещи: правило `443/udp` в файрволе (выше) и проброс `443:443/udp` в `docker-compose.yml` (уже добавлен). Если UDP закрыт — ничего не ломается, браузер просто использует обычный TCP (HTTP/2).
-
-> ⚠️ **Никогда не открывайте порты** PostgreSQL (5432), Redis (6379) или Garage (3900) наружу — они доступны только внутри Docker-сети.
-
----
-
-## 💾 Резервное копирование
-
-### База данных PostgreSQL
-
-```bash
-# Создать дамп
-docker compose exec postgres pg_dump -U gomo6 gomo6 > backup_$(date +%Y%m%d).sql
-
-# Восстановить из дампа
-docker compose exec -T postgres psql -U gomo6 gomo6 < backup_20250101.sql
-```
-
-### Автоматический бэкап (cron)
-
-```bash
-# Создайте папку для бэкапов
-mkdir -p /opt/backups
-```
-
-Добавьте в crontab (`crontab -e`):
-
-```cron
-# Ежедневный бэкап в 3:00 ночи
-0 3 * * * cd /opt/gomo6.2 && docker compose exec -T postgres pg_dump -U gomo6 gomo6 > /opt/backups/gomo6_$(date +\%Y\%m\%d).sql
-
-# Хранить только последние 7 дней
-0 4 * * * find /opt/backups -name "gomo6_*.sql" -mtime +7 -delete
-```
-
-### Docker volumes
-
-```bash
-# Список volumes
-docker volume ls | grep gomo6
-
-# Полный бэкап всех данных
-sudo tar -czf gomo6_data_$(date +%Y%m%d).tar.gz /var/lib/docker/volumes/gomo6*
-```
-
----
-
-## 🔄 Обновление приложения
-
-```bash
-cd /opt/gomo6.2
-
-# Получить последние изменения
-git pull
-
-# Пересобрать и перезапустить (с нулевым простоем)
-docker compose up -d --build
-
-# Удалить старые образы (освободить место)
-docker image prune -f
-```
-
-> 💡 Caddy и база данных не перезапускаются, если их конфигурация не изменилась — downtime минимальный.
-
----
-
-## 🤖 Авто-деплой (Codeberg Actions)
-
-Каждый пуш в `main` автоматически деплоится на VPS через Codeberg Actions (`.forgejo/workflows/deploy.yml`):
-
-1. **Detect** — Codeberg compare API определяет изменённые сервисы (без полного клона; коммиты, не трогающие код сервисов, — холостой ран ~1с)
-2. **Checkout** — инкрементальный `git fetch` в кэш раннера `$HOME/gomo6-src` (первый раз — полный клон ~40с, дальше только диффы)
-3. **Build & push** — `docker buildx build --push` в реестр Codeberg (`codeberg.org/crazycol/gomo6-*`): дедупликация слоёв, по сети едут только изменившиеся слои (web ~3-5 MB, backend ~12-14 MB вместо ~23 MB целиком)
-4. **Restart** — `scripts/restart-service.sh` на VPS: pull → ретаг под имя из `docker-compose.yml` (`ghcr.io/elcrazycol/*`) → `docker compose up -d --no-build <service>`
-
-**Секреты** (Codeberg → Settings → Actions → Secrets): `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT` (опц.), `CODEREG_TOKEN` — PAT аккаунта `crazycol` со скоупами `read:package` + `write:package` (пуш образов в реестр). Публичные build-секреты веб-сборки (безопасны в CI): `VITE_TURNSTILE_SITEKEY`, `VITE_SENTRY_DSN`; приватный — `VITE_DEPAY_INTEGRATION_ID` (см. комментарий в `deploy.yml`).
-
-**Реестр**: пакеты `codeberg.org/crazycol/gomo6-*` публичные — VPS тянет образы анонимно, без токенов. Если pull на VPS отклонили — проверь видимость пакетов в `codeberg.org/crazycol/-/packages`.
-
-**Нюансы:**
-- Пулы на VPS сериализуются через `flock` — 4 параллельных джоба делят общие базовые слои (alpine), и containerd на маленьком VPS может уронить конкурентный коммит блоба (`failed commit on ref ... no such file or directory`). Плюс 3 ретрая пулла.
-- Caddy перезапускается веб-джобом только при изменении `Caddyfile`.
-- Backend собирается со `-ldflags="-s -w"` (бинарник 16 MB вместо 30).
-- Первый запуск после миграции: полный клон репо + полная заливка всех 4 образов в реестр (разово).
-
----
-
-## 📊 Мониторинг и логи
-
-```bash
-# Статус всех контейнеров
-docker compose ps
-
-# Использование ресурсов
-docker stats
-
-# Логи всех сервисов (live)
-docker compose logs -f --tail=50
-
-# Логи конкретного сервиса
-docker compose logs -f backend
-docker compose logs -f caddy
-docker compose logs -f postgres
-
-# Логи за последний час
-docker compose logs --since 1h backend
-```
-
-### Sentry (RUM — фронтенд)
-
-SDK на фронте (`@sentry/react`, init в `apps/web/src/instrument.ts`) ловит ошибки, трейсит каждый заход и API-запрос (водопад в Sentry → Performance → Traces) и собирает Web Vitals (LCP, CLS, INP).
-
-- DSN: `VITE_SENTRY_DSN` — секрет в **Codeberg Actions** (передаётся в web-сборку) и в `.env` на VPS. Без DSN SDK — no-op, сайт работает как раньше.
-- `tracesSampleRate: 0.2` в проде (20% сессий), 100% в dev; куки не отправляются (`cookies: false`).
-- CSP в Caddyfile разрешает `*.ingest.de.sentry.io` (регион задаётся доменом ingest в DSN).
-- Дальше: source maps (`@sentry/vite-plugin` + `SENTRY_AUTH_TOKEN`) — читаемые стектрейсы вместо минифицированного кода.
-
-### Grafana Cloud (бэкенд-метрики)
-
-Контейнер `alloy` скрейпит `backend:8080/metrics` (токен `METRICS_TOKEN`) и шлёт серии в hosted Prometheus Grafana Cloud (дашборды — на grafana.com). Метрики: `messenger_ws_*`, `backend_goroutines`, `backend_heap_inuse_bytes`, `backend_uptime_seconds`.
-
-- В `.env` должны быть заполнены `METRICS_TOKEN` + `GRAFANA_CLOUD_METRICS_URL` / `_USERNAME` / `_PASSWORD` (стек Grafana Cloud → Connections → Hosted Prometheus → Send metrics).
-- **Разово** после появления сервиса в compose (деплой перезапускает только 4 матричных сервиса):
-  ```bash
-  docker compose up -d --no-build alloy
-  ```
-- Конфиг bind-mounted (`alloy/config.alloy`) — после правок: `docker compose restart alloy`.
-- Проверка: `docker compose logs alloy --tail=20` (свежий скрейп без ошибок), затем в Grafana Explore → Prometheus → `backend_uptime_seconds`.
-
----
-
-## 🐛 Troubleshooting
-
-### Сайт не открывается
-
-```bash
-# 1. Проверить, что все контейнеры запущены
-docker compose ps
-# Все должны быть "Up" (garage-init отработает и выйдет — это нормально)
-
-# 2. Проверить логи Caddy
-docker compose logs caddy | tail -30
-
-# 3. Проверить DNS
-dig +short your-domain.ru
-dig +short docs.your-domain.ru
-dig +short dev.your-domain.ru
-```
-
-### Caddy не получает сертификат
-
-```bash
-# Проверить, что порты 80 и 443 открыты
-sudo ufw status
-
-# Проверить логи Caddy на ошибки ACME
-docker compose logs caddy | grep -i "acme\|tls\|certificate\|error"
-
-# Проверить, что блок auto_https off удалён из Caddyfile
-grep "auto_https" Caddyfile
-```
-
-### Бекенд не подключается к БД
-
-```bash
-# Проверить готовность PostgreSQL
-docker compose exec postgres pg_isready -U gomo6 -d gomo6
-
-# Посмотреть логи бекенда
-docker compose logs backend | tail -50
-
-# Перезапустить бекенд (после готовности БД)
-docker compose restart backend
-```
-
-### Фронтенд — белый экран
-
-```bash
-# Пересобрать фронтенд
-docker compose build web --no-cache
-docker compose up -d web
-
-# Проверить nginx внутри контейнера
-docker compose exec web wget -qO- http://localhost/
-```
-
-### Очистка места на диске
-
-```bash
-# Удалить неиспользуемые образы, контейнеры, volumes
-docker system prune -a --volumes -f
-
-# Посмотреть, что занимает место
-docker system df
-```
-
----
-
-## 🛠️ Полезные команды
-
-```bash
-# Полный перезапуск
-docker compose down && docker compose up -d --build
-
-# Перезапуск только одного сервиса
-docker compose restart backend
-docker compose restart web
-
-# Посмотреть переменные окружения в контейнере
-docker compose exec backend env
-
-# Зайти внутрь контейнера
-docker compose exec backend sh
-docker compose exec postgres psql -U gomo6 gomo6
-
-# Остановить всё (данные сохранятся)
-docker compose down
-
-# Остановить всё и удалить данные (⚠️ необратимо)
-docker compose down -v
-```
-
----
-
-## 📁 Структура файлов Docker
-
-```
-gomo6.2/
-├── docker-compose.yml          # Основной compose-файл (все сервисы)
-├── Caddyfile                   # Конфигурация Caddy reverse proxy (subdomain routing)
-├── .env                        # Переменные окружения (создаётся вручную)
-├── .garage.toml                # Рендер Garage-конфига (генерируется, в Git не хранится)
-├── docs/wiki/                  # Документация (этот файл и остальные гайды)
-├── apps/
-│   ├── web/                    # Основной сайт (DOMAIN)
-│   │   ├── Dockerfile          # Vite → nginx
-│   │   └── nginx.conf          # SPA-конфиг для nginx
-│   ├── docs/                   # Документация (docs.DOMAIN)
-│   │   ├── Dockerfile
-│   │   └── nginx.conf
-│   ├── dev-dashboard/          # Dev Dashboard (dev.DOMAIN)
-│   │   ├── Dockerfile
-│   │   └── nginx.conf
-│   └── backend-go/             # Go API сервер
-│       ├── Dockerfile
-│       ├── migrations/         # SQL-миграции
-│       └── garage.toml         # Шаблон Garage S3 (плейсхолдеры, без секретов)
-```
-
----
-
-## ✅ Production Checklist
-
-Перед запуском в production убедитесь:
-
-- [ ] Сгенерирован уникальный `JWT_SECRET` (`openssl rand -hex 32`)
-- [ ] Сгенерирован уникальный `FEDERATION_KEY`
-- [ ] Указан `DOMAIN=ваш-домен.ru` в `.env`
-- [ ] DNS A-записи созданы для: `@`, `docs`, `dev`
-- [ ] Удалён блок `auto_https off` из `Caddyfile`
-- [ ] Убраны префиксы `http://` из всех директив в `Caddyfile`
-- [ ] Открыты порты 80 и 443 (TCP) и 443/udp (QUIC) в файрволе
-- [ ] Настроен ежедневный бэкап базы данных (cron)
-- [ ] Passkeys настроены: HTTPS включён, `WEBAUTHN_RP_ID` и `WEBAUTHN_RP_ORIGIN` совпадают с доменом
-- [ ] Проверены все три сайта:
-  - `curl https://ваш-домен.ru`
-  - `curl https://docs.ваш-домен.ru`
-  - `curl https://dev.ваш-домен.ru`
-
----
-
-> 💬 **Вопросы?** Откройте Issue на GitHub: [github.com/scramble22/gomo6.2](https://github.com/scramble22/gomo6.2)
+Восстановление: `docker compose up -d postgres`, затем `psql < dump.sql`, затем `docker compose up -d` и `reindex`.
+
+## Типичные грабли
+
+| Симптом | Причина и лечение |
+|---|---|
+| `error from registry: denied` при pull | пакет приватный **или** на VPS остались старые креды → Change visibility → Public и `docker logout ghcr.io` |
+| Compose не интерполируется, деплой не применяется | нет обязательной переменной в `.env` (обычно `MEILI_MASTER_KEY`) → `docker compose config` покажет какая |
+| «База для diff недоступна» в `plan` | force push или первый push в ветку → пересобираются все сервисы, это ожидаемо |
+| Тег не деплоит | так и задумано: `tags-ignore: ['**']`, версия в образе берётся из файла `VERSION` |
+| Правка только документации не деплоит | тоже задумано: `plan` видит, что ни один сервис не изменился |
+| Битый образ на VPS, старый контейнер жив | `restart-service.sh` выходит на шаге pull до любых манипуляций с контейнерами — прод продолжает работать |
