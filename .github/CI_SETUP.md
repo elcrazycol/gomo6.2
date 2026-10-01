@@ -9,7 +9,7 @@ Codeberg больше не срабатывают — workflow-файлы бер
 
 | Файл | Триггер | Что делает |
 |---|---|---|
-| `ci.yml` | PR, `workflow_call`, вручную | Быстрые проверки: Go (build/vet/fmt/tidy/тесты+coverage), Go (lint/vuln), Frontend (tsc/eslint/vitest/build), gitleaks, hadolint. Плюс `docker-build` — сборка образов **без push**, только если менялись Dockerfile/compose. Этот же файл вызывается из deploy как гейт |
+| `ci.yml` | PR, `workflow_call`, вручную | Быстрые проверки: Go (build/vet/fmt/tidy/тесты+coverage), Go (lint/vuln), Frontend (tsc/eslint/build + тесты в 3 шарда), gitleaks, hadolint. Плюс `docker-build` — сборка образов **без push**, только если менялись Dockerfile/compose. Этот же файл вызывается из deploy как гейт |
 | `deploy.yml` | push в `main`, вручную | CI → план (что изменилось) → matrix по сервисам: buildx build --push в ghcr.io → pull+restart на VPS |
 | `tests-full.yml` | ночью 06:00 UTC, вручную | race + настоящие Postgres/Redis, e2e smoke, e2e privacy wall |
 | `security.yml` | Пн 03:00 UTC, вручную | CodeQL + Trivy → SARIF в Security. **Issue не создаются** |
@@ -86,7 +86,9 @@ Change visibility → Public.
 - Settings → Branches → правило для `main` → обязательные чеки (в UI выбираются
   **отображаемые имена** джобов):
   `Go · build · vet · fmt · test`, `Go · lint · vuln`,
-  `Frontend · tsc · eslint · vitest · build`, `Secrets scan`, `Dockerfile lint`.
+  `Frontend · checks (tsc · eslint · build)`,
+  `Frontend · tests (shard 1/3)`, `Frontend · tests (shard 2/3)`,
+  `Frontend · tests (shard 3/3)`, `Secrets scan`, `Dockerfile lint`.
   **`Images · … (build only)` обязательным не делайте** — он скипается, когда
   docker-файлы не менялись, а скипнутый обязательный чек блокирует merge.
 - Форки: включите «Require approval for all outside collaborators», если

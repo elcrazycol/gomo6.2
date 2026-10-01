@@ -15,6 +15,9 @@
 #     npm (setup-node), Turbo (.turbo), BuildKit (type=gha — только в docker-build);
 #   · в PR-прогоне НЕТ сборки образов, кроме случая, когда правда менялись
 #     Dockerfile/compose (job docker-build) — он же и необязательный чек;
+#   · тесты шардятся на 3 раннера (frontend-tests): набор файлов режется, а не
+#     глубина проверки — прогоняются те же 241 файл, но за ~треть времени.
+#     Именно тесты были критическим путём всего CI (154s против 30s у tsc);
 #   · тяжёлое (race + настоящие Postgres/Redis + e2e) вынесено в tests-full.yml
 #     (ночью по расписанию), чтобы PR оставался быстрым.
 #
@@ -22,7 +25,10 @@
 # В UI задаются ОТОБРАЖАЕМЫЕ ИМЕНА джобов, не их id:
 #   Go · build · vet · fmt · test
 #   Go · lint · vuln
-#   Frontend · tsc · eslint · vitest · build
+#   Frontend · checks (tsc · eslint · build)
+#   Frontend · tests (shard 1/3)
+#   Frontend · tests (shard 2/3)
+#   Frontend · tests (shard 3/3)
 #   Secrets scan
 #   Dockerfile lint
 # docker-build обязательным НЕ делать: он скипается, когда docker-файлы не
@@ -188,12 +194,12 @@ jobs:
           work-dir: apps/backend-go
 
   # ---------------------------------------------------------------------------
-  # Frontend: типы, линт, тесты с покрытием, прод-сборка всех трёх приложений.
+  # Frontend, часть 1: типы, линт и настоящая vite-сборка.
   # Сборка здесь не дублирует Docker: docker-build смотрит только образы,
   # а этот job ловит поломку vite-сборки на обычном PR (где docker-build скипнут).
   # ---------------------------------------------------------------------------
-  frontend:
-    name: Frontend · tsc · eslint · vitest · build
+  frontend-checks:
+    name: Frontend · checks (tsc · eslint · build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -226,21 +232,48 @@ jobs:
       - name: ESLint
         run: npm run lint --workspace=@gomo6/web
 
+      - name: Build all frontends (turbo)
+        run: npx turbo run build
+
+  # ---------------------------------------------------------------------------
+  # Frontend, часть 2: тесты. 241 файл в одном job'е — это 154 секунды, то есть
+  # единственный критический путь всего CI. Шардинг режет НАБОР ФАЙЛОВ между
+  # тремя раннерами, а не глубину проверки: выполняются ровно те же 241 файл,
+  # меняется только календарное время. Каждый шард отдаёт свою часть покрытия,
+  # Codecov их склеивает (флаг frontend один на всех).
+  # ---------------------------------------------------------------------------
+  frontend-tests:
+    name: Frontend · tests (shard ${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
       # lcov добавляем флагом, чтобы не править vitest.config.ts: Codecov не
       # понимает json-summary, которым отчитывается локальный генератор бейджей.
-      - name: Vitest + coverage (lcov для Codecov)
-        run: npm run test:coverage --workspace=@gomo6/web -- --coverage.reporter=lcov --coverage.reporter=text-summary
+      - name: Vitest · shard ${{ matrix.shard }}/3 (+ coverage)
+        run: npm run test:coverage --workspace=@gomo6/web -- --coverage.reporter=lcov --coverage.reporter=text-summary --shard=${{ matrix.shard }}/3
 
-      - name: Upload coverage to Codecov
+      - name: Upload coverage to Codecov (shard ${{ matrix.shard }}/3)
         uses: codecov/codecov-action@v5
         with:
           files: coverage/frontend/lcov.info
           flags: frontend
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
-
-      - name: Build all frontends (turbo)
-        run: npx turbo run build
 
   # ---------------------------------------------------------------------------
   # Секреты в истории. fetch-depth: 0 обязателен — gitleaks смотрит коммиты.
