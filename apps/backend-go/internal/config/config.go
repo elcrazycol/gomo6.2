@@ -26,7 +26,16 @@ type Config struct {
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string
+	// Search (Meilisearch). Empty MeilisearchURL disables the engine; the
+	// PostgreSQL full-text fallback then stays in charge.
+	MeilisearchURL         string
+	MeilisearchMasterKey   string
+	MeilisearchIndexPrefix string
 }
+
+// DefaultMeilisearchIndexPrefix namespaces the search indexes of one deployment
+// so several can share a single engine without colliding.
+const DefaultMeilisearchIndexPrefix = "gomo6_"
 
 func LoadConfig() *Config {
 	allowedOrigins := []string{"http://localhost:5173", "http://localhost:8080"}
@@ -51,6 +60,11 @@ func LoadConfig() *Config {
 		VAPIDPublicKey:      os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:     os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:        os.Getenv("VAPID_SUBJECT"),
+		// Search: a dedicated Meilisearch instance. The prefix namespaces the
+		// indexes so one engine can host several deployments.
+		MeilisearchURL:         os.Getenv("MEILISEARCH_URL"),
+		MeilisearchMasterKey:   os.Getenv("MEILI_MASTER_KEY"),
+		MeilisearchIndexPrefix: getEnv("MEILISEARCH_INDEX_PREFIX", DefaultMeilisearchIndexPrefix),
 	}
 }
 

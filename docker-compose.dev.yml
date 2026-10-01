@@ -19,6 +19,9 @@ services:
   redis:
     ports:
       - "127.0.0.1:6379:6379"
+  meilisearch:
+    ports:
+      - "127.0.0.1:7700:7700"   # search engine API (dev dashboard / reindex)
   garage:
     ports:
       - "127.0.0.1:3900:3900"   # S3 API

@@ -47,6 +47,28 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Search (Meilisearch) ──────────────────────────────────────────────────
+  # Lightweight Rust search engine. Documents are indexed best-effort from the
+  # write path and fully rebuilt with `cmd/reindex`; when MEILISEARCH_URL is
+  # unset the backend falls back to PostgreSQL full-text search. Index data is
+  # disposable — it can always be rebuilt from Postgres — but the volume keeps
+  # restarts cheap.
+  meilisearch:
+    image: getmeili/meilisearch:v1.53.1
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required}
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_HTTP_ADDR: 0.0.0.0:7700
+    volumes:
+      - meilisearch_data:/meili_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Object Storage (Garage S3) ────────────────────────────────────────────
   garage:
     image: dxflrs/garage:v2.3.0
@@ -215,6 +237,11 @@ services:
       # include localhost/127.0.0.1.
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       TURNSTILE_HOSTNAMES: ${TURNSTILE_HOSTNAMES:-gomo6.wtf}
+      # Search (Meilisearch). MEILISEARCH_URL unset/empty disables the engine
+      # and the backend uses the PostgreSQL full-text fallback.
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://meilisearch:7700}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required}
+      MEILISEARCH_INDEX_PREFIX: ${MEILISEARCH_INDEX_PREFIX:-gomo6_}
       # Garage S3 — credentials from /garage-keys/s3.env (written by garage-init)
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
@@ -227,6 +254,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
       garage-init:
         condition: service_completed_successfully
@@ -434,6 +463,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  meilisearch_data:
   garage_meta:
   garage_data:
   garage_keys:

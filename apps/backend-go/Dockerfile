@@ -53,7 +53,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # kept); only dlv/profiling symbol info is dropped.
 ENV CGO_ENABLED=0 GOMEMLIMIT=256MiB
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=$VERSION -X main.commit=$GIT_COMMIT" -o main cmd/server/main.go
+    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=$VERSION -X main.commit=$GIT_COMMIT" -o main cmd/server/main.go && \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -ldflags="-s -w" -o reindex cmd/reindex/main.go
 
 # ---- Runtime stage: VPS arch ------------------------------------------------
 FROM --platform=$TARGETPLATFORM alpine:3.23
@@ -63,6 +64,7 @@ RUN sed -i 's/https/http/g' /etc/apk/repositories && \
 WORKDIR /root/
 
 COPY --from=builder /app/main .
+COPY --from=builder /app/reindex .
 COPY --from=builder /app/.env .env
 COPY --from=builder /app/docs ./docs
 COPY --from=builder /app/migrations ./migrations

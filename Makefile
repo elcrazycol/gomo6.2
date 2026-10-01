@@ -6,7 +6,7 @@ SHELL := /bin/bash
 COMPOSE := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 
 .PHONY: help dev attach dev-stop install env infra backend web stop tools \
-        seed reset-db psql redis-cli logs test lint typecheck doctor
+        seed reset-db psql redis-cli logs test lint typecheck doctor reindex reindex-docker
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[1;36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -28,8 +28,18 @@ env: ## Create .env and fill required secrets (preserves existing values)
 	bash scripts/generate-keys.sh --quiet .env
 	bash scripts/generate-garage-config.sh .env
 
-infra: ## Start Postgres + Redis + Garage (dev ports on localhost)
-	$(COMPOSE) up -d postgres redis garage
+infra: ## Start Postgres + Redis + Meilisearch + Garage (dev ports on localhost)
+	$(COMPOSE) up -d postgres redis meilisearch garage
+
+reindex: ## Rebuild the Meilisearch indexes from Postgres (needs `make infra`)
+	@set -a; . ./.env; set +a; \
+	export DATABASE_URL="postgres://gomo6:$${POSTGRES_PASSWORD}@127.0.0.1:5432/gomo6?sslmode=disable" \
+	  MEILISEARCH_URL="http://127.0.0.1:7700" \
+	  MEILISEARCH_INDEX_PREFIX="gomo6_"; \
+	cd apps/backend-go && go run ./cmd/reindex
+
+reindex-docker: ## Rebuild the search indexes inside the running Docker stack
+	$(COMPOSE) run --rm backend ./reindex
 
 backend: ## Run the Go backend (localhost:8080) — needs `make env` + `make infra` first
 	@set -a; . ./.env; set +a; \
