@@ -1,0 +1,314 @@
+# =============================================================================
+# ci.yml — быстрый CI: одни и те же проверки для PR и для гейта деплоя.
+# =============================================================================
+# Триггеры:
+#   pull_request      — проверки на PR (их и надо ставить обязательными)
+#   workflow_call     — те же проверки как job `ci` внутри deploy.yml (гейт)
+#   workflow_dispatch — руками
+#
+# Почему reusable, а не копия в deploy.yml: определение проверок одно, поэтому
+# «зелёный CI на PR» и «гейт перед деплоем» физически не могут разъехаться.
+#
+# Как это быстро:
+#   · jobs параллельны, каждый на своём раннере (GitHub-hosted, ubuntu-latest);
+#   · кэшируются все слои: Go-модули (setup-go) + Go build cache (actions/cache),
+#     npm (setup-node), Turbo (.turbo), BuildKit (type=gha — только в docker-build);
+#   · в PR-прогоне НЕТ сборки образов, кроме случая, когда правда менялись
+#     Dockerfile/compose (job docker-build) — он же и необязательный чек;
+#   · тяжёлое (race + настоящие Postgres/Redis + e2e) вынесено в tests-full.yml
+#     (ночью по расписанию), чтобы PR оставался быстрым.
+#
+# Обязательные чеки для branch protection (Settings → Branches → main).
+# В UI задаются ОТОБРАЖАЕМЫЕ ИМЕНА джобов, не их id:
+#   Go · build · vet · fmt · test
+#   Go · lint · vuln
+#   Frontend · tsc · eslint · vitest · build
+#   Secrets scan
+#   Dockerfile lint
+# docker-build обязательным НЕ делать: он скипается, когда docker-файлы не
+# менялись, а скипнутый обязательный чек блокирует merge.
+#
+# Секреты:
+#   CODECOV_TOKEN — необязателен. Без него upload деградирует до tokenless
+#                   (для публичного репо обычно работает), а падение загрузки
+#                   CI не ломает: fail_ci_if_error: false.
+# =============================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+      VITE_TURNSTILE_SITEKEY:
+        required: false
+  workflow_dispatch:
+
+# Отменяем устаревшие PR-прогоны. Когда ci.yml вызывается из deploy.yml
+# (event = push), отменять нельзя — там внутри едет деплой.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  # hashFiles намеренно НЕ выносим сюда: env уровня workflow вычисляется до
+  # checkout, когда рабочая копия ещё пуста, и хеш получился бы пустым —
+  # кэш «по lockfile» выродился бы в один общий. Ключи собираются прямо в
+  # шагах actions/cache (либо в with:, либо в step-level env).
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Что изменилось (нужно только для docker-build ниже).
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect docker-relevant changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docker:
+              - 'apps/**/Dockerfile'
+              - 'apps/**/nginx.conf'
+              - 'docker-compose.yml'
+              - '.dockerignore'
+              - 'package-lock.json'
+              - 'package.json'
+              - 'scripts/**'
+
+  # ---------------------------------------------------------------------------
+  # Go: сборка, формат, vet, tidy, юнит-тесты с покрытием.
+  # ---------------------------------------------------------------------------
+  go:
+    name: Go · build · vet · fmt · test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend-go
+    steps:
+      - uses: actions/checkout@v4
+
+      # go-version-file, а не хардкод: версия всегда совпадает с go.mod
+      # (в старом CI стояло '1.26.5' при go.mod 1.26.6 — тот самый дрейф).
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/backend-go/go.mod
+          cache-dependency-path: apps/backend-go/go.sum
+
+      # setup-go кэширует только модули. Компиляторный кэш — отдельно, иначе
+      # каждый прогон пересобирает весь проект с нуля.
+      - name: Cache Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('apps/backend-go/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ hashFiles('apps/backend-go/go.sum') }}-
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: gofmt
+        run: |
+          set -euo pipefail
+          # -print0 | xargs -0 вместо $(find …): имена файлов безопасно переживают
+          # пробелы, а shellcheck больше не ругается на word splitting.
+          unformatted="$(find . -name '*.go' -not -path './vendor/*' -print0 | xargs -0 gofmt -l)"
+          if [ -n "$unformatted" ]; then
+            echo "Файлы не отформатированы:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Vendoring check (go mod tidy)
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      # Юнит-тесты БД не требуют (sqlmock/miniredis). Реальная БД — в tests-full.yml.
+      - name: Unit tests + coverage
+        run: go test -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: apps/backend-go/coverage.out
+          flags: backend
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  # ---------------------------------------------------------------------------
+  # Go: линтер и уязвимости. Отдельным job — параллельно с тестами.
+  # ---------------------------------------------------------------------------
+  go-lint:
+    name: Go · lint · vuln
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/backend-go/go.mod
+          cache-dependency-path: apps/backend-go/go.sum
+
+      # Кэш golangci-lint action ведёт сам.
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --timeout=5m ./...
+          working-directory: apps/backend-go
+
+      - name: Vulnerability check (govulncheck)
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: apps/backend-go/go.mod
+          work-dir: apps/backend-go
+
+  # ---------------------------------------------------------------------------
+  # Frontend: типы, линт, тесты с покрытием, прод-сборка всех трёх приложений.
+  # Сборка здесь не дублирует Docker: docker-build смотрит только образы,
+  # а этот job ловит поломку vite-сборки на обычном PR (где docker-build скипнут).
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend · tsc · eslint · vitest · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('package-lock.json', 'turbo.json') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('package-lock.json', 'turbo.json') }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit -p apps/web/tsconfig.app.json
+          npx tsc --noEmit -p apps/dev-dashboard/tsconfig.json
+          npx tsc --noEmit -p apps/docs/tsconfig.json
+
+      - name: ESLint
+        run: npm run lint --workspace=@gomo6/web
+
+      # lcov добавляем флагом, чтобы не править vitest.config.ts: Codecov не
+      # понимает json-summary, которым отчитывается локальный генератор бейджей.
+      - name: Vitest + coverage (lcov для Codecov)
+        run: npm run test:coverage --workspace=@gomo6/web -- --coverage.reporter=lcov --coverage.reporter=text-summary
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/frontend/lcov.info
+          flags: frontend
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Build all frontends (turbo)
+        run: npx turbo run build
+
+  # ---------------------------------------------------------------------------
+  # Секреты в истории. fetch-depth: 0 обязателен — gitleaks смотрит коммиты.
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    name: Secrets scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Линт Dockerfile.
+  # ---------------------------------------------------------------------------
+  dockerfile:
+    name: Dockerfile lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+
+  # ---------------------------------------------------------------------------
+  # Валидация образов на PR: собираем БЕЗ push, чтобы поймать поломку
+  # Dockerfile до merge. Включается только когда менялись docker-файлы.
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: Images · ${{ matrix.service }} (build only)
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            context: apps/backend-go
+            dockerfile: apps/backend-go/Dockerfile
+          - service: web
+            context: .
+            dockerfile: apps/web/Dockerfile
+          - service: docs
+            context: .
+            dockerfile: apps/docs/Dockerfile
+          - service: dev-dashboard
+            context: .
+            dockerfile: apps/dev-dashboard/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # scope на сервис: ветко-скоупленный кэш gha иначе затрут друг друга.
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha,scope=pr-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=pr-${{ matrix.service }}
+          build-args: |
+            VITE_GIT_COMMIT=${{ github.sha }}
+            VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }}

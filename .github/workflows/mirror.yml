@@ -1,0 +1,94 @@
+# =============================================================================
+# mirror.yml — зеркала GitHub → Codeberg + GitLab.
+# =============================================================================
+# Направление строго ОДНОСТОРОННЕЕ: канон — GitHub, зеркала — только читаются.
+# Всё, что закоммичено прямо в Codeberg/GitLab, будет перезаписано следующим
+# прогоном (push идёт с --force --prune).
+#
+# ⚠ Папка .forgejo/ осталась нетронутой, и в ней лежит СВОЙ mirror.yml —
+# Codeberg → GitHub. Пока он включён, два зеркала будут гонять refs по кругу
+# (каждое с --force). Поэтому:
+#   1. этот воркфлоу выключен, пока переменная PRIMARY_FORGE не равна `github`;
+#   2. при переезде — удалить или отключить .forgejo/workflows/mirror.yml,
+#      иначе петля останется.
+#
+# Требуется (Settings → Secrets and variables → Actions):
+#   Secrets:
+#     CODEBERG_TOKEN — codeberg.org → Settings → Applications → Generate New
+#                      Token, scope: write:repository
+#     GITLAB_TOKEN   — GitLab → Settings → Access Tokens, роль Maintainer,
+#                      scope: write_repository
+#   Variables:
+#     PRIMARY_FORGE=github — общий «рубильник» переезда (см. deploy.yml)
+#
+# Необязательные переменные, если переименуете зеркала:
+#   CODEBERG_REPO (default codeberg.org/crazycol/gomo6.2)
+#   CODEBERG_USER (default crazycol)
+#   GITLAB_REPO   (default gitlab.com/crazycol/gomo6.2)
+#
+# Важно: репозитории-зеркала должны существовать и быть ПУСТЫМИ. Branch
+# protection на зеркалах включать нельзя — force-push будет отклонён.
+# На зеркала уходит вся история, а gitleaks там не бегает: включайте только
+# при зелёном job `secrets` в ci.yml.
+# =============================================================================
+
+name: Mirror to Codeberg & GitLab
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  workflow_dispatch:
+
+# Полное зеркало пушит все refs с --prune: параллельные запуски затирали бы
+# друг друга (гонка между снапшотами refs).
+concurrency:
+  group: mirror-all
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Push full mirror
+    if: vars.PRIMARY_FORGE == 'github'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      CODEBERG_REPO: ${{ vars.CODEBERG_REPO || 'codeberg.org/crazycol/gomo6.2' }}
+      CODEBERG_USER: ${{ vars.CODEBERG_USER || 'crazycol' }}
+      GITLAB_REPO: ${{ vars.GITLAB_REPO || 'gitlab.com/crazycol/gomo6.2' }}
+    steps:
+      # Клонируем --mirror, чтобы пуш знал обо всех ветках и тегах. Публичный
+      # GitHub-URL — токен не нужен. refs/pull/* зеркальный клон не тянет,
+      # поэтому «deny updating a hidden ref» на стороне зеркал не случится.
+      - name: Clone full mirror
+        run: git clone --mirror "https://github.com/${{ github.repository }}.git" mirror.git
+
+      - name: Push to Codeberg
+        env:
+          TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Секрет CODEBERG_TOKEN не задан"
+            exit 1
+          fi
+          git -C mirror.git push --prune --force \
+            "https://${CODEBERG_USER}:${TOKEN}@${CODEBERG_REPO}.git" \
+            'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+
+      - name: Push to GitLab
+        env:
+          TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Секрет GITLAB_TOKEN не задан"
+            exit 1
+          fi
+          git -C mirror.git push --prune --force \
+            "https://oauth2:${TOKEN}@${GITLAB_REPO}.git" \
+            'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
