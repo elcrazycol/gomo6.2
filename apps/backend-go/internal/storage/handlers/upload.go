@@ -642,9 +642,15 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 	if bucket == "uploads" {
 		data, contentType, err := h.client.GetFileEncrypted(bucket, key)
 		if err != nil {
-			if storage.IsNotFound(err) {
+			switch {
+			case storage.IsNotFound(err):
 				c.JSON(http.StatusNotFound, models.ErrorResponse("Object not found"))
-			} else {
+			case c.Request.Context().Err() != nil:
+				// The client went away mid-request (navigated away, aborted the
+				// download). Not a server fault: abort without a 5xx so client
+				// disconnects never pollute the error-rate metrics/alerts.
+				c.Abort()
+			default:
 				c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load object"))
 			}
 			return
@@ -699,6 +705,14 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 				return
 			}
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Object not found"))
+			return
+		}
+		if c.Request.Context().Err() != nil {
+			// Client disconnected mid-request (image aborted, navigation): the
+			// Garage call fails with context canceled, which is not a server
+			// fault. Abort without a 5xx so aborted media requests never count
+			// as errors.
+			c.Abort()
 			return
 		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load object"))
