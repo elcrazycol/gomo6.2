@@ -17,6 +17,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/backup"
+	"github.com/gomo6/backend/internal/config"
 	"github.com/gomo6/backend/internal/crudengine"
 	"github.com/gomo6/backend/internal/drops"
 	"github.com/gomo6/backend/internal/gifts"
@@ -31,6 +32,7 @@ import (
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/rpc"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/socialpreview"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
@@ -45,11 +47,32 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// registered below (admin-only at GET /api/v1/metrics).
 	router.Use(middleware.MetricsMiddleware())
 
+	// Search (Meilisearch): one engine service plus a best-effort indexer that
+	// mirrors writes into it. Both are optional — an empty MEILISEARCH_URL
+	// disables search and leaves the PostgreSQL full-text fallback in charge.
+	// Index data is disposable; cmd/reindex rebuilds it from Postgres.
+	indexPrefix := os.Getenv("MEILISEARCH_INDEX_PREFIX")
+	if indexPrefix == "" {
+		indexPrefix = config.DefaultMeilisearchIndexPrefix
+	}
+	searchService := search.New(search.Config{
+		URL:         os.Getenv("MEILISEARCH_URL"),
+		MasterKey:   os.Getenv("MEILI_MASTER_KEY"),
+		IndexPrefix: indexPrefix,
+	})
+	searchIndexer := search.NewIndexer(db, searchService)
+
 	// Readiness check (registered after all initialization is complete)
 	// Docker healthcheck uses /health (registered in main.go BEFORE heavy init)
-	// This /ready endpoint confirms the full stack is operational
+	// This /ready endpoint confirms the full stack is operational. Search is
+	// reported but never fails readiness: the PostgreSQL fallback keeps the API
+	// working while the engine is absent or empty.
 	router.GET("/ready", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "websocket": wsHub != nil})
+		c.JSON(200, gin.H{
+			"status":    "ok",
+			"websocket": wsHub != nil,
+			"search":    searchService.Enabled(),
+		})
 	})
 
 	// Serve OpenAPI/Swagger JSON for API documentation
@@ -60,6 +83,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db)
+	authHandler.SetSearchIndexer(searchIndexer)
 	// Initialize auth service
 	authService := auth.NewAuthService()
 	authService.SetRedis(redis) // enables token blacklist + refresh tokens
@@ -118,11 +142,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	boardsHandler := handlers.NewBoardsHandler(db)
 	boardsHandler.SetRedis(redis)
 	boardsHandler.SetAuthService(authService)
+	boardsHandler.SetSearchIndexer(searchIndexer)
 	threadsHandler := handlers.NewThreadsHandler(db)
 	threadsHandler.SetRedis(redis)
 	threadsHandler.SetAuthService(authService)
+	threadsHandler.SetSearchIndexer(searchIndexer)
 	postsHandler := handlers.NewPostsHandler(db)
 	postsHandler.SetRedis(redis)
+	postsHandler.SetSearchIndexer(searchIndexer)
 	// Initialize the achievements engine (must be before handlers that use it).
 	// The catalog lives in Go code; the DB table is only a synced mirror.
 	achCatalog, err := achievements.Default()
@@ -167,6 +194,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	profilesHandler.SetRedis(redis)
 	profilesHandler.SetAchievementEngine(achEngine)
 	profilesHandler.SetHub(wsHub)
+	profilesHandler.SetSearchIndexer(searchIndexer)
 	likesHandler := handlers.NewLikesHandler(db, redis)
 	likesHandler.SetWebSocketHub(wsHub)
 	likesHandler.SetAchievementEngine(achEngine)
@@ -192,6 +220,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	rpcHandler.SetWebSocketHub(wsHub)
 	rpcHandler.SetAchievementEngine(achEngine)
 	rpcHandler.SetNotifier(notifService)
+	rpcHandler.SetSearchIndexer(searchIndexer)
 
 	// Profile-wall domain service: owns the wall read queries, write side
 	// effects, cache invalidation, achievement events and interaction privacy
@@ -204,7 +233,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	engine.SetRedis(redis)
 	engine.SetAchievementEngine(achEngine)
 	engine.SetWall(wallService)
+	engine.SetSearchIndexer(searchIndexer)
 	searchHandler := handlers.NewSearchHandler(db)
+	searchHandler.SetSearchService(searchService)
 	feedHandler := handlers.NewFeedHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
 	favoritesHandler := handlers.NewFavoritesHandler(db)
@@ -238,6 +269,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	actieyeHandler := handlers.NewActiEyeHandler(db)
 	gamificationHandler := handlers.NewGamificationHandler()
 	publicIDHandler := handlers.NewPublicIDHandler(db, redis, wsHub)
+	publicIDHandler.SetSearchIndexer(searchIndexer)
 	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
@@ -1036,6 +1068,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Bot management
 	botsHandler := handlers.NewBotsHandler(db)
+	botsHandler.SetSearchIndexer(searchIndexer)
 
 	bots := api.Group("/bots")
 	bots.Use(middleware.AuthMiddleware(authService))
