@@ -215,6 +215,7 @@ var availableNotificationTypes = []string{
 	"like", "reply", "thread_reply",
 	"wall_post", "wall_post_like", "wall_comment", "wall_comment_reply", "wall_repost",
 	"friend_request", "friend_accepted",
+	"new_subscriber", "friend_mutual",
 	"gift_received",
 	// Messenger: delivered directly from SendMessage (bypasses the in-app
 	// notifications table), but muteable through the same preference surface.

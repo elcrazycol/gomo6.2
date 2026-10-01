@@ -625,6 +625,35 @@ type SendFriendRequest struct {
 	ReceiverID string `json:"receiver_id" binding:"required"`
 }
 
+// Subscription — a one-directional follow relationship: subscriber_id follows
+// target_id. A mutual pair materializes a row in `friendships`.
+type Subscription struct {
+	ID           string    `json:"id" db:"id"`
+	SubscriberID string    `json:"subscriber_id" db:"subscriber_id"`
+	TargetID     string    `json:"target_id" db:"target_id"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+}
+
+// SubscriptionUser — a user in a subscriber/subscription list. IsFriend marks a
+// mutual pair (i.e. an actual friend) so the UI can badge shared rows without a
+// second request.
+type SubscriptionUser struct {
+	UserID          string  `json:"user_id"`
+	PublicID        *int64  `json:"public_id,omitempty"`
+	Username        string  `json:"username"`
+	DisplayName     *string `json:"display_name"`
+	NicknameEmojiID *string `json:"nickname_emoji_id"`
+	AvatarURL       *string `json:"avatar_url"`
+	IsOnline        bool    `json:"is_online"`
+	IsFriend        bool    `json:"is_friend"`
+	SubscribedAt    string  `json:"subscribed_at"`
+}
+
+// SubscribeRequest — request body for subscribing to a user.
+type SubscribeRequest struct {
+	UserID string `json:"user_id" binding:"required"`
+}
+
 // GiftLayer — a visual layer (gift image, background, or symbol) for upgradable gifts
 type GiftLayer struct {
 	ID            string    `json:"id" db:"id"`

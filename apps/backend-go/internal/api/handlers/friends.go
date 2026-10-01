@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gomo6/backend/internal/httpx"
@@ -21,7 +20,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// FriendsHandler handles friend request and friendship endpoints.
+// FriendsHandler handles subscription and friendship endpoints.
+//
+// The social graph is one-directional at its base: subscribing to a user needs
+// no approval. A friendship is the mutual case — when both directions of a
+// subscription pair exist — and is materialized in the `friendships` table so
+// every privacy/wall/messenger/feed/WS consumer keeps working unchanged.
 type FriendsHandler struct {
 	db    *sql.DB
 	hub   *websocket.Hub
@@ -39,7 +43,7 @@ func (h *FriendsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
 
 func (h *FriendsHandler) SetNotifier(n *notifications.Service) { h.notif = n }
 
-// invalidateFriendCaches clears Redis caches for friend-related endpoints.
+// invalidateFriendCaches clears Redis caches for friend/subscription endpoints.
 func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) {
 	if redisClient == nil {
 		return
@@ -47,7 +51,7 @@ func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) 
 	patterns := []string{
 		"data:/api/v1/friends*",
 		// Purge wall cache entries cached under these two viewers: after
-		// unfriending, the ex-friend must not keep receiving the private wall
+		// unfollowing, an ex-friend must not keep receiving the private wall
 		// from cache (the key embeds the viewer identity).
 		fmt.Sprintf("data:/api/v1/profile_wall_posts*viewer=%s*", user1ID),
 		fmt.Sprintf("data:/api/v1/profile_wall_posts*viewer=%s*", user2ID),
@@ -73,432 +77,155 @@ func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) 
 	}
 }
 
-// SendRequest godoc
-// @Summary      Send friend request
-// @Description  Send a friend request to another user
+// orderPair returns the two ids ordered with the smaller first, matching the
+// friendships CHECK (user1_id < user2_id).
+func orderPair(a, b string) (string, string) {
+	if a < b {
+		return a, b
+	}
+	return b, a
+}
+
+// Subscribe godoc
+// @Summary      Subscribe to a user
+// @Description  Follow a user. If they already follow you, the pair becomes friends.
 // @Tags         Friends
 // @Produce      json
-// @Param        body body models.SendFriendRequest true "Friend request"
-// @Success      201 {object} models.APIResponse
+// @Param        body body models.SubscribeRequest true "Subscription"
+// @Success      200 {object} models.APIResponse
 // @Failure      400 {object} models.APIResponse
 // @Failure      401 {object} models.APIResponse
-// @Failure      409 {object} models.APIResponse
-// @Router       /friends/request [post]
+// @Router       /friends/subscribe [post]
 // @Security     BearerAuth
-
-func (h *FriendsHandler) SendRequest(c *gin.Context) {
+func (h *FriendsHandler) Subscribe(c *gin.Context) {
 	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
 	}
 
-	var req models.SendFriendRequest
+	var req models.SubscribeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
-	senderID := claims.UserID
-	receiverID := req.ReceiverID
+	subscriberID := claims.UserID
+	targetID := req.UserID
 
-	if !h.validateSendRequest(c, senderID, receiverID) {
-		return
-	}
-	if h.tryAutoAcceptReverseRequest(c, senderID, receiverID) {
-		return
-	}
-	if !h.createOrReuseFriendRequest(c, senderID, receiverID) {
+	if !h.validateSubscribeTarget(c, subscriberID, targetID) {
 		return
 	}
 
-	// Invalidate caches for both users
-	invalidateFriendCaches(h.redis, senderID, receiverID)
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+	defer tx.Rollback()
 
-	// Notify the receiver
-	senderUsername := profiles.UsernameByID(h.db, senderID)
-	h.createFriendNotification(receiverID, "friend_request", senderUsername, &senderID)
+	// Idempotent insert. RowsAffected tells us whether this was a new follow so
+	// we do not re-notify on a repeat click.
+	result, err := tx.Exec(`
+		INSERT INTO subscriptions (subscriber_id, target_id)
+		VALUES ($1, $2)
+		ON CONFLICT (subscriber_id, target_id) DO NOTHING
+	`, subscriberID, targetID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+	inserted, _ := result.RowsAffected()
 
-	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
-		"status":  "pending",
-		"message": "Friend request sent",
+	// Mutual? If the target already follows the subscriber, the pair is friends.
+	var mutual bool
+	if err := tx.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM subscriptions WHERE subscriber_id = $1 AND target_id = $2
+		)
+	`, targetID, subscriberID).Scan(&mutual); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+
+	becameFriends := false
+	if mutual {
+		user1, user2 := orderPair(subscriberID, targetID)
+		var friendshipID string
+		err := tx.QueryRow(`
+			INSERT INTO friendships (user1_id, user2_id) VALUES ($1, $2)
+			ON CONFLICT (user1_id, user2_id) DO NOTHING
+			RETURNING id
+		`, user1, user2).Scan(&friendshipID)
+		switch {
+		case err == sql.ErrNoRows:
+			// Already friends — nothing new to materialize.
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+			return
+		default:
+			becameFriends = true
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+
+	invalidateFriendCaches(h.redis, subscriberID, targetID)
+
+	// Only notify on a genuinely new follow.
+	if inserted > 0 {
+		subscriberUsername := profiles.UsernameByID(h.db, subscriberID)
+		h.createFriendNotification(targetID, "new_subscriber", subscriberUsername, &subscriberID)
+		if becameFriends {
+			// The person who completed the mutual pair already knows; tell the
+			// target that the friendship is now real.
+			h.createFriendNotification(targetID, "friend_mutual", subscriberUsername, &subscriberID)
+		}
+	}
+
+	status := "subscribed"
+	if mutual {
+		status = "friends"
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"status":         status,
+		"became_friends": becameFriends,
 	}))
 }
 
-// validateSendRequest applies the preconditions of a friend request: the
-// receiver must exist, must not be the sender, must not already be a friend,
-// and must not hold a pending request already. It writes the rejection
-// response and returns false on any violation.
-func (h *FriendsHandler) validateSendRequest(c *gin.Context, senderID, receiverID string) bool {
-	// Validate receiver exists
+// validateSubscribeTarget applies the preconditions of a follow: the target
+// must exist and must not be the caller. It writes the rejection response and
+// returns false on any violation.
+func (h *FriendsHandler) validateSubscribeTarget(c *gin.Context, subscriberID, targetID string) bool {
 	var exists bool
-	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", receiverID).Scan(&exists)
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", targetID).Scan(&exists)
 	if err != nil || !exists {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("User not found"))
 		return false
 	}
 
-	// Cannot add yourself
-	if senderID == receiverID {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot add yourself as a friend"))
-		return false
-	}
-
-	// Check if already friends
-	var alreadyFriends bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM friendships 
-			WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
-		)`, senderID, receiverID).Scan(&alreadyFriends)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return false
-	}
-	if alreadyFriends {
-		c.JSON(http.StatusConflict, models.ErrorResponse("Already friends"))
-		return false
-	}
-
-	// Check if there's already a pending request from sender to receiver
-	var existingPending bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM friend_requests 
-			WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-		)`, senderID, receiverID).Scan(&existingPending)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return false
-	}
-	if existingPending {
-		c.JSON(http.StatusConflict, models.ErrorResponse("Friend request already sent"))
+	if subscriberID == targetID {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot subscribe to yourself"))
 		return false
 	}
 	return true
 }
 
-// tryAutoAcceptReverseRequest handles the mutual-friendship path: if the
-// receiver already sent the sender a pending request, this request is accepted
-// (both want to be friends), the reverse sender is notified, and the request
-// flow is complete. Returns handled=true once the flow is done.
-func (h *FriendsHandler) tryAutoAcceptReverseRequest(c *gin.Context, senderID, receiverID string) bool {
-	var reverseRequestID sql.NullString
-	err := h.db.QueryRow(`
-		SELECT id FROM friend_requests 
-		WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-	`, receiverID, senderID).Scan(&reverseRequestID)
-	if err != nil && err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return true
-	}
-	if !reverseRequestID.Valid {
-		return false
-	}
-
-	// Auto-accept the reverse request (both want to be friends)
-	if err := h.acceptFriendRequest(c, reverseRequestID.String, receiverID, senderID); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return true
-	}
-	// Notify the reverse request sender that their request was accepted
-	h.createFriendNotification(receiverID, "friend_accepted", profiles.UsernameByID(h.db, senderID), &senderID)
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"status":  "friends",
-		"message": "Friend request accepted automatically",
-	}))
-	return true
-}
-
-// createOrReuseFriendRequest reactivates a previously rejected request
-// (status -> pending) or inserts a fresh one, mapping duplicate-key races to a
-// 409. Returns false after writing the error response.
-func (h *FriendsHandler) createOrReuseFriendRequest(c *gin.Context, senderID, receiverID string) bool {
-	// Check if there's a rejected request and update it to pending
-	var existingRejectedID sql.NullString
-	err := h.db.QueryRow(`
-		SELECT id FROM friend_requests 
-		WHERE sender_id = $1 AND receiver_id = $2 AND status = 'rejected'
-	`, senderID, receiverID).Scan(&existingRejectedID)
-	if err != nil && err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return false
-	}
-
-	if existingRejectedID.Valid {
-		// Update the rejected request back to pending
-		_, err = h.db.Exec(`
-			UPDATE friend_requests SET status = 'pending', updated_at = NOW() WHERE id = $1
-		`, existingRejectedID.String)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-			return false
-		}
-		return true
-	}
-
-	// Create new request
-	var requestID string
-	err = h.db.QueryRow(`
-		INSERT INTO friend_requests (sender_id, receiver_id, status)
-		VALUES ($1, $2, 'pending')
-		RETURNING id
-	`, senderID, receiverID).Scan(&requestID)
-	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
-			c.JSON(http.StatusConflict, models.ErrorResponse("Friend request already sent"))
-			return false
-		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return false
-	}
-	return true
-} // AcceptRequest godoc
-// @Summary      Accept friend request
-// @Description  Accept an incoming friend request
+// Unsubscribe godoc
+// @Summary      Unsubscribe from a user
+// @Description  Stop following a user. If the pair was mutual, the friendship is dissolved.
 // @Tags         Friends
 // @Produce      json
-// @Param        id path string true "Friend request ID"
+// @Param        userId path string true "User ID to unsubscribe from"
 // @Success      200 {object} models.APIResponse
 // @Failure      400 {object} models.APIResponse
 // @Failure      401 {object} models.APIResponse
 // @Failure      404 {object} models.APIResponse
-// @Router       /friends/request/{id}/accept [put]
+// @Router       /friends/subscribe/{userId} [delete]
 // @Security     BearerAuth
-func (h *FriendsHandler) AcceptRequest(c *gin.Context) {
-	claims := httpx.EnsureAuth(c)
-	if claims == nil {
-		return
-	}
-
-	requestID := c.Param("id")
-	if _, err := uuid.Parse(requestID); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request ID"))
-		return
-	}
-
-	// Get the request
-	var request models.FriendRequest
-	err := h.db.QueryRow(`
-		SELECT id, sender_id, receiver_id, status FROM friend_requests WHERE id = $1
-	`, requestID).Scan(&request.ID, &request.SenderID, &request.ReceiverID, &request.Status)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Friend request not found"))
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	// Only the receiver can accept
-	if request.ReceiverID != claims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("You can only accept requests sent to you"))
-		return
-	}
-
-	// Must be pending
-	if request.Status != "pending" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Request is not pending"))
-		return
-	}
-
-	err = h.acceptFriendRequest(c, requestID, request.SenderID, request.ReceiverID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	// Notify the sender
-	receiverUsername := profiles.UsernameByID(h.db, claims.UserID)
-	h.createFriendNotification(request.SenderID, "friend_accepted", receiverUsername, &request.ReceiverID)
-
-	// Invalidate caches for both users
-	invalidateFriendCaches(h.redis, request.SenderID, request.ReceiverID)
-
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"status":  "friends",
-		"message": "Friend request accepted",
-	}))
-}
-
-// acceptFriendRequest is the internal implementation for accepting a friend request.
-func (h *FriendsHandler) acceptFriendRequest(c *gin.Context, requestID, senderID, receiverID string) error {
-	tx, err := h.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Update request status to accepted
-	_, err = tx.Exec(`
-		UPDATE friend_requests SET status = 'accepted', updated_at = NOW() WHERE id = $1
-	`, requestID)
-	if err != nil {
-		return err
-	}
-
-	// Create friendship (user1 < user2 for consistency)
-	user1, user2 := senderID, receiverID
-	if senderID > receiverID {
-		user1, user2 = receiverID, senderID
-	}
-
-	_, err = tx.Exec(`
-		INSERT INTO friendships (user1_id, user2_id) VALUES ($1, $2)
-		ON CONFLICT (user1_id, user2_id) DO NOTHING
-	`, user1, user2)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-// RejectRequest godoc
-// @Summary      Reject friend request
-// @Description  Reject an incoming friend request
-// @Tags         Friends
-// @Produce      json
-// @Param        id path string true "Friend request ID"
-// @Success      200 {object} models.APIResponse
-// @Failure      400 {object} models.APIResponse
-// @Failure      401 {object} models.APIResponse
-// @Failure      404 {object} models.APIResponse
-// @Router       /friends/request/{id}/reject [put]
-// @Security     BearerAuth
-func (h *FriendsHandler) RejectRequest(c *gin.Context) {
-	claims := httpx.EnsureAuth(c)
-	if claims == nil {
-		return
-	}
-
-	requestID := c.Param("id")
-	if _, err := uuid.Parse(requestID); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request ID"))
-		return
-	}
-
-	// Get the request
-	var receiverID, status string
-	err := h.db.QueryRow(`
-		SELECT receiver_id, status FROM friend_requests WHERE id = $1
-	`, requestID).Scan(&receiverID, &status)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Friend request not found"))
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	// Only the receiver can reject
-	if receiverID != claims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("You can only reject requests sent to you"))
-		return
-	}
-
-	// Must be pending
-	if status != "pending" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Request is not pending"))
-		return
-	}
-
-	_, err = h.db.Exec(`
-		UPDATE friend_requests SET status = 'rejected', updated_at = NOW() WHERE id = $1
-	`, requestID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	// Invalidate caches
-	invalidateFriendCaches(h.redis, claims.UserID, "")
-
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"status":  "rejected",
-		"message": "Friend request rejected",
-	}))
-}
-
-// CancelRequest godoc
-// @Summary      Cancel outgoing friend request
-// @Description  Cancel a friend request you sent
-// @Tags         Friends
-// @Produce      json
-// @Param        id path string true "Friend request ID"
-// @Success      200 {object} models.APIResponse
-// @Failure      400 {object} models.APIResponse
-// @Failure      401 {object} models.APIResponse
-// @Failure      404 {object} models.APIResponse
-// @Router       /friends/request/{id} [delete]
-// @Security     BearerAuth
-func (h *FriendsHandler) CancelRequest(c *gin.Context) {
-	claims := httpx.EnsureAuth(c)
-	if claims == nil {
-		return
-	}
-
-	requestID := c.Param("id")
-	if _, err := uuid.Parse(requestID); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request ID"))
-		return
-	}
-
-	// Get the request
-	var senderID, status string
-	err := h.db.QueryRow(`
-		SELECT sender_id, status FROM friend_requests WHERE id = $1
-	`, requestID).Scan(&senderID, &status)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Friend request not found"))
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	// Only the sender can cancel
-	if senderID != claims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("You can only cancel requests you sent"))
-		return
-	}
-
-	// Must be pending
-	if status != "pending" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Request is not pending"))
-		return
-	}
-
-	_, err = h.db.Exec(`
-		UPDATE friend_requests SET status = 'cancelled', updated_at = NOW() WHERE id = $1
-	`, requestID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	invalidateFriendCaches(h.redis, claims.UserID, "")
-
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"status":  "cancelled",
-		"message": "Friend request cancelled",
-	}))
-}
-
-// RemoveFriend godoc
-// @Summary      Remove friend
-// @Description  Remove a user from your friends
-// @Tags         Friends
-// @Produce      json
-// @Param        userId path string true "User ID to remove"
-// @Success      200 {object} models.APIResponse
-// @Failure      401 {object} models.APIResponse
-// @Failure      404 {object} models.APIResponse
-// @Router       /friends/{userId} [delete]
-// @Security     BearerAuth
-func (h *FriendsHandler) RemoveFriend(c *gin.Context) {
+func (h *FriendsHandler) Unsubscribe(c *gin.Context) {
 	claims := httpx.EnsureAuth(c)
 	if claims == nil {
 		return
@@ -511,61 +238,68 @@ func (h *FriendsHandler) RemoveFriend(c *gin.Context) {
 	}
 
 	if claims.UserID == targetUserID {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot remove yourself"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot unsubscribe from yourself"))
 		return
 	}
 
-	// Delete friendship
-	result, err := h.db.Exec(`
-		DELETE FROM friendships 
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`
+		DELETE FROM subscriptions WHERE subscriber_id = $1 AND target_id = $2
+	`, claims.UserID, targetUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+	removed, _ := result.RowsAffected()
+
+	// A friendship only exists while both directions do, so dissolve it.
+	friendResult, err := tx.Exec(`
+		DELETE FROM friendships
 		WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
 	`, claims.UserID, targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
+	wasFriend, _ := friendResult.RowsAffected()
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Not friends with this user"))
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
 
-	// Mark old friend requests as rejected so they can send new ones later
-	h.db.Exec(`
-		UPDATE friend_requests 
-		SET status = 'rejected', updated_at = NOW()
-		WHERE ((sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1))
-		AND status = 'accepted'
-	`, claims.UserID, targetUserID)
+	if removed == 0 && wasFriend == 0 {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Not subscribed to this user"))
+		return
+	}
 
-	// H1: revoke live WebSocket subscriptions to each other's wall rooms. A
-	// subscription authorized under the old friendship must not keep receiving
-	// private wall events (full content + image URLs) after the friendship is
-	// destroyed. Both directions are torn down because either side may have
-	// been subscribed to the other's wall.
-	// M1: the Spotify now-playing room is likewise gated on friendship for
-	// private profiles, so an ex-friend's live subscription must be torn down
-	// too, otherwise they keep receiving realtime now-playing events.
-	if h.hub != nil {
+	// H1/M1: when a friendship is dissolved, revoke live WebSocket
+	// subscriptions to each other's wall and now-playing rooms so an ex-friend
+	// stops receiving private realtime events immediately.
+	if wasFriend > 0 && h.hub != nil {
 		h.hub.ForceUnsubscribeFromWallRooms(claims.UserID, targetUserID)
 		h.hub.ForceUnsubscribeFromWallRooms(targetUserID, claims.UserID)
 		h.hub.ForceUnsubscribeFromNowPlayingRooms(claims.UserID, targetUserID)
 		h.hub.ForceUnsubscribeFromNowPlayingRooms(targetUserID, claims.UserID)
 	}
 
-	// Invalidate caches for both users
 	invalidateFriendCaches(h.redis, claims.UserID, targetUserID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"status":  "removed",
-		"message": "Friend removed",
+		"status":     "unsubscribed",
+		"was_friend": wasFriend > 0,
 	}))
 }
 
 // GetFriends godoc
 // @Summary      Get friends list
-// @Description  Get list of friends for the authenticated user
+// @Description  Get the mutual (friendship) list for a user
 // @Tags         Friends
 // @Produce      json
 // @Success      200 {object} models.APIResponse
@@ -631,65 +365,141 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(friends))
 }
 
-// GetRequests godoc
-// @Summary      Get incoming friend requests
-// @Description  Get pending friend requests sent to the authenticated user
+// GetSubscribers godoc
+// @Summary      Get subscribers
+// @Description  Get the users who follow the target (defaults to the caller)
 // @Tags         Friends
 // @Produce      json
 // @Success      200 {object} models.APIResponse
 // @Failure      401 {object} models.APIResponse
-// @Router       /friends/requests [get]
+// @Router       /friends/subscribers [get]
 // @Security     BearerAuth
-func (h *FriendsHandler) GetRequests(c *gin.Context) {
-	claims := httpx.EnsureAuth(c)
-	if claims == nil {
+func (h *FriendsHandler) GetSubscribers(c *gin.Context) {
+	targetUserID, hidden, ok := h.subscriptionListTarget(c)
+	if !ok {
+		return
+	}
+	if hidden {
+		c.JSON(http.StatusOK, models.SuccessResponse([]models.SubscriptionUser{}))
 		return
 	}
 
-	rows, err := h.db.Query(`
-		SELECT 
-			fr.id,
-			fr.sender_id,
-			fr.receiver_id,
-			fr.status,
-			fr.created_at,
+	h.querySubscriptionUsers(c, `
+		SELECT
+			s.subscriber_id,
 			p.username,
 			p.public_id,
-			p.avatar_url,
 			p.display_name,
-			p.nickname_emoji_id
-		FROM friend_requests fr
-		JOIN profiles p ON p.id = fr.sender_id
-		WHERE fr.receiver_id = $1 AND fr.status = 'pending'
-		ORDER BY fr.created_at DESC
-	`, claims.UserID)
+			p.nickname_emoji_id,
+			p.avatar_url,
+			p.is_online,
+			EXISTS(
+				SELECT 1 FROM friendships f
+				WHERE (f.user1_id = $1 AND f.user2_id = s.subscriber_id)
+				   OR (f.user1_id = s.subscriber_id AND f.user2_id = $1)
+			) AS is_friend,
+			s.created_at
+		FROM subscriptions s
+		JOIN profiles p ON p.id = s.subscriber_id
+		WHERE s.target_id = $1
+		ORDER BY s.created_at DESC, p.username ASC
+	`, targetUserID)
+}
+
+// GetSubscriptions godoc
+// @Summary      Get subscriptions
+// @Description  Get the users the target follows (defaults to the caller)
+// @Tags         Friends
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /friends/subscriptions [get]
+// @Security     BearerAuth
+func (h *FriendsHandler) GetSubscriptions(c *gin.Context) {
+	targetUserID, hidden, ok := h.subscriptionListTarget(c)
+	if !ok {
+		return
+	}
+	if hidden {
+		c.JSON(http.StatusOK, models.SuccessResponse([]models.SubscriptionUser{}))
+		return
+	}
+
+	h.querySubscriptionUsers(c, `
+		SELECT
+			s.target_id,
+			p.username,
+			p.public_id,
+			p.display_name,
+			p.nickname_emoji_id,
+			p.avatar_url,
+			p.is_online,
+			EXISTS(
+				SELECT 1 FROM friendships f
+				WHERE (f.user1_id = $1 AND f.user2_id = s.target_id)
+				   OR (f.user1_id = s.target_id AND f.user2_id = $1)
+			) AS is_friend,
+			s.created_at
+		FROM subscriptions s
+		JOIN profiles p ON p.id = s.target_id
+		WHERE s.subscriber_id = $1
+		ORDER BY s.created_at DESC, p.username ASC
+	`, targetUserID)
+}
+
+// subscriptionListTarget resolves the user whose subscriber/subscription list
+// is requested (the caller by default), enforcing the same private-profile gate
+// as the friends list. Returns (target, hidden, ok): hidden=true means the list
+// must be returned empty; ok=false means a response was already written.
+func (h *FriendsHandler) subscriptionListTarget(c *gin.Context) (string, bool, bool) {
+	claims := httpx.EnsureAuth(c)
+	if claims == nil {
+		return "", false, false
+	}
+
+	targetUserID := c.Query("user_id")
+	if targetUserID == "" {
+		targetUserID = claims.UserID
+	} else if _, err := uuid.Parse(targetUserID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user_id"))
+		return "", false, false
+	}
+
+	shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, claims.UserID, targetUserID)
+	if err == nil && shouldFilter && ps.PrivateHideFriends {
+		return targetUserID, true, true
+	}
+	return targetUserID, false, true
+}
+
+// querySubscriptionUsers runs a list query (column order: user_id, username,
+// public_id, display_name, nickname_emoji_id, avatar_url, is_online, is_friend,
+// created_at) and writes the SubscriptionUser list.
+func (h *FriendsHandler) querySubscriptionUsers(c *gin.Context, query, targetUserID string) {
+	rows, err := h.db.Query(query, targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
 	defer rows.Close()
 
-	var requests []models.FriendRequestResponse
+	users := []models.SubscriptionUser{}
 	for rows.Next() {
-		var req models.FriendRequestResponse
+		var u models.SubscriptionUser
 		var createdAt time.Time
-		if err := rows.Scan(&req.ID, &req.SenderID, &req.ReceiverID, &req.Status, &createdAt, &req.SenderUsername, &req.SenderPublicID, &req.SenderAvatarURL, &req.SenderDisplayName, &req.SenderNicknameEmojiID); err != nil {
+		if err := rows.Scan(&u.UserID, &u.Username, &u.PublicID, &u.DisplayName, &u.NicknameEmojiID, &u.AvatarURL, &u.IsOnline, &u.IsFriend, &createdAt); err != nil {
 			continue
 		}
-		req.CreatedAt = createdAt.Format(time.RFC3339)
-		requests = append(requests, req)
+		u.SubscribedAt = createdAt.Format(time.RFC3339)
+		users = append(users, u)
 	}
 
-	if requests == nil {
-		requests = []models.FriendRequestResponse{}
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(requests))
+	c.JSON(http.StatusOK, models.SuccessResponse(users))
 }
 
 // GetFriendStatus godoc
-// @Summary      Get friend status
-// @Description  Get the friendship status with another user
+// @Summary      Get relationship status
+// @Description  Get the subscription/friendship status with another user
 // @Tags         Friends
 // @Produce      json
 // @Param        userId path string true "User ID"
@@ -714,70 +524,44 @@ func (h *FriendsHandler) GetFriendStatus(c *gin.Context) {
 		return
 	}
 
-	// Check if friends
-	var isFriend bool
+	var isFriend, iFollow, theyFollow bool
 	err := h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM friendships 
-			WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
-		)
-	`, claims.UserID, targetUserID).Scan(&isFriend)
+		SELECT
+			EXISTS(
+				SELECT 1 FROM friendships
+				WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+			),
+			EXISTS(
+				SELECT 1 FROM subscriptions WHERE subscriber_id = $1 AND target_id = $2
+			),
+			EXISTS(
+				SELECT 1 FROM subscriptions WHERE subscriber_id = $2 AND target_id = $1
+			)
+	`, claims.UserID, targetUserID).Scan(&isFriend, &iFollow, &theyFollow)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
+
 	if isFriend {
-		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"status": "friends"}))
-		return
-	}
-
-	// Check for pending request sent by current user
-	var outgoingPending bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM friend_requests 
-			WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-		)
-	`, claims.UserID, targetUserID).Scan(&outgoingPending)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-	if outgoingPending {
-		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"status": "pending_sent"}))
-		return
-	}
-
-	// Check for pending request received from target user
-	var incomingPending bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM friend_requests 
-			WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-		)
-	`, targetUserID, claims.UserID).Scan(&incomingPending)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-	if incomingPending {
-		// Also return the request ID so the frontend can accept/reject
-		var requestID string
-		_ = h.db.QueryRow(`
-			SELECT id FROM friend_requests 
-			WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'
-		`, targetUserID, claims.UserID).Scan(&requestID)
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-			"status":     "pending_received",
-			"request_id": requestID,
+			"status":      "friends",
+			"follows_you": true,
 		}))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"status": "none"}))
+	status := "none"
+	if iFollow {
+		status = "subscribed"
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"status":      status,
+		"follows_you": theyFollow,
+	}))
 }
 
-// createFriendNotification sends a WebSocket notification for friend events.
+// createFriendNotification sends a WebSocket notification for social events.
 func (h *FriendsHandler) createFriendNotification(userID, notifType, actorUsername string, relatedUserID *string) {
 	if h.notif == nil {
 		return

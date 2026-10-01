@@ -427,6 +427,10 @@ func pushTitleFor(n *models.Notification) string {
 		return "Заявка в друзья"
 	case "friend_accepted":
 		return "Заявка в друзья принята"
+	case "new_subscriber":
+		return "Новый подписчик"
+	case "friend_mutual":
+		return "Вы теперь друзья"
 	case "gift_received":
 		return "Вам подарили подарок"
 	default:
@@ -504,6 +508,16 @@ func pushBodyFor(n *models.Notification) string {
 			return "@" + actor + " принял(а) вашу заявку"
 		}
 		return "Заявка в друзья принята"
+	case "new_subscriber":
+		if actor != "" {
+			return "@" + actor + " подписался(лась) на вас"
+		}
+		return "Новый подписчик"
+	case "friend_mutual":
+		if actor != "" {
+			return "@" + actor + " и вы теперь друзья"
+		}
+		return "Вы теперь друзья"
 	case "gift_received":
 		if params.GiftName != "" {
 			return "Подарок: " + params.GiftName

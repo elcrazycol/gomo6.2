@@ -796,14 +796,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 					chatWrite.DELETE("/gomosubchat/channels/:id/messages/:msgId", channelChatHandler.DeleteMessage)
 				}
 
-				// Friends
-				protected.POST("/friends/request", friendsHandler.SendRequest)
-				protected.PUT("/friends/request/:id/accept", friendsHandler.AcceptRequest)
-				protected.PUT("/friends/request/:id/reject", friendsHandler.RejectRequest)
-				protected.DELETE("/friends/request/:id", friendsHandler.CancelRequest)
-				protected.DELETE("/friends/:userId", friendsHandler.RemoveFriend)
+				// Friends / subscriptions. A follow is one-directional and needs
+				// no approval; a mutual pair is a friendship.
+				protected.POST("/friends/subscribe", friendsHandler.Subscribe)
+				protected.DELETE("/friends/subscribe/:userId", friendsHandler.Unsubscribe)
 				protected.GET("/friends", friendsHandler.GetFriends)
-				protected.GET("/friends/requests", friendsHandler.GetRequests)
+				protected.GET("/friends/subscribers", friendsHandler.GetSubscribers)
+				protected.GET("/friends/subscriptions", friendsHandler.GetSubscriptions)
 				protected.GET("/friends/status/:userId", friendsHandler.GetFriendStatus)
 
 				// Emoji packs (protected)
@@ -945,17 +944,28 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 						// uploader placed on a private wall). The uploader gate applies
 						// only to keys no legitimate post references (orphans/guessing).
 						found, allowed := privacy.WallAttachmentAccess(db, viewerID, ownerID, key)
-						// Fallback for orphaned/guessed keys: the uploader gate applies
-						// only to keys no legitimate post references. The wall-visibility
-						// rule lives in privacy.CanViewWall; DB errors fail closed but
-						// are logged so an outage is not mistaken for a plain 403.
-						canViewWall, err := privacy.CanViewWall(db, viewerID, ownerID)
-						if err != nil {
-							log.Printf("[storage] wall visibility check failed for viewer=%s owner=%s: %v", viewerID, ownerID, err)
-						}
-						if (found && !allowed) || (!found && !canViewWall) {
-							c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-							return
+						if found {
+							// A referencing post exists: WallAttachmentAccess already
+							// applied the shared wall-visibility rule, so CanViewWall
+							// would be a second, redundant query on every authorized
+							// wall image. Deny only when the referencing wall is hidden.
+							if !allowed {
+								c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+								return
+							}
+						} else {
+							// Fallback for orphaned/guessed keys: the uploader gate applies
+							// only to keys no legitimate post references. The wall-visibility
+							// rule lives in privacy.CanViewWall; DB errors fail closed but
+							// are logged so an outage is not mistaken for a plain 403.
+							canViewWall, err := privacy.CanViewWall(db, viewerID, ownerID)
+							if err != nil {
+								log.Printf("[storage] wall visibility check failed for viewer=%s owner=%s: %v", viewerID, ownerID, err)
+							}
+							if !canViewWall {
+								c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+								return
+							}
 						}
 					}
 				}

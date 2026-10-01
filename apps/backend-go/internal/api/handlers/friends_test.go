@@ -49,7 +49,7 @@ func notificationInsertRow(id string) *sqlmock.Rows {
 		"related_thread_id", "related_post_id", "related_user_id",
 		"related_wall_post_id", "related_wall_comment_id", "related_wall_user_id",
 		"related_wall_post_ids", "is_read", "created_at", "group_count", "params",
-	}).AddRow(id, "u-receiver", "friend_request", "", "", nil, nil, "u-sender", nil, nil, nil, "[]", false, "2024-01-01T00:00:00Z", 1, []byte("{}"))
+	}).AddRow(id, "u-receiver", "new_subscriber", "", "", nil, nil, "u-sender", nil, nil, nil, "[]", false, "2024-01-01T00:00:00Z", 1, []byte("{}"))
 }
 
 const (
@@ -57,453 +57,235 @@ const (
 	friendReceiver = "550e8400-e29b-41d4-a716-446655440001"
 )
 
-// ── SendRequest ──────────────────────────────────────────────────────────────
+// ── Subscribe ────────────────────────────────────────────────────────────────
 
-func TestSendRequest_Unauthenticated(t *testing.T) {
+func TestSubscribe_Unauthenticated(t *testing.T) {
 	handler, _ := setupFriendsHandler(t)
 
-	c, w := newPOSTContext("/api/v1/friends/request", nil, nil, nil)
-	handler.SendRequest(c)
+	c, w := newPOSTContext("/api/v1/friends/subscribe", nil, nil, nil)
+	handler.Subscribe(c)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestSendRequest_InvalidBody(t *testing.T) {
+func TestSubscribe_InvalidBody(t *testing.T) {
 	handler, _ := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
-	c, w := newPOSTContext("/api/v1/friends/request", nil, claims, nil)
-	handler.SendRequest(c)
+	c, w := newPOSTContext("/api/v1/friends/subscribe", nil, claims, nil)
+	handler.Subscribe(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestSendRequest_ReceiverNotFound(t *testing.T) {
+func TestSubscribe_TargetNotFound(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
 	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
-	handler.SendRequest(c)
+	c, w := newPOSTContext("/api/v1/friends/subscribe", map[string]string{"user_id": friendReceiver}, claims, nil)
+	handler.Subscribe(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestSendRequest_ReceiverQueryError(t *testing.T) {
+func TestSubscribe_ToSelf(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
 	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
-		WillReturnError(errors.New("db down"))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
-	handler.SendRequest(c)
+	c, w := newPOSTContext("/api/v1/friends/subscribe", map[string]string{"user_id": friendSender}, claims, nil)
+	handler.Subscribe(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestSendRequest_ToSelf(t *testing.T) {
+func TestSubscribe_Success(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
 	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendSender}, claims, nil)
-	handler.SendRequest(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestSendRequest_AlreadyFriends(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-
-	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
-	handler.SendRequest(c)
-
-	if w.Code != http.StatusConflict {
-		t.Errorf("expected 409, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestSendRequest_PendingAlreadyExists(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-
-	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO subscriptions").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Not mutual → no friendship materialized.
+	mock.ExpectQuery("FROM subscriptions WHERE subscriber_id").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
-	handler.SendRequest(c)
-
-	if w.Code != http.StatusConflict {
-		t.Errorf("expected 409, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestSendRequest_Success(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-
-	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	// Reverse request lookup → none
-	mock.ExpectQuery("SELECT id FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnError(sql.ErrNoRows)
-	// Rejected request lookup → none
-	mock.ExpectQuery("SELECT id FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'rejected'").
-		WillReturnError(sql.ErrNoRows)
-	// Insert new request
-	mock.ExpectQuery("INSERT INTO friend_requests \\(sender_id, receiver_id, status\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("req-new-1"))
-	// Notification: sender username + notification insert
+	mock.ExpectCommit()
 	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("alice"))
 	mock.ExpectQuery("INSERT INTO notifications \\(user_id, type, title, message").
 		WillReturnRows(notificationInsertRow("notif-1"))
 
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
-	handler.SendRequest(c)
+	c, w := newPOSTContext("/api/v1/friends/subscribe", map[string]string{"user_id": friendReceiver}, claims, nil)
+	handler.Subscribe(c)
 
-	if w.Code != http.StatusCreated {
-		t.Errorf("expected 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
 	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"pending"`) {
-		t.Errorf("expected pending status in body, got: %s", body)
+	if body := w.Body.String(); !strings.Contains(body, `"status":"subscribed"`) {
+		t.Errorf("expected subscribed status in body, got: %s", body)
 	}
 }
 
-func TestSendRequest_RejectedReactivated(t *testing.T) {
+func TestSubscribe_MutualBecomesFriends(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
 	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT id FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnError(sql.ErrNoRows)
-	// Rejected request found → reactivated instead of inserting
-	mock.ExpectQuery("SELECT id FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'rejected'").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("req-rej-1"))
-	mock.ExpectExec("UPDATE friend_requests SET status = 'pending'").
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO subscriptions").
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Target already follows the subscriber → mutual.
+	mock.ExpectQuery("FROM subscriptions WHERE subscriber_id").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("INSERT INTO friendships").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("fs-1"))
+	mock.ExpectCommit()
 	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("alice"))
 	mock.ExpectQuery("INSERT INTO notifications \\(user_id, type, title, message").
 		WillReturnRows(notificationInsertRow("notif-2"))
+	mock.ExpectQuery("INSERT INTO notifications \\(user_id, type, title, message").
+		WillReturnRows(notificationInsertRow("notif-3"))
 
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
-	handler.SendRequest(c)
+	c, w := newPOSTContext("/api/v1/friends/subscribe", map[string]string{"user_id": friendReceiver}, claims, nil)
+	handler.Subscribe(c)
 
-	if w.Code != http.StatusCreated {
-		t.Errorf("expected 201, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"status":"friends"`) || !strings.Contains(body, `"became_friends":true`) {
+		t.Errorf("expected friends/became_friends in body, got: %s", body)
 	}
 }
 
-func TestSendRequest_AutoAcceptsReverseRequest(t *testing.T) {
+func TestSubscribe_AlreadySubscribedIsIdempotent(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
 	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM users WHERE id = \\$1\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	// Reverse pending request EXISTS
-	mock.ExpectQuery("SELECT id FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("req-rev-1"))
-	// acceptFriendRequest: tx, update, insert friendship, commit
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE friend_requests SET status = 'accepted'").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("INSERT INTO friendships \\(user1_id, user2_id\\) VALUES \\(\\$1, \\$2\\)").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-	// Notification: username of sender for the "принял вашу заявку" message + insert
-	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("alice"))
-	mock.ExpectQuery("INSERT INTO notifications \\(user_id, type, title, message").
-		WithArgs(friendReceiver, "friend_accepted", sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, friendSender, nil, nil, nil, "[]", false, sqlmock.AnyArg(), 1, `{"actor":"alice"}`).
-		WillReturnRows(notificationInsertRow("notif-3"))
-
-	c, w := newPOSTContext("/api/v1/friends/request", map[string]string{"receiver_id": friendReceiver}, claims, nil)
-	handler.SendRequest(c)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 (auto-accept), got %d, body: %s", w.Code, w.Body.String())
-	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"friends"`) {
-		t.Errorf("expected friends status in body, got: %s", body)
-	}
-}
-
-// ── AcceptRequest ────────────────────────────────────────────────────────────
-
-func TestAcceptRequest_InvalidUUID(t *testing.T) {
-	handler, _ := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendReceiver}
-
-	c, w := newPUTContext("/api/v1/friends/request/not-a-uuid/accept", nil, claims, map[string]string{"id": "not-a-uuid"})
-	handler.AcceptRequest(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestAcceptRequest_NotFound(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendReceiver}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT id, sender_id, receiver_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnError(sql.ErrNoRows)
-
-	c, w := newPUTContext("/api/v1/friends/request/"+reqID+"/accept", nil, claims, map[string]string{"id": reqID})
-	handler.AcceptRequest(c)
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("expected 404, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestAcceptRequest_ForbiddenForSender(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT id, sender_id, receiver_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "sender_id", "receiver_id", "status"}).
-			AddRow(reqID, friendSender, friendReceiver, "pending"))
-
-	c, w := newPUTContext("/api/v1/friends/request/"+reqID+"/accept", nil, claims, map[string]string{"id": reqID})
-	handler.AcceptRequest(c)
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestAcceptRequest_NotPending(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendReceiver}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT id, sender_id, receiver_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "sender_id", "receiver_id", "status"}).
-			AddRow(reqID, friendSender, friendReceiver, "accepted"))
-
-	c, w := newPUTContext("/api/v1/friends/request/"+reqID+"/accept", nil, claims, map[string]string{"id": reqID})
-	handler.AcceptRequest(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestAcceptRequest_Success(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendReceiver}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT id, sender_id, receiver_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "sender_id", "receiver_id", "status"}).
-			AddRow(reqID, friendSender, friendReceiver, "pending"))
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE friend_requests SET status = 'accepted'").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("INSERT INTO friendships \\(user1_id, user2_id\\) VALUES \\(\\$1, \\$2\\)").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-	mock.ExpectQuery("SELECT username FROM profiles WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("bob"))
-	mock.ExpectQuery("INSERT INTO notifications \\(user_id, type, title, message").
-		WithArgs(friendSender, "friend_accepted", sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, friendReceiver, nil, nil, nil, "[]", false, sqlmock.AnyArg(), 1, `{"actor":"bob"}`).
-		WillReturnRows(notificationInsertRow("notif-4"))
-
-	c, w := newPUTContext("/api/v1/friends/request/"+reqID+"/accept", nil, claims, map[string]string{"id": reqID})
-	handler.AcceptRequest(c)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
-	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"friends"`) {
-		t.Errorf("expected friends status in body, got: %s", body)
-	}
-}
-
-// ── RejectRequest ────────────────────────────────────────────────────────────
-
-func TestRejectRequest_Success(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendReceiver}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT receiver_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"receiver_id", "status"}).AddRow(friendReceiver, "pending"))
-	mock.ExpectExec("UPDATE friend_requests SET status = 'rejected'").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	c, w := newPUTContext("/api/v1/friends/request/"+reqID+"/reject", nil, claims, map[string]string{"id": reqID})
-	handler.RejectRequest(c)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
-	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"rejected"`) {
-		t.Errorf("expected rejected status in body, got: %s", body)
-	}
-}
-
-func TestRejectRequest_ForbiddenForSender(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT receiver_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"receiver_id", "status"}).AddRow(friendReceiver, "pending"))
-
-	c, w := newPUTContext("/api/v1/friends/request/"+reqID+"/reject", nil, claims, map[string]string{"id": reqID})
-	handler.RejectRequest(c)
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-// ── CancelRequest ────────────────────────────────────────────────────────────
-
-func TestCancelRequest_Success(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT sender_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"sender_id", "status"}).AddRow(friendSender, "pending"))
-	mock.ExpectExec("UPDATE friend_requests SET status = 'cancelled'").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	c, w := newDELETEPContext("/api/v1/friends/request/"+reqID, nil, map[string]string{"id": reqID})
-	c.Set("claims", claims)
-	handler.CancelRequest(c)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
-	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"cancelled"`) {
-		t.Errorf("expected cancelled status in body, got: %s", body)
-	}
-}
-
-func TestCancelRequest_ForbiddenForReceiver(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendReceiver}
-	reqID := "550e8400-e29b-41d4-a716-446655449999"
-
-	mock.ExpectQuery("SELECT sender_id, status FROM friend_requests WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"sender_id", "status"}).AddRow(friendSender, "pending"))
-
-	c, w := newDELETEPContext("/api/v1/friends/request/"+reqID, nil, map[string]string{"id": reqID})
-	c.Set("claims", claims)
-	handler.CancelRequest(c)
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-// ── RemoveFriend ─────────────────────────────────────────────────────────────
-
-func TestRemoveFriend_InvalidUUID(t *testing.T) {
-	handler, _ := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-
-	c, w := newDELETEPContext("/api/v1/friends/not-a-uuid", nil, map[string]string{"userId": "not-a-uuid"})
-	c.Set("claims", claims)
-	handler.RemoveFriend(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestRemoveFriend_Self(t *testing.T) {
-	handler, _ := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-
-	c, w := newDELETEPContext("/api/v1/friends/"+friendSender, nil, map[string]string{"userId": friendSender})
-	c.Set("claims", claims)
-	handler.RemoveFriend(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestRemoveFriend_NotFriends(t *testing.T) {
-	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendSender}
-
-	mock.ExpectExec("DELETE FROM friendships").
+	// ON CONFLICT DO NOTHING → 0 rows affected.
+	mock.ExpectExec("INSERT INTO subscriptions").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM subscriptions WHERE subscriber_id").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectCommit()
 
-	c, w := newDELETEPContext("/api/v1/friends/"+friendReceiver, nil, map[string]string{"userId": friendReceiver})
+	c, w := newPOSTContext("/api/v1/friends/subscribe", map[string]string{"user_id": friendReceiver}, claims, nil)
+	handler.Subscribe(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"status":"subscribed"`) {
+		t.Errorf("expected subscribed status in body, got: %s", body)
+	}
+}
+
+// ── Unsubscribe ──────────────────────────────────────────────────────────────
+
+func TestUnsubscribe_InvalidUUID(t *testing.T) {
+	handler, _ := setupFriendsHandler(t)
+	claims := &auth.Claims{UserID: friendSender}
+
+	c, w := newDELETEPContext("/api/v1/friends/subscribe/not-a-uuid", nil, map[string]string{"userId": "not-a-uuid"})
 	c.Set("claims", claims)
-	handler.RemoveFriend(c)
+	handler.Unsubscribe(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnsubscribe_Self(t *testing.T) {
+	handler, _ := setupFriendsHandler(t)
+	claims := &auth.Claims{UserID: friendSender}
+
+	c, w := newDELETEPContext("/api/v1/friends/subscribe/"+friendSender, nil, map[string]string{"userId": friendSender})
+	c.Set("claims", claims)
+	handler.Unsubscribe(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnsubscribe_NotSubscribed(t *testing.T) {
+	handler, mock := setupFriendsHandler(t)
+	claims := &auth.Claims{UserID: friendSender}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM subscriptions").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("DELETE FROM friendships").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	c, w := newDELETEPContext("/api/v1/friends/subscribe/"+friendReceiver, nil, map[string]string{"userId": friendReceiver})
+	c.Set("claims", claims)
+	handler.Unsubscribe(c)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestRemoveFriend_Success(t *testing.T) {
+func TestUnsubscribe_Success(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
-	mock.ExpectExec("DELETE FROM friendships").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("UPDATE friend_requests \\s*SET status = 'rejected'").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM subscriptions").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM friendships").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
-	c, w := newDELETEPContext("/api/v1/friends/"+friendReceiver, nil, map[string]string{"userId": friendReceiver})
+	c, w := newDELETEPContext("/api/v1/friends/subscribe/"+friendReceiver, nil, map[string]string{"userId": friendReceiver})
 	c.Set("claims", claims)
-	handler.RemoveFriend(c)
+	handler.Unsubscribe(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
 	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"removed"`) {
-		t.Errorf("expected removed status in body, got: %s", body)
+	body := w.Body.String()
+	if !strings.Contains(body, `"status":"unsubscribed"`) || !strings.Contains(body, `"was_friend":true`) {
+		t.Errorf("expected unsubscribed/was_friend in body, got: %s", body)
+	}
+}
+
+func TestUnsubscribe_UnfollowsWithoutFriendship(t *testing.T) {
+	handler, mock := setupFriendsHandler(t)
+	claims := &auth.Claims{UserID: friendSender}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM subscriptions").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM friendships").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	c, w := newDELETEPContext("/api/v1/friends/subscribe/"+friendReceiver, nil, map[string]string{"userId": friendReceiver})
+	c.Set("claims", claims)
+	handler.Unsubscribe(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"was_friend":false`) {
+		t.Errorf("expected was_friend:false in body, got: %s", body)
 	}
 }
 
@@ -536,15 +318,12 @@ func TestGetFriends_PrivateProfileHidesList(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
-	// Viewing ANOTHER user's friends: private profile with private_hide_friends=true
-	// and the viewer is not a friend → empty list, no friend query.
 	mock.ExpectQuery("SELECT COALESCE\\(private_profile, false\\).*FROM privacy_settings").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"private_profile", "private_hide_avatar", "private_hide_wall",
 			"private_hide_threads", "private_hide_stats", "private_hide_friends",
 			"private_hide_gifts", "private_hide_achievements",
 		}).AddRow(true, false, false, false, false, true, false, false))
-	// Not a mutual friend → filter applies
 	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
@@ -571,30 +350,93 @@ func TestGetFriends_InvalidUserIDParam(t *testing.T) {
 	}
 }
 
-// ── GetRequests ──────────────────────────────────────────────────────────────
+// ── GetSubscribers / GetSubscriptions ────────────────────────────────────────
 
-func TestGetRequests_Success(t *testing.T) {
+func TestGetSubscribers_Success(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendReceiver}
 
-	mock.ExpectQuery("SELECT \\s*fr\\.id,\\s*fr\\.sender_id").WillReturnRows(
-		sqlmock.NewRows([]string{"id", "sender_id", "receiver_id", "status", "created_at",
-			"username", "public_id", "avatar_url", "display_name", "nickname_emoji_id"}).
-			AddRow("req-1", friendSender, friendReceiver, "pending", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "alice", 10, nil, "Alice", nil),
+	mock.ExpectQuery("SELECT COALESCE\\(private_profile, false\\).*FROM privacy_settings").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("JOIN profiles p ON p.id = s.subscriber_id").WillReturnRows(
+		sqlmock.NewRows([]string{"user_id", "username", "public_id", "display_name", "nickname_emoji_id", "avatar_url", "is_online", "is_friend", "created_at"}).
+			AddRow(friendSender, "alice", 10, "Alice", nil, nil, false, true, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)),
 	)
 
-	c, w := newGETContextWithClaims("/api/v1/friends/requests", nil, claims)
-	handler.GetRequests(c)
+	c, w := newGETContextWithClaims("/api/v1/friends/subscribers", nil, claims)
+	handler.GetSubscribers(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
 	}
-	if body := w.Body.String(); !strings.Contains(body, `"sender_username":"alice"`) {
-		t.Errorf("expected sender alice in body, got: %s", body)
+	body := w.Body.String()
+	if !strings.Contains(body, `"username":"alice"`) || !strings.Contains(body, `"is_friend":true`) {
+		t.Errorf("expected subscriber alice with is_friend in body, got: %s", body)
+	}
+}
+
+func TestGetSubscribers_PrivateProfileHidesList(t *testing.T) {
+	handler, mock := setupFriendsHandler(t)
+	claims := &auth.Claims{UserID: friendSender}
+
+	mock.ExpectQuery("SELECT COALESCE\\(private_profile, false\\).*FROM privacy_settings").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"private_profile", "private_hide_avatar", "private_hide_wall",
+			"private_hide_threads", "private_hide_stats", "private_hide_friends",
+			"private_hide_gifts", "private_hide_achievements",
+		}).AddRow(true, false, false, false, false, true, false, false))
+	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := newGETContextWithClaims("/api/v1/friends/subscribers", map[string]string{"user_id": friendReceiver}, claims)
+	handler.GetSubscribers(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"data":[]`) {
+		t.Errorf("expected empty subscribers list, got: %s", body)
+	}
+}
+
+func TestGetSubscribers_InvalidUserIDParam(t *testing.T) {
+	handler, _ := setupFriendsHandler(t)
+	claims := &auth.Claims{UserID: friendSender}
+
+	c, w := newGETContextWithClaims("/api/v1/friends/subscribers", map[string]string{"user_id": "not-a-uuid"}, claims)
+	handler.GetSubscribers(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetSubscriptions_Success(t *testing.T) {
+	handler, mock := setupFriendsHandler(t)
+	claims := &auth.Claims{UserID: friendSender}
+
+	mock.ExpectQuery("SELECT COALESCE\\(private_profile, false\\).*FROM privacy_settings").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("JOIN profiles p ON p.id = s.target_id").WillReturnRows(
+		sqlmock.NewRows([]string{"user_id", "username", "public_id", "display_name", "nickname_emoji_id", "avatar_url", "is_online", "is_friend", "created_at"}).
+			AddRow(friendReceiver, "bob", 42, "Bob", nil, nil, true, false, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)),
+	)
+
+	c, w := newGETContextWithClaims("/api/v1/friends/subscriptions", nil, claims)
+	handler.GetSubscriptions(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"username":"bob"`) || !strings.Contains(body, `"is_friend":false`) {
+		t.Errorf("expected subscription bob in body, got: %s", body)
 	}
 }
 
 // ── GetFriendStatus ──────────────────────────────────────────────────────────
+
+const friendStatusQueryPat = "SELECT\\s+EXISTS\\(\\s+SELECT 1 FROM friendships"
 
 func TestGetFriendStatus_Self(t *testing.T) {
 	handler, _ := setupFriendsHandler(t)
@@ -629,8 +471,8 @@ func TestGetFriendStatus_Friends(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(friendStatusQueryPat).
+		WillReturnRows(sqlmock.NewRows([]string{"is_friend", "i_follow", "they_follow"}).AddRow(true, true, true))
 
 	c, w := newGETContextWithClaims("/api/v1/friends/status/"+friendReceiver, nil, claims)
 	c.Params = append(c.Params, gin.Param{Key: "userId", Value: friendReceiver})
@@ -644,49 +486,37 @@ func TestGetFriendStatus_Friends(t *testing.T) {
 	}
 }
 
-func TestGetFriendStatus_PendingSent(t *testing.T) {
+func TestGetFriendStatus_Subscribed(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(friendStatusQueryPat).
+		WillReturnRows(sqlmock.NewRows([]string{"is_friend", "i_follow", "they_follow"}).AddRow(false, true, false))
 
 	c, w := newGETContextWithClaims("/api/v1/friends/status/"+friendReceiver, nil, claims)
 	c.Params = append(c.Params, gin.Param{Key: "userId", Value: friendReceiver})
 	handler.GetFriendStatus(c)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"pending_sent"`) {
-		t.Errorf("expected pending_sent status, got: %s", body)
+	body := w.Body.String()
+	if !strings.Contains(body, `"status":"subscribed"`) || !strings.Contains(body, `"follows_you":false`) {
+		t.Errorf("expected subscribed status, got: %s", body)
 	}
 }
 
-func TestGetFriendStatus_PendingReceived(t *testing.T) {
+func TestGetFriendStatus_NoneButFollowsYou(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
-	claims := &auth.Claims{UserID: friendReceiver}
+	claims := &auth.Claims{UserID: friendSender}
 
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT id FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("req-in-1"))
+	mock.ExpectQuery(friendStatusQueryPat).
+		WillReturnRows(sqlmock.NewRows([]string{"is_friend", "i_follow", "they_follow"}).AddRow(false, false, true))
 
-	c, w := newGETContextWithClaims("/api/v1/friends/status/"+friendSender, nil, claims)
-	c.Params = append(c.Params, gin.Param{Key: "userId", Value: friendSender})
+	c, w := newGETContextWithClaims("/api/v1/friends/status/"+friendReceiver, nil, claims)
+	c.Params = append(c.Params, gin.Param{Key: "userId", Value: friendReceiver})
 	handler.GetFriendStatus(c)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if body := w.Body.String(); !strings.Contains(body, `"status":"pending_received"`) || !strings.Contains(body, `"request_id":"req-in-1"`) {
-		t.Errorf("expected pending_received with request_id, got: %s", body)
+	body := w.Body.String()
+	if !strings.Contains(body, `"status":"none"`) || !strings.Contains(body, `"follows_you":true`) {
+		t.Errorf("expected none/follows_you status, got: %s", body)
 	}
 }
 
@@ -694,20 +524,13 @@ func TestGetFriendStatus_None(t *testing.T) {
 	handler, mock := setupFriendsHandler(t)
 	claims := &auth.Claims{UserID: friendSender}
 
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friendships").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery("SELECT EXISTS\\(\\s*SELECT 1 FROM friend_requests\\s*WHERE sender_id = \\$1 AND receiver_id = \\$2 AND status = 'pending'").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(friendStatusQueryPat).
+		WillReturnRows(sqlmock.NewRows([]string{"is_friend", "i_follow", "they_follow"}).AddRow(false, false, false))
 
 	c, w := newGETContextWithClaims("/api/v1/friends/status/"+friendReceiver, nil, claims)
 	c.Params = append(c.Params, gin.Param{Key: "userId", Value: friendReceiver})
 	handler.GetFriendStatus(c)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
 	if body := w.Body.String(); !strings.Contains(body, `"status":"none"`) {
 		t.Errorf("expected none status, got: %s", body)
 	}
@@ -753,7 +576,7 @@ func TestInvalidateFriendCaches_NilRedisNoop(t *testing.T) {
 }
 
 func TestInvalidateFriendCaches_DeletesMatchingKeys(t *testing.T) {
-	// Privacy-critical: after unfriending, cached private wall content keyed by
+	// Privacy-critical: after unfollowing, cached private wall content keyed by
 	// the ex-friend's viewer id must be purged, plus all friend-list cache keys.
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -761,7 +584,8 @@ func TestInvalidateFriendCaches_DeletesMatchingKeys(t *testing.T) {
 	ctx := context.Background()
 	keys := []string{
 		"data:/api/v1/friends",
-		"data:/api/v1/friends?limit=50",
+		"data:/api/v1/friends/subscribers?user_id=u1",
+		"data:/api/v1/friends/subscriptions",
 		"data:/api/v1/profile_wall_posts?user_id=u1&viewer=" + friendSender,
 		"data:/api/v1/profile_wall_posts?user_id=u2&viewer=" + friendReceiver,
 		"data:/api/v1/threads", // unrelated — must survive
@@ -774,7 +598,7 @@ func TestInvalidateFriendCaches_DeletesMatchingKeys(t *testing.T) {
 
 	invalidateFriendCaches(client, friendSender, friendReceiver)
 
-	for _, k := range keys[:4] {
+	for _, k := range keys[:5] {
 		if exists := mr.Exists(k); exists {
 			t.Errorf("expected key %q to be deleted", k)
 		}
