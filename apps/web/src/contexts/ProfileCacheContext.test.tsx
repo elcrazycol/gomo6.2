@@ -175,6 +175,27 @@ describe("ProfileCacheContext", () => {
     expect(mockFrom).toHaveBeenCalled();
   });
 
+  it("clears only the scoped user's entry on a scoped invalidate event", async () => {
+    const { result } = renderHook(() => useProfileCache(), { wrapper });
+
+    await act(async () => {
+      await result.current.loadProfile("user-1");
+      await result.current.loadProfile("user-2");
+    });
+    expect(result.current.getProfile("user-1")).not.toBeNull();
+    expect(result.current.getProfile("user-2")).not.toBeNull();
+
+    // A scoped profile_updated for user-1 must not evict user-2.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("profile-cache:invalidate", { detail: { userId: "user-1" } }),
+      );
+    });
+
+    expect(result.current.getProfile("user-1")).toBeNull();
+    expect(result.current.getProfile("user-2")).not.toBeNull();
+  });
+
   it("skips user_roles for guests (no session cookie)", async () => {
     mockGetCSRFToken.mockReturnValue(null);
 

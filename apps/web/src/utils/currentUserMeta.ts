@@ -1,5 +1,6 @@
 import { api } from "@/integrations/api/compat";
 import type { GiftCatalogItem } from "@/components/GiftCard";
+import { profileCacheInvalidateUserId } from "@/utils/profileCacheEvents";
 
 /**
  * TTL-cached metadata for the current user (roles, username, avatar) and the
@@ -33,7 +34,21 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const inFlight = new Map<string, Promise<CurrentUserMeta>>();export function clearCurrentUserMetaCache() {
+const inFlight = new Map<string, Promise<CurrentUserMeta>>();
+
+/**
+ * Clears cached metadata. With a scoped `profile-cache:invalidate` event the
+ * only entry that can be stale is the changed user's, so a viewer's own
+ * roles/avatar are left alone instead of being refetched on every other
+ * person's profile edit. No event (or an unscoped one) resets everything.
+ */
+export function clearCurrentUserMetaCache(event?: Event) {
+  const changedUserId = event ? profileCacheInvalidateUserId(event) : undefined;
+  if (changedUserId) {
+    cache.delete(changedUserId);
+    inFlight.delete(changedUserId);
+    return;
+  }
   cache.clear();
   inFlight.clear();
 }

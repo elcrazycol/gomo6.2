@@ -17,6 +17,21 @@ interface CacheEntry {
 
 const customizationCache = new Map<string, CacheEntry>();
 
+// In-flight requests keyed by user id. The cache above is only populated once a
+// response resolves, so without this a feed rendering N badges for the same
+// author fired N identical concurrent requests on a cold load. They all share
+// the first promise instead.
+const inFlight = new Map<string, Promise<ProfileCustomization | null>>();
+
+// Bumped on every invalidation. A request captures the generation before it
+// starts and only writes its result if the generation is unchanged, so a
+// response that resolves after an edit can never resurrect the stale entry.
+let globalGeneration = 0;
+const userGeneration = new Map<string, number>();
+
+const generationFor = (userId: string): string =>
+  `${globalGeneration}:${userGeneration.get(userId) ?? 0}`;
+
 const readCached = (userId: string): { hit: boolean; value: ProfileCustomization | null } => {
   const entry = customizationCache.get(userId);
   if (!entry) return { hit: false, value: null };
@@ -46,29 +61,47 @@ export const getProfileCustomization = async (userId: string): Promise<ProfileCu
     return cached.value;
   }
 
-  try {
-    // Public display endpoint, NOT the generic /profile_customization surface:
-    // that table is read-scoped to the caller's own user_id
-    // (TableMeta.UserScopedRead), so querying it with somebody else's id returns
-    // an empty row — which is exactly why nobody ever saw another user's
-    // nickname colour. /users/:id/customization serves the display fields to any
-    // viewer (the same reason /users/:id/privacy exists for privacy_settings)
-    // and it works for the current user too, so no owner/viewer branch is needed.
-    const res = await fetch(`/api/v1/users/${encodeURIComponent(userId)}/customization`);
-    if (!res.ok) {
-      writeCached(userId, null);
-      return null;
-    }
-
-    const payload = (await res.json()) as { data?: ProfileCustomization | null };
-    const customization = payload?.data ?? null;
-    writeCached(userId, customization);
-    return customization;
-  } catch (error) {
-    console.error("Error loading customization:", error);
-    writeCached(userId, null);
-    return null;
+  // A concurrent call for the same user is already on the wire — reuse it
+  // instead of firing a duplicate (the cache is written only on resolution).
+  const pending = inFlight.get(userId);
+  if (pending) {
+    return pending;
   }
+
+  const generation = generationFor(userId);
+
+  const promise = (async (): Promise<ProfileCustomization | null> => {
+    try {
+      // Public display endpoint, NOT the generic /profile_customization surface:
+      // that table is read-scoped to the caller's own user_id
+      // (TableMeta.UserScopedRead), so querying it with somebody else's id returns
+      // an empty row — which is exactly why nobody ever saw another user's
+      // nickname colour. /users/:id/customization serves the display fields to any
+      // viewer (the same reason /users/:id/privacy exists for privacy_settings)
+      // and it works for the current user too, so no owner/viewer branch is needed.
+      const res = await fetch(`/api/v1/users/${encodeURIComponent(userId)}/customization`);
+      if (!res.ok) {
+        if (generationFor(userId) === generation) writeCached(userId, null);
+        return null;
+      }
+
+      const payload = (await res.json()) as { data?: ProfileCustomization | null };
+      const customization = payload?.data ?? null;
+      // An invalidation that landed while this request was in flight wins: do
+      // not overwrite the cleared cache with the pre-edit response.
+      if (generationFor(userId) === generation) writeCached(userId, customization);
+      return customization;
+    } catch (error) {
+      console.error("Error loading customization:", error);
+      if (generationFor(userId) === generation) writeCached(userId, null);
+      return null;
+    } finally {
+      inFlight.delete(userId);
+    }
+  })();
+
+  inFlight.set(userId, promise);
+  return promise;
 };
 
 export const parseCssToStyle = (css: string): React.CSSProperties => {
@@ -125,20 +158,30 @@ export const parseCssToStyle = (css: string): React.CSSProperties => {
 export const clearCustomizationCache = (userId?: string) => {
   if (userId) {
     customizationCache.delete(userId);
-  } else {
-    customizationCache.clear();
+    inFlight.delete(userId);
+    userGeneration.set(userId, (userGeneration.get(userId) ?? 0) + 1);
+    return;
   }
+  customizationCache.clear();
+  inFlight.clear();
+  globalGeneration += 1;
 };
 
 /**
- * Broadcast that the current user's profile changed (username, avatar, display
- * name, nickname emoji, customization...). This is the single entry point every
- * profile mutation must call:
- *  - clears the module-level customization cache here, and
- *  - dispatches a DOM event that ProfileCacheContext and currentUserMeta
- *    listen to, so ALL client-side profile caches reset together.
+ * Broadcast that a profile changed (username, avatar, display name, nickname
+ * emoji, customization...). This is the single entry point every profile
+ * mutation must call:
+ *  - clears the relevant customization cache entry, and
+ *  - dispatches a DOM event that ProfileCacheContext, currentUserMeta and the
+ *    other client-side profile caches listen to, so they reset together.
+ *
+ * Pass `userId` to scope the invalidation to one profile (the server sends it
+ * with every profile_updated broadcast). Listeners that only hold that user's
+ * data then skip their refetch, so one person editing their nickname no longer
+ * makes every viewer re-fetch every mounted badge. Omitting it keeps the old
+ * whole-cache reset, which the editor's own save still wants.
  */
-export const dispatchProfileCacheInvalidate = () => {
-  clearCustomizationCache();
-  window.dispatchEvent(new CustomEvent(PROFILE_CACHE_INVALIDATE_EVENT));
+export const dispatchProfileCacheInvalidate = (userId?: string) => {
+  clearCustomizationCache(userId);
+  window.dispatchEvent(new CustomEvent(PROFILE_CACHE_INVALIDATE_EVENT, { detail: { userId } }));
 };

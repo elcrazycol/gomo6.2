@@ -94,6 +94,30 @@ describe("getCurrentUserMeta", () => {
     window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));	    await getCurrentUserMeta("user-1");
     expect(mocks.mockFetch.mock.calls.length).toBe(callsAfterFirst + 2);
   });
+
+  it("keeps the cache for a scoped invalidation of another user", async () => {
+    await getCurrentUserMeta("user-1");
+    const callsAfterFirst = mocks.mockFetch.mock.calls.length;
+
+    // Someone else edited their profile — the viewer's own roles/avatar are
+    // still valid, so no refetch.
+    window.dispatchEvent(
+      new CustomEvent("profile-cache:invalidate", { detail: { userId: "user-2" } }),
+    );
+    await getCurrentUserMeta("user-1");
+    expect(mocks.mockFetch.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("drops the cache for a scoped invalidation of the current user", async () => {
+    await getCurrentUserMeta("user-1");
+    const callsAfterFirst = mocks.mockFetch.mock.calls.length;
+
+    window.dispatchEvent(
+      new CustomEvent("profile-cache:invalidate", { detail: { userId: "user-1" } }),
+    );
+    await getCurrentUserMeta("user-1");
+    expect(mocks.mockFetch.mock.calls.length).toBe(callsAfterFirst + 2);
+  });
 });
 
 describe("getGiftCatalog", () => {

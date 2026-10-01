@@ -49,4 +49,26 @@ describe("useProfileCustomization", () => {
 
     expect(mockGetProfileCustomization).not.toHaveBeenCalled();
   });
+
+  it("ignores a scoped invalidation for a different user", async () => {
+    const { result } = renderHook(() => useProfileCustomization("user-1"));
+    await waitFor(() => expect(mockGetProfileCustomization).toHaveBeenCalledTimes(1));
+
+    // Someone else edited their profile: this badge's data is untouched.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(PROFILE_CACHE_INVALIDATE_EVENT, { detail: { userId: "user-2" } }),
+      );
+    });
+    expect(mockGetProfileCustomization).toHaveBeenCalledTimes(1);
+
+    // This user edited: the badge must re-read.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(PROFILE_CACHE_INVALIDATE_EVENT, { detail: { userId: "user-1" } }),
+      );
+    });
+    await waitFor(() => expect(mockGetProfileCustomization).toHaveBeenCalledTimes(2));
+    expect(result.current?.username_css).toBe("color: red");
+  });
 });

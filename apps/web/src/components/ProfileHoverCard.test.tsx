@@ -314,4 +314,20 @@ describe("ProfileHoverCard", () => {
 
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["profile-hover"] });
   });
+
+  it("invalidates only the scoped user's query on a scoped event", () => {
+    render(
+      <ProfileHoverCard userId="user-1">
+        <span>Hover me</span>
+      </ProfileHoverCard>,
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("profile-cache:invalidate", { detail: { userId: "user-1" } }),
+      );
+    });
+
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["profile-hover", "user-1"] });
+  });
 });

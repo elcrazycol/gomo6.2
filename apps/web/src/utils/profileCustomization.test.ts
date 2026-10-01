@@ -112,6 +112,21 @@ describe("getProfileCustomization", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it("deduplicates concurrent requests for the same user", async () => {
+    // A feed mounts N badges for the same author in one commit; the cache is
+    // empty until the response resolves, so without in-flight dedupe each badge
+    // fired its own identical request.
+    respondWith({ username_css: "color: red" });
+
+    await Promise.all([
+      getProfileCustomization("user-1"),
+      getProfileCustomization("user-1"),
+      getProfileCustomization("user-1"),
+    ]);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("re-fetches once the cached entry passes its TTL", async () => {
     const mockData = { username_css: "color: blue", profile_badge_text: null, profile_badge_css: null };
     respondWith(mockData);
@@ -142,6 +157,27 @@ describe("getProfileCustomization", () => {
 
     const result = await getProfileCustomization("user-1");
     expect(result).toBeNull();
+  });
+
+  it("does not cache a response that resolves after an invalidation", async () => {
+    let resolveFetch!: (value: unknown) => void;
+    mockFetch.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    const pending = getProfileCustomization("user-1");
+    // The profile is edited while the first request is still on the wire.
+    dispatchProfileCacheInvalidate("user-1");
+    resolveFetch({ ok: true, json: async () => ({ data: { username_css: "stale" } }) });
+    await pending;
+
+    // The pre-edit response must not have repopulated the cache.
+    respondWith({ username_css: "fresh" });
+    const value = await getProfileCustomization("user-1");
+    expect(value?.username_css).toBe("fresh");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -197,6 +233,30 @@ describe("dispatchProfileCacheInvalidate", () => {
 
     // Cache cleared → next call must refetch, not serve the old value
     await getProfileCustomization("user-1");
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("scopes the event and cache clear to one user when given an id", async () => {
+    respondWith({ username_css: null, profile_badge_text: null, profile_badge_css: null });
+
+    await getProfileCustomization("user-1");
+    await getProfileCustomization("user-2");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    const listener = vi.fn();
+    window.addEventListener("profile-cache:invalidate", listener);
+
+    // The server sends the changed user id with profile_updated; only that
+    // profile must be invalidated.
+    dispatchProfileCacheInvalidate("user-1");
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ userId: "user-1" });
+    window.removeEventListener("profile-cache:invalidate", listener);
+
+    // user-1 evicted → refetch; user-2 stays cached (no request).
+    await getProfileCustomization("user-1");
+    await getProfileCustomization("user-2");
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });

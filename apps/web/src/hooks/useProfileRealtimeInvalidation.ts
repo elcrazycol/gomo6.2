@@ -18,8 +18,13 @@ import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 export function useProfileRealtimeInvalidation(): void {
   useEffect(
     () =>
-      wsService.on("profile_updated", () => {
-        dispatchProfileCacheInvalidate();
+      wsService.on("profile_updated", (message) => {
+        // The server puts the changed user's id in the payload. Passing it
+        // through scopes the invalidation to that profile, so a single client's
+        // edit no longer forces every other client to refetch every cached
+        // profile/badge it has mounted.
+        const changedUserId = (message?.data as { user_id?: string } | undefined)?.user_id;
+        dispatchProfileCacheInvalidate(changedUserId);
       }),
     [],
   );

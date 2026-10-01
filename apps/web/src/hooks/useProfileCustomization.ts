@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getProfileCustomization, type ProfileCustomization } from "@/utils/profileCustomization";
-import { PROFILE_CACHE_INVALIDATE_EVENT } from "@/utils/profileCacheEvents";
+import { PROFILE_CACHE_INVALIDATE_EVENT, profileCacheInvalidateUserId } from "@/utils/profileCacheEvents";
 
 /**
  * A user's profile customization (nickname CSS, badge text/CSS), kept in sync
@@ -25,14 +25,23 @@ export function useProfileCustomization(
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    const bump = () => setVersion((v) => v + 1);
+    const refresh = () => setVersion((v) => v + 1);
+
+    const bump = (event: Event) => {
+      const changedUserId = profileCacheInvalidateUserId(event);
+      // A scoped invalidation for someone else leaves this badge untouched:
+      // without this check every profile edit anywhere refetched every badge
+      // on screen. Only the matching user's badges re-read.
+      if (changedUserId && changedUserId !== userId) return;
+      refresh();
+    };
 
     window.addEventListener(PROFILE_CACHE_INVALIDATE_EVENT, bump);
 
     // A background tab receives no paint and no events; re-reading on the way
     // back in is the cheapest way to catch up.
     const onVisibilityChange = () => {
-      if (!document.hidden) bump();
+      if (!document.hidden) refresh();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
@@ -40,7 +49,7 @@ export function useProfileCustomization(
       window.removeEventListener(PROFILE_CACHE_INVALIDATE_EVENT, bump);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (!userId || !enabled) {

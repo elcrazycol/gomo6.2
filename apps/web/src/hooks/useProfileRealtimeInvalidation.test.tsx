@@ -20,7 +20,7 @@ vi.mock("@/services/websocket", () => ({
 
 const mockDispatch = vi.fn();
 vi.mock("@/utils/profileCustomization", () => ({
-  dispatchProfileCacheInvalidate: () => mockDispatch(),
+  dispatchProfileCacheInvalidate: (...args: unknown[]) => mockDispatch(...args),
 }));
 
 beforeEach(() => {
@@ -39,7 +39,19 @@ describe("useProfileRealtimeInvalidation", () => {
     const handler = mockOn.mock.calls[0][1] as (msg: unknown) => void;
     handler({ type: "profile_updated", data: { user_id: "user-2" } });
 
+    // The changed user id must be forwarded so caches invalidate scoped, not
+    // every mounted profile on every client.
     expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledWith("user-2");
+  });
+
+  it("falls back to a global invalidation when the payload has no user id", () => {
+    renderHook(() => useProfileRealtimeInvalidation());
+
+    const handler = mockOn.mock.calls[0][1] as (msg: unknown) => void;
+    handler({ type: "profile_updated", data: {} });
+
+    expect(mockDispatch).toHaveBeenCalledWith(undefined);
   });
 
   it("unsubscribes when it unmounts", () => {
