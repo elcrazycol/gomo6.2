@@ -477,7 +477,8 @@ func (h *BoardsHandler) buildBoardUpdateSet(updates boardUpdateRequest, boardID 
 		} else {
 			sets = append(sets, fmt.Sprintf("gomosub_tags = $%d::jsonb", n))
 			args = append(args, raw)
-			n++
+			// No n++ here: this is the last field, so the counter is never read
+			// again. Bring it back if you append another block below.
 		}
 	}
 	return sets, args
