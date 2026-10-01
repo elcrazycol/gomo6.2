@@ -117,6 +117,14 @@ export const prefersReducedMotion = (): boolean => {
 };
 
 /**
+ * The feed and раздел routes all render the Index page, which animates its OWN
+ * view switches (hooks/usePendingView). Page-level transitions must skip these
+ * so the two systems don't animate the same navigation twice.
+ */
+export const isFeedRoute = (pathname: string): boolean =>
+  pathname === "/" || /^\/(feed|mine|history|favorites|c)(\/|$)/.test(pathname);
+
+/**
  * Weak hardware is put on the cheap tier (utils/perfTier) — the always-on glass
  * header is dropped for the same reason transitions are: a device that cannot
  * hold a blur cannot hold a full-screen crossfade either.

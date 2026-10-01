@@ -1,8 +1,8 @@
-import { useEffect, lazy, type ComponentType } from "react";
+import { useEffect, useState, lazy, type ComponentType } from "react";
 import { Toaster as Sonner, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, type Location } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, useNavigationType, type Location } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -10,6 +10,11 @@ import { VideoEditorHost } from "@/components/VideoEditorHost";
 import { ThemeSync } from "@/components/ThemeSync";
 import { applyTheme, getStoredPrefs, syncSharedAppearanceCookies, watchSystemMode } from "@/theme";
 import { applyCustomFont, getStoredCustomFont } from "@/lib/customFont";
+import { runTransition, setTransitionDirection, isFeedRoute } from "@/lib/viewTransitions";
+import { preloadRoute } from "@/lib/routePreload";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
+// Registers the per-route data preloaders (stale-view retention).
+import "@/pages/profile/profilePreload";
 import { wsService } from "./services/websocket";
 import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
@@ -260,11 +265,48 @@ const App = () => {
 // away over it. A direct link falls back to the plain in-layout page.
 function AppRoutes() {
   const location = useLocation();
+  const navigationType = useNavigationType();
   const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation ?? null;
+
+  // Page-level transitions (Settings → «Анимация переходов»). The router keeps
+  // rendering the previous location until the selected style has had a chance to
+  // animate the swap: View-Transitions styles run through the browser API, the
+  // CSS styles (fade/rise) swap immediately and let AppLayout's enter class play.
+  const transitionStyle = useTransitionStyle();
+  const [displayLocation, setDisplayLocation] = useState(location);
+
+  useEffect(() => {
+    if (location === displayLocation) return;
+    // The wall-post overlay keeps the page underneath; don't animate the swap.
+    if (backgroundLocation) {
+      setDisplayLocation(location);
+      return;
+    }
+    // Feed + раздел routes animate their own views (Index/usePendingView).
+    if (isFeedRoute(displayLocation.pathname) && isFeedRoute(location.pathname)) {
+      setDisplayLocation(location);
+      return;
+    }
+    // Slide is direction-aware: a history pop goes back, a push goes forward.
+    setTransitionDirection(navigationType === "POP" ? "back" : "forward");
+
+    // Stale-view retention: keep the previous page on screen while the target
+    // route's data loads, then swap through the chosen transition. Routes with
+    // no preloader resolve immediately and behave as before.
+    let cancelled = false;
+    preloadRoute(location).then(() => {
+      if (cancelled) return;
+      runTransition(transitionStyle, () => setDisplayLocation(location));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   return (
     <>
-      <Routes location={backgroundLocation ?? location}>
+      <Routes location={backgroundLocation ?? displayLocation}>
         {/* Special pages without layout */}
         <Route path="/auth" element={<LazyPage component={Auth} />} />
         <Route path="/oauth/consent" element={<LazyPage component={OAuthConsent} />} />

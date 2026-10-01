@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useState, useRef, useCallback, type FormEve
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent, useMotionValue, useTransform, animate } from "framer-motion";
+import { transitionEnterClass, isFeedRoute } from "@/lib/viewTransitions";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +50,30 @@ type NowPlayingState = {
 export const AppLayout = ({ children }: AppLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Page-level enter animation for the CSS transition styles (fade/rise). The
+  // View-Transitions styles are animated by the browser in AppRoutes instead, so
+  // transitionEnterClass returns "" for them (and for "none").
+  const transitionStyle = useTransitionStyle();
+  const [enterClass, setEnterClass] = useState("");
+  const prevPathRef = useRef(location.pathname);
+
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    prevPathRef.current = location.pathname;
+    const cls = transitionEnterClass(transitionStyle);
+    // No animation on the very first render, and none for feed↔раздел hops —
+    // Index animates those itself.
+    if (!cls || prev === location.pathname || (isFeedRoute(prev) && isFeedRoute(location.pathname))) {
+      setEnterClass("");
+      return;
+    }
+    // Clear then re-add on the next frame so the CSS animation restarts on every
+    // navigation — without remounting the page (which would drop its state).
+    setEnterClass("");
+    const id = window.requestAnimationFrame(() => setEnterClass(cls));
+    return () => window.cancelAnimationFrame(id);
+  }, [location.pathname, transitionStyle]);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { user } = useAuth(); // Use cached auth hook instead of local state
@@ -1527,7 +1553,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <motion.main
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}${hideMessengerChrome && !isMessengerPage ? " is-app-surface" : ""}`}
+        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}${hideMessengerChrome && !isMessengerPage ? " is-app-surface" : ""}${enterClass ? ` ${enterClass}` : ""}`}
         style={{ paddingTop: hideChrome ? 0 : contentPad }}
       >
         {children}
