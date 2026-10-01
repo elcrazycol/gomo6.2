@@ -1,7 +1,9 @@
 # CI/CD на GitHub — что настроить и в каком порядке переезжать
 
-Новые воркфлоу лежат в `.github/workflows/`. Папка `.forgejo/` **не тронута** —
-старый Codeberg-пайплайн продолжает работать как есть, пока вы не решите иначе.
+Новые воркфлоу лежат в `.github/workflows/`. Codeberg-пайплайн выведен из игры:
+`.forgejo/` переименован в `.forgejo-old/`, поэтому deploy/coverage/mirror с
+Codeberg больше не срабатывают — workflow-файлы берутся из пушимого коммита, а
+в нём их больше нет. Сами файлы целы, вернуть можно одним `git mv`.
 
 ## Что где
 
@@ -111,10 +113,9 @@ Change visibility → Public.
 5. Поставить `PRIMARY_FORGE=github`.
 6. Сделать GitHub каноном:
    - на VPS в `/root/gomo6.2`: `git remote set-url origin https://github.com/elcrazycol/gomo6.2.git`;
-   - **выключить или удалить `.forgejo/workflows/mirror.yml`**, иначе два
-     зеркала с `--force` начнут гонять refs по кругу;
-   - выключить `.forgejo/workflows/deploy.yml` и `coverage.yml`, чтобы не было
-     двойного деплоя;
+   - Codeberg-воркфлоу уже выключены переименованием `.forgejo` → `.forgejo-old`
+     — ни двойного деплоя, ни петли зеркал. Проверить только, что rename попал
+     в пуш;
    - локально: `git remote set-url origin git@github.com:elcrazycol/gomo6.2.git`.
 7. Обновить README/AGENTS.md/CONTRIBUTING.md/docs/wiki (там сейчас ~50
    упоминаний Codeberg, бейджи и ссылки на реестр).
@@ -124,10 +125,17 @@ Change visibility → Public.
 - **Не тащите авто-issue из `.github(old)`.** `codeql-issues.yml` и `trivy.yml`
   за неделю наделали 481 issue (455 ботовых). `security.yml` запускает те же
   сканеры, но пишет только SARIF в Security.
-- **PAT, которым зеркало пушит на GitHub, должен иметь скоуп `workflow`** —
-  иначе первый же push файлов из `.github/workflows/` отклонится с
-  `refusing to allow a Personal Access Token to create or update workflow`.
-  Локальный токен аккаунта `elcrazycol` этого скоупа сейчас не имеет.
+- **PAT для зеркала на GitHub не нужен.** Направление зеркала — GitHub → Codeberg
+  + GitLab: клон идёт по публичному URL, наружу уходят только `CODEBERG_TOKEN` и
+  `GITLAB_TOKEN`. Скоуп `workflow` требовался прежнему Codeberg-зеркалу при пуше
+  файлов `.github/workflows/` в GitHub — оно выключено вместе с `.forgejo`, так
+  что требование снято. Если токен под это всё-таки заводили, его можно отозвать:
+  GitHub → Settings → Developer settings → Personal access tokens.
+- **Переименование `.forgejo` обрывает Codeberg-зеркало.** Workflow-файлы берутся
+  из пушимого коммита: после пуша rename'а `.forgejo/workflows/mirror.yml` в этом
+  коммите уже нет, поэтому `.github/` на GitHub сам не доедет. Порядок такой:
+  сначала push в Codeberg (на этом коммите там ничего не запустится), затем
+  прямой push в GitHub — он и активирует воркфлоу.
 - **`restart-service.sh` не менялся.** Новый деплой зовёт его с
   `REG=ghcr.io/<owner>`, совпадающим с `COMPOSE_NAMESPACE`, поэтому внутренний
   `docker tag` вырождается в no-op. Так старый и новый пайплайны сосуществуют
@@ -144,5 +152,6 @@ ssh root@VPS "REG=ghcr.io/elcrazycol COMPOSE_NAMESPACE=ghcr.io/elcrazycol \
 
 # полностью вернуться на Codeberg-пайплайн
 #   Variables → PRIMARY_FORGE = (пусто) (или удалить)
-#   в /root/gomo6.2 вернуть origin на codeberg.org и включить .forgejo-воркфлоу
+#   git mv .forgejo-old .forgejo && git commit    (вернуть воркфлоу в игру)
+#   в /root/gomo6.2 вернуть origin на codeberg.org
 ```
