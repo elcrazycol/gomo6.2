@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { ReportDialog } from "@/components/moderation/ReportDialog";
 import { useIsReported } from "@/components/moderation/reportState";
 
@@ -30,6 +31,8 @@ interface PostActionsMenuProps {
   align?: "start" | "end";
   /** Trigger button tooltip. */
   triggerTitle?: string;
+  /** Extra classes for the three-dots trigger (e.g. a glass surface on a profile). */
+  triggerClassName?: string;
 }
 
 /**
@@ -49,6 +52,7 @@ export const PostActionsMenu = ({
   children,
   align = "end",
   triggerTitle = "Меню",
+  triggerClassName,
 }: PostActionsMenuProps) => {
   const [reportOpen, setReportOpen] = useState(false);
   const canReport = Boolean(targetType && targetId);
@@ -63,32 +67,35 @@ export const PostActionsMenu = ({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:bg-transparent data-[state=open]:text-foreground"
+            className={cn(
+              "h-9 w-9 rounded-full outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0",
+              triggerClassName,
+            )}
             title={triggerTitle}
           >
             <MoreVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align={align} className="bg-popover border-border shadow-lg">
+        <DropdownMenuContent align={align}>
           {children}
           {children && canReport && <DropdownMenuSeparator />}
           {canReport &&
             (alreadyReported ? (
               <DropdownMenuItem
                 disabled
-                className="px-3 py-2 text-muted-foreground"
+                className="text-muted-foreground"
                 title="Вы уже пожаловались"
               >
-                <BadgeCheck className="h-4 w-4 mr-3 text-green-600" />
+                <BadgeCheck className="h-4 w-4 text-green-600" />
                 Вы уже пожаловались
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
                 onClick={() => setReportOpen(true)}
-                className="cursor-pointer text-orange-600 hover:bg-orange-500/15 hover:text-orange-600 focus:bg-orange-500/15 focus:text-orange-600 transition-colors px-3 py-2"
+                className="text-orange-600 focus:bg-orange-500/15 focus:text-orange-600"
                 title={reportLabel}
               >
-                <Flag className="h-4 w-4 mr-3" />
+                <Flag className="h-4 w-4" />
                 {reportLabel}
               </DropdownMenuItem>
             ))}

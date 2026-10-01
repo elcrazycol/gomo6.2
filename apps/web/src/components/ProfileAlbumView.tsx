@@ -427,30 +427,30 @@ export function ProfileAlbumView({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=open]:bg-transparent"
+                className="h-9 w-9 outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 title={t("profile.editAlbum")}
               >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-popover border-border shadow-lg">
+            <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={() => {
                   setRenameValue(album.name);
                   setRenameOpen(true);
                 }}
-                className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                className="text-primary focus:bg-primary/15 focus:text-primary"
                 title={t("profile.renameAlbum")}
               >
-                <Pencil className="h-4 w-4 mr-3" />
+                <Pencil className="h-4 w-4" />
                 {t("profile.renameAlbum")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setDeleteOpen(true)}
-                className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                className="text-destructive focus:bg-destructive/15 focus:text-destructive"
                 title={t("profile.deleteAlbum")}
               >
-                <Trash2 className="h-4 w-4 mr-3" />
+                <Trash2 className="h-4 w-4" />
                 {t("profile.deleteAlbum")}
               </DropdownMenuItem>
             </DropdownMenuContent>
