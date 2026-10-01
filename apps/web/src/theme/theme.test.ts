@@ -6,6 +6,7 @@ import {
   THEME_IDS,
   THEME_TOKEN_NAMES,
   DEFAULT_THEME,
+  DEFAULT_MODE_PREF,
   getTheme,
   resolveMode,
   getStoredPrefs,
@@ -189,6 +190,12 @@ describe("pre-boot script", () => {
     expect(match, "THEMES array in index.html").not.toBeNull();
     const ids = match![1].split(",").map((part) => part.trim().replace(/^"|"$/g, "")).filter(Boolean);
     expect(ids.sort()).toEqual([...THEME_IDS].sort());
+  });
+
+  it("defaults to the registry theme and mode preferences", () => {
+    const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+    expect(html).toContain(`if (THEMES.indexOf(theme) === -1) theme = "${DEFAULT_THEME}";`);
+    expect(html).toContain(`legacy === null ? "${DEFAULT_MODE_PREF}"`);
   });
 
   it("knows every single-mode theme and its mode", () => {

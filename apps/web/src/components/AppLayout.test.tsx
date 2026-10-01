@@ -178,9 +178,9 @@ describe("AppLayout", () => {
 
   it("renders gomo6 logo link", () => {
     renderLayout();
-    const logo = screen.getByAltText("gomo6");
+    const logo = screen.getByRole("link", { name: "gomo6" });
     expect(logo).toBeInTheDocument();
-    expect(logo).toHaveAttribute("src", "/gomo6-logo.svg");
+    expect(logo.querySelector("[data-gomo6-mark]")).toBeInTheDocument();
   });
 
   it("hides header/footer on the auth page", () => {

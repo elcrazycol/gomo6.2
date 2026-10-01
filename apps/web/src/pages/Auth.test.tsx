@@ -131,7 +131,7 @@ describe("Auth Page", () => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    const toggleBtn = screen.getByText("Нет аккаунта? Регистрация");
+    const toggleBtn = screen.getByRole("button", { name: "Регистрация" });
     await userEvent.click(toggleBtn);
 
     await waitFor(() => {
@@ -150,13 +150,13 @@ describe("Auth Page", () => {
     });
 
     // Switch to register
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
     await waitFor(() => {
       expect(screen.getByText("Регистрация")).toBeInTheDocument();
     });
 
     // Switch back to login
-    await userEvent.click(screen.getByText("Уже есть аккаунт? Вход"));
+    await userEvent.click(screen.getByRole("button", { name: "Вход" }));
     expect(screen.getByText("Вход")).toBeInTheDocument();
   });
 
@@ -272,7 +272,7 @@ describe("Auth Page", () => {
     });
 
     // Switch to register
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
     await waitFor(() => {
       expect(screen.getByText("Регистрация")).toBeInTheDocument();
@@ -310,7 +310,7 @@ describe("Auth Page", () => {
     });
 
     // Switch to register
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
     // Fill form
     await userEvent.type(screen.getByLabelText("Юзернейм"), "newuser");
@@ -353,7 +353,7 @@ describe("Auth Page", () => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
     await userEvent.type(screen.getByLabelText("Юзернейм"), "existing");
     await userEvent.type(screen.getByLabelText("Пароль"), "secret123");
     await userEvent.click(screen.getByRole("checkbox", { name: /Я принимаю/ }));
@@ -386,11 +386,9 @@ describe("Auth Page", () => {
     await userEvent.click(screen.getByText("Войти"));
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Двухфакторная аутентификация"),
-      ).toBeInTheDocument();
       expect(screen.getByText("Подтверждение входа")).toBeInTheDocument();
     });
+    expect(screen.getByLabelText("Код из аутентификатора")).toBeInTheDocument();
   });
 
   it("submits 2FA code and navigates to / on success", async () => {
@@ -519,7 +517,7 @@ describe("Auth Page", () => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
     expect(screen.getByRole("link", { name: "условия использования" })).toHaveAttribute(
       "href",
@@ -538,7 +536,7 @@ describe("Auth Page", () => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
     expect(screen.getByText("Зарегистрироваться")).toBeDisabled();
 

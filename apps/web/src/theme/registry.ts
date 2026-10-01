@@ -87,7 +87,7 @@ export const THEME_BY_ID: Record<string, ThemeDef> = Object.fromEntries(
 
 export const THEME_IDS = THEMES.map((theme) => theme.id);
 
-export const DEFAULT_THEME = "graphite";
+export const DEFAULT_THEME = "ash";
 export const DEFAULT_RADIUS_FALLBACK = DEFAULT_RADIUS;
 
 /* ── Runtime (custom) themes ─────────────────────────────────────────────── */

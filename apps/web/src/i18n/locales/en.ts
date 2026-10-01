@@ -231,6 +231,8 @@ const en: LocaleResources = {
     username: "Username",
     email: "Email",
     password: "Password",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
     confirmPassword: "Confirm password",
     currentPassword: "Current password",
     newPassword: "New password",

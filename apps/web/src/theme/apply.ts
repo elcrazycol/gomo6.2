@@ -10,7 +10,7 @@ import { THEME_TOKEN_NAMES } from "./tokens";
 
 export type ThemeModePref = "light" | "dark" | "system";
 
-export const DEFAULT_MODE_PREF: ThemeModePref = "dark";
+export const DEFAULT_MODE_PREF: ThemeModePref = "system";
 
 /** Fired whenever the applied theme/mode changes (used by the server sync). */
 export const APPEARANCE_CHANGED_EVENT = "gomo6:appearance-changed";

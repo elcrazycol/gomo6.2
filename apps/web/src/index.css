@@ -1067,3 +1067,59 @@ html.perf-lite .view-rise-in {
   background-image: radial-gradient(rgb(255 255 255 / 0.07) 1px, transparent 1px);
   background-size: 14px 14px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Brand mark, "alive" (components/Gomo6Mark on pages/Auth)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   The mark breathes — a ~2% scale and a hair of vertical drift — while a soft
+   halo in the theme's primary pulses behind it. Both animate transform/opacity
+   only, so they ride the compositor and cost nothing per frame on the main
+   thread.
+
+   Motion is a garnish, never load-bearing: reduced-motion users and the
+   perf-lite tier (utils/perfTier.ts) get the same mark and glow, just held
+   still — the base transform keeps the halo centred when the animation is off. */
+@keyframes gomo-mark-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-1.5%) scale(1.02);
+  }
+}
+
+@keyframes gomo-mark-halo {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  50% {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+.gomo-mark-breathe {
+  transform-origin: center;
+  animation: gomo-mark-breathe 7s ease-in-out infinite;
+}
+
+.gomo-mark-halo {
+  transform: translate(-50%, -50%) scale(0.9);
+  animation: gomo-mark-halo 7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gomo-mark-breathe,
+  .gomo-mark-halo {
+    animation: none;
+  }
+}
+
+html.perf-lite .gomo-mark-breathe,
+html.perf-lite .gomo-mark-halo {
+  animation: none;
+}

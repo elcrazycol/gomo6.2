@@ -13,6 +13,7 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { GuestSignupBanner } from "@/components/GuestSignupBanner";
+import { Gomo6Mark } from "@/components/Gomo6Mark";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
@@ -1129,13 +1130,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       >
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex items-center justify-between gap-2 sm:gap-3 min-h-[49px]">
-          <Link to="/" className="shrink-0 inline-flex items-center group">
-            <img
-              src="/gomo6-logo.svg"
-              alt="gomo6"
-              className="app-header-logo h-8 w-auto transition-transform duration-200 ease-out group-hover:scale-105"
-              draggable={false}
-            />
+          <Link to="/" aria-label="gomo6" className="shrink-0 inline-flex items-center group">
+            <Gomo6Mark className="app-header-logo h-11 w-11 text-primary transition-transform duration-200 ease-out group-hover:scale-105" />
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center shrink-0">
             <div ref={searchRef} className="hidden lg:block relative">

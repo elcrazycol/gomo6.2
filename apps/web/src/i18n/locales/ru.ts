@@ -232,6 +232,8 @@ const ru: LocaleResources = {
     username: "Юзернейм",
     email: "Email",
     password: "Пароль",
+    showPassword: "Показать пароль",
+    hidePassword: "Скрыть пароль",
     confirmPassword: "Подтвердите пароль",
     currentPassword: "Текущий пароль",
     newPassword: "Новый пароль",
