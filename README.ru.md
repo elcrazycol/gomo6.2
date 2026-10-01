@@ -53,16 +53,12 @@ gomo6 — социальная сеть целиком: персональная
 <td width="50%"><img src="docs/assets/readme/messenger-dark.png" alt="Мессенджер"><br><sub><b>Мессенджер</b> — диалоги, заметки для себя (шифрование в браузере), галочки прочтения, присутствие</sub></td>
 </tr>
 <tr>
-<td><img src="docs/assets/readme/settings-appearance-dark.png" alt="Настройки"><br><sub><b>Настройки → внешний вид</b> — темы с живым предпросмотром, режимы светлый / тёмный / системный</sub></td>
+<td><img src="docs/assets/readme/settings-appearance-light.png" alt="Настройки"><br><sub><b>Настройки → внешний вид</b> — темы с живым предпросмотром, режимы светлый / тёмный / системный</sub></td>
 <td><img src="docs/assets/readme/moderation-dark.png" alt="Модерация"><br><sub><b>Модерация</b> — очередь жалоб, апелляции, персонал и журнал действий</sub></td>
-</tr>
-<tr>
-<td><img src="docs/assets/readme/mobile-feed.png" alt="Мобильная лента"><br><sub><b>Мобильная лента</b></sub></td>
-<td><img src="docs/assets/readme/mobile-messenger.png" alt="Мобильный мессенджер"><br><sub><b>Мобильный мессенджер</b> — поле ввода подстраивается под клавиатуру, навигация листами</sub></td>
 </tr>
 </table>
 
-<sub>Ещё: <a href="docs/assets/readme/feed-lavender.png">лента в теме «космический лавандовый»</a> · <a href="docs/assets/readme/settings-linen-light.png">светлая тема «лён»</a> · <a href="docs/assets/readme/feed-scroll.gif">скролл ленты</a></sub>
+<sub>Ещё: <a href="docs/assets/readme/feed-lavender.png">лента в теме «космический лавандовый»</a> · <a href="docs/assets/readme/feed-scroll.gif">скролл ленты</a></sub>
 
 ## Возможности
 

@@ -53,16 +53,12 @@ Everything below is a real instance running the [demo dataset](scripts/seed.sh) 
 <td width="50%"><img src="docs/assets/readme/messenger-dark.png" alt="Messenger"><br><sub><b>Messenger</b> — conversations, notes to self (E2E in the browser), read receipts, presence</sub></td>
 </tr>
 <tr>
-<td><img src="docs/assets/readme/settings-appearance-dark.png" alt="Settings"><br><sub><b>Settings → appearance</b> — themes with live preview, light / dark / system mode</sub></td>
+<td><img src="docs/assets/readme/settings-appearance-light.png" alt="Settings"><br><sub><b>Settings → appearance</b> — themes with live preview, light / dark / system mode</sub></td>
 <td><img src="docs/assets/readme/moderation-dark.png" alt="Moderation"><br><sub><b>Moderation</b> — report queue, appeals, staff and the action log</sub></td>
-</tr>
-<tr>
-<td><img src="docs/assets/readme/mobile-feed.png" alt="Mobile feed"><br><sub><b>Mobile feed</b></sub></td>
-<td><img src="docs/assets/readme/mobile-messenger.png" alt="Mobile messenger"><br><sub><b>Mobile messenger</b> — keyboard-aware composer, sheet navigation</sub></td>
 </tr>
 </table>
 
-<sub>More: <a href="docs/assets/readme/feed-lavender.png">feed in the cosmic-lavender theme</a> · <a href="docs/assets/readme/settings-linen-light.png">light theme (linen)</a> · <a href="docs/assets/readme/feed-scroll.gif">feed scroll</a></sub>
+<sub>More: <a href="docs/assets/readme/feed-lavender.png">feed in the cosmic-lavender theme</a> · <a href="docs/assets/readme/feed-scroll.gif">feed scroll</a></sub>
 
 ## Features
 
