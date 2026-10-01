@@ -13,6 +13,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/search"
 	"github.com/google/uuid"
 )
@@ -36,20 +37,22 @@ func (h *SearchHandler) SetSearchService(s *search.Service) {
 
 // SearchResult is the unified response for the search endpoint.
 type SearchResult struct {
-	Users   []map[string]interface{} `json:"users"`
-	Boards  []map[string]interface{} `json:"boards"`
-	Threads []map[string]interface{} `json:"threads"`
-	Posts   []map[string]interface{} `json:"posts"`
+	Users     []map[string]interface{} `json:"users"`
+	Boards    []map[string]interface{} `json:"boards"`
+	Threads   []map[string]interface{} `json:"threads"`
+	Posts     []map[string]interface{} `json:"posts"`
+	WallPosts []map[string]interface{} `json:"wall_posts"`
 }
 
 // Per-category result caps. They match the historical SQL limits so the
 // client-side slicing in the UI keeps working unchanged.
 const (
-	defaultUserLimit   = 24
-	defaultBoardLimit  = 24
-	defaultThreadLimit = 60
-	defaultPostLimit   = 30
-	maxSearchLimit     = 100
+	defaultUserLimit     = 24
+	defaultBoardLimit    = 24
+	defaultThreadLimit   = 60
+	defaultPostLimit     = 30
+	defaultWallPostLimit = 30
+	maxSearchLimit       = 100
 )
 
 // searchOptions carries the parsed optional filters.
@@ -167,8 +170,11 @@ func (h *SearchHandler) searchViaEngine(ctx context.Context, q, viewerID string,
 	contentFilter := search.AndFilter(search.PublicContentClause(), authorClause, sinceClause)
 	userFilter := search.AndFilter(sinceClause)
 	boardFilter := search.AndFilter(sinceClause)
+	// Wall posts are pinned to publicly visible walls (the index never holds a
+	// private wall); author/since apply the same way.
+	wallFilter := search.AndFilter(search.PublicWallClause(), authorClause, sinceClause)
 
-	queries := make([]search.MultiQuery, 0, 4)
+	queries := make([]search.MultiQuery, 0, 5)
 	if opts.wants("users") {
 		queries = append(queries, search.MultiQuery{
 			IndexKey: search.IndexUsers, Query: q, Filter: userFilter,
@@ -191,6 +197,12 @@ func (h *SearchHandler) searchViaEngine(ctx context.Context, q, viewerID string,
 		queries = append(queries, search.MultiQuery{
 			IndexKey: search.IndexPosts, Query: q, Filter: contentFilter,
 			Sort: opts.sortClause(), Limit: opts.limitFor(defaultPostLimit),
+		})
+	}
+	if opts.wants("wall_posts") {
+		queries = append(queries, search.MultiQuery{
+			IndexKey: search.IndexWallPosts, Query: q, Filter: wallFilter,
+			Sort: opts.sortClause(), Limit: opts.limitFor(defaultWallPostLimit),
 		})
 	}
 
@@ -217,12 +229,21 @@ func (h *SearchHandler) searchViaEngine(ctx context.Context, q, viewerID string,
 	if r, ok := hits[search.IndexPosts]; ok {
 		result.Posts = normalisePosts(r.Hits)
 	}
+	if r, ok := hits[search.IndexWallPosts]; ok {
+		result.WallPosts = normaliseWallPosts(r.Hits)
+	}
 
 	// Private profiles are deliberately absent from the index. The owner and
 	// mutual friends still find them, mirroring the SQL surface's L1 rule.
 	if opts.wants("users") && viewerID != "" {
-		result.Users = mergeUserResults(result.Users,
+		result.Users = mergeByID(result.Users,
 			h.privateProfileUsers(ctx, q, viewerID, opts.limitFor(defaultUserLimit)))
+	}
+	// Private/hidden walls are not indexed either; add the wall posts the viewer
+	// may see (their own wall, friends' visible walls) from PostgreSQL.
+	if opts.wants("wall_posts") && viewerID != "" {
+		result.WallPosts = mergeByID(result.WallPosts,
+			h.wallPostsSQL(ctx, q, viewerID, opts.limitFor(defaultWallPostLimit)))
 	}
 	return result
 }
@@ -295,6 +316,9 @@ func (h *SearchHandler) searchViaSQL(ctx context.Context, q string, viewerID int
 		 ORDER BY ts_rank(p.search_vector, plainto_tsquery('russian', $1)) DESC
 		 LIMIT 30`, q)
 
+	// ── Wall posts ────────────────────────────────────────────────────
+	result.WallPosts = h.wallPostsSQL(ctx, q, viewerID, defaultWallPostLimit)
+
 	return result
 }
 
@@ -320,6 +344,28 @@ func (h *SearchHandler) privateProfileUsers(ctx context.Context, q, viewerID str
 	return h.searchTable(ctx, query, q, viewerID, limit)
 }
 
+// wallPostsSQL returns wall posts matching q that viewerID may see: posts on
+// publicly visible walls plus the viewer's own / friends' visible walls. The
+// engine index only holds public-wall posts, so this covers the private-wall
+// case — both for the SQL fallback and, on the engine path, for an
+// authenticated viewer.
+func (h *SearchHandler) wallPostsSQL(ctx context.Context, q string, viewerID interface{}, limit int) []map[string]interface{} {
+	query := `
+		SELECT p.id, p.public_id, p.title, p.content, p.created_at, p.updated_at,
+		       p.author_id, a.username AS author_username,
+		       p.user_id AS wall_user_id, w.username AS wall_username
+		FROM profile_wall_posts p
+		LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
+		JOIN users a ON a.id = p.author_id
+		JOIN users w ON w.id = p.user_id
+		WHERE (COALESCE(p.title, '') ILIKE '%' || $1 || '%'
+		       OR COALESCE(p.content, '') ILIKE '%' || $1 || '%')
+		  AND ` + privacy.WallVisibilityClause("p.user_id", "ps", "$2::uuid") + `
+		ORDER BY p.created_at DESC
+		LIMIT $3`
+	return h.searchTable(ctx, query, q, viewerID, limit)
+}
+
 // resolveAuthorID accepts a UUID or a username and returns a user UUID ("" when
 // nothing matches).
 func (h *SearchHandler) resolveAuthorID(ctx context.Context, author string) string {
@@ -341,9 +387,11 @@ func parseSearchTypes(raw string) map[string]bool {
 	}
 	types := make(map[string]bool)
 	for _, part := range strings.Split(raw, ",") {
-		switch strings.TrimSpace(part) {
+		switch v := strings.TrimSpace(part); v {
 		case "users", "boards", "threads", "posts":
-			types[strings.TrimSpace(part)] = true
+			types[v] = true
+		case "wall", "wall_posts":
+			types["wall_posts"] = true
 		}
 	}
 	if len(types) == 0 {
@@ -400,10 +448,11 @@ func parseSince(raw string) int64 {
 
 func emptySearchResult() SearchResult {
 	return SearchResult{
-		Users:   []map[string]interface{}{},
-		Boards:  []map[string]interface{}{},
-		Threads: []map[string]interface{}{},
-		Posts:   []map[string]interface{}{},
+		Users:     []map[string]interface{}{},
+		Boards:    []map[string]interface{}{},
+		Threads:   []map[string]interface{}{},
+		Posts:     []map[string]interface{}{},
+		WallPosts: []map[string]interface{}{},
 	}
 }
 
@@ -481,6 +530,25 @@ func normalisePosts(hits []map[string]interface{}) []map[string]interface{} {
 	return out
 }
 
+func normaliseWallPosts(hits []map[string]interface{}) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, map[string]interface{}{
+			"id":              h["id"],
+			"public_id":       h["public_id"],
+			"title":           h["title"],
+			"content":         h["content"],
+			"created_at":      unixToRFC3339(h["created_at"]),
+			"updated_at":      unixToRFC3339(h["updated_at"]),
+			"author_id":       h["author_id"],
+			"author_username": h["author_username"],
+			"wall_user_id":    h["wall_user_id"],
+			"wall_username":   h["wall_username"],
+		})
+	}
+	return out
+}
+
 func unixToRFC3339(v interface{}) interface{} {
 	switch n := v.(type) {
 	case float64:
@@ -492,7 +560,8 @@ func unixToRFC3339(v interface{}) interface{} {
 	}
 }
 
-func mergeUserResults(primary, extra []map[string]interface{}) []map[string]interface{} {
+// mergeByID appends extra rows whose id is not already present in primary.
+func mergeByID(primary, extra []map[string]interface{}) []map[string]interface{} {
 	if len(extra) == 0 {
 		return primary
 	}

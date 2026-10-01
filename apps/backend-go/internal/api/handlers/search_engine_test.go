@@ -103,6 +103,13 @@ func replyFor(uid string) []map[string]interface{} {
 			"board_id": "b1", "board_slug": "general", "board_name": "General", "board_is_gomosub": false,
 			"author_username": "neo", "author_avatar_url": nil,
 		}}
+	case "gomo6_wall_posts":
+		return []map[string]interface{}{{
+			"id": "w1", "public_id": float64(55), "title": "", "content": "заметка",
+			"created_at": float64(1700000000), "updated_at": float64(1700000000),
+			"author_id": "u1", "author_username": "neo",
+			"wall_user_id": "u2", "wall_username": "trinity",
+		}}
 	}
 	return []map[string]interface{}{}
 }
@@ -111,7 +118,7 @@ func TestSearch_EngineNormalisesHits(t *testing.T) {
 	_, srv := newFakeMultiSearch(t, replyFor)
 	handler, _ := engineHandler(t, srv)
 
-	c, w := newGETContext("/api/v1/search", map[string]string{"q": "admin"})
+	c, w := newGETContext("/api/v1/search", map[string]string{"q": "admin", "type": "posts"})
 	handler.Search(c)
 
 	if w.Code != 200 {
@@ -226,6 +233,9 @@ func TestSearch_EngineErrorFallsBackToSQL(t *testing.T) {
 	mock.ExpectQuery(`SELECT p\.id, p\.content`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "content", "created_at", "thread_id", "thread_title", "board_id", "board_slug", "board_name", "board_is_gomosub", "username", "avatar_url"}))
+	mock.ExpectQuery(`FROM profile_wall_posts p`).
+		WithArgs("admin", nil, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "public_id", "title", "content", "created_at", "updated_at", "author_id", "author_username", "wall_user_id", "wall_username"}))
 
 	c, w := newGETContext("/api/v1/search", map[string]string{"q": "admin"})
 	handler.Search(c)
@@ -257,6 +267,24 @@ func TestSearch_PrivateProfileFallbackMergesForViewer(t *testing.T) {
 	}
 }
 
+func TestSearch_EngineWallPostsNormalised(t *testing.T) {
+	_, srv := newFakeMultiSearch(t, replyFor)
+	handler, _ := engineHandler(t, srv)
+
+	c, w := newGETContext("/api/v1/search", map[string]string{"q": "note", "type": "wall_posts"})
+	handler.Search(c)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"wall_posts":[`) {
+		t.Fatalf("wall_posts category missing: %s", body)
+	}
+	if !strings.Contains(body, `"author_username":"neo"`) || !strings.Contains(body, `"wall_username":"trinity"`) {
+		t.Fatalf("wall post not normalised: %s", body)
+	}
+}
+
 func TestParseSearchTypes(t *testing.T) {
 	if got := parseSearchTypes(""); got != nil {
 		t.Errorf("empty types = %v, want nil (all)", got)
@@ -264,8 +292,8 @@ func TestParseSearchTypes(t *testing.T) {
 	if got := parseSearchTypes("all"); got != nil {
 		t.Errorf("all types = %v, want nil", got)
 	}
-	got := parseSearchTypes("threads, posts, bogus")
-	if len(got) != 2 || !got["threads"] || !got["posts"] {
+	got := parseSearchTypes("threads, posts, wall, bogus")
+	if len(got) != 3 || !got["threads"] || !got["posts"] || !got["wall_posts"] {
 		t.Errorf("types = %v", got)
 	}
 }

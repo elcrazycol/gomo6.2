@@ -45,11 +45,25 @@ export type SearchPost = {
   avatar_url?: string | null;
 };
 
+export type SearchWallPost = {
+  id: string;
+  public_id?: number | null;
+  title?: string | null;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  author_id?: string | null;
+  author_username?: string | null;
+  wall_user_id?: string | null;
+  wall_username?: string | null;
+};
+
 export type GlobalSearchResult = {
   users: SearchUser[];
   boards: SearchGomoSub[];
   threads: SearchThread[];
   posts: SearchPost[];
+  wall_posts: SearchWallPost[];
 };
 
 // SearchFilters mirror the optional query parameters the engine-backed
@@ -84,12 +98,12 @@ const normaliseThread = (t: Record<string, unknown>): SearchThread => ({
 
 export const searchGlobal = async (
   query: string,
-  limits?: { users?: number; boards?: number; threads?: number; posts?: number },
+  limits?: { users?: number; boards?: number; threads?: number; posts?: number; wall_posts?: number },
   filters?: SearchFilters
 ): Promise<GlobalSearchResult> => {
   const term = query.trim();
   if (term.length < 2) {
-    return { users: [], boards: [], threads: [], posts: [] };
+    return { users: [], boards: [], threads: [], posts: [], wall_posts: [] };
   }
 
   try {
@@ -103,7 +117,7 @@ export const searchGlobal = async (
     const response = await apiClient.rawRequest(`/api/v1/search?${params.toString()}`);
 
     if (!response.success || !response.data) {
-      return { users: [], boards: [], threads: [], posts: [] };
+      return { users: [], boards: [], threads: [], posts: [], wall_posts: [] };
     }
 
     const data = response.data as {
@@ -111,12 +125,14 @@ export const searchGlobal = async (
       boards?: SearchGomoSub[];
       threads?: Record<string, unknown>[];
       posts?: SearchPost[];
+      wall_posts?: SearchWallPost[];
     };
 
     const userLimit = limits?.users ?? 8;
     const boardLimit = limits?.boards ?? 8;
     const threadLimit = limits?.threads ?? 20;
     const postLimit = limits?.posts ?? 10;
+    const wallPostLimit = limits?.wall_posts ?? 10;
 
     const threads = (data.threads ?? []).map(normaliseThread);
 
@@ -125,9 +141,10 @@ export const searchGlobal = async (
       boards: (data.boards ?? []).slice(0, boardLimit),
       threads: threads.slice(0, threadLimit),
       posts: (data.posts ?? []).slice(0, postLimit),
+      wall_posts: (data.wall_posts ?? []).slice(0, wallPostLimit),
     };
   } catch (e) {
     console.error("Search failed:", e);
-    return { users: [], boards: [], threads: [], posts: [] };
+    return { users: [], boards: [], threads: [], posts: [], wall_posts: [] };
   }
 };

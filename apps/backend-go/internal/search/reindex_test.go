@@ -49,11 +49,18 @@ func TestReindexAllPushesEveryIndex(t *testing.T) {
 		}).AddRow("p1", "reply", 1700000000, "t1", 11, "Hello",
 			"b1", "general", "General", false, "public", "u1", "neo", ""))
 
+	mock.ExpectQuery("FROM profile_wall_posts p").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "public_id", "title", "content", "created_at", "updated_at",
+			"author_id", "author_username", "wall_user_id", "wall_username", "wall_visibility",
+		}).AddRow("w1", 55, "", "wall note", 1700000000, 1700000000,
+			"u1", "neo", "u2", "trinity", "public"))
+
 	stats, err := svc.ReindexAll(context.Background(), db)
 	if err != nil {
 		t.Fatalf("ReindexAll: %v", err)
 	}
-	if stats != (ReindexStats{Users: 1, Boards: 1, Threads: 1, Posts: 1}) {
+	if stats != (ReindexStats{Users: 1, Boards: 1, Threads: 1, Posts: 1, WallPosts: 1}) {
 		t.Fatalf("stats = %+v", stats)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -76,6 +76,9 @@ func TestSearch_AnonymousExcludesPrivateProfiles(t *testing.T) {
 	mock.ExpectQuery(`SELECT p\.id, p\.content`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "content", "created_at", "thread_id", "thread_title", "board_id", "board_slug", "board_name", "board_is_gomosub", "username", "avatar_url"}))
+	mock.ExpectQuery(`FROM profile_wall_posts p`).
+		WithArgs("admin", nil, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "public_id", "title", "content", "created_at", "updated_at", "author_id", "author_username", "wall_user_id", "wall_username"}))
 
 	c, w := newGETContext("/api/v1/search", map[string]string{"q": "admin"})
 	handler.Search(c)
@@ -105,6 +108,9 @@ func TestSearch_AuthenticatedPassesViewerID(t *testing.T) {
 	mock.ExpectQuery(`SELECT p\.id, p\.content`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "content", "created_at", "thread_id", "thread_title", "board_id", "board_slug", "board_name", "board_is_gomosub", "username", "avatar_url"}))
+	mock.ExpectQuery(`FROM profile_wall_posts p`).
+		WithArgs("admin", "user-1", 30).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "public_id", "title", "content", "created_at", "updated_at", "author_id", "author_username", "wall_user_id", "wall_username"}))
 
 	c, w := newGETContextWithClaims("/api/v1/search", map[string]string{"q": "admin"}, &auth.Claims{UserID: "user-1"})
 	handler.Search(c)

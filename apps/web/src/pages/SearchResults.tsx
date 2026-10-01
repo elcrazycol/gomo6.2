@@ -8,13 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { HighlightText } from "@/components/search/HighlightText";
 import { searchGlobal, type GlobalSearchResult, type SearchFilters } from "@/utils/globalSearch";
 import { Loader2, Search, X } from "lucide-react";
-import { entityParam, profileUrl } from "@/utils/entityUrl";
+import { entityParam, profileUrl, wallPostUrl } from "@/utils/entityUrl";
 
 const TYPE_OPTIONS = [
   { value: "users", label: "Люди" },
   { value: "boards", label: "Доски" },
   { value: "threads", label: "Записи" },
   { value: "posts", label: "Посты" },
+  { value: "wall_posts", label: "Стена" },
 ] as const;
 
 const SINCE_OPTIONS = [
@@ -30,7 +31,7 @@ const SORT_OPTIONS = [
   { value: "recent", label: "Сначала новые" },
 ] as const;
 
-const EMPTY: GlobalSearchResult = { users: [], boards: [], threads: [], posts: [] };
+const EMPTY: GlobalSearchResult = { users: [], boards: [], threads: [], posts: [], wall_posts: [] };
 
 const SearchResults = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -76,7 +77,7 @@ const SearchResults = () => {
       };
       const data = await searchGlobal(
         currentQuery,
-        { users: 24, boards: 24, threads: 60, posts: 30 },
+        { users: 24, boards: 24, threads: 60, posts: 30, wall_posts: 30 },
         filters
       );
       setResults(data);
@@ -87,7 +88,7 @@ const SearchResults = () => {
   }, [currentQuery, typeParam, sortParam, sinceParam, authorParam]);
 
   const total = useMemo(
-    () => results.users.length + results.boards.length + results.threads.length + results.posts.length,
+    () => results.users.length + results.boards.length + results.threads.length + results.posts.length + results.wall_posts.length,
     [results]
   );
 
@@ -338,6 +339,49 @@ const SearchResults = () => {
                         <HighlightText text={post.thread_title} query={currentQuery} />
                         {post.username && <> — @<HighlightText text={post.username} query={currentQuery} /></>}
                       </div>
+                      <div className="text-sm line-clamp-3">
+                        <HighlightText text={post.content} query={currentQuery} />
+                      </div>
+                    </Link>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Wall posts */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Записи на стене ({results.wall_posts.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {results.wall_posts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Ничего не найдено</p>
+              ) : (
+                results.wall_posts.map((post) => {
+                  const link = wallPostUrl(
+                    { id: post.wall_user_id },
+                    { id: post.id, public_id: post.public_id }
+                  );
+                  return (
+                    <Link
+                      key={post.id}
+                      to={link}
+                      className="block p-3 rounded-md border border-border hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="text-sm text-muted-foreground mb-1">
+                        {post.author_username && (
+                          <>@<HighlightText text={post.author_username} query={currentQuery} /></>
+                        )}
+                        {post.wall_username && (
+                          <> на стене @<HighlightText text={post.wall_username} query={currentQuery} /></>
+                        )}
+                      </div>
+                      {post.title && (
+                        <div className="font-medium">
+                          <HighlightText text={post.title} query={currentQuery} />
+                        </div>
+                      )}
                       <div className="text-sm line-clamp-3">
                         <HighlightText text={post.content} query={currentQuery} />
                       </div>

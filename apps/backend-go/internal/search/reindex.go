@@ -13,10 +13,11 @@ const batchSize = 500
 
 // ReindexStats reports how many documents were pushed per index.
 type ReindexStats struct {
-	Users   int
-	Boards  int
-	Threads int
-	Posts   int
+	Users     int
+	Boards    int
+	Threads   int
+	Posts     int
+	WallPosts int
 }
 
 // ReindexAll rebuilds every index from PostgreSQL. It is the recovery path for
@@ -36,7 +37,7 @@ func (s *Service) ReindexAll(ctx context.Context, db *sql.DB) (ReindexStats, err
 		return stats, err
 	}
 
-	for _, key := range []string{IndexUsers, IndexBoards, IndexThreads, IndexPosts} {
+	for _, key := range []string{IndexUsers, IndexBoards, IndexThreads, IndexPosts, IndexWallPosts} {
 		if err := s.DeleteAllDocuments(ctx, key); err != nil {
 			return stats, err
 		}
@@ -53,6 +54,9 @@ func (s *Service) ReindexAll(ctx context.Context, db *sql.DB) (ReindexStats, err
 		return stats, err
 	}
 	if stats.Posts, err = s.reindexPosts(ctx, db); err != nil {
+		return stats, err
+	}
+	if stats.WallPosts, err = s.reindexWallPosts(ctx, db); err != nil {
 		return stats, err
 	}
 	return stats, nil
@@ -83,6 +87,13 @@ func (s *Service) reindexPosts(ctx context.Context, db *sql.DB) (int, error) {
 	return reindexTable(ctx, db, postsBaseQuery, scanPostDoc,
 		func(ctx context.Context, docs []PostDoc) error {
 			return s.UpsertDocuments(ctx, IndexPosts, docs)
+		})
+}
+
+func (s *Service) reindexWallPosts(ctx context.Context, db *sql.DB) (int, error) {
+	return reindexTable(ctx, db, wallPostsBaseQuery, scanWallPostDoc,
+		func(ctx context.Context, docs []WallPostDoc) error {
+			return s.UpsertDocuments(ctx, IndexWallPosts, docs)
 		})
 }
 
@@ -138,5 +149,6 @@ func nullInt64Ptr(v sql.NullInt64) *int64 {
 
 // String renders the stats for logs and CLI output.
 func (s ReindexStats) String() string {
-	return fmt.Sprintf("%d users, %d boards, %d threads, %d posts", s.Users, s.Boards, s.Threads, s.Posts)
+	return fmt.Sprintf("%d users, %d boards, %d threads, %d posts, %d wall posts",
+		s.Users, s.Boards, s.Threads, s.Posts, s.WallPosts)
 }

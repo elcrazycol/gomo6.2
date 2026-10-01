@@ -25,7 +25,7 @@ const { mockAuth, mockProfileCache, mockSearchGlobal, mockEventManager, mockAnim
       getProfile: vi.fn().mockReturnValue(null),
       clearCache: vi.fn(),
     },
-    mockSearchGlobal: vi.fn().mockResolvedValue({ users: [], boards: [], threads: [], posts: [] }),
+    mockSearchGlobal: vi.fn().mockResolvedValue({ users: [], boards: [], threads: [], posts: [], wall_posts: [] }),
     mockEventManager: {
       init: vi.fn(),
       cleanup: vi.fn(),
@@ -142,7 +142,7 @@ beforeEach(() => {
   mockAuth.user = null;
   mockAuth.isAuthenticated = false;
   mockLocation.pathname = "/";
-  mockSearchGlobal.mockResolvedValue({ users: [], boards: [], threads: [], posts: [] });
+  mockSearchGlobal.mockResolvedValue({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
   mockProfileCache.loadProfile.mockResolvedValue({
     username: "testuser",
     color: "",

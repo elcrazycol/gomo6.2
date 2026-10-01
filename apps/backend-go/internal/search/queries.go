@@ -51,6 +51,25 @@ const postsBaseQuery = `
 	WHERE COALESCE(b.visibility, 'public') = 'public'
 	  AND COALESCE(p.is_private, false) = false`
 
+// wallPostsBaseQuery indexes only posts on publicly visible walls: the wall
+// owner's profile must be public AND they must not have hidden the wall. A
+// missing privacy_settings row is fully public (LEFT JOIN + COALESCE). The
+// predicate is the guest form of privacy.WallVisibilityClause; private walls are
+// never indexed, and the owner/friends view is served by the handler fallback.
+const wallPostsBaseQuery = `
+	SELECT p.id, p.public_id, COALESCE(p.title, ''), COALESCE(p.content, ''),
+	       COALESCE(EXTRACT(EPOCH FROM p.created_at)::bigint, 0),
+	       COALESCE(EXTRACT(EPOCH FROM p.updated_at)::bigint, 0),
+	       p.author_id::text, COALESCE(a.username, ''),
+	       p.user_id::text, COALESCE(w.username, ''),
+	       'public'
+	FROM profile_wall_posts p
+	LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
+	JOIN users a ON a.id = p.author_id
+	JOIN users w ON w.id = p.user_id
+	WHERE COALESCE(ps.private_profile, false) = false
+	  AND COALESCE(ps.private_hide_wall, false) = false`
+
 // rowScanner is satisfied by both *sql.Row and *sql.Rows, so one scan function
 // serves the list (rebuild) and the single-row (sync) paths.
 type rowScanner interface {
@@ -100,5 +119,21 @@ func scanPostDoc(s rowScanner) (PostDoc, error) {
 		return doc, err
 	}
 	doc.ThreadPublicID = nullInt64Ptr(threadPublicID)
+	return doc, nil
+}
+
+func scanWallPostDoc(s rowScanner) (WallPostDoc, error) {
+	var doc WallPostDoc
+	var publicID sql.NullInt64
+	if err := s.Scan(
+		&doc.ID, &publicID, &doc.Title, &doc.Content,
+		&doc.CreatedAt, &doc.UpdatedAt,
+		&doc.AuthorID, &doc.AuthorUsername,
+		&doc.WallUserID, &doc.WallUsername,
+		&doc.WallVisibility,
+	); err != nil {
+		return doc, err
+	}
+	doc.PublicID = nullInt64Ptr(publicID)
 	return doc, nil
 }

@@ -4,10 +4,11 @@ package search
 // UID is prefixed by Service.IndexUID so several deployments can share one
 // engine without colliding.
 const (
-	IndexUsers   = "users"
-	IndexBoards  = "boards"
-	IndexThreads = "threads"
-	IndexPosts   = "posts"
+	IndexUsers     = "users"
+	IndexBoards    = "boards"
+	IndexThreads   = "threads"
+	IndexPosts     = "posts"
+	IndexWallPosts = "wall_posts"
 )
 
 // VisibilityPublic is the boards.visibility value for boards whose content may
@@ -66,6 +67,15 @@ func indexSchemas() []indexSchema {
 				"board_visibility", "author_id", "created_at",
 			},
 			sortable: []string{"created_at"},
+		},
+		{
+			key:        IndexWallPosts,
+			primaryKey: "id",
+			searchable: []string{"title", "content", "author_username", "wall_username"},
+			filterable: []string{
+				"author_id", "wall_user_id", "wall_visibility", "created_at", "updated_at",
+			},
+			sortable: []string{"created_at", "updated_at"},
 		},
 	}
 }
@@ -127,4 +137,22 @@ type PostDoc struct {
 	AuthorID        string `json:"author_id,omitempty"`
 	AuthorUsername  string `json:"author_username,omitempty"`
 	AuthorAvatarURL string `json:"author_avatar_url,omitempty"`
+}
+
+// WallPostDoc is the index representation of a profile_wall_posts row. It is
+// denormalised with the author and wall-owner usernames so a result renders
+// without joins. Only posts on publicly visible walls are indexed — see the
+// base query and the wall visibility predicate.
+type WallPostDoc struct {
+	ID             string `json:"id"`
+	PublicID       *int64 `json:"public_id,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Content        string `json:"content"`
+	CreatedAt      int64  `json:"created_at"`
+	UpdatedAt      int64  `json:"updated_at"`
+	AuthorID       string `json:"author_id,omitempty"`
+	AuthorUsername string `json:"author_username,omitempty"`
+	WallUserID     string `json:"wall_user_id,omitempty"`
+	WallUsername   string `json:"wall_username,omitempty"`
+	WallVisibility string `json:"wall_visibility"`
 }

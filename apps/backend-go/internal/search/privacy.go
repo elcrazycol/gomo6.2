@@ -35,6 +35,13 @@ func PublicContentClause() string {
 	return `board_visibility = "` + VisibilityPublic + `"`
 }
 
+// PublicWallClause is the Meilisearch filter expression every wall-post search
+// must include. Only posts on publicly visible walls are indexed, so this states
+// the invariant explicitly (the same shape as PublicContentClause).
+func PublicWallClause() string {
+	return `wall_visibility = "` + VisibilityPublic + `"`
+}
+
 // AndFilter joins non-empty filter expressions with AND. Callers must pass only
 // server-generated clauses (UUIDs, integers, fixed enums); user-supplied text
 // must never reach a filter expression unvalidated.

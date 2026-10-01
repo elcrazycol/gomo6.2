@@ -15,18 +15,18 @@ describe("searchGlobal", () => {
 
   it("returns empty results for short query", async () => {
     const result = await searchGlobal("a");
-    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [] });
+    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
     expect(mockRawRequest).not.toHaveBeenCalled();
   });
 
   it("returns empty results for empty query", async () => {
     const result = await searchGlobal("");
-    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [] });
+    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
   });
 
   it("returns empty results for whitespace-only query", async () => {
     const result = await searchGlobal("   ");
-    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [] });
+    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
   });
 
   it("fetches search results for valid query", async () => {
@@ -49,13 +49,13 @@ describe("searchGlobal", () => {
   it("returns empty on API failure", async () => {
     mockRawRequest.mockRejectedValue(new Error("Network error"));
     const result = await searchGlobal("test");
-    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [] });
+    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
   });
 
   it("returns empty when response not successful", async () => {
     mockRawRequest.mockResolvedValue({ success: false, data: null });
     const result = await searchGlobal("test");
-    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [] });
+    expect(result).toEqual({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
   });
 
   it("applies limits correctly", async () => {
@@ -101,13 +101,13 @@ describe("searchGlobal", () => {
   });
 
   it("omits filter params when none are provided", async () => {
-    mockRawRequest.mockResolvedValue({ success: true, data: { users: [], boards: [], threads: [], posts: [] } });
+    mockRawRequest.mockResolvedValue({ success: true, data: { users: [], boards: [], threads: [], posts: [], wall_posts: [] } });
     await searchGlobal("hello");
     expect(mockRawRequest.mock.calls[0][0]).toBe("/api/v1/search?q=hello");
   });
 
   it("forwards filters as query parameters", async () => {
-    mockRawRequest.mockResolvedValue({ success: true, data: { users: [], boards: [], threads: [], posts: [] } });
+    mockRawRequest.mockResolvedValue({ success: true, data: { users: [], boards: [], threads: [], posts: [], wall_posts: [] } });
     await searchGlobal("hello", undefined, {
       types: ["users", "posts"],
       author: "neo",

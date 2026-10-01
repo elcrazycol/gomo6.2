@@ -65,6 +65,13 @@ func (i *Indexer) SyncPost(id string) {
 	syncDoc(i, "post", IndexPosts, postsBaseQuery+" AND p.id = $1", scanPostDoc, id)
 }
 
+// SyncWallPost mirrors profile_wall_posts.id after a wall post create, edit or
+// delete. Posts on a private or hidden wall yield no row, so the document is
+// removed.
+func (i *Indexer) SyncWallPost(id string) {
+	syncDoc(i, "wall_post", IndexWallPosts, wallPostsBaseQuery+" AND p.id = $1", scanWallPostDoc, id)
+}
+
 // syncDoc schedules one row sync on the pool. Generic functions cannot be
 // methods in Go, so it takes the Indexer explicitly; the Sync* methods above are
 // the typed entry points.
