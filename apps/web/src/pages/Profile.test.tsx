@@ -407,4 +407,51 @@ describe("Profile", () => {
       expect(screen.getByText("Просмотры")).toBeInTheDocument();
     });
   });
+
+  // ─── Forum layout toggle ────────────────────────────────────────────────────
+
+  it("unfolds the profile from an edge into the forum layout and collapses with the same button", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    // Both edge controls share the expand label while neither side is active.
+    const expandButtons = await screen.findAllByRole("button", { name: "Развернуть в форумный режим" });
+    expect(expandButtons).toHaveLength(2);
+
+    // The left control unfolds the panel on the left.
+    fireEvent.click(expandButtons[0]);
+    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+
+    // The same-side button collapses the layout again.
+    fireEvent.click(screen.getByRole("button", { name: "Свернуть в режим соцсети" }));
+    await waitFor(() => {
+      expect(screen.queryByTestId("forum-profile-panel")).not.toBeInTheDocument();
+    });
+  });
+
+  it("moves the forum panel to the opposite edge when the other button is pressed", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    const [leftToggle, rightToggle] = await screen.findAllByRole("button", { name: "Развернуть в форумный режим" });
+
+    fireEvent.click(leftToggle);
+    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+
+    // Pressing the opposite control keeps the panel open but relocates it.
+    fireEvent.click(rightToggle);
+    expect(screen.getByTestId("forum-profile-panel")).toBeInTheDocument();
+    // The moved side is now the active one; the left control reverts to expand.
+    expect(screen.getAllByRole("button", { name: "Развернуть в форумный режим" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+  });
 });

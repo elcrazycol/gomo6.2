@@ -45,6 +45,8 @@ export interface ProfileHeaderProps {
   onEditClick: () => void;
   onUsernameClick: () => void;
   onOpenMessages: () => void;
+  /** Forum layout: the avatar and the write/subscribe actions live in the side panel. */
+  forumMode?: boolean;
 }
 
 /** Header row (avatar + identity + actions) — rendered inside the active
@@ -72,6 +74,7 @@ export function ProfileHeader({
   onEditClick,
   onUsernameClick,
   onOpenMessages,
+  forumMode = false,
 }: ProfileHeaderProps) {
   const { t } = useTranslation();
   const nicknameEmojiButtonRef = useRef<HTMLDivElement>(null);
@@ -80,7 +83,7 @@ export function ProfileHeader({
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         {/* Avatar */}
-        {avatarVisible && (
+        {avatarVisible && !forumMode && (
           <div className="relative">
             <div
               {...(isOwnProfile && isEditing ? avatarDragHandlers : {})}
@@ -193,8 +196,8 @@ export function ProfileHeader({
         </div>
       </div>
 
-      {/* Edit Button (own profile) */}
-      {isOwnProfile && (
+      {/* Edit Button (own profile). In forum mode editing lives in the side panel. */}
+      {isOwnProfile && !forumMode && (
         <Button
           variant="ghost"
           size="icon"
@@ -209,8 +212,9 @@ export function ProfileHeader({
         </Button>
       )}
 
-      {/* Message + subscribe + actions (other profiles) */}
-      {!isOwnProfile && currentUser && (
+      {/* Message + subscribe + actions (other profiles). In forum mode the whole
+          cluster moves to the side panel. */}
+      {!isOwnProfile && currentUser && !forumMode && (
         <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
           <Button
             variant="default"

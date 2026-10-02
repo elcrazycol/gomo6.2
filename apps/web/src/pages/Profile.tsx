@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ImagePlus, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -27,6 +27,9 @@ import { ProfileTabs, type ProfileTab } from "./profile/ProfileTabs";
 import { UsernameDialog, AvatarGalleryDialog } from "./profile/ProfileDialogs";
 import type { Profile, ProfilePrivacyData } from "./profile/types";
 import { profileLookupUrl } from "@/utils/entityUrl";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ForumProfilePanel } from "./profile/ForumProfilePanel";
+import { ForumProfileEdgeToggle, type ForumSide } from "./profile/ForumProfileEdgeToggle";
 
 /**
  * Profile page — orchestration shell. The loaded row + privacy flags and the
@@ -40,6 +43,7 @@ const Profile = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
   const transitionStyle = useTransitionStyle();
+  const prefersReducedMotion = useReducedMotion();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null);
@@ -89,6 +93,15 @@ const Profile = () => {
   // the profile studio (profile_customization.background_variant). There is no
   // per-viewer preference anymore.
   const [bgVariant, setBgVariant] = useState<ProfileBackgroundVariant>(() => normalizeProfileBackgroundVariant(undefined));
+  // Forum layout ("unfolded" profile). Session-only — resets on navigation and
+  // is never persisted. `forumSide` is the side that hosts the panel and is kept
+  // while it animates out so the exit keeps its direction/order; `panelVisible`
+  // drives the AnimatePresence presence; `forumLayout` keeps the wide
+  // two-column layout until the exit animation finishes, so the container and
+  // content never snap shut mid-animation.
+  const [forumSide, setForumSide] = useState<ForumSide | null>(null);
+  const [panelVisible, setPanelVisible] = useState(false);
+  const [forumLayout, setForumLayout] = useState(false);
 
   // Resolve the effective variant from the owner's stored choice.
   useEffect(() => {
@@ -340,6 +353,68 @@ const Profile = () => {
   // visible (not hidden server-side, not disabled, not in edit mode).
   const canPostOnWall = !!currentUser && (currentUser.id === resolvedUserId || allowWallPostsFromOthers) && showProfileWall && !wallHiddenFromViewer && !editing.isEditing;
 
+  // ── Forum layout ─────────────────────────────────────────────────────────
+  // A per-visit alternate profile layout: the avatar, write/subscribe actions
+  // and the social graph move into a side column on the side whose edge button
+  // was pressed, while the rest of the profile reflows around it. Session-only
+  // (see forumSide) — reset on navigation, closed while editing.
+  const forumMode = forumLayout;
+  const showForumToggle = !!profile && !!currentUser && !editing.isEditing;
+  const panelVisibleRef = useRef(false);
+
+  useEffect(() => {
+    panelVisibleRef.current = panelVisible;
+  }, [panelVisible]);
+
+  const resetForum = useCallback(() => {
+    setPanelVisible(false);
+    setForumLayout(false);
+    setForumSide(null);
+  }, []);
+
+  useEffect(() => {
+    resetForum();
+  }, [userId, resetForum]);
+
+  useEffect(() => {
+    if (editing.isEditing) resetForum();
+  }, [editing.isEditing, resetForum]);
+
+  const toggleForumSide = useCallback((side: ForumSide) => {
+    if (panelVisible && forumSide === side) {
+      // Close: hide the panel to start the exit animation. The wide layout is
+      // kept until it completes (handleForumExitComplete), so nothing snaps.
+      setPanelVisible(false);
+      return;
+    }
+    setForumSide(side);
+    setPanelVisible(true);
+    setForumLayout(true);
+  }, [panelVisible, forumSide]);
+
+  const handleForumExitComplete = useCallback(() => {
+    // Reopening during the exit cancels it; only collapse the layout when the
+    // panel really stayed hidden.
+    if (panelVisibleRef.current) return;
+    setForumLayout(false);
+    setForumSide(null);
+  }, []);
+
+  // The floating «Написать на стене» button is anchored to the content column.
+  // In forum mode the column shifts to one side, so its distance from the
+  // viewport edge is recomputed for the wider, two-column container.
+  const fabRight = !forumMode
+    ? "max(1rem, calc(50vw - 388px))"
+    : forumSide === "left"
+      ? "max(1rem, calc(50vw - 512px))"
+      : "max(1rem, calc(50vw - 304px))";
+
+  // Edge controls live in the gutters beside the content column. The whole
+  // gutter (up to a cap) is a hover target; the chevron sits a fixed gap from
+  // the content. The column is wider (max-w-5xl) when the forum panel is open.
+  const forumToggleGutter = `clamp(0px, calc(50vw - ${forumMode ? "512px" : "336px"}), 40rem)`;
+  const forumToggleGap = "64px";
+
   // Set default tab based on wall visibility. The wall tab is available to
   // every viewer while showProfileWall is on (for non-friends on a private
   // profile it shows the "wall is hidden" notice instead of content), so it
@@ -390,6 +465,11 @@ const Profile = () => {
   // The "card" variant folds the header + stats into one card over the image.
   const cardVariantActive = bgVariant === 'card' && !!bgUrl && !editing.isEditing;
 
+  // Forum layout styling — the main column becomes a stack of the same panels
+  // as the side column; the owner's background is rendered as a blurred
+  // full-page backdrop behind the whole profile (see below).
+  const forumPanel = "surface-panel rounded-xl border border-border/60 shadow-sm";
+
   const statsSummaryAllowed = (() => {
     const isOwn = !!resolvedUserId && currentUser?.id === resolvedUserId;
     return isOwn || (showProfileStats && canViewSection(privateHideStats));
@@ -423,15 +503,72 @@ const Profile = () => {
       onEditClick={editing.isEditing ? editing.handleSaveAndExit : editing.startEditing}
       onUsernameClick={() => editing.setShowUsernameDialog(true)}
       onOpenMessages={() => navigate(`/messages?user=${resolvedUserId}`)}
+      forumMode={forumMode}
     />
   ) : null;
 
+  // Shared tab bar + active tab body. Defined once so the forum and social
+  // layouts can place it differently. In the forum layout the bar is always its
+  // own panel, while the body is only panel-wrapped for tabs whose content is a
+  // plain list (subscribers) — the wall/threads/achievements/gifts tabs already
+  // render their own cards, so wrapping them would double up.
+  const profileTabsElement = (
+    <ProfileTabs
+      activeTab={activeTab}
+      onTabChange={(tab) => { setActiveTab(tab); setWallCreateOpen(false); }}
+      userId={resolvedUserId}
+      profile={profile}
+      isOwnProfile={isOwnProfile}
+      isEditing={editing.isEditing}
+      panel={forumMode}
+      contentPanel={forumMode && activeTab === "subscribers"}
+      currentUser={currentUser}
+      currentUsername={currentUserUsername}
+      currentUserColor={currentUserColor}
+      wallTabVisible={wallTabVisible}
+      showThreadsTab={showThreadsTab}
+      canViewAchievements={canViewSection(privateHideAchievements)}
+      canViewThreads={canViewSection(privateHideThreads)}
+      canViewGifts={canViewSection(privateHideGifts)}
+      canViewSubscriptions={canViewSection(privateHideFriends)}
+      showProfileWall={showProfileWall}
+      allowWallPostsFromOthers={allowWallPostsFromOthers}
+      wallHiddenFromViewer={wallHiddenFromViewer}
+      privateProfile={privateProfile}
+      wallRefreshKey={wallRefreshKey}
+      wallCreateOpen={wallCreateOpen}
+      onWallCreateOpenChange={setWallCreateOpen}
+      achievements={data.achievements}
+      pinnedAchievements={data.pinnedAchievements}
+      achievementsLoaded={data.achievementsLoaded}
+      onTogglePin={data.toggleAchievementPin}
+      giftCatalog={data.giftCatalog}
+      giftCount={data.giftCount}
+      giftCountLoaded={data.giftCountLoaded}
+      onGiftSent={() => {
+        data.incrementGiftCount();
+        loadProfile();
+      }}
+    />
+  );
+
   return (
     <main
-      className="max-w-2xl mx-auto p-4 isolate"
+      className={`mx-auto p-4 isolate overflow-x-clip transition-[max-width] duration-300 ease-in-out ${forumMode ? "max-w-5xl" : "max-w-2xl"}`}
     >
-        {/* Full-page profile background (viewer variant: page / page_dim) */}
-        {bgUrl && (bgVariant === 'page' || bgVariant === 'page_dim') && (
+        {/* Full-page profile background. In forum mode the owner's background
+            is a soft, blurred backdrop behind the whole layout; otherwise the
+            viewer picks the sharp page/page_dim treatment. */}
+        {bgUrl && (forumMode ? (
+          <>
+            <div
+              className="fixed inset-0 -z-10 scale-110 bg-cover bg-center opacity-60 blur-2xl"
+              style={{ backgroundImage: `url("${bgUrl}")` }}
+              aria-hidden="true"
+            />
+            <div className="fixed inset-0 -z-10 bg-background/70" aria-hidden="true" />
+          </>
+        ) : (bgVariant === 'page' || bgVariant === 'page_dim') ? (
           <>
             <div
               className="fixed inset-0 -z-10 bg-cover bg-center"
@@ -442,15 +579,83 @@ const Profile = () => {
               <div className="fixed inset-0 -z-10 bg-black/40" aria-hidden="true" />
             )}
           </>
-        )}
+        ) : null)}
         {profile && (
-          <div className={`space-y-6 ${transitionEnterClass(transitionStyle)}`}>
+          <div className={transitionEnterClass(transitionStyle)}>
+          {/* Two-column forum layout: when a side is active, the relocated
+              profile panel is rendered as a first-class column and the rest of
+              the profile reflows beside it. The AnimatePresence stays mounted
+              so the panel can animate both in and out. */}
+          <div className={`flex items-start ${forumMode ? "gap-5" : ""}`}>
+            <AnimatePresence initial={false} onExitComplete={handleForumExitComplete}>
+              {panelVisible && (
+                <motion.aside
+                  key="forum-panel"
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 240 }}
+                  exit={{ opacity: 0, width: 0 }}
+                  transition={
+                    prefersReducedMotion
+                      ? { duration: 0.15, ease: "easeOut" }
+                      : { duration: 0.3, ease: "easeInOut" }
+                  }
+                  className={`hidden shrink-0 self-stretch overflow-clip lg:block ${
+                    forumSide === "left" ? "order-1" : "order-2"
+                  }`}
+                >
+                  {/* Fixed-width inner box: it stays 240px while the column
+                      width animates, so the panel never squishes — the aside
+                      just clips it. */}
+                  <div className="h-full w-[240px]">
+                    <div className="sticky top-[calc(var(--app-header-pad,0px)+1rem)]">
+                      <ForumProfilePanel
+                        profile={profile}
+                        isOwnProfile={isOwnProfile}
+                        avatarVisible={canViewSection(privateHideAvatar)}
+                        avatarUrl={avatarUrl}
+                        currentUser={currentUser}
+                        canViewSubscriptions={canViewSection(privateHideFriends)}
+                        onAvatarClick={data.openAvatarGallery}
+                        onOpenMessages={() => navigate(`/messages?user=${resolvedUserId}`)}
+                        onEditClick={editing.isEditing ? editing.handleSaveAndExit : editing.startEditing}
+                      />
+                    </div>
+                  </div>
+                </motion.aside>
+              )}
+            </AnimatePresence>
+            <div className={`min-w-0 flex-1 ${forumMode ? "space-y-3" : "space-y-6"} ${forumSide === "left" ? "order-2" : "order-1"}`}>
           {/* Profile content — painted as soon as the profile row is loaded.
               The privacy/friendship flags arrive in parallel and the derived
               guards (wallHiddenFromViewer, canViewSection) self-correct when
               they land, so a public profile never waits on them. Private
               content is already stripped server-side, so nothing sensitive
               flashes for a non-friend on a private profile. */}
+          {forumMode ? (
+            <>
+              {/* Identity panel — identity, stats and bio together. */}
+              <section className={`${forumPanel} p-4`}>
+                <div className="space-y-3">
+                  {headerElement}
+                  <ProfileStats profile={profile} show={statsSummaryAllowed} onOpenWall={() => setActiveTab('wall')} />
+                  {profile.bio && !isNonFriendOnPrivate && (
+                    <div className="border-t border-border/50 pt-3 text-sm">
+                      <ProcessedContent content={profile.bio} contentJson={(profile as { bio_json?: unknown }).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} postAuthorPublicId={profile.public_id} authorUsername={profile.username} />
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Spotify Now Playing — renders its own card only while playing. */}
+              {!isNonFriendOnPrivate && (
+                <SpotifyNowPlaying userId={resolvedUserId} />
+              )}
+
+              {/* Tabs — the bar is always its own panel; the body gets a panel
+                  for every tab except the wall, where each post is a panel. */}
+              {profileTabsElement}
+            </>
+          ) : (
           <>
           {cardVariantActive ? (
             <div className="relative overflow-hidden">
@@ -551,44 +756,13 @@ const Profile = () => {
                   For non-friends on a private profile the wall tab always stays
                   (it explains that the wall is hidden) while the rest follow the
                   per-section hide toggles. */}
-              <ProfileTabs
-                activeTab={activeTab}
-                onTabChange={(tab) => { setActiveTab(tab); setWallCreateOpen(false); }}
-                userId={resolvedUserId}
-                profile={profile}
-                isOwnProfile={isOwnProfile}
-                isEditing={editing.isEditing}
-                currentUser={currentUser}
-                currentUsername={currentUserUsername}
-                currentUserColor={currentUserColor}
-                wallTabVisible={wallTabVisible}
-                showThreadsTab={showThreadsTab}
-                canViewAchievements={canViewSection(privateHideAchievements)}
-                canViewThreads={canViewSection(privateHideThreads)}
-                canViewGifts={canViewSection(privateHideGifts)}
-                canViewSubscriptions={canViewSection(privateHideFriends)}
-                showProfileWall={showProfileWall}
-                allowWallPostsFromOthers={allowWallPostsFromOthers}
-                wallHiddenFromViewer={wallHiddenFromViewer}
-                privateProfile={privateProfile}
-                wallRefreshKey={wallRefreshKey}
-                wallCreateOpen={wallCreateOpen}
-                onWallCreateOpenChange={setWallCreateOpen}
-                achievements={data.achievements}
-                pinnedAchievements={data.pinnedAchievements}
-                achievementsLoaded={data.achievementsLoaded}
-                onTogglePin={data.toggleAchievementPin}
-                giftCatalog={data.giftCatalog}
-                giftCount={data.giftCount}
-                giftCountLoaded={data.giftCountLoaded}
-                onGiftSent={() => {
-                  data.incrementGiftCount();
-                  loadProfile();
-                }}
-              />
+              {profileTabsElement}
             </div>
           )}
           </>
+          )}
+            </div>
+          </div>
           </div>
         )}
 
@@ -618,8 +792,8 @@ const Profile = () => {
 
         {/* Floating "Написать на стене" button — always on screen so a post can
             be created from any profile tab. Anchored to the right edge of the
-            posts column (max-w-2xl, 672px, p-4) instead of the viewport edge;
-            on narrow screens it falls back to a normal corner FAB. */}
+            content column (which shifts when the forum panel is open); on
+            narrow screens it falls back to a normal corner FAB. */}
         {canPostOnWall && (
           <Button
             variant="default"
@@ -629,13 +803,36 @@ const Profile = () => {
             style={{
               // `right` is the distance from the viewport's right edge, so a
               // LARGER constant moves the button further right.
-              right: "max(1rem, calc(50vw - 388px))",
+              right: fabRight,
               bottom: "calc(1.5rem + env(safe-area-inset-bottom))",
             }}
             title={wallCreateOpen ? "Скрыть форму" : "Написать на стене"}
           >
             <Plus className={`h-5 w-5 transition-transform duration-300 ease-out ${wallCreateOpen ? "rotate-45" : "rotate-0"}`} />
           </Button>
+        )}
+
+        {/* Edge controls that unfold the profile into the forum layout. Desktop
+            only — hidden under `lg`, where there is no hover and no room for a
+            second column. The same side closes; the opposite side moves the
+            panel across. */}
+        {showForumToggle && (
+          <>
+            <ForumProfileEdgeToggle
+              side="left"
+              active={forumSide === "left"}
+              onToggle={toggleForumSide}
+              gutterWidth={forumToggleGutter}
+              gap={forumToggleGap}
+            />
+            <ForumProfileEdgeToggle
+              side="right"
+              active={forumSide === "right"}
+              onToggle={toggleForumSide}
+              gutterWidth={forumToggleGutter}
+              gap={forumToggleGap}
+            />
+          </>
         )}
       </main>
   );
