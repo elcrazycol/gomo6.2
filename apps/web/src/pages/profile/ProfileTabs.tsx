@@ -33,6 +33,12 @@ export interface ProfileTabsProps {
   profile: Profile;
   isOwnProfile: boolean;
   isEditing: boolean;
+  /** Forum layout: the bar sits inside a surface panel — match its background
+   *  and round the corners instead of the full-bleed page strip. */
+  panel?: boolean;
+  /** Forum layout: wrap the active tab body in its own surface panel. Kept off
+   *  for tabs whose content is already a set of cards (wall, threads, …). */
+  contentPanel?: boolean;
   currentUser: { id: string } | null;
   currentUsername: string;
   currentUserColor: string;
@@ -218,6 +224,8 @@ export function ProfileTabs({
   profile,
   isOwnProfile,
   isEditing,
+  panel = false,
+  contentPanel = panel,
   currentUser,
   currentUsername,
   currentUserColor,
@@ -423,7 +431,7 @@ export function ProfileTabs({
           (offset comes from --app-header-pad, kept in sync by AppLayout). */}
       <div
         ref={stickyBarRef}
-        className={`profile-tabbar sticky z-30 border-b border-border${barStuck ? " profile-tabbar--stuck" : ""}`}
+        className={`profile-tabbar sticky z-30 ${panel ? "profile-tabbar--panel overflow-hidden border border-border/60" : "border-b border-border"}${barStuck && !panel ? " profile-tabbar--stuck" : ""}`}
         style={{ top: "var(--app-header-pad, 0px)" }}
       >
         {/* One background layer behind the content: an opaque strip while the
@@ -583,7 +591,10 @@ export function ProfileTabs({
           at the bar (see snapToBar), so the new tab opens with the bar at
           the top and its content visible from the very start. An open album
           shows the album view instead of the full wall. */}
-      <div ref={tabBodyWrapRef} className="min-h-[100dvh]">
+      <div
+        ref={tabBodyWrapRef}
+        className={`min-h-[100dvh]${contentPanel ? " surface-panel mt-3 rounded-xl border border-border/60 p-3 shadow-sm" : ""}`}
+      >
         {activeTab === 'wall' && wallTabVisible && (
           <div>
           {selectedAlbum ? (

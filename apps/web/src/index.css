@@ -674,6 +674,20 @@ html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
   backdrop-filter: blur(var(--tabbar-glass-blur));
 }
 
+/* Forum layout: the tab bar lives inside a surface panel, so it adopts that
+   panel's surface and rounds its corners instead of painting the full-bleed
+   page-coloured strip. It never takes the frosted "stuck" treatment here. */
+.profile-tabbar--panel {
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.profile-tabbar--panel .profile-tabbar__bg {
+  background-color: oklch(var(--card) / var(--surface-alpha, 1));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
+  backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
+}
+
 /* Soft content surface for cards, the feed sidebar and panels: `--card` at
    40% over the page background. Mixed to an OPAQUE colour so the surface is
    identical everywhere — a translucent fill would read lighter on pages with
