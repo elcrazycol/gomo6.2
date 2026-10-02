@@ -626,13 +626,25 @@ const Profile = () => {
                 </motion.aside>
               )}
             </AnimatePresence>
-            <div className={`min-w-0 flex-1 ${forumMode ? "space-y-3" : "space-y-6"} ${forumSide === "left" ? "order-2" : "order-1"}`}>
+            <div className={`relative min-w-0 flex-1 ${forumSide === "left" ? "order-2" : "order-1"}`}>
           {/* Profile content — painted as soon as the profile row is loaded.
               The privacy/friendship flags arrive in parallel and the derived
               guards (wallHiddenFromViewer, canViewSection) self-correct when
               they land, so a public profile never waits on them. Private
               content is already stripped server-side, so nothing sensitive
               flashes for a non-friend on a private profile. */}
+          {/* Crossfade between the forum and social variants of the content, so
+              the panel styling does not blink out the instant the mode flips.
+              `wait` keeps one variant mounted at a time (no double wall). */}
+          <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={forumMode ? "forum" : "social"}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: "easeInOut" }}
+            className={forumMode ? "space-y-3" : "space-y-6"}
+          >
           {forumMode ? (
             <>
               {/* Identity panel — identity, stats and bio together. */}
@@ -763,6 +775,8 @@ const Profile = () => {
           )}
           </>
           )}
+          </motion.div>
+          </AnimatePresence>
             </div>
           </div>
           </div>
