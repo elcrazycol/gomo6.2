@@ -14,6 +14,9 @@ import { toast } from "sonner";
 interface FriendButtonProps {
   userId: string;
   isOwnProfile: boolean;
+  /** Render a labelled, full-width button (forum panel) instead of the icon square. */
+  withLabel?: boolean;
+  className?: string;
 }
 
 // Rounded-square action button, shared with the message/dots buttons so the
@@ -47,7 +50,7 @@ const PULSE_RING: Record<Pulse, string> = {
  * one-shot ring pulse, so the action always reads as confirmed. While following
  * the button opens a menu so unfollowing stays deliberate.
  */
-export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
+export const FriendButton = ({ userId, isOwnProfile, withLabel = false, className }: FriendButtonProps) => {
   const { friendStatusMap, subscribe, unsubscribe, checkStatus } = useFriendsStore();
   const [loading, setLoading] = useState(false);
   const [pulse, setPulse] = useState<Pulse | null>(null);
@@ -146,22 +149,51 @@ export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
         ? "text-primary"
         : "hover:border-destructive/40 hover:text-destructive";
 
-  const button = (
+  const title =
+    status === "none"
+      ? followsYou
+        ? "Подписан(а) на вас · подписаться"
+        : "Подписаться"
+      : isFriend
+        ? "Вы друзья"
+        : "Вы подписаны";
+
+  const labelText =
+    status === "none"
+      ? followsYou
+        ? "Подписан(а) на вас"
+        : "Подписаться"
+      : isFriend
+        ? "Вы друзья"
+        : "Вы подписаны";
+
+  const button = withLabel ? (
+    <Button
+      variant="outline"
+      disabled={loading}
+      onClick={isFollowing ? undefined : handleSubscribe}
+      title={title}
+      className={`h-9 w-full gap-1.5 rounded-xl border-border/60 px-4 text-sm font-medium outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${
+        isFollowing
+          ? "text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+          : "hover:border-primary/40 hover:text-primary"
+      } ${className ?? ""}`}
+    >
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span key={status} {...ICON_ANIM} className="flex items-center justify-center">
+          {icon}
+        </motion.span>
+      </AnimatePresence>
+      <span>{labelText}</span>
+    </Button>
+  ) : (
     <Button
       variant="outline"
       size="icon"
       disabled={loading}
       onClick={isFollowing ? undefined : handleSubscribe}
-      title={
-        status === "none"
-          ? followsYou
-            ? "Подписан(а) на вас · подписаться"
-            : "Подписаться"
-          : isFriend
-            ? "Вы друзья"
-            : "Вы подписаны"
-      }
-      className={`${ACTION_BTN} ${tone}`}
+      title={title}
+      className={`${ACTION_BTN} ${tone} ${className ?? ""}`}
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.span key={status} {...ICON_ANIM} className="flex items-center justify-center">
