@@ -17,11 +17,13 @@ type Mode = "subscribers" | "subscriptions";
  * one is ready — so it opens fully formed instead of swapping or flashing. The
  * header loading bar is the only loading indicator.
  */
-export const SubscriptionsPanel = ({ userId }: { userId: string }) => {
+export const SubscriptionsPanel = ({ userId, limit }: { userId: string; limit?: number }) => {
   const { t } = useTranslation();
   const transitionStyle = useTransitionStyle();
   const [mode, setMode] = useState<Mode>("subscribers");
 
+  const profileSubscribers = useFriendsStore((s) => s.profileSubscribers);
+  const profileSubscriptions = useFriendsStore((s) => s.profileSubscriptions);
   const profileSubscribersFor = useFriendsStore((s) => s.profileSubscribersFor);
   const profileSubscriptionsFor = useFriendsStore((s) => s.profileSubscriptionsFor);
   const fetchProfileSubscribers = useFriendsStore((s) => s.fetchProfileSubscribers);
@@ -42,14 +44,22 @@ export const SubscriptionsPanel = ({ userId }: { userId: string }) => {
   // Nothing until the current list has loaded — avoids any partial render.
   if (!ready) return null;
 
-  const segments: { key: Mode; label: string }[] = [
-    { key: "subscribers", label: t("profile.subscribers") },
-    { key: "subscriptions", label: t("profile.subscriptions") },
+  const segments: { key: Mode; label: string; count: number | null }[] = [
+    {
+      key: "subscribers",
+      label: t("profile.subscribers"),
+      count: profileSubscribersFor === userId ? profileSubscribers.length : null,
+    },
+    {
+      key: "subscriptions",
+      label: t("profile.subscriptions"),
+      count: profileSubscriptionsFor === userId ? profileSubscriptions.length : null,
+    },
   ];
 
   return (
     <div className={transitionEnterClass(transitionStyle)}>
-      <div className="mb-3 inline-flex items-center gap-0.5 rounded-full bg-muted/60 p-0.5">
+      <div className="mb-3 flex flex-wrap items-center gap-0.5 rounded-full bg-muted/60 p-0.5">
         {segments.map((segment) => {
           const active = mode === segment.key;
           return (
@@ -57,7 +67,7 @@ export const SubscriptionsPanel = ({ userId }: { userId: string }) => {
               key={segment.key}
               type="button"
               onClick={() => setMode(segment.key)}
-              className={`relative rounded-full px-3.5 py-1 text-xs font-medium transition-colors ${
+              className={`relative rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -68,13 +78,18 @@ export const SubscriptionsPanel = ({ userId }: { userId: string }) => {
                   transition={{ type: "spring", stiffness: 450, damping: 36 }}
                 />
               )}
-              <span className="relative z-10">{segment.label}</span>
+              <span className="relative z-10">
+                {segment.label}
+                {segment.count != null && (
+                  <span className="ml-1 text-muted-foreground">{segment.count}</span>
+                )}
+              </span>
             </button>
           );
         })}
       </div>
 
-      <SubscriptionList kind={mode} />
+      <SubscriptionList kind={mode} limit={limit} />
     </div>
   );
 };

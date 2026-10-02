@@ -10,6 +10,8 @@ import { profileUrl } from "@/utils/entityUrl";
 interface SubscriptionListProps {
   /** `subscribers` = people following this user; `subscriptions` = who they follow. */
   kind: "subscribers" | "subscriptions";
+  /** Cap the rendered rows (the forum side panel previews the first 5). */
+  limit?: number;
 }
 
 const SubscriptionItem = ({ user, liveStatus }: { user: SubscriptionUser; liveStatus?: UserStatus }) => {
@@ -66,15 +68,17 @@ const SubscriptionItem = ({ user, liveStatus }: { user: SubscriptionUser; liveSt
  * preloads both lists and only renders this once the current one is ready, so the
  * list never swaps or flashes — it just appears complete.
  */
-export const SubscriptionList = ({ kind }: SubscriptionListProps) => {
+export const SubscriptionList = ({ kind, limit }: SubscriptionListProps) => {
   const profileSubscribers = useFriendsStore((s) => s.profileSubscribers);
   const profileSubscriptions = useFriendsStore((s) => s.profileSubscriptions);
 
   const list = kind === "subscribers" ? profileSubscribers : profileSubscriptions;
+  const shown = limit ? list.slice(0, limit) : list;
+  const hiddenCount = list.length - shown.length;
 
   // Bulk presence: one subscription per visible user (capped inside the hook);
   // snapshots arrive instantly, then deltas keep the dots live.
-  const liveStatuses = useRealtimeOnlineStatus(list.map((u) => u.user_id));
+  const liveStatuses = useRealtimeOnlineStatus(shown.map((u) => u.user_id));
 
   if (list.length === 0) {
     return (
@@ -88,13 +92,18 @@ export const SubscriptionList = ({ kind }: SubscriptionListProps) => {
 
   return (
     <div className="space-y-1">
-      {list.map((user) => (
+      {shown.map((user) => (
         <SubscriptionItem
           key={user.user_id}
           user={user}
           liveStatus={liveStatuses.get(user.user_id)}
         />
       ))}
+      {hiddenCount > 0 && (
+        <p className="px-2 pt-1 text-center text-xs text-muted-foreground">
+          и ещё {hiddenCount}
+        </p>
+      )}
     </div>
   );
 };

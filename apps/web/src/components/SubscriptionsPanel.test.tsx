@@ -36,7 +36,7 @@ describe("SubscriptionsPanel", () => {
 
     expect(screen.getByTestId("list")).toHaveTextContent("subscribers");
 
-    fireEvent.click(screen.getByRole("button", { name: "Подписки" }));
+    fireEvent.click(screen.getByRole("button", { name: /Подписки/ }));
 
     expect(screen.getByTestId("list")).toHaveTextContent("subscriptions");
   });
