@@ -778,6 +778,10 @@ const en: LocaleResources = {
     postRemoveError: "Failed to remove post",
     noPostsToSelect: "No wall posts available for the album",
     saveAlbum: "Save",
+    forumMode: "Forum mode",
+    socialMode: "Social mode",
+    expandForum: "Expand into forum mode",
+    collapseForum: "Collapse back to social mode",
   },
   share: {
     title: "Share",

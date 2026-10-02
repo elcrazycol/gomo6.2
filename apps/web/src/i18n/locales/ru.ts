@@ -804,6 +804,10 @@ const ru: LocaleResources = {
     postRemoveError: "Не удалось убрать пост",
     noPostsToSelect: "На стене нет постов для альбома",
     saveAlbum: "Сохранить",
+    forumMode: "Форумный режим",
+    socialMode: "Режим соцсети",
+    expandForum: "Развернуть в форумный режим",
+    collapseForum: "Свернуть в режим соцсети",
   },
   share: {
     title: "Поделиться",
