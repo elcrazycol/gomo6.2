@@ -554,7 +554,7 @@ const Profile = () => {
 
   return (
     <main
-      className={`mx-auto p-4 isolate overflow-x-clip transition-[max-width] duration-300 ease-in-out ${forumMode ? "max-w-5xl" : "max-w-2xl"}`}
+      className={`mx-auto p-4 isolate overflow-x-clip transition-[max-width] duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${panelVisible ? "max-w-5xl" : "max-w-2xl"}`}
     >
         {/* Full-page profile background. In forum mode the owner's background
             is a soft, blurred backdrop behind the whole layout; otherwise the
@@ -586,27 +586,29 @@ const Profile = () => {
               profile panel is rendered as a first-class column and the rest of
               the profile reflows beside it. The AnimatePresence stays mounted
               so the panel can animate both in and out. */}
-          <div className={`flex items-start ${forumMode ? "gap-5" : ""}`}>
+          <div className="flex items-start">
             <AnimatePresence initial={false} onExitComplete={handleForumExitComplete}>
               {panelVisible && (
                 <motion.aside
                   key="forum-panel"
                   initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: 240 }}
+                  animate={{ opacity: 1, width: 260 }}
                   exit={{ opacity: 0, width: 0 }}
                   transition={
                     prefersReducedMotion
                       ? { duration: 0.15, ease: "easeOut" }
-                      : { duration: 0.3, ease: "easeInOut" }
+                      : { duration: 0.4, ease: [0.22, 1, 0.36, 1] }
                   }
                   className={`hidden shrink-0 self-stretch overflow-clip lg:block ${
                     forumSide === "left" ? "order-1" : "order-2"
                   }`}
                 >
-                  {/* Fixed-width inner box: it stays 240px while the column
-                      width animates, so the panel never squishes — the aside
-                      just clips it. */}
-                  <div className="h-full w-[240px]">
+                  {/* The gutter is part of the animated footprint (panel 240px +
+                      20px gap) so it collapses in the same motion instead of
+                      popping away when the panel unmounts. The inner box keeps
+                      its full width while the column animates, so the panel
+                      never squishes — the aside just clips it. */}
+                  <div className={`h-full w-[260px] ${forumSide === "left" ? "pr-5" : "pl-5"}`}>
                     <div className="sticky top-[calc(var(--app-header-pad,0px)+1rem)]">
                       <ForumProfilePanel
                         profile={profile}
