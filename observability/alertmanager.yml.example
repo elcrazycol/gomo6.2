@@ -35,8 +35,18 @@ route:
         - 'severity="critical"'
       receiver: telegram
       repeat_interval: 1h
+    # Info alerts are dashboard-only: they are evaluated and visible in the
+    # vmalert/Alertmanager UI, but never delivered to Telegram. `RedisCacheHitLow`
+    # is the sole info rule and fires structurally (Redis is multi-purpose here,
+    # so the global keyspace hit ratio is not a cache-health signal) — paging on
+    # it just produced a message every ~4h.
+    - matchers:
+        - 'severity="info"'
+      receiver: "null"
+      repeat_interval: 4h
 
 receivers:
+  - name: "null"
   - name: telegram
     telegram_configs:
       - bot_token: "<TELEGRAM_BOT_TOKEN>"

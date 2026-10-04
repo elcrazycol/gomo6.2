@@ -108,6 +108,14 @@ HTTP (`HighServerErrorRate`, `HighLatencyP95`, `RateLimitSurge`), database/cache
 24h repeat): if the heartbeat stops arriving, the alerting pipeline itself is
 broken — otherwise a silent failure.
 
+**Info alerts are dashboard-only.** `severity="info"` is routed to a `null`
+receiver: the rule still evaluates and is visible in the vmalert/Alertmanager
+UI, but it never reaches Telegram. The only info rule is `RedisCacheHitLow`, and
+its firing is expected: this Redis is multi-purpose (rate limits, auth cache,
+blacklists, presence, data cache), and Redis `keyspace_hits/misses` count only
+read lookups (writes like `SET`/`INCR` are excluded), so the global ratio sits
+structurally low — it is not a cache-health signal.
+
 ## Per-container memory without cAdvisor
 
 `observability/container-metrics.sh` writes `container_memory_usage_bytes` /
