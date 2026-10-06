@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '@/integrations/api/compat';
 import { isPublicId } from "@/utils/entityUrl";
 
@@ -33,15 +33,16 @@ export interface Thread {
 }
 
 /**
- * Hook for fetching a single thread with caching
+ * Query options for a single thread. Exported so the route-data preloader can
+ * warm the exact same TanStack entry the page reads (`warmQuery(threadQueryOptions(param))`).
  */
-export function useThread(threadId: string | undefined) {
+export const threadQueryOptions = (threadId: string | undefined) => {
   // The route parameter is a public number on new links and a UUID on old ones;
   // the backend accepts both, so the filter column follows the parameter shape.
   const param = threadId ?? '';
-  return useQuery({
-    queryKey: ['thread', param],
-    queryFn: async () => {
+  return {
+    queryKey: ['thread', param] as const,
+    queryFn: async (): Promise<Thread | null> => {
       if (!param) return null;
 
       const { data, error } = await api
@@ -56,7 +57,14 @@ export function useThread(threadId: string | undefined) {
     enabled: !!param,
     staleTime: 2 * 60 * 1000, // 2 minutes
     gcTime: 5 * 60 * 1000, // 5 minutes
-  });
+  };
+};
+
+/**
+ * Hook for fetching a single thread with caching
+ */
+export function useThread(threadId: string | undefined) {
+  return useQuery(threadQueryOptions(threadId));
 }
 
 /**
@@ -81,6 +89,8 @@ export function useThreads(boardId: string | undefined, options?: { limit?: numb
       return data as unknown as Thread[];
     },
     enabled: !!boardId,
+    // Keep the previous page visible while the next page loads.
+    placeholderData: keepPreviousData,
     staleTime: 30 * 1000, // 30 seconds
     gcTime: 2 * 60 * 1000, // 2 minutes
   });

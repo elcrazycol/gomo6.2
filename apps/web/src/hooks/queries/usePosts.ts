@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '@/integrations/api/compat';
 
 export interface Post {
@@ -53,6 +53,8 @@ export function usePosts(
       return (data as Post[]) ?? [];
     },
     enabled: !!threadId,
+    // Keep the previous page visible while the next page loads.
+    placeholderData: keepPreviousData,
     staleTime: 30 * 1000, // 30 seconds
     gcTime: 2 * 60 * 1000, // 2 minutes
     ...(extraOptions || {}),
