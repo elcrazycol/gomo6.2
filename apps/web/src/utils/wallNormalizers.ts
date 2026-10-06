@@ -1,10 +1,14 @@
 import { prosemirrorToPlainText } from "@/utils/contentConverter";
 import type { AttachmentMeta } from "@/types/forum";
 import { ensureAttachmentIds, type MediaAttachment } from "@/components/editor/media/mediaSchema";
+import { wallPostUrl } from "@/utils/entityUrl";
 
 export interface WallPost {
   id: string;
+  public_id?: number | null;
   user_id: string;
+  /** The wall owner's public number (absent on WebSocket-delivered posts). */
+  user_public_id?: number | null;
   author_id: string;
   title?: string | null;
   content?: string | null;
@@ -19,6 +23,7 @@ export interface WallPost {
   original_post?: WallPost | null;
   author: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;
@@ -49,6 +54,7 @@ export interface WallComment {
   updated_at: string;
   author: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;
@@ -67,9 +73,13 @@ export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: stri
   const authorSource = Array.isArray(author) ? author[0] : author;
 
   if (authorSource && typeof authorSource === 'object' && 'username' in (authorSource as Record<string, unknown>)) {
-    const a = authorSource as { username: string; display_name?: string | null; nickname_emoji_id?: string | null; is_anonymous?: boolean; avatar_url?: string | null };
+    const a = authorSource as { username: string; public_id?: number | null; display_name?: string | null; nickname_emoji_id?: string | null; is_anonymous?: boolean; avatar_url?: string | null };
     return {
       username: a.username,
+      // The number must survive the rebuild: this object is the only source the
+      // cards have for the author link, so dropping it here sends every wall
+      // author link back to the UUID.
+      public_id: typeof a.public_id === 'number' ? a.public_id : null,
       display_name: a.display_name || null,
       nickname_emoji_id: a.nickname_emoji_id || null,
       is_anonymous: Boolean(a.is_anonymous),
@@ -79,6 +89,7 @@ export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: stri
 
   return {
     username: fallbackUsername || "user",
+    public_id: null,
     display_name: null,
     nickname_emoji_id: null,
     is_anonymous: false,
@@ -133,11 +144,18 @@ export const normalizeWallComment = (comment: Record<string, unknown>): WallComm
   };
 };
 
-export const getWallPostPath = (profileUserId: string, postId: string) =>
-  `/profile/${profileUserId}/wall/${postId}`;
+export const getWallPostPath = (
+  owner: { id: string; public_id?: number | null },
+  post: { id: string; public_id?: number | null },
+) => wallPostUrl(owner, post);
 
 export const isInteractiveTarget = (target: EventTarget | null, currentTarget?: HTMLElement | null) => {
-  if (!(target instanceof HTMLElement)) return false;
+  // `Element`, not `HTMLElement`: icons render as SVG (SVGSVGElement/SVGPathElement),
+  // which is NOT an HTMLElement. Checking for HTMLElement made clicks land on the
+  // card's open-post handler whenever they hit an icon inside a button (spoiler's
+  // reveal chevron/eye, like/share hearts…), so the button's own action was
+  // skipped as the post opened instead.
+  if (!(target instanceof Element)) return false;
   const interactiveElement = target.closest(
     "a, button, input, textarea, select, summary, [role='button'], [contenteditable='true'], [data-wall-no-open='true'], img, video, audio, picture, [data-media-block], [data-media-content], [data-media-group], [data-compare-handle]"
   );

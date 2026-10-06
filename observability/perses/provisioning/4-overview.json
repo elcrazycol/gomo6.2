@@ -1,0 +1,1473 @@
+[
+  {
+    "kind": "Dashboard",
+    "metadata": {
+      "name": "overview",
+      "project": "gomo6"
+    },
+    "spec": {
+      "display": {
+        "name": "gomo6 · Обзор (RED)"
+      },
+      "duration": "3h",
+      "panels": {
+        "0_0": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Запросы/с",
+              "description": "Суммарный RPS по всем эндпоинтам"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#3584e4",
+                  "width": 1
+                },
+                "format": {
+                  "unit": "decimal",
+                  "decimalPlaces": 2
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum(rate(http_requests_total[5m]))"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "1_1": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Ошибки 5xx, %",
+              "description": "Порог алерта — 5% за 10 минут"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "background_solid",
+                "sparkline": {
+                  "color": "#33d17a",
+                  "width": 1
+                },
+                "format": {
+                  "unit": "percent",
+                  "decimalPlaces": 2
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 1,
+                      "color": "#f5c211"
+                    },
+                    {
+                      "value": 5,
+                      "color": "#e01b24"
+                    }
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "100 * sum(rate(http_server_errors_total[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.001)"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "2_2": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "p99 латентность",
+              "description": "99-й перцентиль; алерт срабатывает выше 1 с"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "background_solid",
+                "sparkline": {
+                  "color": "#33d17a",
+                  "width": 1
+                },
+                "format": {
+                  "unit": "milliseconds",
+                  "decimalPlaces": 0
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 200,
+                      "color": "#f5c211"
+                    },
+                    {
+                      "value": 1000,
+                      "color": "#e01b24"
+                    }
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "1000 * histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))"
+                    }
+                  }
+                }
+              }
+            ],
+            "links": [
+              {
+                "name": "Открыть p99 в vmui",
+                "url": "http://localhost:9428/vmui/#/?g0.expr=1000%20%2A%20histogram_quantile%280.99%2C%20sum%20by%20%28le%29%20%28rate%28http_request_duration_seconds_bucket%5B5m%5D%29%29%29&g0.range_input=1h"
+              }
+            ]
+          }
+        },
+        "3_3": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "WebSocket",
+              "description": "Активные realtime-соединения"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#9141ac",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "messenger_ws_active_connections"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "4_4": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Трафик по классам, rps",
+              "description": "Из чего состоит нагрузка: успешные, клиентские ошибки, серверные, рейт-лимит"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                },
+                "visual": {
+                  "display": "line",
+                  "stack": "all"
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(clamp_min(sum(rate(http_requests_total[5m])) - sum(rate(http_client_errors_total[5m])) - sum(rate(http_server_errors_total[5m])) - sum(rate(http_rate_limited_total[5m])), 0), \"class\", \"2xx\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(sum(rate(http_client_errors_total[5m])), \"class\", \"4xx\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(sum(rate(http_server_errors_total[5m])), \"class\", \"5xx\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(sum(rate(http_rate_limited_total[5m])), \"class\", \"429\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ],
+            "links": [
+              {
+                "name": "Все запросы в vmui",
+                "url": "http://localhost:9428/vmui/#/?g0.expr=sum%20by%20%28route%29%20%28rate%28http_requests_total%5B5m%5D%29%29&g0.range_input=3h"
+              }
+            ]
+          }
+        },
+        "5_5": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Доля ошибок 5xx, %",
+              "description": "Держим ниже 5%: выше — алерт и сообщение в Telegram"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "list"
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 1,
+                      "color": "#f5c211"
+                    },
+                    {
+                      "value": 5,
+                      "color": "#e01b24"
+                    }
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(100 * sum(rate(http_server_errors_total[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.001), \"series\", \"5xx %\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ],
+            "links": [
+              {
+                "name": "5xx по роутам в vmui",
+                "url": "http://localhost:9428/vmui/#/?g0.expr=sum%20by%20%28route%29%20%28rate%28http_server_errors_total%5B5m%5D%29%29&g0.range_input=3h"
+              }
+            ]
+          }
+        },
+        "6_6": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Латентность: p50 / p90 / p99, мс",
+              "description": "p50 — типичный запрос, p99 — хвост: именно там живёт «сайт иногда виснет»"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "mean",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(1000 * histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))), \"series\", \"p50\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(1000 * histogram_quantile(0.9, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))), \"series\", \"p90\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(1000 * histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))), \"series\", \"p99\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ],
+            "links": [
+              {
+                "name": "p95 по роутам в vmui",
+                "url": "http://localhost:9428/vmui/#/?g0.expr=1000%20%2A%20histogram_quantile%280.95%2C%20sum%20by%20%28le%2C%20route%29%20%28rate%28http_request_duration_seconds_bucket%5B5m%5D%29%29%29&g0.range_input=3h"
+              }
+            ]
+          }
+        },
+        "7_7": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "p95 сейчас и неделю назад, мс",
+              "description": "Сравнение с историей через `offset 1w`: стало хуже или так всегда было?"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "mean"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))), \"series\", \"сейчас\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m] offset 1w))), \"series\", \"неделю назад\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ],
+            "links": [
+              {
+                "name": "p95 неделю назад в vmui",
+                "url": "http://localhost:9428/vmui/#/?g0.expr=1000%20%2A%20histogram_quantile%280.95%2C%20sum%20by%20%28le%29%20%28rate%28http_request_duration_seconds_bucket%5B5m%5D%20offset%201w%29%29%29&g0.range_input=3h"
+              }
+            ]
+          }
+        },
+        "8_8": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Топ роутов: rps, ошибки, 429, p95",
+              "description": "Сортировка по объёму — куда смотреть в первую очередь"
+            },
+            "plugin": {
+              "kind": "TimeSeriesTable",
+              "spec": {}
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (route) (rate(http_requests_total[5m]))"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (route) (rate(http_server_errors_total[5m]))"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (route) (rate(http_rate_limited_total[5m]))"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "1000 * histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "9_9": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "HTTP: запросов/мин по роутам"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "right",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (route) (rate(http_requests_total[5m])) * 60"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "10_10": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "HTTP: ошибки 5xx/мин по роутам"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "right",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 1,
+                      "color": "#f5c211"
+                    }
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (route) (rate(http_server_errors_total[5m])) * 60"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "11_11": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "HTTP: 429 (рейт-лимит)/мин по роутам"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "right",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (route) (rate(http_rate_limited_total[5m])) * 60"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "12_12": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "HTTP: p95 по роутам, мс"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "right",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "1000 * histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "13_13": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "WebSocket: активные соединения"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "list"
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(messenger_ws_active_connections, \"series\", \"соединения\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "14_14": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "WebSocket: рассылок/мин и средняя длительность, с"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "mean"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(rate(messenger_ws_broadcasts_total[5m]) * 60, \"series\", \"рассылок/мин\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(messenger_ws_broadcast_duration_seconds, \"series\", \"длительность, с\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "15_15": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "БД: пул соединений (занято / максимум / idle)",
+              "description": "Алерт при занятых > 80% от максимума"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 20,
+                      "color": "#f5c211"
+                    }
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(db_in_use_connections, \"series\", \"занято\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(db_max_open_connections, \"series\", \"максимум\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(db_idle_connections, \"series\", \"idle\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "16_16": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "БД: ошибки транзакций/мин"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "list"
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(rate(messenger_db_tx_errors_total[5m]) * 60, \"series\", \"ошибок/мин\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "17_17": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Фоновые пулы: очередь",
+              "description": "Переполнение очереди фоновых задач (realtime/push/кэш)"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (pool) (bg_queue_length)"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "18_18": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Фоновые пулы: дропы/мин",
+              "description": "Дропы = задачи потеряны: стоит разбираться"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "sum by (pool) (rate(bg_dropped_total[5m])) * 60"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "19_19": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Процесс: горутины и heap, МБ",
+              "description": "Утечка горутин видна как растущая линия"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(backend_goroutines, \"series\", \"горутины\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(backend_heap_inuse_bytes / 1048576, \"series\", \"heap, МБ\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "20_20": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Процесс: uptime, ч"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "list"
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(backend_uptime_seconds / 3600, \"series\", \"uptime, ч\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "21_21": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Проверки доступности (blackbox)",
+              "description": "1 = сайт отвечает 2xx; 0 — то, на что срабатывает SiteDown"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "min"
+                  ]
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 1,
+                      "color": "#e01b24"
+                    }
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(probe_success{job=\"blackbox\"}, \"series\", \"probe ok\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "22_22": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Проверки: сертификат TLS, дней до истечения",
+              "description": "Алерт за 14 дней до истечения"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "min"
+                  ]
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "defaultColor": "#33d17a",
+                  "steps": [
+                    {
+                      "value": 14,
+                      "color": "#f5c211"
+                    },
+                    {
+                      "value": 7,
+                      "color": "#e01b24"
+                    }
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace((probe_ssl_earliest_cert_expiry{job=\"blackbox\"} - time()) / 86400, \"series\", \"дней\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "23_23": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Быстрые ссылки"
+            },
+            "plugin": {
+              "kind": "Markdown",
+              "spec": {
+                "text": "\n**Разбор всплеска:** [vmui](http://localhost:9428/vmui) → вставь запрос, например\n`1000 * histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))`.\n\n| Куда | Зачем |\n|---|---|\n| [vmui](http://localhost:9428/vmui) | ad-hoc запросы, cardinality explorer, сравнение через `offset` |\n| [Правила](http://localhost:9880) | что и когда сработает |\n| [Алерты](http://localhost:9093) | что горит сейчас, silences |\n| [Продукт](http://localhost:9080/projects/gomo6/dashboards/product) | регистрации, сообщения, онлайн |\n| [Данные](http://localhost:9080/projects/gomo6/dashboards/data) | Postgres / Redis |\n| [Ресурсы](http://localhost:9080/projects/gomo6/dashboards/resources) | CPU / RAM / диск / контейнеры |\n| [Хост](http://localhost:9080/projects/gomo6/dashboards/host) | детально по системе |\n"
+              }
+            }
+          }
+        }
+      },
+      "layouts": [
+        {
+          "kind": "Grid",
+          "spec": {
+            "display": {
+              "title": "RED"
+            },
+            "items": [
+              {
+                "x": 0,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/0_0"
+                }
+              },
+              {
+                "x": 6,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/1_1"
+                }
+              },
+              {
+                "x": 12,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/2_2"
+                }
+              },
+              {
+                "x": 18,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/3_3"
+                }
+              },
+              {
+                "x": 0,
+                "y": 6,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/4_4"
+                }
+              },
+              {
+                "x": 12,
+                "y": 6,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/5_5"
+                }
+              },
+              {
+                "x": 0,
+                "y": 14,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/6_6"
+                }
+              },
+              {
+                "x": 12,
+                "y": 14,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/7_7"
+                }
+              },
+              {
+                "x": 0,
+                "y": 22,
+                "width": 24,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/8_8"
+                }
+              },
+              {
+                "x": 0,
+                "y": 30,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/9_9"
+                }
+              },
+              {
+                "x": 12,
+                "y": 30,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/10_10"
+                }
+              },
+              {
+                "x": 0,
+                "y": 38,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/11_11"
+                }
+              },
+              {
+                "x": 12,
+                "y": 38,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/12_12"
+                }
+              },
+              {
+                "x": 0,
+                "y": 46,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/13_13"
+                }
+              },
+              {
+                "x": 12,
+                "y": 46,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/14_14"
+                }
+              },
+              {
+                "x": 0,
+                "y": 54,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/15_15"
+                }
+              },
+              {
+                "x": 12,
+                "y": 54,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/16_16"
+                }
+              },
+              {
+                "x": 0,
+                "y": 62,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/17_17"
+                }
+              },
+              {
+                "x": 12,
+                "y": 62,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/18_18"
+                }
+              },
+              {
+                "x": 0,
+                "y": 70,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/19_19"
+                }
+              },
+              {
+                "x": 12,
+                "y": 70,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/20_20"
+                }
+              },
+              {
+                "x": 0,
+                "y": 78,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/21_21"
+                }
+              },
+              {
+                "x": 12,
+                "y": 78,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/22_22"
+                }
+              },
+              {
+                "x": 0,
+                "y": 86,
+                "width": 24,
+                "height": 5,
+                "content": {
+                  "$ref": "#/spec/panels/23_23"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "links": [
+        {
+          "name": "vmui",
+          "url": "http://localhost:9428/vmui"
+        },
+        {
+          "name": "Правила",
+          "url": "http://localhost:9880"
+        },
+        {
+          "name": "Алерты",
+          "url": "http://localhost:9093"
+        },
+        {
+          "name": "Продукт",
+          "url": "http://localhost:9080/projects/gomo6/dashboards/product"
+        },
+        {
+          "name": "Данные",
+          "url": "http://localhost:9080/projects/gomo6/dashboards/data"
+        },
+        {
+          "name": "Ресурсы",
+          "url": "http://localhost:9080/projects/gomo6/dashboards/resources"
+        },
+        {
+          "name": "Хост",
+          "url": "http://localhost:9080/projects/gomo6/dashboards/host"
+        }
+      ]
+    }
+  }
+]

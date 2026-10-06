@@ -1,0 +1,79 @@
+# vmagent scrape configuration for gomo6.
+#
+# Replaces Grafana Alloy (599 MB) with a ~40 MB agent that does the same job:
+# scrape Prometheus endpoints and remote-write them to VictoriaMetrics.
+#
+# VictoriaMetrics expands %{ENV_VAR} in YAML config files, so the /metrics
+# bearer token comes from the container environment (METRICS_TOKEN in .env) and
+# never lives in git.
+#
+# Endpoints:
+#   http://vmagent:8429/targets   — scrape health
+#   http://vmagent:8429/metrics   — vmagent's own metrics
+
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+scrape_configs:
+  # ── Application ───────────────────────────────────────────────────────────
+  # The backend's hand-rolled /metrics (token-gated; returns 404 upstream when
+  # METRICS_TOKEN is unset).
+  - job_name: backend
+    metrics_path: /metrics
+    bearer_token: "%{METRICS_TOKEN}"
+    static_configs:
+      - targets: ["backend:8080"]
+
+  # ── Observability stack self-monitoring ───────────────────────────────────
+  # Watch the watchers: if VM or the agent stops, these are the series that go
+  # missing first.
+  - job_name: victoriametrics
+    static_configs:
+      - targets: ["victoriametrics:8428"]
+
+  - job_name: vmagent
+    static_configs:
+      - targets: ["vmagent:8429"]
+
+  - job_name: vmalert
+    static_configs:
+      - targets: ["vmalert:8880"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
+  # ── Host resources (the disk incident of 2026-09-29 says hello) ───────────
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # ── Data layer ────────────────────────────────────────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # ── Blackbox probes: availability + TLS expiry ────────────────────────────
+  # The public entrypoints, probed from inside the VPS. `module: http_2xx`
+  # checks status, redirects and (with the module below) TLS.
+  - job_name: blackbox
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://gomo6.wtf/health
+          - https://docs.gomo6.wtf
+          - https://dev.gomo6.wtf
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

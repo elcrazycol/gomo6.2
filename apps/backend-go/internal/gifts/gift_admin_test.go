@@ -27,7 +27,7 @@ func TestGiftAdmin_ListGifts_NotAdmin(t *testing.T) {
 	handler, mock := setupGiftAdminHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	mock.ExpectQuery("SELECT COUNT").WithArgs("user-123").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("user-123").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	c, w := testutil.NewGETContextWithClaims("/api/v1/admin/gifts", nil, claims)
 	handler.ListGifts(c)
@@ -41,7 +41,7 @@ func TestGiftAdmin_ListGifts_Admin(t *testing.T) {
 	handler, mock := setupGiftAdminHandler(t)
 	claims := &auth.Claims{UserID: "admin-1"}
 
-	mock.ExpectQuery("SELECT COUNT").WithArgs("admin-1").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("admin-1").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	giftRows := sqlmock.NewRows([]string{"id", "name", "description", "image_url", "price", "category",
 		"is_active", "is_limited", "max_quantity", "sold_count", "sort_order", "created_at", "updated_at"})
@@ -59,7 +59,7 @@ func TestGiftAdmin_CreateGift_NotAdmin(t *testing.T) {
 	handler, mock := setupGiftAdminHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	mock.ExpectQuery("SELECT COUNT").WithArgs("user-123").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("user-123").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	c, w := testutil.NewPOSTContext("/api/v1/admin/gifts", map[string]interface{}{
 		"name": "Test Gift",
@@ -75,7 +75,7 @@ func TestGiftAdmin_CreateGift_InvalidBody(t *testing.T) {
 	handler, mock := setupGiftAdminHandler(t)
 	claims := &auth.Claims{UserID: "admin-1"}
 
-	mock.ExpectQuery("SELECT COUNT").WithArgs("admin-1").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("admin-1").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	c, w := testutil.NewPOSTContext("/api/v1/admin/gifts", nil, claims, nil)
 	handler.CreateGift(c)
@@ -89,7 +89,7 @@ func TestGiftAdmin_DeleteGift_NotAdmin(t *testing.T) {
 	handler, mock := setupGiftAdminHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	mock.ExpectQuery("SELECT COUNT").WithArgs("user-123").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("user-123").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	c, w := testutil.NewPOSTContext("/api/v1/admin/gifts/gift-1", nil, claims, map[string]string{"id": "gift-1"})
 	c.Request.Method = "DELETE"
@@ -104,7 +104,7 @@ func TestGiftAdmin_DeleteGift_Success(t *testing.T) {
 	handler, mock := setupGiftAdminHandler(t)
 	claims := &auth.Claims{UserID: "admin-1"}
 
-	mock.ExpectQuery("SELECT COUNT").WithArgs("admin-1").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("admin-1").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectExec("UPDATE gift_catalog SET is_active").WillReturnResult(sqlmock.NewResult(0, 1))
 
 	c, w := testutil.NewPOSTContext("/api/v1/admin/gifts/gift-1", nil, claims, map[string]string{"id": "gift-1"})

@@ -55,6 +55,11 @@ const ProfileStudio = () => {
   // explicit "Publish" (it changes how the profile looks to every viewer).
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
+  // Autosave must not arm before the initial load has hydrated the fields: the
+  // effect below also fires on mount, when the state is still blank, and if the
+  // load took longer than the debounce it would persist those blanks over the
+  // user's saved customization.
+  const hydratedRef = useRef(false);
 
   // ── Hybrid persistence ─────────────────────────────────────────────────
   const persistSmallEdits = useCallback(async () => {
@@ -78,6 +83,13 @@ const ProfileStudio = () => {
       setAutosaving(false);
     }
   }, [userId, usernameCss, badgeText, badgeCss]);
+
+  // The unmount cleanup further down belongs to an effect that runs once, so its
+  // closure would otherwise call the persist function captured on the first
+  // render — i.e. with blank fields, overwriting the saved customization. Keep
+  // the newest one reachable through a ref.
+  const persistRef = useRef(persistSmallEdits);
+  persistRef.current = persistSmallEdits;
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
@@ -141,17 +153,29 @@ const ProfileStudio = () => {
         toast.error("Ошибка загрузки данных");
       } finally {
         setLoading(false);
+        // From here on the fields mirror the saved row, so changes are real
+        // edits and safe to autosave.
+        hydratedRef.current = true;
       }
     };
 
     load();
     return () => {
-      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+      // Flush instead of dropping it. Leaving the studio inside the 900ms
+      // debounce window used to discard the last nickname/badge edit outright,
+      // which then looked exactly like a caching problem: the studio preview
+      // showed the new colour, the profile never did.
+      void persistRef.current();
     };
   }, [navigate]);
 
   // Trigger autosave whenever one of the small fields changes.
   useEffect(() => {
+    if (!hydratedRef.current) return;
     markDirty();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usernameCss, badgeText, badgeCss]);

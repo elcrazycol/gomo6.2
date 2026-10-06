@@ -122,7 +122,7 @@ export default function EmojiPackEdit() {
           <Button variant="outline" size="sm" onClick={() => setShowForm((value) => !value)}>{showForm ? 'Скрыть' : 'Настроить пак'}</Button>
         </div>
 
-        {showForm && <div className="mb-6 rounded-2xl border border-border/70 bg-card p-4"><EmojiPackForm initialData={pack} onSuccess={() => { setShowForm(false); loadPack(); void refreshData(); }} onCancel={() => setShowForm(false)} /></div>}
+        {showForm && <div className="mb-6 rounded-2xl border border-border/70 bg-surface p-4"><EmojiPackForm initialData={pack} onSuccess={() => { setShowForm(false); loadPack(); void refreshData(); }} onCancel={() => setShowForm(false)} /></div>}
 
         <div className="mb-8 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-4 sm:p-5">
           <div className="mb-4 flex items-start gap-3"><div className="rounded-xl bg-primary/15 p-2 text-primary"><Sparkles className="h-5 w-5" /></div><div><h2 className="font-semibold">Добавить кастомный эмодзи</h2><p className="text-sm text-muted-foreground">Картинка будет уменьшена на вашем устройстве. Пользователи будут находить её по обычным эмодзи, без :имён:.</p></div></div>

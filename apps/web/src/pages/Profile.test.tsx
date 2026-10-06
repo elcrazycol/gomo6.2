@@ -51,7 +51,6 @@ vi.mock("@/components/ChatIcon", () => ({ ChatIcon: () => null }));
 vi.mock("@/components/MobileMenu", () => ({ MobileMenu: () => null }));
 vi.mock("@/components/ProfileHoverCard", () => ({ ProfileHoverCard: () => null }));
 vi.mock("@/components/HeaderUsername", () => ({ HeaderUsername: () => null }));
-vi.mock("@/components/ThemeToggle", () => ({ ThemeToggle: () => null }));
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -86,6 +85,7 @@ describe("Profile", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockProfileWallProps.length = 0;
+    localStorage.removeItem("profile-view-mode");
   });
 
   afterEach(() => {
@@ -153,7 +153,7 @@ describe("Profile", () => {
     mockRpc.mockResolvedValue({ data: 0, error: null });
   }
 
-  it("shows skeleton loader only after a slow profile load", () => {
+  it("never flashes a skeleton while the profile loads", () => {
     vi.useFakeTimers();
     try {
       mockAuth.getSession.mockReturnValue(new Promise(() => {}));
@@ -161,13 +161,12 @@ describe("Profile", () => {
       mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
 
       const { container } = renderWithProviders(<ProfileComponent />);
-      // A fast return must not flash the skeleton before the delayed threshold.
-      expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
-
+      // No skeleton, ever: the header loading bar is the only indicator, and
+      // the profile paints once its row has loaded.
       act(() => {
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
       });
-      expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+      expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -335,7 +334,7 @@ describe("Profile", () => {
     expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Записи" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Друзья/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Подписчики/)).not.toBeInTheDocument();
   });
 
   it("opens the album row from the wall tab chevron and shows album chips", async () => {
@@ -374,8 +373,8 @@ describe("Profile", () => {
     expect(screen.getByText("Лучшее")).toBeInTheDocument();
   });
 
-  it("shows the friends tab when the owner keeps friends visible on a private profile", async () => {
-    // Override privacy: friends NOT hidden → the tab must appear.
+  it("shows the subscription tab when the owner keeps it visible on a private profile", async () => {
+    // Override privacy: lists NOT hidden → the tab must appear.
     setupForeignPrivateProfile({ private_hide_friends: false });
 
     renderWithProviders(<ProfileComponent />);
@@ -384,11 +383,106 @@ describe("Profile", () => {
       expect(screen.getByText("Стена")).toBeInTheDocument();
     });
 
-    // Friends not hidden → the friends tab shows (wall + friends only).
+    // Lists not hidden → the single subscribers tab shows (it hosts both lists).
     expect(screen.getByText("Стена")).toBeInTheDocument();
-    expect(screen.getByText(/^Друзья/)).toBeInTheDocument();
+    expect(screen.getByText(/^Подписчики/)).toBeInTheDocument();
+    // The subscriptions list is reachable only through the in-panel toggle, so
+    // its label is not rendered while the tab is closed.
+    expect(screen.queryByText(/^Подписки/)).not.toBeInTheDocument();
     // Hidden sections stay hidden.
     expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
+  });
+
+  it("shows the stats block on a foreign public profile when the owner never set the flag", async () => {
+    // Regression: show_profile_stats used to default to false, so stats were
+    // owner-only. A missing flag must now be treated as "visible".
+    setupForeignPrivateProfile({
+      private_profile: false,
+      show_profile_stats: undefined,
+    });
+
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Просмотры")).toBeInTheDocument();
+    });
+  });
+
+  // ─── Forum layout toggle ────────────────────────────────────────────────────
+
+  it("unfolds the profile from an edge into the forum layout and collapses with the same button", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    // Both edge controls share the expand label while neither side is active.
+    const expandButtons = await screen.findAllByRole("button", { name: "Развернуть в форумный режим" });
+    expect(expandButtons).toHaveLength(2);
+
+    // The left control unfolds the panel on the left.
+    fireEvent.click(expandButtons[0]);
+    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+
+    // The same-side button collapses the layout again.
+    fireEvent.click(screen.getByRole("button", { name: "Свернуть в режим соцсети" }));
+    await waitFor(() => {
+      expect(screen.queryByTestId("forum-profile-panel")).not.toBeInTheDocument();
+    });
+  });
+
+  it("moves the forum panel to the opposite edge when the other button is pressed", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    const [leftToggle, rightToggle] = await screen.findAllByRole("button", { name: "Развернуть в форумный режим" });
+
+    fireEvent.click(leftToggle);
+    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+
+    // Pressing the opposite control keeps the panel open but relocates it.
+    fireEvent.click(rightToggle);
+    expect(screen.getByTestId("forum-profile-panel")).toBeInTheDocument();
+    // The moved side is now the active one; the left control reverts to expand.
+    expect(screen.getAllByRole("button", { name: "Развернуть в форумный режим" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+  });
+
+  it("opens already unfolded when the default profile view is forum (desktop)", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: /min-width:\s*1024px/.test(query),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    localStorage.setItem("profile-view-mode", "forum");
+
+    try {
+      setupOwnProfile();
+      renderWithProviders(<ProfileComponent />);
+
+      await waitFor(() => {
+        expect(screen.getByText("testuser")).toBeInTheDocument();
+      });
+
+      // The side panel is already there — no edge control was pressed.
+      expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 });

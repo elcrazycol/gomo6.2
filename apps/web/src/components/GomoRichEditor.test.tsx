@@ -235,4 +235,70 @@ describe("GomoRichEditor Enter-to-submit", () => {
       mockSlashPopupActive = false;
     }
   });
+
+  it("intercepts Enter before ProseMirror: no paragraph is inserted", () => {
+    stubRAF();
+    const onChange = vi.fn();
+    const onSubmit = vi.fn();
+    const { container } = render(
+      <GomoRichEditor
+        onChange={onChange}
+        onSubmit={onSubmit}
+        contentJson={{
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "hi" }] }],
+        }}
+      />
+    );
+    onChange.mockClear();
+    const editable = container.querySelector("[contenteditable]") as HTMLElement;
+
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    editable.dispatchEvent(event);
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    // Cancelled in the capture phase, so the base keymap never ran — the doc is
+    // untouched and nothing flashes.
+    expect(event.defaultPrevented).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("lets Shift+Enter insert a line break without submitting", () => {
+    stubRAF();
+    const onSubmit = vi.fn();
+    const { container } = render(<GomoRichEditor onChange={vi.fn()} onSubmit={onSubmit} />);
+    const editable = container.querySelector("[contenteditable]") as HTMLElement;
+
+    editable.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true })
+    );
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("ignores Enter while an IME composition is active", () => {
+    stubRAF();
+    const onSubmit = vi.fn();
+    const { container } = render(<GomoRichEditor onChange={vi.fn()} onSubmit={onSubmit} />);
+    const editable = container.querySelector("[contenteditable]") as HTMLElement;
+
+    editable.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })
+    );
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("leaves Enter as a plain newline when no onSubmit is provided", () => {
+    stubRAF();
+    const onChange = vi.fn();
+    const { container } = render(<GomoRichEditor onChange={onChange} />);
+    onChange.mockClear();
+    const editable = container.querySelector("[contenteditable]") as HTMLElement;
+
+    editable.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    // Not intercepted: ProseMirror handles it and the doc changes.
+    expect(onChange).toHaveBeenCalled();
+  });
 });

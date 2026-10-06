@@ -36,45 +36,45 @@ export const CompactFormattingToolbar = ({ onFormat }: CompactFormattingToolbarP
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
             <DropdownMenuItem onClick={() => onFormat("[B]", "[/B]")}>
-              <Bold className="h-4 w-4 mr-2" />
+              <Bold className="h-4 w-4" />
               Жирный текст
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onFormat("[I]", "[/I]")}>
-              <Italic className="h-4 w-4 mr-2" />
+              <Italic className="h-4 w-4" />
               Курсив
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onFormat("[U]", "[/U]")}>
-              <Underline className="h-4 w-4 mr-2" />
+              <Underline className="h-4 w-4" />
               Подчеркнутый
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onFormat("[S]", "[/S]")}>
-              <Strikethrough className="h-4 w-4 mr-2" />
+              <Strikethrough className="h-4 w-4" />
               Зачеркнутый
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onFormat("[blur]", "[/blur]")}>
-              <Eye className="h-4 w-4 mr-2" />
+              <Eye className="h-4 w-4" />
               Blur-спойлер
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onFormat("[size=2]", "[/size]")}>
-              <Type className="h-4 w-4 mr-2" />
+              <Type className="h-4 w-4" />
               Размер текста
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onFormat("[col=#ff0000]", "[/col]")}>
-              <Palette className="h-4 w-4 mr-2" />
+              <Palette className="h-4 w-4" />
               Цвет текста
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onFormat(":emoji:", "")}>
-              <Zap className="h-4 w-4 mr-2" />
+              <Zap className="h-4 w-4" />
               Эмодзи
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onFormat("@", "")}>
-              <AtSign className="h-4 w-4 mr-2" />
+              <AtSign className="h-4 w-4" />
               Упоминание
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onFormat("https://", "")}>
-              <Link className="h-4 w-4 mr-2" />
+              <Link className="h-4 w-4" />
               Ссылка
             </DropdownMenuItem>
           </DropdownMenuContent>

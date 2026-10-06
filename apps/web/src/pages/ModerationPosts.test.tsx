@@ -13,6 +13,7 @@ vi.mock("@/hooks/useModeratorGate", () => ({
   useModeratorGate: () => ({
     user: { id: "mod-1" },
     isModerator: true,
+    canReadModeration: true,
     currentUserUsername: "moderator",
     currentUserColor: "blue",
   }),
@@ -33,105 +34,97 @@ vi.mock("@/integrations/api/client", () => ({
 }));
 
 vi.mock("@/services/websocket", () => ({ wsService: mockWsService }));
+vi.mock("react-router-dom", () => ({ Link: ({ children, to }: any) => <a href={to}>{children}</a> }));
 
-vi.mock("react-router-dom", () => ({
-  Link: ({ children, to }: any) => <a href={to}>{children}</a>,
+// Radix Select renders options through a portal; stub it so the option labels
+// do not leak into the queries.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({ children }: any) => <div>{children}</div>,
+  SelectTrigger: ({ children }: any) => <div>{children}</div>,
+  SelectValue: () => null,
+  SelectContent: () => null,
+  SelectItem: () => null,
 }));
 
-const group = (overrides: Record<string, unknown> = {}) => ({
-  post: {
-    id: "post-1",
-    user_id: "owner-1",
-    author_id: "author-1",
-    title: "",
-    content: "Спорная запись",
-    content_json: null,
-    image_url: null,
-    attachments: null,
-    repost_of_post_id: null,
-    created_at: "2026-09-01T10:00:00Z",
-    updated_at: "2026-09-01T10:00:00Z",
-    is_pinned: false,
-    pinned_order: null,
-    likes_count: 1,
-    comments_count: 2,
-    reposts_count: 0,
-    views_count: 3,
-    author: { username: "author", display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: null },
-  },
-  reports: [
-    {
-      id: "r-1",
-      post_id: "post-1",
-      reporter_id: "rep-1",
-      reporter: { username: "alice", display_name: null, avatar_url: null },
-      category: "spam",
-      reason: "Реклама казино",
-      status: "open",
-      created_at: "2026-09-02T10:00:00Z",
-    },
-  ],
-  report_count: 1,
-  open_count: 1,
+const report = (overrides: Record<string, unknown> = {}) => ({
+  id: "r-1",
+  target_type: "wall_post",
+  target_id: "post-1",
+  reporter_id: "rep-1",
+  reporter: { username: "alice", display_name: null, avatar_url: null },
+  category: "spam",
+  reason: "Реклама казино",
+  status: "open",
+  reason_code: null,
+  resolution_note: null,
+  created_at: "2026-09-02T10:00:00Z",
   ...overrides,
 });
 
+const group = (overrides: Record<string, unknown> = {}) => ({
+  target: {
+    type: "wall_post",
+    id: "post-1",
+    exists: true,
+    title: "",
+    content: "Спорная запись",
+    author_username: "author",
+    author_id: "author-1",
+    created_at: "2026-09-01T10:00:00Z",
+    link: "/profile/owner-1/wall/post-1",
+  },
+  reports: [report()],
+  open_count: 1,
+  total_count: 1,
+  last_at: "2026-09-02T10:00:00Z",
+  ...overrides,
+});
+
+const page = (items: unknown[]) => ({ items, total: items.length, limit: 50, offset: 0 });
 const apiResponse = (data: unknown) => ({ success: true, data });
 
 describe("ModerationPosts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockWsService.on.mockReturnValue(vi.fn());
-    mockRawRequest.mockResolvedValue(apiResponse([]));
+    mockRawRequest.mockResolvedValue(apiResponse(page([])));
   });
 
   it("shows the empty state when the queue is empty", async () => {
     render(<ModerationPosts />);
     await waitFor(() => {
-      expect(screen.getByText(/Очередь пуста/)).toBeInTheDocument();
+      expect(screen.getByText("Очередь пуста")).toBeInTheDocument();
     });
   });
 
-  it("renders reported posts grouped by post with an open-count badge", async () => {
-    mockRawRequest.mockResolvedValue(apiResponse([group()]));
+  it("renders the reported content, its author and a link to open it", async () => {
+    mockRawRequest.mockResolvedValue(apiResponse(page([group()])));
     render(<ModerationPosts />);
 
     await waitFor(() => {
       expect(screen.getByText("Спорная запись")).toBeInTheDocument();
     });
     expect(screen.getByText("1 жалоба")).toBeInTheDocument();
+    // author links to the moderation card
+    expect(screen.getByRole("link", { name: "author" })).toHaveAttribute("href", "/moderation/users/author-1");
+    // content link opens the wall post
+    expect(screen.getByRole("link", { name: /Открыть/ })).toHaveAttribute(
+      "href",
+      "/profile/owner-1/wall/post-1",
+    );
+    // category chip with count
+    expect(screen.getByText("Спам/реклама ×1")).toBeInTheDocument();
   });
 
   it("expands to show every report with its category and reason", async () => {
     mockRawRequest.mockResolvedValue(
-      apiResponse([
+      apiResponse(page([
         group({
-          report_count: 2,
           open_count: 2,
-          reports: [
-            {
-              id: "r-1",
-              post_id: "post-1",
-              reporter_id: "rep-1",
-              reporter: { username: "alice", display_name: null, avatar_url: null },
-              category: "spam",
-              reason: "Реклама казино",
-              status: "open",
-              created_at: "2026-09-02T10:00:00Z",
-            },
-            {
-              id: "r-2",
-              post_id: "post-1",
-              reporter_id: "rep-2",
-              reporter: { username: "bob", display_name: null, avatar_url: null },
-              category: "abuse",
-              reason: "Оскорбления в мой адрес",
-              status: "open",
-              created_at: "2026-09-02T11:00:00Z",
-            },
-          ],
+          total_count: 2,
+          reports: [report(), report({ id: "r-2", category: "abuse", reason: "Оскорбления в мой адрес" })],
         }),
-      ]),
+      ])),
     );
     render(<ModerationPosts />);
 
@@ -144,38 +137,35 @@ describe("ModerationPosts", () => {
     await waitFor(() => {
       expect(screen.getByText("Реклама казино")).toBeInTheDocument();
       expect(screen.getByText("Оскорбления в мой адрес")).toBeInTheDocument();
-      expect(screen.getByText("Спам/реклама")).toBeInTheDocument();
-      expect(screen.getByText("Оскорбления")).toBeInTheDocument();
     });
   });
 
-  it("resolves the open reports of a post without deleting it", async () => {
-    mockRawRequest.mockResolvedValue(apiResponse([group()]));
+  it("keeps the content and closes the reports via «Оставить»", async () => {
+    mockRawRequest.mockResolvedValue(apiResponse(page([group()])));
     render(<ModerationPosts />);
 
     await waitFor(() => {
       expect(screen.getByText("Спорная запись")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole("button", { name: /Решить/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Оставить/ }));
     await waitFor(() => {
-      expect(mockRawRequest).toHaveBeenCalledWith("/api/v1/moderation/posts/post-1/resolve", {
-        method: "POST",
-      });
-      expect(toast.success).toHaveBeenCalledWith("Жалобы решены — пост остаётся на стене");
+      expect(mockRawRequest).toHaveBeenCalledWith(
+        "/api/v1/moderation/targets/wall_post/post-1/resolve",
+        { method: "POST" },
+      );
+      expect(toast.success).toHaveBeenCalledWith("Жалобы закрыты, контент оставлен");
     });
   });
 
-  it("deletes the post after a two-step confirmation", async () => {
-    mockRawRequest.mockResolvedValue(apiResponse([group()]));
+  it("deletes the content after a two-step confirmation", async () => {
+    mockRawRequest.mockResolvedValue(apiResponse(page([group()])));
     render(<ModerationPosts />);
 
     await waitFor(() => {
       expect(screen.getByText("Спорная запись")).toBeInTheDocument();
     });
 
-    // The row action and the confirm dialog both say "Удалить" — click the
-    // row's action first (there is exactly one group), then confirm inside the dialog.
     await userEvent.click(screen.getAllByRole("button", { name: /Удалить/ })[0]);
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: /Удалить/ }));
@@ -184,8 +174,26 @@ describe("ModerationPosts", () => {
       expect(mockRawRequest).toHaveBeenCalledWith("/api/v1/moderation/posts/post-1", {
         method: "DELETE",
       });
-      expect(toast.success).toHaveBeenCalledWith("Пост удалён");
+      expect(toast.success).toHaveBeenCalledWith("Контент удалён");
     });
+  });
+
+  it("does not offer delete for a target with no moderator delete path", async () => {
+    mockRawRequest.mockResolvedValue(
+      apiResponse(page([
+        group({
+          target: { type: "wall_comment", id: "c-1", exists: true, content: "коммент", author_username: "bob", author_id: "bob-1", link: "/profile/owner-1/wall/post-9" },
+        }),
+      ])),
+    );
+    render(<ModerationPosts />);
+
+    await waitFor(() => {
+      expect(screen.getByText("коммент")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /Удалить/ })).not.toBeInTheDocument();
+    // «Оставить» is still available
+    expect(screen.getByRole("button", { name: /Оставить/ })).toBeInTheDocument();
   });
 
   it("subscribes to the moderation room and reloads on new_report", async () => {
@@ -194,15 +202,14 @@ describe("ModerationPosts", () => {
       if (type === "new_report") newReportHandler = handler;
       return vi.fn();
     }) as any);
-    mockRawRequest.mockResolvedValue(apiResponse([]));
+    mockRawRequest.mockResolvedValue(apiResponse(page([])));
 
     render(<ModerationPosts />);
     await waitFor(() => {
       expect(mockWsService.subscribe).toHaveBeenCalledWith("moderation");
     });
 
-    // A fresh report arrives → the queue is refetched.
-    mockRawRequest.mockResolvedValue(apiResponse([group()]));
+    mockRawRequest.mockResolvedValue(apiResponse(page([group()])));
     newReportHandler();
 
     await waitFor(() => {

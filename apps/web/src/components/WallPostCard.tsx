@@ -1,7 +1,5 @@
-import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { formatDistanceToNow } from "date-fns";
-import { useDateLocale } from "@/i18n/dateLocale";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "@/integrations/api/compat";
@@ -15,18 +13,16 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { Button } from "@/components/ui/button";
 import { PostActionsMenu } from "@/components/PostActionsMenu";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogDescription,
   DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 
-import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
-import { PostViewCount } from "@/components/PostViewCount";
+import { FavoriteButton } from "@/components/FavoriteButton";
 import { WallAttachments } from "@/components/WallAttachments";
 import { EmbeddedWallPost } from "@/components/WallEmbeddedPost";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
@@ -37,11 +33,16 @@ import { WallCommentTree } from "@/components/wall/WallCommentTree";
 import { PostTeaser } from "@/components/wall/PostTeaser";
 import { PostCover } from "@/components/wall/PostCover";
 import {
+  PostCardShell,
+  PostCardHeader,
+  PostCardActions,
+  PostSourceChip,
+} from "@/components/post/PostCardChrome";
+import {
   type WallPost,
-  normalizeAttachments, isInteractiveTarget, getWallPostPath,
+  normalizeAttachments, getWallPostPath,
 } from "@/utils/wallNormalizers";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
-import { safeDate } from "@/utils/safeDate";
 import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
 import { needsPostTeaser } from "@/utils/postTeaser";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
@@ -88,7 +89,6 @@ export const WallPostCard = ({
 }: WallPostCardProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const dateLocale = useDateLocale();
   const { t } = useTranslation();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   // Inline media is the new presentation; when the document has no media nodes
@@ -261,7 +261,7 @@ export const WallPostCard = ({
     setShareDialogOpen(true);
   };
 
-  const sharePath = getWallPostPath(post.user_id, post.id);
+  const sharePath = getWallPostPath({ id: post.user_id, public_id: post.user_public_id }, post);
   const shareUrl = `${window.location.origin}${sharePath}`;
 
   const handleSubmitRepost = async () => {
@@ -332,78 +332,68 @@ export const WallPostCard = ({
     navigate(postHref, { state: { wallPost: post, backgroundLocation: location } });
   }, [postHref, isEditing, navigate, post, location]);
 
-  const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!postHref || isEditing) return;
-    // Clicks inside the comments section keep their own behaviour and must not
-    // open the post page.
-    if (commentsRef.current?.contains(event.target as Node)) return;
-    if (isInteractiveTarget(event.target, event.currentTarget)) return;
-    openPost();
-  };
-
   // Long, media-heavy posts are shown as a teaser on the wall; the full post
   // lives on its own page (with comments).
   const teaserMode = !standalone && Boolean(postHref) && needsPostTeaser(post.content_json, post.content);
 
+  const shellClassName = [
+    post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "",
+    postHref && !isEditing ? "cursor-pointer" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <>
-    <Card
-      // overflow-clip keeps the rounded-corner clipping but does NOT create a
-      // scroll container, so position:sticky works for the floating composer.
+    <PostCardShell
+      // overflow-clip (inside the shell) keeps the rounded-corner clipping but
+      // does NOT create a scroll container, so position:sticky works for the
+      // floating composer.
       ref={viewTrackingRef}
-      className={`overflow-clip border-border/70 shadow-none ${
-        post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "bg-background"
-      }`}
+      onOpen={postHref && !isEditing ? openPost : undefined}
+      className={shellClassName}
+      cornerAction={currentUserId ? <FavoriteButton itemType="wall_post" itemId={post.id} /> : undefined}
     >
-      <CardContent
-        className={`space-y-4 p-3 sm:p-4${postHref && !isEditing ? " cursor-pointer" : ""}`}
-        onClick={handleOpenPost}
-        role={postHref && !isEditing ? "button" : undefined}
-        tabIndex={postHref && !isEditing ? 0 : undefined}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <UserBadge
-                  userId={post.author_id}
-                  username={post.author.username}
-                  displayName={post.author.display_name}
-                  emojiId={post.author.nickname_emoji_id}
-                  isAnonymous={post.author.is_anonymous}
-                  disableLink={false}
-                  stopPropagationOnClick
-                />
-                <span className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(safeDate(post.created_at), {
-                    locale: dateLocale,
-                    addSuffix: true,
-                  })}
+        <PostCardHeader
+        userPublicId={post.author.public_id}
+          userId={post.author_id}
+          username={post.author.username}
+          displayName={post.author.display_name}
+          emojiId={post.author.nickname_emoji_id}
+          isAnonymous={post.author.is_anonymous}
+          avatarUrl={post.author.avatar_url}
+          createdAt={post.created_at}
+          chips={
+            <>
+              <PostSourceChip label="Стена" />
+              {post.is_pinned && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-medium leading-none text-primary">
+                  <Pin className="h-3 w-3" />
+                  Закреплено
                 </span>
-                {post.is_pinned && (
-                  <span className="inline-flex items-center gap-1 border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary">
-                    <Pin className="h-3.5 w-3.5" />
-                    Закреплено
-                  </span>
-                )}
-                {!!(post.repost_of_post_id) && (
-                  <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
-                    <Repeat2 className="h-3.5 w-3.5" />
-                    Репост на стене
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* The three-dots menu: on the standalone post page it carries the
-              report item for everyone plus the owner's management items. In
-              wall lists only the owner/author sees their management items
-              (pin/edit/delete) — reporting happens on the opened post, so
-              visitors in list context get no menu at all. */}
-          {(standalone || canManage) && (
-            <div className="flex shrink-0 items-center">
-              <PostActionsMenu postId={standalone ? post.id : undefined}>
+              )}
+              {!!(post.repost_of_post_id) && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-[11px] leading-none text-muted-foreground">
+                  <Repeat2 className="h-3 w-3" />
+                  Репост
+                </span>
+              )}
+            </>
+          }
+          trailing={
+            /* The three-dots menu: on the standalone post page it carries the
+               report item for everyone plus the owner's management items. In
+               wall lists only the owner/author sees their management items
+               (pin/edit/delete) — reporting happens on the opened post, so
+               visitors in list context get no menu at all. */
+            (standalone || canManage) ? (
+              <PostActionsMenu
+                targetType="wall_post"
+                targetId={standalone ? post.id : undefined}
+                reportLabel="Пожаловаться на запись"
+                reportTargetLabel="на запись"
+                triggerTitle="Меню поста"
+              >
                 {currentUserId === post.user_id && (
                   <DropdownMenuItem
                     onClick={() => onTogglePin(post.id)}
@@ -435,9 +425,9 @@ export const WallPostCard = ({
                   </DropdownMenuItem>
                 )}
               </PostActionsMenu>
-            </div>
-          )}
-        </div>
+            ) : undefined
+          }
+        />
 
         <MediaAttachmentsProvider
           value={{
@@ -449,14 +439,14 @@ export const WallPostCard = ({
             autoPlayVideo: autoplayVideo,
           }}
         >
-        <div>
+        <div className="space-y-4">
           {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
           {teaserMode ? (
             <PostTeaser contentJson={post.content_json} onOpenPost={openPost} />
           ) : (
             <>
               {hasContent && (
-                <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
                   <ProcessedContent content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
                 </div>
               )}
@@ -473,25 +463,22 @@ export const WallPostCard = ({
           )}
 
           {post.original_post && (
-            <div className={attachments.length > 0 ? "mt-4" : ""}>
-              <EmbeddedWallPost
-                post={post.original_post}
-                currentUserId={currentUserId}
-                currentUsername={currentUsername}
-                onImageClick={onImageClick}
-              />
-            </div>
+            <EmbeddedWallPost
+              post={post.original_post}
+              currentUserId={currentUserId}
+              currentUsername={currentUsername}
+              onImageClick={onImageClick}
+            />
           )}
         </div>
         </MediaAttachmentsProvider>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-          <ActionButton icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
-          <ActionButton icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} loading={commentsOpen && !commentsReady} onClick={handleToggleComments} />
-          <ActionButton icon={<Repeat2 className="h-4 w-4" />} label={isReposted ? "Убрать" : "Репост"} count={repostsCount} active={isReposted} disabled={!currentUserId} loading={isReposting} onClick={handleRepostToggle} />
-          <ActionButton icon={<Share2 className="h-4 w-4" />} label={t("share.title")} showLabel={false} active={false} disabled={false} loading={false} onClick={handleSharePost} />
-          <PostViewCount count={post.views_count ?? 0} />
-        </div>
+        <PostCardActions>
+          <ActionButton minimal icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
+          <ActionButton minimal icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} loading={commentsOpen && !commentsReady} onClick={handleToggleComments} />
+          <ActionButton minimal icon={<Repeat2 className="h-4 w-4" />} label={isReposted ? "Убрать" : "Репост"} count={repostsCount} active={isReposted} disabled={!currentUserId} loading={isReposting} onClick={handleRepostToggle} />
+          <ActionButton minimal icon={<Share2 className="h-4 w-4" />} label={t("share.title")} onClick={handleSharePost} />
+        </PostCardActions>
 
         {/*
           Expand/collapse via CSS grid rows (0fr → 1fr) instead of animating
@@ -504,6 +491,7 @@ export const WallPostCard = ({
         */}
         {(commentsMounted || commentsOpen) && (
           <div
+            data-wall-no-open="true"
             className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${commentsOpen && commentsReady ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
           >
             {/* `invisible` when collapsed: 0fr clips visually, but the mounted
@@ -524,8 +512,7 @@ export const WallPostCard = ({
             </div>
           </div>
         )}
-
-      </CardContent>
+    </PostCardShell>
 
       {/* Delete confirmation — the menu item only opens this dialog; the post
           is removed only by the destructive button here. The wall post is
@@ -589,7 +576,6 @@ export const WallPostCard = ({
         </DialogContent>
       </Dialog>
 
-    </Card>
     {/* Rendered outside the Card so clicks inside the sheet can never bubble
         into the card's click handlers. */}
     <ShareSheet

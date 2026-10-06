@@ -163,11 +163,29 @@ export async function disablePush(): Promise<boolean> {
 }
 
 /** Whether this browser already has an active push subscription. */
+/** Resolves `null` if the promise is still pending after `ms`. */
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | null> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T | null>;
+};
+
 export async function isSubscribed(): Promise<boolean> {
   if (!isPushSupported()) return false;
   try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
+    // `navigator.serviceWorker.ready` never settles when no worker is
+    // registered (the promise stays pending forever), which used to leave the
+    // notifications settings page spinning indefinitely. Check for a
+    // registration first, and cap the wait for activation.
+    const existing = await navigator.serviceWorker.getRegistration();
+    if (!existing) return false;
+    const ready = await withTimeout(navigator.serviceWorker.ready, 3000);
+    const registration = ready ?? existing;
+    const sub = await registration.pushManager.getSubscription();
     return Boolean(sub);
   } catch {
     return false;

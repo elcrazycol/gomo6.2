@@ -281,7 +281,7 @@ function NamespaceSection(props: NamespaceSectionProps) {
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
-        <button className="w-full bg-card border border-border px-4 py-3 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+        <button className="w-full bg-surface border border-border px-4 py-3 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
           <span className="font-semibold">{ns}</span>
           <ChevronDown className={`h-5 w-5 transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
@@ -329,7 +329,7 @@ function KeyCard({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="bg-card border border-border rounded-lg p-3 sm:p-4">
+    <div className="bg-surface border border-border rounded-lg p-3 sm:p-4">
       <div className="mb-2">
         <code className="text-[11px] text-muted-foreground">{sourceKey.key}</code>
         <p className="text-sm mt-0.5">{sourceKey.source}</p>

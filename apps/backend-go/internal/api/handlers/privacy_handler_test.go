@@ -161,7 +161,7 @@ func TestGetUserPrivacy_NoRow_PublicDefaults(t *testing.T) {
 	if resp.Data.PrivateHideFriends || resp.Data.PrivateHideGifts || resp.Data.PrivateHideAchievements || resp.Data.PrivateHideThreads {
 		t.Error("expected all hide flags false for a public default profile")
 	}
-	if !resp.Data.ShowProfileWall || !resp.Data.ShowLastSeen || !resp.Data.AllowWallPostsFromOthers {
+	if !resp.Data.ShowProfileWall || !resp.Data.ShowLastSeen || !resp.Data.AllowWallPostsFromOthers || !resp.Data.ShowProfileStats {
 		t.Error("expected display toggles on for a public default profile")
 	}
 }

@@ -42,14 +42,17 @@ export default defineConfig(() => ({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      // Public proxy for the private `wall` bucket — guest media is served
+      // from /og/wall/…, so it must reach the backend in dev too.
+      "/og": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
       "/federation": {
         target: "http://localhost:8080",
         changeOrigin: true,
       },
     },
-  },
-  optimizeDeps: {
-    exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/core"],
   },
   plugins: [
     react(),
@@ -62,13 +65,13 @@ export default defineConfig(() => ({
       srcDir: "src",
       filename: "sw.ts",
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "gomo6.png", "apple-touch-icon.png"],
+      includeAssets: ["favicon.ico", "gomo6.png", "gomo6-mark.svg", "apple-touch-icon.png"],
       manifest: {
         name: "gomo6",
         short_name: "gomo6",
         description: "Мессенджер gomo6",
-        theme_color: "#16a34a",
-        background_color: "#f5f5f0",
+        theme_color: "#0d0d0d",
+        background_color: "#f4f4f4",
         display: "standalone",
         orientation: "portrait",
         start_url: "/messages",
@@ -105,7 +108,6 @@ export default defineConfig(() => ({
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("framer-motion")) return "vendor-motion";
           if (id.includes("@bbob")) return "vendor-bbob";
-          if (id.includes("@ffmpeg")) return "vendor-ffmpeg";
           if (id.includes("@tanstack")) return "vendor-query";
           if (id.includes("i18next")) return "vendor-i18n";
           if (id.includes("lucide-react")) return "vendor-icons";

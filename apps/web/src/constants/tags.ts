@@ -1,5 +1,5 @@
-// Shared tag constants — used by Board, CreateThread, CreateThreadWizard
-// Previously duplicated across Board.tsx, CreateThread.tsx, and CreateThreadWizard.tsx
+// Shared tag constants — used by Board and Thread
+// Previously duplicated across Board.tsx and the topic/thread composers.
 
 export const CONTENT_TAGS = [
   { value: 'anime', label: 'Аниме' },

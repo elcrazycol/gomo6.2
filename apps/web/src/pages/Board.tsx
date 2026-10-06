@@ -1,9 +1,11 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
-import { invalidateByPrefix } from "@/integrations/api/queryCache";
+import { invalidateByPrefix, peekCached } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
+import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,42 +32,28 @@ import { GomoThreadCard } from "@/components/GomoThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { ChannelChat } from "@/components/ChannelChat";
 import { wsService } from "@/services/websocket";
+import { entityParam } from "@/utils/entityUrl";
+import {
+  boardBySlugUrl,
+  loadBoardBySlug,
+  loadBoardChannels,
+  type BoardRow as Board,
+  type ChannelRow as Channel,
+} from "@/routes/data/boardData";
 
 // Mobile channel sheet grab zone: bottom-left corner of the screen.
 // Used both for the swipe-up-to-open and swipe-down-to-close.
 const EDGE_ZONE_HEIGHT = 100;
 const EDGE_ZONE_WIDTH = 0.3;
 
-interface Board {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  is_rules_board: boolean;
-  is_gomosub?: boolean | null;
-  visibility?: string | null;
-  cover_image_url?: string | null;
-  gomosub_avatar_url?: string | null;
-  owner_id?: string | null;
-  rules_markdown?: string | null;
-  rules_updated_at?: string | null;
-  gomosub_tags?: string[] | null;
-}
-
-interface Channel {
-  id: string;
-  board_id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  category: string | null;
-  sort_order: number;
-  is_private: boolean;
-  kind?: "forum" | "text";
-}
+// Board/Channel shapes now live in `@/routes/data/boardData` (imported above),
+// so the page and the route preloader cannot drift.
 
 interface Thread {
   id: string;
+  public_id?: number | null;
+  /** Public number of the author, for /profile/<n> links. */
+  user_public_id?: number | null;
   title: string;
   content: string;
   content_json?: unknown;
@@ -80,6 +68,7 @@ interface Thread {
   tags?: Record<string, unknown>; // Thread tags object
   profiles: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;
@@ -111,7 +100,11 @@ const Board = () => {
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
-  const [board, setBoard] = useState<Board | null>(null);
+  // Paint a warm board row on the very first render (the route preloader
+  // usually warmed it) instead of flashing a full-screen loader.
+  const [board, setBoard] = useState<Board | null>(
+    () => (slug ? peekCached<Board>(boardBySlugUrl(slug)) ?? null : null),
+  );
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
   const [hasMoreThreads, setHasMoreThreads] = useState(true);
@@ -191,9 +184,7 @@ const Board = () => {
   // Load channels for gomosub boards
   const loadChannels = useCallback(async (boardId: string, ownerId: string | null): Promise<string | null> => {
     try {
-      const channelsResponse = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`);
-      const channelsResult = await channelsResponse.json();
-      let channelsData = (channelsResult.data || []) as Channel[];
+      let channelsData = await loadBoardChannels(boardId);
 
       // Filter private channels based on user permissions
       const isOwner = user?.id && ownerId && user.id === ownerId;
@@ -419,7 +410,8 @@ const Board = () => {
       }
 
       setPageLoading(true);
-      setBoard(null);
+      // Show a warm row for this slug if we have one (SWR), otherwise clear.
+      setBoard(slug ? peekCached<Board>(boardBySlugUrl(slug)) ?? null : null);
       setThreads([]);
       setThreadsCursor(null);
       setHasMoreThreads(true);
@@ -430,9 +422,7 @@ const Board = () => {
       setChannels([]);
       setActiveChannelId(null);
 
-      const boardResponse = await fetch(`/api/v1/boards/${slug}`);
-      const boardResult = await boardResponse.json();
-      const boardData = boardResult.data;
+      const boardData = await loadBoardBySlug(slug);
 
       if (boardData) {
         setRulesConfirmed(false);
@@ -796,7 +786,7 @@ const Board = () => {
   // The channel drawer (mobile) and the desktop sidebar share this list markup.
   const renderChannelList = (onSelect: () => void) => (
     <>
-      <Link
+      <NavigationLink
         to={`/g/${slug}`}
         onClick={() => { setActiveChannelId(null); onSelect(); }}
         className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
@@ -807,7 +797,7 @@ const Board = () => {
       >
         <Hash className="w-4 h-4 shrink-0" />
         <span className="truncate">{t("board.general")}</span>
-      </Link>
+      </NavigationLink>
       {channelCategories.map((group) => (
         <div key={group.category || "__uncategorized"} className="mt-1.5">
           {group.category && (
@@ -816,7 +806,7 @@ const Board = () => {
             </div>
           )}
           {group.channels.map((ch) => (
-            <Link
+            <NavigationLink
               key={ch.id}
               to={`/g/${slug}/c/${ch.slug}`}
               onClick={onSelect}
@@ -834,7 +824,7 @@ const Board = () => {
                 <Hash className="w-4 h-4 shrink-0" />
               )}
               <span className="truncate">{ch.name}</span>
-            </Link>
+            </NavigationLink>
           ))}
         </div>
       ))}
@@ -984,7 +974,10 @@ const Board = () => {
     invalidateByPrefix('/api/v1/boards');
   };
 
-  if (!board || checkingRules) {
+  // Full-screen loader only on a genuinely cold board (no cached row). When the
+  // route preloader warmed it, the page paints immediately; the rules check
+  // (checkingRules) resolves behind the modal instead of blocking the page.
+  if (!board) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
@@ -1032,7 +1025,7 @@ const Board = () => {
             Discord-style channel bar above the chat carries name + actions) */}
         {!isTextChannel && (<div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
-            <Card className="overflow-hidden border-primary/20 bg-card">
+            <Card className="overflow-hidden border-primary/20 bg-surface">
               <div className="relative">
                 <div className="h-40 sm:h-52">
                   {board.cover_image_url ? (
@@ -1098,6 +1091,15 @@ const Board = () => {
                         </>
                       )}
                     </Button>
+                    {user && board.owner_id !== user.id && (
+                      <PostActionsMenu
+                        targetType="gomosub"
+                        targetId={board.id}
+                        reportLabel="Пожаловаться на саб"
+                        reportTargetLabel="на саб"
+                        triggerTitle="Действия"
+                      />
+                    )}
                   </div>
                 )}
                 <p className="mt-2 text-sm sm:text-base text-muted-foreground sm:pr-44">{board.description}</p>
@@ -1475,13 +1477,13 @@ const Board = () => {
                     </button>
                   )}
                   {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
-                    <Link
+                    <NavigationLink
                       to={`/g/${slug}/settings`}
                       className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                     >
                       <Settings className="w-3.5 h-3.5 shrink-0" />
                       <span>{t("board.settings")}</span>
-                    </Link>
+                    </NavigationLink>
                   )}
                 </div>
                 </div>
@@ -1492,7 +1494,7 @@ const Board = () => {
             {sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="hidden md:flex shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
+                className="hidden md:flex shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-surface items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
                 title={t("board.showChannels")}
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1510,7 +1512,7 @@ const Board = () => {
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
-                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
                     title={t("board.channels")}
                   >
                     {activeChannelId ? (
@@ -1536,9 +1538,9 @@ const Board = () => {
                     <h1 className="text-[15px] font-bold truncate">{activeChannelName || activeChannelSlug}</h1>
                     {activeChannelPrivate && <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
                     <div className="w-px h-5 bg-border/70 mx-1" />
-                    <Link to={`/g/${board.slug}`} className="text-sm text-muted-foreground hover:text-foreground truncate">
+                    <NavigationLink to={`/g/${board.slug}`} className="text-sm text-muted-foreground hover:text-foreground truncate">
                       g/{board.slug}
-                    </Link>
+                    </NavigationLink>
                   </div>
                   {/* Compact actions: share + join */}
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -1584,7 +1586,7 @@ const Board = () => {
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
-                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-card text-sm text-foreground hover:bg-muted/60 transition-colors"
+                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
                     title={t("board.channels")}
                   >
                     {activeChannelId ? (
@@ -1643,7 +1645,7 @@ const Board = () => {
                     {[1, 2, 3, 4, 5].map((i) => (
                       <div
                         key={`placeholder-${i}`}
-                        className="block border border-border bg-card p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
+                        className="block border border-border bg-surface p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
                       >
                         <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
                           <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded flex-shrink-0" />
@@ -1682,6 +1684,7 @@ const Board = () => {
                         currentUsername={currentUsername}
                         currentUserColor={currentUserColor}
                         boardPath={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`}
+                        sourceLabel={activeChannelName || board?.name || undefined}
                         onImageClick={(items, idx) => {
                           setGalleryItems(items);
                           setGalleryIndex(idx);
@@ -1824,14 +1827,14 @@ const Board = () => {
                   </button>
                 )}
                 {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
-                  <Link
+                  <NavigationLink
                     to={`/g/${slug}/settings`}
                     onClick={() => setMobileChannelsOpen(false)}
                     className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                   >
                     <Settings className="w-4 h-4 shrink-0" />
                     <span>{t("board.settings")}</span>
-                  </Link>
+                  </NavigationLink>
                 )}
               </div>
             </DrawerContent>
@@ -1895,7 +1898,7 @@ const Board = () => {
               {[1, 2, 3, 4, 5].map((i) => (
                 <div
                   key={`placeholder-${i}`}
-                  className="block border border-border bg-card p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
+                  className="block border border-border bg-surface p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
                 >
                   <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
                     <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded flex-shrink-0" />
@@ -1931,9 +1934,9 @@ const Board = () => {
                       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <UserBadge
                           userId={thread.user_id}
+                          userPublicId={thread.user_public_id}
                           username={thread.profiles?.username || t("common.anonymous")}
                           isAnonymous={thread.profiles?.is_anonymous}
-                          showOutline={false}
                           disableLink={true}
                           className="text-sm"
                         />
@@ -1946,14 +1949,14 @@ const Board = () => {
                       </div>
                       <div className="h-px bg-border/35" />
 
-                      <Link
-                        to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
+                      <NavigationLink
+                        to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`}
                         className="block group/title"
                       >
                         <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
                           {thread.title}
                         </h3>
-                      </Link>
+                      </NavigationLink>
 
                       {Array.isArray(thread.tags?.gomosub_tags) && thread.tags.gomosub_tags.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -1977,24 +1980,24 @@ const Board = () => {
                             : renderContent(thread.content)}
                         </div>
                         {thread.content.length > 900 && (
-                          <Link
-                            to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
+                          <NavigationLink
+                            to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`}
                             className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
                           >
                             Читать полностью
                             <ArrowUpRight className="w-4 h-4" />
-                          </Link>
+                          </NavigationLink>
                         )}
                       </div>
 
                       {thread.image_url && (
-                        <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`} className="block pt-1">
+                        <NavigationLink to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`} className="block pt-1">
                           <img
                             src={storageUrl("content", thread.image_url) || thread.image_url}
                             alt="Thread"
                             className="max-w-[220px] sm:max-w-[280px] max-h-40 sm:max-h-48 object-cover rounded-md"
                           />
-                        </Link>
+                        </NavigationLink>
                       )}
 
                       <div className="h-px bg-border/35 mt-1" />
@@ -2008,7 +2011,7 @@ const Board = () => {
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`)}
+                          onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`)}
                           className="h-9 rounded-full px-3 gap-2"
                         >
                           <MessageCircle className="w-4 h-4" />
@@ -2027,10 +2030,10 @@ const Board = () => {
                   </div>
                 </Card>
               ) : (
-                <Link
+                <NavigationLink
                   key={thread.id}
-                  to={`${pathPrefix}/${slug}/thread/${thread.id}`}
-                  className="block border border-border bg-card p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
+                  to={`${pathPrefix}/${slug}/thread/${entityParam(thread)}`}
+                  className="block border border-border bg-surface p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
                 >
                   {/* Mobile Layout */}
                   <div className="md:hidden">
@@ -2039,11 +2042,11 @@ const Board = () => {
                       <div className="flex items-center justify-between">
                         <UserBadge
                           userId={thread.user_id}
+                          userPublicId={thread.user_public_id}
                           username={thread.profiles?.username || t("common.anonymous")}
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}
                           isAnonymous={thread.profiles?.is_anonymous}
-                          showOutline={false}
                           disableLink={true}
                           className="text-sm"
                         />
@@ -2129,11 +2132,11 @@ const Board = () => {
                             </span>
                         <UserBadge
                           userId={thread.user_id}
+                          userPublicId={thread.user_public_id}
                           username={thread.profiles?.username || t("common.anonymous")}
                           displayName={thread.profiles?.display_name}
                           emojiId={thread.profiles?.nickname_emoji_id}
                           isAnonymous={thread.profiles?.is_anonymous}
-                          showOutline={false}
                           disableLink={true}
                           className="text-sm"
                         />
@@ -2163,7 +2166,7 @@ const Board = () => {
                       </div>
                     </div>
                   </div>
-                </Link>
+                </NavigationLink>
               )
             ))}
             </>

@@ -35,17 +35,17 @@ SemVer, **одна версия на всё монорепо** (продукт �
 4. В `CHANGELOG.md` перенести `## [Unreleased]` в `## [X.Y.Z] — <дата>` (текущая дата в формате ГГГГ-ММ-ДД).
 5. Закоммитить: `chore: release vX.Y.Z`.
 7. Создать **аннотированный** тег: `git tag -a vX.Y.Z -m "vX.Y.Z"`.
-8. Запушить ветку и тег: `git push codeberg main && git push codeberg --tags`.
+8. Запушить ветку и тег: `git push origin main && git push origin --tags`.
 9. Деплой подхватится сам: образы получат теги `vX.Y.Z` и `sha-<commit>`. Проверить, что версия видна: `curl -s https://gomo6.wtf/health` и футер сайта.
 
 Новые коммиты после релиза складываются в `## [Unreleased]` — переносить их в релиз нужно только целиком, очередным ритуалом.
 
 ## Откат прода
 
-Каждый деплой оставляет образ `codeberg.org/crazycol/gomo6-<service>:sha-<commit>`. Откатить сервис к конкретному деплою:
+Каждый деплой оставляет образ `ghcr.io/elcrazycol/gomo6-<service>:sha-<commit>`. Откатить сервис к конкретному деплою:
 
 ```bash
-ssh root@VPS "REG=codeberg.org/crazycol COMPOSE_NAMESPACE=ghcr.io/elcrazycol TAG=sha-<commit> bash /tmp/gomo6-restart-service.sh web"
+ssh root@VPS "REG=ghcr.io/elcrazycol COMPOSE_NAMESPACE=ghcr.io/elcrazycol TAG=sha-<commit> bash /tmp/gomo6-restart-service.sh web"
 ```
 
 (скрипт заново заберёт свежий `restart-service.sh` с mаина, так что тег `sha-<commit>` должен существовать в образе этого деплоя).

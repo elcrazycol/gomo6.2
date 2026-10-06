@@ -24,7 +24,16 @@ vi.stubGlobal("fetch", mockFetch);
 
 vi.mock("@/integrations/api/compat", () => ({ api: { from: vi.fn(), rpc: vi.fn(), auth: mockAuth } }));
 vi.mock("@/integrations/api/client", () => ({ apiClient: mockApiClient }));
-vi.mock("@/integrations/api/queryCache", () => ({ invalidateByPrefix: vi.fn() }));
+const qc = vi.hoisted(() => ({ getCached: vi.fn(), peekCached: vi.fn() }));
+
+vi.mock("@/integrations/api/queryCache", () => ({
+  invalidateByPrefix: vi.fn(),
+  // Board reads the board row + channels through the shared route-data cache.
+  // Bypass caching here so the stubbed fetch runs every time (mirrors the
+  // pre-SWR behaviour the assertions below were written against).
+  getCached: (key: string, fetcher: () => Promise<unknown>) => qc.getCached(key, fetcher),
+  peekCached: (key: string) => qc.peekCached(key),
+}));
 vi.mock("@/utils/currentUserMeta", () => ({ getCurrentUserMeta: (...args: unknown[]) => mockGetCurrentUserMeta(...args) }));
 vi.mock("@/hooks/useSessionTime", () => ({ useSessionTime: vi.fn() }));
 vi.mock("@/hooks/useProfileInvalidation", () => ({ useProfileInvalidation: vi.fn() }));
@@ -189,6 +198,9 @@ describe("Board (wall)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no warm cache, fetch passes straight through.
+    qc.getCached.mockImplementation((_key: string, fetcher: () => Promise<unknown>) => fetcher());
+    qc.peekCached.mockReturnValue(undefined);
     mockParams.slug = "test";
     mockParams.channelSlug = undefined;
     mockPathname.current = "/test";
@@ -223,6 +235,37 @@ describe("Board (wall)", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Thread body content").length).toBeGreaterThan(0);
     });
+  });
+
+  it("keeps a warm board on screen while the rules check is still in flight", async () => {
+    // A gomosub route starts with checkingRules=true; a warm board must not be
+    // replaced by the full-screen loader. Pin the board fetch so checkingRules
+    // stays true for the assertion.
+    mockParams.slug = "gsub";
+    mockPathname.current = "/g/gsub";
+    const gomoBoard = {
+      id: "g-1",
+      slug: "gsub",
+      name: "G-Sub",
+      description: "Sub description",
+      is_rules_board: false,
+      is_gomosub: true,
+      owner_id: "user-1",
+    };
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/boards/")) return new Promise(() => {});
+      return jsonResponse([]);
+    });
+    qc.peekCached.mockImplementation((key: string) =>
+      key.startsWith("/api/v1/boards/") ? gomoBoard : undefined,
+    );
+
+    render(<BoardComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Sub description")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("pentagram-loader")).not.toBeInTheDocument();
   });
 
   it("shows the empty state when the board has no threads", async () => {

@@ -6,25 +6,25 @@ import { ChevronDown, Gift, LayoutGrid, MessageSquareText, Plus, Trophy, Users, 
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileWall } from "@/components/ProfileWall";
 import { ProfileAlbumView } from "@/components/ProfileAlbumView";
 import { useFriendsStore } from "@/stores/friendsStore";
+import { transitionEnterClass } from "@/lib/viewTransitions";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 import { useProfileAlbums } from "./useProfileAlbums";
-import type { Trophy as TrophyData } from "@/utils/trophies";
 import { TrophyShowcase } from "@/components/TrophyShowcase";
 import type { GiftCatalogItem } from "@/components/GiftCard";
+import type { Trophy as TrophyData } from "@/utils/trophies";
 import type { Profile } from "./types";
 
 // Heavy interaction-only components — split into separate chunks so the
 // profile page's initial JS is small on mobile. Loaded on first use (dialogs,
 // non-default tabs) instead of on every visit.
 const GiftsTab = lazy(() => import("@/components/GiftsTab").then((m) => ({ default: m.GiftsTab })));
-const FriendsList = lazy(() => import("@/components/FriendsList").then((m) => ({ default: m.FriendsList })));
-const FriendRequestsList = lazy(() => import("@/components/FriendRequestsList").then((m) => ({ default: m.FriendRequestsList })));
-const ThreadCard = lazy(() => import("@/components/ThreadCard").then((m) => ({ default: m.ThreadCard })));
+const SubscriptionsPanel = lazy(() => import("@/components/SubscriptionsPanel").then((m) => ({ default: m.SubscriptionsPanel })));
+const ProfileThreadsTab = lazy(() => import("./ProfileThreadsTab").then((m) => ({ default: m.ProfileThreadsTab })));
 
-export type ProfileTab = "wall" | "achievements" | "threads" | "gifts" | "friends";
+export type ProfileTab = "wall" | "achievements" | "threads" | "gifts" | "subscribers";
 
 export interface ProfileTabsProps {
   activeTab: ProfileTab;
@@ -33,6 +33,12 @@ export interface ProfileTabsProps {
   profile: Profile;
   isOwnProfile: boolean;
   isEditing: boolean;
+  /** Forum layout: the bar sits inside a surface panel — match its background
+   *  and round the corners instead of the full-bleed page strip. */
+  panel?: boolean;
+  /** Forum layout: wrap the active tab body in its own surface panel. Kept off
+   *  for tabs whose content is already a set of cards (wall, threads, …). */
+  contentPanel?: boolean;
   currentUser: { id: string } | null;
   currentUsername: string;
   currentUserColor: string;
@@ -42,7 +48,7 @@ export interface ProfileTabsProps {
   canViewAchievements: boolean;
   canViewThreads: boolean;
   canViewGifts: boolean;
-  canViewFriends: boolean;
+  canViewSubscriptions: boolean;
   // Wall props
   showProfileWall: boolean;
   allowWallPostsFromOthers: boolean;
@@ -51,13 +57,9 @@ export interface ProfileTabsProps {
   wallRefreshKey: number;
   wallCreateOpen: boolean;
   onWallCreateOpenChange: (open: boolean) => void;
-  // Trophies (achievements + awards)
+  // Trophies (earned milestone levels + hand-granted awards)
   trophies: TrophyData[];
   trophiesLoaded: boolean;
-  // Threads
-  userThreads: any[];
-  profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
-  threadsLoading: boolean;
   // Gifts
   giftCatalog: GiftCatalogItem[];
   giftCount: number;
@@ -179,29 +181,31 @@ const WallTabButton = ({
   );
 };
 
-// Friends tab button with count
-const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; onClick: () => void; userId: string }) => {
-  const { profileFriends, fetchProfileFriends } = useFriendsStore();
+// Subscribers tab button with count (people who follow this user). The tab
+// itself hosts both lists behind an in-panel toggle.
+const SubscribersTabButton = ({ activeTab, onClick, userId }: { activeTab: string; onClick: () => void; userId: string }) => {
+  const { profileSubscribers, profileSubscribersFor, fetchProfileSubscribers } = useFriendsStore();
   const { t } = useTranslation();
-  const [friendCount, setFriendCount] = useState(0);
-  const [friendsLoaded, setFriendsLoaded] = useState(false);
+  const [count, setCount] = useState(0);
+  const [loaded, setLoaded] = useState(false);
 
-  // The friends list is only needed when the friends tab is opened — don't
-  // fetch it (with every avatar) on every profile visit just for a count.
+  // The list is only needed when the tab is opened — don't fetch it (with every
+  // avatar) on every profile visit just for a count.
   useEffect(() => {
-    if (activeTab !== 'friends' || friendsLoaded) return;
-    setFriendsLoaded(true);
-    fetchProfileFriends(userId);
-  }, [activeTab, friendsLoaded, fetchProfileFriends, userId]);
+    if (activeTab !== 'subscribers' || loaded) return;
+    setLoaded(true);
+    fetchProfileSubscribers(userId);
+  }, [activeTab, loaded, fetchProfileSubscribers, userId]);
 
   useEffect(() => {
-    setFriendCount(profileFriends.length);
-  }, [profileFriends]);
+    // Guard against showing another profile's count while it loads.
+    setCount(profileSubscribersFor === userId ? profileSubscribers.length : 0);
+  }, [profileSubscribers, profileSubscribersFor, userId]);
 
   return (
     <TabButton
-      tab={{ key: "friends", icon: Users, label: t("profile.friends"), count: ` (${friendCount})` }}
-      active={activeTab === 'friends'}
+      tab={{ key: "subscribers", icon: Users, label: t("profile.subscribers"), count: ` (${count})` }}
+      active={activeTab === 'subscribers'}
       onClick={onClick}
     />
   );
@@ -217,7 +221,8 @@ export function ProfileTabs({
   userId,
   profile,
   isOwnProfile,
-  isEditing,
+  panel = false,
+  contentPanel = panel,
   currentUser,
   currentUsername,
   currentUserColor,
@@ -226,7 +231,7 @@ export function ProfileTabs({
   canViewAchievements,
   canViewThreads,
   canViewGifts,
-  canViewFriends,
+  canViewSubscriptions,
   showProfileWall,
   allowWallPostsFromOthers,
   wallHiddenFromViewer,
@@ -236,15 +241,22 @@ export function ProfileTabs({
   onWallCreateOpenChange,
   trophies,
   trophiesLoaded,
-  userThreads,
-  profileLikesMap,
-  threadsLoading,
   giftCatalog,
   giftCount,
   giftCountLoaded,
   onGiftSent,
 }: ProfileTabsProps) {
   const { t } = useTranslation();
+  const transitionStyle = useTransitionStyle();
+
+  // Warm the lazy tab-body chunks as soon as the profile mounts, so opening a
+  // tab swaps its data in fully instead of popping the card/panel in a beat
+  // after the (already-loaded) list.
+  useEffect(() => {
+    void import("./ProfileThreadsTab");
+    void import("@/components/GiftsTab");
+    void import("@/components/SubscriptionsPanel");
+  }, []);
 
   // Content switches (tabs, album pick) swap the body, so the destination is
   // positioned at the tab bar: its document offset is captured at click time
@@ -257,6 +269,50 @@ export function ProfileTabs({
   const stickyBarRef = useRef<HTMLDivElement | null>(null);
   const tabBodyWrapRef = useRef<HTMLDivElement | null>(null);
   const barSnapTargetRef = useRef<number | null>(null);
+
+  // ── Glass-on-stick ───────────────────────────────────────────────────────
+  // The tab bar pours glass in from the top the instant it pins under the app
+  // header, and pours it back out when it releases (see .profile-tabbar--stuck
+  // in index.css). "Stuck" is exactly when the bar's top has reached its own
+  // sticky offset, i.e. its computed `top` (which follows --app-header-pad as
+  // the header hides/shows), so no extra geometry bookkeeping is needed.
+  const [barStuck, setBarStuck] = useState(false);
+
+  useEffect(() => {
+    const bar = stickyBarRef.current;
+    if (!bar) return;
+
+    const update = () => {
+      // Read the offset straight from the inline custom property AppLayout keeps
+      // in sync: cheaper than getComputedStyle (no style recalc) and identical.
+      const pad =
+        parseFloat(document.documentElement.style.getPropertyValue("--app-header-pad")) || 0;
+      const stuck = bar.getBoundingClientRect().top <= pad + 1;
+      setBarStuck((prev) => (prev === stuck ? prev : stuck));
+    };
+
+    // No rAF throttling on purpose: rAF is paused in a background/occluded tab,
+    // which would leave the state stale exactly when content settles off-screen.
+    // The work is one cheap rect read plus a guarded state write, and scroll
+    // events already arrive at frame cadence.
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    // A tab that was hidden while the page settled can come back with the bar
+    // already pinned; refresh once on the way in (no scroll event fires then).
+    document.addEventListener("visibilitychange", update);
+    // Content above the bar (bio, stats, async posts) can change height without
+    // a scroll event, which would otherwise leave the state stale.
+    const ro = new ResizeObserver(update);
+    ro.observe(document.body);
+
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      document.removeEventListener("visibilitychange", update);
+      ro.disconnect();
+    };
+  }, []);
 
   const snapToBar = () => {
     const bar = stickyBarRef.current;
@@ -367,15 +423,22 @@ export function ProfileTabs({
     <>
       {/* Sticky bar: pins under the app header and follows its hide/show slide
           (offset comes from --app-header-pad, kept in sync by AppLayout). */}
-      {/* Solid background (no backdrop-blur): a blur layer on a sticky element
-          gets dropped by Chrome when a Radix portal (dropdown/dialog) mounts,
-          which made the whole tab bar vanish. The solid fill also keeps posts
-          from showing through the stuck bar. */}
       <div
         ref={stickyBarRef}
-        className="sticky z-30 border-b border-border overflow-x-auto bg-background"
+        className={`profile-tabbar sticky z-30 ${panel ? "profile-tabbar--panel overflow-hidden border border-border/60" : "border-b border-border"}${barStuck && !panel ? " profile-tabbar--stuck" : ""}`}
         style={{ top: "var(--app-header-pad, 0px)" }}
       >
+        {/* One background layer behind the content: an opaque strip while the
+            bar travels with the page, frosted once it pins. It sits on the bar
+            itself (not in the scroller below) so a horizontal tab scroll can't
+            drag it sideways, and it is a child element rather than the sticky
+            bar itself because Chrome drops a backdrop-filter sitting on a
+            sticky element while a Radix portal is open — which used to make the
+            whole bar vanish. The switch is instant on purpose: the bar pins over
+            the profile header (a flat block of colour), so a wipe would not be
+            visible there and would only add per-frame cost. */}
+        <span className="profile-tabbar__bg" aria-hidden="true" />
+        <div className="relative z-10 overflow-x-auto">
         <div className="flex gap-1 min-w-max px-1.5 py-1">
           {wallTabVisible && (
             <WallTabButton
@@ -419,10 +482,10 @@ export function ProfileTabs({
               onClick={() => switchTab('gifts')}
             />
           )}
-          {canViewFriends && (
-            <FriendsTabButton
+          {canViewSubscriptions && (
+            <SubscribersTabButton
               activeTab={activeTab}
-              onClick={() => switchTab('friends')}
+              onClick={() => switchTab('subscribers')}
               userId={userId}
             />
           )}
@@ -465,6 +528,7 @@ export function ProfileTabs({
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Create-album dialog — modal so it works on phones too (full-width
@@ -521,7 +585,10 @@ export function ProfileTabs({
           at the bar (see snapToBar), so the new tab opens with the bar at
           the top and its content visible from the very start. An open album
           shows the album view instead of the full wall. */}
-      <div ref={tabBodyWrapRef} className="min-h-[100dvh]">
+      <div
+        ref={tabBodyWrapRef}
+        className={`min-h-[100dvh]${contentPanel ? " surface-panel mt-3 rounded-xl border border-border/60 p-3 shadow-sm" : ""}`}
+      >
         {activeTab === 'wall' && wallTabVisible && (
           <div>
           {selectedAlbum ? (
@@ -555,14 +622,15 @@ export function ProfileTabs({
         </div>
       )}
 
-      {activeTab === 'achievements' && canViewAchievements && (
-        <div>
+      {activeTab === 'achievements' && canViewAchievements && trophiesLoaded && (
+        <div className={transitionEnterClass(transitionStyle)}>
           {trophies.length === 0 ? (
             <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
           ) : (
             <div className="space-y-6">
-              {/* Trophy case — the rarest trophies (milestones + hand-granted
-                  awards). The full hall lives on the achievements page. */}
+              {/* Trophy case — the rarest earned trophies (milestone levels +
+                  hand-granted awards). The full hall lives on the
+                  achievements page. */}
               <TrophyShowcase trophies={trophies} />
 
               {/* Link to full achievements page */}
@@ -585,40 +653,21 @@ export function ProfileTabs({
       )}
 
       {activeTab === 'threads' && showThreadsTab && canViewThreads && (
-        <div>
-          <h2 className="text-xl font-bold mb-4">{t("profile.threads")} ({userThreads.length})</h2>
-          {threadsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <PentagramLoader size="lg" />
-            </div>
-          ) : userThreads.length === 0 ? (
-            <p className="text-muted-foreground">{t("profile.noThreads")}</p>
-          ) : (
-            <div className="space-y-4">
-              {userThreads.map((thread) => {
-                const likes = profileLikesMap.get(thread.id);
-                return (
-                  <Suspense key={thread.id} fallback={<div className="h-32 animate-pulse rounded-lg bg-muted" />}>
-                    <ThreadCard
-                      thread={thread}
-                      currentUserId={currentUser?.id || null}
-                      currentUsername={currentUsername}
-                      currentUserColor={currentUserColor}
-                      showPreview={true}
-                      initialLikesCount={likes?.count ?? 0}
-                      initialUserLiked={likes?.isLiked ?? false}
-                    />
-                  </Suspense>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <Suspense fallback={null}>
+          <ProfileThreadsTab
+            key={userId}
+            userId={userId}
+            totalCount={profile.thread_count}
+            currentUser={currentUser}
+            currentUsername={currentUsername}
+            currentUserColor={currentUserColor}
+          />
+        </Suspense>
       )}
 
       {activeTab === 'gifts' && canViewGifts && (
         <div>
-          <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
+          <Suspense fallback={null}>
             <GiftsTab
               userId={userId}
               isOwnProfile={isOwnProfile}
@@ -630,11 +679,10 @@ export function ProfileTabs({
         </div>
       )}
 
-      {activeTab === 'friends' && canViewFriends && (
+      {activeTab === 'subscribers' && canViewSubscriptions && (
         <div>
-          <Suspense fallback={<div className="flex justify-center py-8"><PentagramLoader size="lg" /></div>}>
-            {isOwnProfile && <FriendRequestsList />}
-            <FriendsList userId={userId} />
+          <Suspense fallback={null}>
+            <SubscriptionsPanel userId={userId} />
           </Suspense>
         </div>
       )}

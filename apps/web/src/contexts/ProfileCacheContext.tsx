@@ -1,16 +1,23 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { api } from '@/integrations/api/compat';
 import { apiClient } from '@/integrations/api/client';
+import { isPublicId } from "@/utils/entityUrl";
+import { getProfileCustomization } from "@/utils/profileCustomization";
+import { profileCacheInvalidateUserId } from "@/utils/profileCacheEvents";
 
 // Listen for external invalidation events (e.g. from CustomProfile save)
 const INVALIDATE_EVENT = 'profile-cache:invalidate';
 
 interface ProfileData {
+  /** Canonical user id (uuid) the row was resolved to. */
+  id?: string;
   username: string;
   customization: unknown;
   isAdmin: boolean;
   avatarUrl?: string;
   nickname_emoji_id?: string | null;
+  /** Public number of the viewed profile, for /profile/<n> links. */
+  public_id?: number | null;
 }
 
 interface ProfileCacheContextType {
@@ -109,31 +116,50 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
         // already swallows that). Guests never need the viewed profile's roles
         // — isAdmin only matters for the signed-in owner — so skip the request
         // entirely instead of firing a doomed 401.
+        // `uid` may be a public number (new links) or a UUID (old ones): the
+        // profiles query accepts both, and the row's canonical id is what the
+        // other lookups (user_roles, customization) must use.
+        const profileRes = await toFallback(
+          () =>
+            api
+              .from('profiles')
+              .select('id, public_id, username, avatar_url, nickname_emoji_id')
+              .eq(isPublicId(uid) ? 'public_id' : 'id', uid)
+              .single(),
+          { data: null, error: null }
+        );
+        const resolvedId = (profileRes.data as { id?: string } | null)?.id || uid;
+
         const isGuest = !apiClient.getCSRFToken();
-        const rolesResPromise = isGuest
-          ? Promise.resolve({ data: [] as { role: string }[], error: null })
-          : toFallback(
-              () => api.from('user_roles').select('role').eq('user_id', uid),
-              { data: [], error: null }
-            );		const [profileRes, rolesRes, customizationRes] = await Promise.all([
-          toFallback(
-            () => api.from('profiles').select('username, avatar_url, nickname_emoji_id').eq('id', uid).single(),
-            { data: null, error: null }
-          ),
-          rolesResPromise,
-          toFallback(
-            () => api.from('profile_customization').select('*').eq('user_id', uid).single(),
-            { data: null, error: null }
-          ),
+        const [rolesRes, customization] = await Promise.all([
+          isGuest
+            ? Promise.resolve({ data: [] as { role: string }[], error: null })
+            : toFallback(
+                () => api.from('user_roles').select('role').eq('user_id', resolvedId),
+                { data: [], error: null }
+              ),
+          // Profile appearance for the viewed user, read through the SHARED
+          // profileCustomization cache (module-level, with in-flight dedupe).
+          // UserBadge's useProfileCustomization reads the same cache, so a badge
+          // that already fetched this user's appearance does not trigger a
+          // second identical request here — which used to double the
+          // /users/:id/customization volume. NOT the generic
+          // /profile_customization surface: that table is read-scoped to the
+          // caller's own user_id (TableMeta.UserScopedRead), so a foreign
+          // profile always came back empty. The public display endpoint works
+          // for the owner too, so no branch is needed.
+          getProfileCustomization(resolvedId),
         ]);
 
         // Check if admin
         const isAdmin = rolesRes.data?.some((r: Record<string, unknown>) => r.role === 'admin') || false;		const profileData: ProfileData = {
+          id: resolvedId,
           username: profileRes.data?.username || '',
-          customization: customizationRes.data || null,
+          customization: customization || null,
           isAdmin,
           avatarUrl: profileRes.data?.avatar_url || undefined,
           nickname_emoji_id: (profileRes.data as { nickname_emoji_id?: string | null } | null)?.nickname_emoji_id || null,
+          public_id: (profileRes.data as { public_id?: number | null } | null)?.public_id ?? null,
         };
 
         // Update cache
@@ -171,9 +197,30 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Listen for external cache invalidation events
   useEffect(() => {
-    const handler = () => {
-      setCache(new Map());
-      loadingRequests.current.clear();
+    const handler = (event: Event) => {
+      const changedUserId = profileCacheInvalidateUserId(event);
+
+      // Unscoped reset (the editor's own save): drop everything.
+      if (!changedUserId) {
+        setCache(new Map());
+        loadingRequests.current.clear();
+        return;
+      }
+
+      // Scoped reset (the server's profile_updated broadcast): only the
+      // affected user's entry is stale. Match the key it was requested under
+      // (uuid or public id) as well as the resolved canonical id.
+      setCache(prev => {
+        let next: Map<string, CacheEntry> | null = null;
+        for (const [key, entry] of prev) {
+          if (key === changedUserId || entry.data.id === changedUserId) {
+            next ??= new Map(prev);
+            next.delete(key);
+          }
+        }
+        return next ?? prev;
+      });
+      loadingRequests.current.delete(changedUserId);
     };
     window.addEventListener(INVALIDATE_EVENT, handler);
     return () => window.removeEventListener(INVALIDATE_EVENT, handler);

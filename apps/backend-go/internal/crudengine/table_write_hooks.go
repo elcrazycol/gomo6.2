@@ -22,6 +22,7 @@ package crudengine
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -152,7 +153,10 @@ func upsertUserTermsAcceptance(data map[string]interface{}) (query string, args 
 	}
 	termsVersion := data["terms_version"]
 	if termsVersion == nil || termsVersion == "" {
-		termsVersion = "1.0"
+		// Базовая версия: так помечены записи без явной версии (см.
+		// migrations/120_terms_version_baseline.sql). Актуальные версии
+		// присылает клиент из apps/web/src/lib/legal/config.ts.
+		termsVersion = "0.1"
 	}
 	q := `INSERT INTO user_terms_acceptance (user_id, terms_version) VALUES ($1, $2)
 ON CONFLICT (user_id) DO UPDATE SET terms_version = EXCLUDED.terms_version
@@ -334,4 +338,28 @@ func afterUserSessionTimeWrite(h *Engine, c *gin.Context, method string, result 
 // wall write domain lives in the wall service).
 func afterPrivacySettingsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
 	h.revokeSubscriptionsAfterPrivacyChange("privacy_settings", result)
+	// A privacy flip adds or removes the user from search: private profiles are
+	// never indexed, so turning the flag on must delete the document and
+	// turning it off must add it back. The indexer re-reads the row, so the
+	// same call covers both directions.
+	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
+		h.searchIndexer.SyncUser(uid)
+	}
+}
+
+// afterProfileCustomizationWrite broadcasts the new nickname style (and badge)
+// over the websocket. The client-side "profile-cache:invalidate" event only
+// reaches the browser of the person editing, so without this fan-out every
+// other viewer keeps rendering the cached nickname until its entry expires.
+func afterProfileCustomizationWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	if h.hub == nil {
+		return
+	}
+	uid := profiles.RowUserID(result["user_id"])
+	if uid == "" {
+		return
+	}
+	if err := h.hub.PublishProfileUpdated(uid); err != nil {
+		log.Printf("[profile] failed to publish profile_updated for %s: %v", uid, err)
+	}
 }

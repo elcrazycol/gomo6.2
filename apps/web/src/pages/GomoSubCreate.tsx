@@ -378,7 +378,7 @@ const GomoSubCreate = () => {
                 )}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors" />
               </button>
-              <div className="absolute -bottom-10 left-4 w-20 h-20 rounded-full border-4 border-background bg-card overflow-hidden">
+              <div className="absolute -bottom-10 left-4 w-20 h-20 rounded-full border-4 border-background bg-surface overflow-hidden">
                 <input
                   ref={avatarInputRef}
                   type="file"
@@ -440,7 +440,7 @@ const GomoSubCreate = () => {
                     className={`flex-1 rounded-lg border p-3 text-left transition-all ${
                       visibility === "public"
                         ? "border-primary/50 bg-primary/10 text-primary"
-                        : "border-border bg-card hover:bg-muted/50"
+                        : "border-border bg-surface hover:bg-muted/50"
                     }`}
                   >
                     <div className="font-medium text-sm">Публичный</div>
@@ -452,7 +452,7 @@ const GomoSubCreate = () => {
                     className={`flex-1 rounded-lg border p-3 text-left transition-all ${
                       visibility === "private"
                         ? "border-primary/50 bg-primary/10 text-primary"
-                        : "border-border bg-card hover:bg-muted/50"
+                        : "border-border bg-surface hover:bg-muted/50"
                     }`}
                   >
                     <div className="font-medium text-sm">Приватный</div>

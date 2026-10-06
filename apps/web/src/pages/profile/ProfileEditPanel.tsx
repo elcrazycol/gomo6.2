@@ -79,7 +79,7 @@ export function ProfileEditPanel({
       )}
       <div>
         <Label>{t("profile.about")}</Label>
-        <Suspense fallback={<div className="h-[120px] animate-pulse rounded-lg bg-muted" />}>
+        <Suspense fallback={null}>
           <GomoRichEditor
             resetKey={bioEditorResetKey}
             contentJson={bioJson}
@@ -100,7 +100,7 @@ export function ProfileEditPanel({
             <DialogTitle>{t("profile.avatarCrop")}</DialogTitle>
           </DialogHeader>
           {cropImage && (
-            <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
+            <Suspense fallback={null}>
               <AvatarCropper
                 imageSrc={cropImage}
                 onCropComplete={onCropComplete}

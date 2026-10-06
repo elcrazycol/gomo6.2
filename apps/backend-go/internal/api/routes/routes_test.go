@@ -105,6 +105,8 @@ var expectedRoutes = []string{
 	"POST /api/v1/users/status/bulk",
 	"GET /api/v1/actieye",
 	"GET /api/v1/users/:id/privacy",
+	"GET /api/v1/users/:id/customization",
+	"GET /api/v1/users/:id/stats",
 	"GET /api/v1/gift_catalog",
 	"GET /api/v1/user_gifts",
 	"POST /api/v1/client-errors",
@@ -200,6 +202,10 @@ var expectedRoutes = []string{
 	"GET /api/v1/poll_votes/*path",
 	"GET /api/v1/thread_subscriptions",
 	"GET /api/v1/thread_subscriptions/*path",
+	"GET /api/v1/thread_sections",
+	"GET /api/v1/thread_sections/*path",
+	"GET /api/v1/thread_subsections",
+	"GET /api/v1/thread_subsections/*path",
 	"GET /api/v1/privacy_settings",
 	"GET /api/v1/privacy_settings/*path",
 	"PUT /api/v1/privacy_settings",
@@ -310,6 +316,20 @@ var expectedRoutes = []string{
 	"DELETE /api/v1/posts/:id/like",
 	"DELETE /api/v1/posts/:id",
 	"GET /api/v1/threads/:id/likes",
+	"POST /api/v1/history",
+	"GET /api/v1/history",
+	"DELETE /api/v1/history",
+	"GET /api/v1/random",
+	"POST /api/v1/favorites",
+	"GET /api/v1/favorites",
+	"GET /api/v1/favorites/ids",
+	"DELETE /api/v1/favorites/:itemType/:itemId",
+	"GET /api/v1/sidebar_tabs",
+	"POST /api/v1/sidebar_tabs",
+	"PUT /api/v1/sidebar_tabs/:id",
+	"DELETE /api/v1/sidebar_tabs/:id",
+	"GET /api/v1/user/settings",
+	"PUT /api/v1/user/settings",
 	"GET /api/v1/notifications",
 	"GET /api/v1/notifications/:id",
 	"PUT /api/v1/notifications/:id/read",
@@ -329,6 +349,7 @@ var expectedRoutes = []string{
 	"GET /api/v1/drops/wallet",
 	"POST /api/v1/drops/transfer",
 	"GET /api/v1/drops/users/search",
+	// "POST /api/v1/admin/public-id/assign", // disabled on purpose — see routes.go
 	"GET /api/v1/admin/gifts",
 	"POST /api/v1/admin/gifts",
 	"PUT /api/v1/admin/gifts/:id",
@@ -366,16 +387,35 @@ var expectedRoutes = []string{
 	// Content moderation
 	"POST /api/v1/moderation/reports",
 	"GET /api/v1/moderation/reports",
-	"POST /api/v1/moderation/posts/:postId/resolve",
+	"GET /api/v1/moderation/reports/:id",
+	"GET /api/v1/moderation/stats",
+	"GET /api/v1/moderation/actions",
+	"GET /api/v1/moderation/actions/:id",
+	"GET /api/v1/moderation/staff",
+	"POST /api/v1/moderation/staff",
+	"DELETE /api/v1/moderation/staff/:userId/:role",
+	"POST /api/v1/moderation/appeals",
+	"GET /api/v1/moderation/appeals",
+	"GET /api/v1/moderation/appeals/mine",
+	"GET /api/v1/moderation/sanctions/mine",
+	"POST /api/v1/moderation/appeals/:id/accept",
+	"POST /api/v1/moderation/appeals/:id/reject",
+	"POST /api/v1/moderation/reports/:id/resolve",
+	"POST /api/v1/moderation/reports/:id/reject",
+	"POST /api/v1/moderation/targets/:targetType/:targetId/resolve",
 	"DELETE /api/v1/moderation/posts/:postId",
+	"GET /api/v1/moderation/users/:id",
+	"GET /api/v1/moderation/users/:id/activity",
+	"POST /api/v1/moderation/users/:id/notes",
+	"DELETE /api/v1/moderation/users/:id/notes/:noteId",
+	"POST /api/v1/moderation/users/:id/sanctions",
+	"DELETE /api/v1/moderation/users/:id/sanctions/:sanctionId",
 
-	"POST /api/v1/friends/request",
-	"PUT /api/v1/friends/request/:id/accept",
-	"PUT /api/v1/friends/request/:id/reject",
-	"DELETE /api/v1/friends/request/:id",
-	"DELETE /api/v1/friends/:userId",
+	"POST /api/v1/friends/subscribe",
+	"DELETE /api/v1/friends/subscribe/:userId",
 	"GET /api/v1/friends",
-	"GET /api/v1/friends/requests",
+	"GET /api/v1/friends/subscribers",
+	"GET /api/v1/friends/subscriptions",
 	"GET /api/v1/friends/status/:userId",
 	"GET /api/v1/my-emoji-packs",
 	"GET /api/v1/my-emoji-subscriptions",
@@ -733,7 +773,7 @@ func TestAdminOnlyMiddleware_NonAdmin(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -756,7 +796,7 @@ func TestAdminOnlyMiddleware_Admin(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 

@@ -331,3 +331,40 @@ func TestCacheTTLByPath_ThreadPathIgnoresCustomDefault(t *testing.T) {
 		t.Errorf("expected 30s for threads path, got %v", got)
 	}
 }
+
+// TestDataCache_SkipModeration verifies moderation GETs bypass the response
+// cache: the queue, user cards and activity logs are read immediately after an
+// action, so a cached copy served "Санкций не было" for two minutes after a
+// moderator issued a warning.
+func TestDataCache_SkipModeration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	for _, path := range []string{
+		"/api/v1/moderation/reports",
+		"/api/v1/moderation/reports?status=open&target_type=thread",
+		"/api/v1/moderation/users/10000000-0000-0000-0000-000000000001",
+		"/api/v1/moderation/users/10000000-0000-0000-0000-000000000001/activity?limit=30",
+	} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("GET", path, nil)
+
+			DataCacheMiddleware(rdb, DefaultDataCacheTTL)(c)
+			testDummyHandler(c)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
+			}
+			if xc := w.Header().Get("X-Cache"); xc != "" {
+				t.Errorf("moderation must bypass data cache, got X-Cache=%q", xc)
+			}
+		})
+	}
+	if keys := mr.Keys(); len(keys) != 0 {
+		t.Fatalf("moderation requests must not write cache keys, got %v", keys)
+	}
+}

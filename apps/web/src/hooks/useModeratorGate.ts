@@ -23,6 +23,11 @@ export function useModeratorGate() {
   // OpenAPI User shape); only `.id` is actually consumed by the gate.
   const [user, setUser] = useState<User | null>(null);
   const [isModerator, setIsModerator] = useState(false);
+  // Helpers may only READ the moderation surface: the pages render for them but
+  // every action control is hidden.
+  const [canReadModeration, setCanReadModeration] = useState(false);
+  // Admin: may grant/revoke staff roles from the UI.
+  const [isAdmin, setIsAdmin] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
   // True while mounted. Guards against React StrictMode double-fire (dev) and
@@ -46,14 +51,17 @@ export function useModeratorGate() {
     if (!mountedRef.current) return;
 
     const isMod = meta.roles.some((r) => r === "moderator" || r === "admin");
+    const canRead = isMod || meta.roles.includes("helper");
 
-    if (!isMod) {
+    if (!canRead) {
       toast.error("У вас нет доступа к этой странице");
       navigate("/");
       return;
     }
 
-    setIsModerator(true);
+    setIsModerator(isMod);
+    setIsAdmin(meta.roles.includes("admin"));
+    setCanReadModeration(canRead);
     setCurrentUserUsername(meta.username);
     setCurrentUserColor(meta.color);
   }, [navigate]);
@@ -66,5 +74,5 @@ export function useModeratorGate() {
     };
   }, [checkAuth]);
 
-  return { user, isModerator, currentUserUsername, currentUserColor };
+  return { user, isModerator, isAdmin, canReadModeration, currentUserUsername, currentUserColor };
 }

@@ -132,16 +132,112 @@ func TestStripImageMetadata_GIFPreservesAnimation(t *testing.T) {
 	}
 }
 
-func TestStripImageMetadata_WebPPassesThrough(t *testing.T) {
-	// WebP has no encoder in this build — the original bytes must be kept
-	// untouched so uploads do not break.
-	in := []byte("RIFF....WEBPVP8 fake-webp-bytes")
+// webpChunk appends a RIFF chunk (fourcc + LE size + payload + pad) to buf.
+func webpChunk(buf *bytes.Buffer, fourcc string, payload []byte) {
+	var hdr [8]byte
+	copy(hdr[0:4], fourcc)
+	binary.LittleEndian.PutUint32(hdr[4:8], uint32(len(payload)))
+	buf.Write(hdr[:])
+	buf.Write(payload)
+	if len(payload)%2 == 1 {
+		buf.WriteByte(0)
+	}
+}
+
+// webpWithMetadata builds a minimal (not decodable, but structurally valid)
+// WebP RIFF container: VP8X header + optional EXIF/XMP metadata chunks + a VP8
+// image chunk.
+func webpWithMetadata(withExif, withXmp bool) []byte {
+	var chunks bytes.Buffer
+
+	var flags byte
+	if withExif {
+		flags |= webpFlagEXIF
+	}
+	if withXmp {
+		flags |= webpFlagXMP
+	}
+	vp8x := make([]byte, 10) // flags + 3 reserved + 3 width-1 + 3 height-1
+	vp8x[0] = flags
+	webpChunk(&chunks, "VP8X", vp8x)
+
+	if withExif {
+		webpChunk(&chunks, "EXIF", append([]byte("Exif\x00\x00"), bytes.Repeat([]byte{0x41}, 40)...))
+	}
+	if withXmp {
+		webpChunk(&chunks, "XMP ", []byte("<x:xmpmeta>GPS:51.5074,-0.1278</x:xmpmeta>"))
+	}
+	webpChunk(&chunks, "VP8 ", bytes.Repeat([]byte{0x7f}, 20))
+
+	body := append([]byte("WEBP"), chunks.Bytes()...)
+	out := make([]byte, 0, 8+len(body))
+	out = append(out, "RIFF"...)
+	var size [4]byte
+	binary.LittleEndian.PutUint32(size[:], uint32(len(body)))
+	out = append(out, size[:]...)
+	out = append(out, body...)
+	return out
+}
+
+func TestStripImageMetadata_WebPRemovesExifAndXmp(t *testing.T) {
+	in := webpWithMetadata(true, true)
+	if !bytes.Contains(in, []byte("EXIF")) || !bytes.Contains(in, []byte("XMP ")) {
+		t.Fatal("test precondition failed: metadata chunks missing from input")
+	}
+
+	out, err := StripImageMetadata(in, ".webp")
+	if err != nil {
+		t.Fatalf("StripImageMetadata(webp): %v", err)
+	}
+	if bytes.Contains(out, []byte("EXIF")) || bytes.Contains(out, []byte("GPS:")) {
+		t.Fatal("EXIF metadata survived WebP container strip")
+	}
+	if !bytes.Contains(out, []byte("VP8 ")) {
+		t.Fatal("image chunk was dropped — the picture was destroyed")
+	}
+
+	// RIFF size must match the rebuilt container.
+	if got, want := int(binary.LittleEndian.Uint32(out[4:8])), len(out)-8; got != want {
+		t.Fatalf("RIFF size = %d, want %d", got, want)
+	}
+	// The VP8X feature bits for the removed chunks must be cleared.
+	exifBit := bytes.Index(out, []byte("VP8X"))
+	if exifBit < 0 {
+		t.Fatal("VP8X chunk missing after strip")
+	}
+	if flags := out[exifBit+8]; flags&(webpFlagEXIF|webpFlagXMP) != 0 {
+		t.Fatalf("VP8X flags still advertise metadata: %#x", flags)
+	}
+}
+
+func TestStripImageMetadata_WebPWithoutMetadataUnchanged(t *testing.T) {
+	in := webpWithMetadata(false, false)
 	out, err := StripImageMetadata(in, ".webp")
 	if err != nil {
 		t.Fatalf("StripImageMetadata(webp): %v", err)
 	}
 	if !bytes.Equal(out, in) {
-		t.Fatal("webp bytes were modified despite no encoder being available")
+		t.Fatal("webp without metadata should be returned untouched")
+	}
+}
+
+func TestStripImageMetadata_WebPMalformedIsNeverCorrupted(t *testing.T) {
+	// Garbage or a truncated container must be returned as-is, never partially
+	// rewritten (a corrupt image would break the uploader's own file).
+	inputs := [][]byte{
+		[]byte("RIFF....WEBPVP8 fake-webp-bytes"),
+		[]byte("not-a-webp-at-all"),
+		[]byte("RIFF"),
+		webpWithMetadata(true, true)[:20], // truncated mid-chunk
+	}
+	for i, in := range inputs {
+		out, err := StripImageMetadata(in, ".webp")
+		if err != nil {
+			t.Fatalf("case %d: unexpected error: %v", i, err)
+		}
+		if !bytes.Equal(out, in) {
+			t.Fatalf("case %d: malformed webp was modified", i)
+		}
 	}
 }
 

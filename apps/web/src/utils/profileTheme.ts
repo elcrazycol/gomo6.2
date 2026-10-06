@@ -14,36 +14,15 @@
  * (low-saturation), not a random hue.
  */
 
+import { formatOklch, hslToOklch, oklchToRgb, parseOklch } from "@/theme/color";
+import { THEME_TOKEN_NAMES } from "@/theme/tokens";
+import { SEMANTIC_TOKENS } from "@/theme/derive";
+
 export type ThemeTokenMap = Record<string, string>;
 
-// Allowed CSS variable names — must match the backend sanitizer allow-list in
-// profile_css.go (allowedThemeTokenVars) so nothing extra can be stored.
-const THEME_TOKEN_KEYS = [
-  "--background",
-  "--foreground",
-  "--card",
-  "--card-foreground",
-  "--popover",
-  "--popover-foreground",
-  "--primary",
-  "--primary-foreground",
-  "--secondary",
-  "--secondary-foreground",
-  "--muted",
-  "--muted-foreground",
-  "--accent",
-  "--accent-foreground",
-  "--border",
-  "--input",
-  "--ring",
-  "--board-header",
-  "--board-header-foreground",
-  "--thread-hover",
-  "--post-header",
-  "--quote-text",
-  "--link-text",
-  "--link",
-] as const;
+// The token surface is shared with the app theme registry — a profile theme
+// may override exactly the same variables the app itself uses.
+const THEME_TOKEN_KEYS = THEME_TOKEN_NAMES;
 
 export type Hsl = { h: number; s: number; l: number };
 
@@ -55,7 +34,21 @@ export interface ThemeVariant {
   tokens: ThemeTokenMap;
 }
 
-const hsl = (h: number, s: number, l: number): string => `${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%`;
+const tok = (h: number, s: number, l: number): string => formatOklch(hslToOklch(h, s, l));
+
+/**
+ * Fixed status colours (destructive/success/warning/info), identical to the app
+ * theme registry. A profile theme carries the full token surface, but overlaying
+ * these changes nothing visually because every app theme uses the same values.
+ */
+const withSemanticTokens = (tokens: ThemeTokenMap, dark: boolean): ThemeTokenMap => {
+  const mode = dark ? "dark" : "light";
+  const out: ThemeTokenMap = { ...tokens };
+  for (const [key, val] of Object.entries(SEMANTIC_TOKENS)) {
+    out[key] = formatOklch(val[mode]);
+  }
+  return out;
+};
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -166,59 +159,59 @@ export const buildThemeTokens = (c: Hsl, mode: "color" | "neutral" = "color"): T
   // at ~5% saturation the hue is imperceptible and gray stays gray.
   const accentSat = n ? 5 : sat(c.s);
   if (dark) {
-    return {
-      "--background": hsl(h, n ? 3 : 20, 9),
-      "--foreground": hsl(h, n ? 4 : 8, 90),
-      "--card": hsl(h, n ? 2 : 18, 11),
-      "--card-foreground": hsl(h, n ? 4 : 8, 90),
-      "--popover": hsl(h, n ? 2 : 18, 11),
-      "--popover-foreground": hsl(h, n ? 4 : 8, 90),
-      "--primary": hsl(h, accentSat, clamp(c.l, 42, 62)),
-      "--primary-foreground": "0 0% 100%",
-      "--secondary": hsl(h, n ? 3 : 14, 16),
-      "--secondary-foreground": hsl(h, n ? 4 : 8, 90),
-      "--muted": hsl(h, n ? 3 : 14, 15),
-      "--muted-foreground": hsl(h, n ? 3 : 6, 62),
-      "--accent": hsl(h, n ? 3 : 18, 18),
-      "--accent-foreground": hsl(h, n ? 4 : 8, 90),
-      "--border": hsl(h, n ? 3 : 15, 19),
-      "--input": hsl(h, n ? 3 : 15, 19),
-      "--ring": hsl(h, accentSat, clamp(c.l, 42, 62)),
-      "--board-header": hsl(h, accentSat, clamp(c.l, 32, 50)),
-      "--board-header-foreground": "0 0% 100%",
-      "--thread-hover": hsl(h, n ? 3 : 14, 15),
-      "--post-header": hsl(h, n ? 3 : 14, 12),
-      "--quote-text": hsl(h, n ? 4 : 100, 40),
-      "--link-text": hsl(h, accentSat, 60),
-      "--link": hsl(h, accentSat, 60),
-    };
+    return withSemanticTokens({
+      "--background": tok(h, n ? 3 : 20, 9),
+      "--foreground": tok(h, n ? 4 : 8, 90),
+      "--card": tok(h, n ? 2 : 18, 11),
+      "--card-foreground": tok(h, n ? 4 : 8, 90),
+      "--popover": tok(h, n ? 2 : 18, 11),
+      "--popover-foreground": tok(h, n ? 4 : 8, 90),
+      "--primary": tok(h, accentSat, clamp(c.l, 42, 62)),
+      "--primary-foreground": "1 0 0",
+      "--secondary": tok(h, n ? 3 : 14, 16),
+      "--secondary-foreground": tok(h, n ? 4 : 8, 90),
+      "--muted": tok(h, n ? 3 : 14, 15),
+      "--muted-foreground": tok(h, n ? 3 : 6, 62),
+      "--accent": tok(h, n ? 3 : 18, 18),
+      "--accent-foreground": tok(h, n ? 4 : 8, 90),
+      "--border": tok(h, n ? 3 : 15, 19),
+      "--input": tok(h, n ? 3 : 15, 19),
+      "--ring": tok(h, accentSat, clamp(c.l, 42, 62)),
+      "--board-header": tok(h, accentSat, clamp(c.l, 32, 50)),
+      "--board-header-foreground": "1 0 0",
+      "--thread-hover": tok(h, n ? 3 : 14, 15),
+      "--post-header": tok(h, n ? 3 : 14, 12),
+      "--quote-text": tok(h, n ? 4 : 100, 40),
+      "--link-text": tok(h, accentSat, 60),
+      "--link": tok(h, accentSat, 60),
+    }, true);
   }
-  return {
-    "--background": hsl(h, n ? 3 : 22, 95),
-    "--foreground": hsl(h, n ? 4 : 10, 15),
-    "--card": hsl(h, n ? 2 : 18, 98),
-    "--card-foreground": hsl(h, n ? 4 : 10, 15),
-    "--popover": hsl(h, n ? 2 : 18, 98),
-    "--popover-foreground": hsl(h, n ? 4 : 10, 15),
-    "--primary": hsl(h, accentSat, clamp(c.l, 40, 55)),
-    "--primary-foreground": "0 0% 100%",
-    "--secondary": hsl(h, n ? 3 : 20, 86),
-    "--secondary-foreground": hsl(h, n ? 4 : 10, 15),
-    "--muted": hsl(h, n ? 3 : 20, 90),
-    "--muted-foreground": hsl(h, n ? 3 : 6, 42),
-    "--accent": hsl(h, n ? 3 : 20, 86),
-    "--accent-foreground": hsl(h, n ? 4 : 10, 15),
-    "--border": hsl(h, n ? 3 : 20, 80),
-    "--input": hsl(h, n ? 3 : 20, 80),
-    "--ring": hsl(h, accentSat, clamp(c.l, 40, 55)),
-    "--board-header": hsl(h, accentSat, clamp(c.l, 30, 45)),
-    "--board-header-foreground": "0 0% 100%",
-    "--thread-hover": hsl(h, n ? 3 : 18, 88),
-    "--post-header": hsl(h, n ? 3 : 18, 92),
-    "--quote-text": hsl(h, n ? 4 : 100, 25),
-    "--link-text": hsl(h, accentSat, 40),
-    "--link": hsl(h, accentSat, 40),
-  };
+  return withSemanticTokens({
+    "--background": tok(h, n ? 3 : 22, 95),
+    "--foreground": tok(h, n ? 4 : 10, 15),
+    "--card": tok(h, n ? 2 : 18, 98),
+    "--card-foreground": tok(h, n ? 4 : 10, 15),
+    "--popover": tok(h, n ? 2 : 18, 98),
+    "--popover-foreground": tok(h, n ? 4 : 10, 15),
+    "--primary": tok(h, accentSat, clamp(c.l, 40, 55)),
+    "--primary-foreground": "1 0 0",
+    "--secondary": tok(h, n ? 3 : 20, 86),
+    "--secondary-foreground": tok(h, n ? 4 : 10, 15),
+    "--muted": tok(h, n ? 3 : 20, 90),
+    "--muted-foreground": tok(h, n ? 3 : 6, 42),
+    "--accent": tok(h, n ? 3 : 20, 86),
+    "--accent-foreground": tok(h, n ? 4 : 10, 15),
+    "--border": tok(h, n ? 3 : 20, 80),
+    "--input": tok(h, n ? 3 : 20, 80),
+    "--ring": tok(h, accentSat, clamp(c.l, 40, 55)),
+    "--board-header": tok(h, accentSat, clamp(c.l, 30, 45)),
+    "--board-header-foreground": "1 0 0",
+    "--thread-hover": tok(h, n ? 3 : 18, 88),
+    "--post-header": tok(h, n ? 3 : 18, 92),
+    "--quote-text": tok(h, n ? 4 : 100, 25),
+    "--link-text": tok(h, accentSat, 40),
+    "--link": tok(h, accentSat, 40),
+  }, false);
 };
 
 const decodeImage = (image: Blob): Promise<HTMLImageElement> =>
@@ -313,6 +306,61 @@ export const isValidThemeTokens = (tokens: unknown): tokens is ThemeTokenMap => 
 };
 
 /**
+ * Normalize a stored token to the app's bare-OKLCH format. Legacy rows hold
+ * HSL triplets ("120 60% 35%") from before the OKLCH migration; those are
+ * converted on apply so an owner never has to re-generate their theme.
+ */
+export const normalizeTokenValue = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (trimmed.includes("%")) {
+    const m = trimmed.match(/^([\d.]+)\s+([\d.]+)%\s+([\d.]+)%$/);
+    if (!m) return null;
+    return formatOklch(hslToOklch(Number(m[1]), Number(m[2]), Number(m[3])));
+  }
+  const parsed = parseOklch(trimmed);
+  return parsed ? formatOklch(parsed) : null;
+};
+
+/**
+ * Complete a profile token map so the whole profile renders in the owner's
+ * theme — including tokens the map never carried.
+ *
+ * Old profiles stored only a handful of tokens (background / card / foreground
+ * / primary / accent). Applying just those left every other token —
+ * `--border`, `--card-foreground`, `--muted`, `--popover`, … — at the
+ * *viewer's* theme values. When the viewer's mode was the opposite of the
+ * profile theme's, that painted light borders and dark text on the dark wall
+ * cards (or the reverse on a light profile). The gaps are now filled from a
+ * full palette derived from the profile background, so the viewer's own theme
+ * can no longer bleed through. Owner-provided tokens always win.
+ */
+export const completeThemeTokens = (tokens: ThemeTokenMap): ThemeTokenMap => {
+  const provided: ThemeTokenMap = {};
+  for (const key of THEME_TOKEN_KEYS) {
+    const raw = tokens[key];
+    if (raw == null || raw === "") continue;
+    const value = normalizeTokenValue(raw);
+    if (value) provided[key] = value;
+  }
+  const out: ThemeTokenMap = { ...provided };
+
+  // The background is the profile's dominant surface, so its hue and lightness
+  // decide the mode (dark/light) and tint of every derived structural token.
+  const anchor = parseOklch(
+    provided["--background"] ?? provided["--card"] ?? provided["--foreground"] ?? "",
+  );
+  if (anchor) {
+    const { r, g, b } = oklchToRgb(anchor);
+    const hsl = rgbToHsl(r, g, b);
+    const derived = buildThemeTokens(hsl, hsl.s < GRAY_SAT_THRESHOLD ? "neutral" : "color");
+    for (const key of THEME_TOKEN_KEYS) {
+      if (!(key in out)) out[key] = derived[key];
+    }
+  }
+  return out;
+};
+
+/**
  * Apply profile theme tokens to the page root, overriding the viewer's own
  * theme while the profile page is mounted.
  *
@@ -326,9 +374,10 @@ export const applyProfileThemeTokens = (tokens: ThemeTokenMap): (() => void) => 
   const root = document.documentElement;
   const body = document.body;
   const prev = new Map<string, { html: string | null; body: string | null }>();
+  const complete = completeThemeTokens(tokens);
   for (const key of THEME_TOKEN_KEYS) {
-    const value = tokens[key];
-    if (value == null || value === "") continue;
+    const value = complete[key];
+    if (!value) continue;
     prev.set(key, {
       html: root.style.getPropertyValue(key) || null,
       body: body?.style.getPropertyValue(key) || null,

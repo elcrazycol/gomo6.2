@@ -53,14 +53,16 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
   // Inline client-side URLs are neither absolutes nor keys.
   if (isInlineUrl(v)) return v;
 
-  // Already a relative API path
-  if (v.startsWith("/storage/v1/")) {
+  // Already a relative API path: either a /storage/v1 object URL or the public
+  // /og proxy URL. Both must pass through untouched — re-resolving an /og path
+  // would mangle it into /storage/v1/object/<bucket>/og/… (404).
+  if (v.startsWith("/storage/v1/") || v.startsWith("/og/")) {
     if (v.startsWith("/storage/v1/object/wall/") && !hasSessionCookie()) {
       return `${API_BASE_URL}${v.replace("/storage/v1/object/wall/", "/og/wall/")}`;
     }
     return `${API_BASE_URL}${v}`;
   }
-  if (v.startsWith(`${API_BASE_URL}/storage/v1/`)) return v;
+  if (v.startsWith(`${API_BASE_URL}/storage/v1/`) || v.startsWith(`${API_BASE_URL}/og/`)) return v;
 
   const encodedKey = v
     .replace(/^\/+/, "")

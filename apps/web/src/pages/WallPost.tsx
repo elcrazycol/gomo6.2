@@ -7,7 +7,9 @@ import { ProfileWall } from "@/components/ProfileWall";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { canStartOverlayDrag } from "@/utils/overlaySwipeGesture";
+import { recordContentView } from "@/utils/viewHistory";
 import type { WallPost as WallPostData } from "@/utils/wallNormalizers";
+import { isPublicId } from "@/utils/entityUrl";
 
 const SWIPE_THRESHOLD = 90;
 
@@ -19,7 +21,7 @@ type WallPostNavigationState = {
 };
 
 const WallPost = () => {
-  const { userId, postId } = useParams();
+  const { userId: ownerParam, postId: postParam } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const navigationState = location.state as WallPostNavigationState | null;
@@ -29,6 +31,12 @@ const WallPost = () => {
   // pattern). A direct link renders as a plain in-layout page instead.
   const isOverlay = Boolean(navigationState?.backgroundLocation);
   const { loadProfile } = useProfileCache();
+  // The route parameters are public numbers on new links and UUIDs on old ones.
+  // ProfileWall, the history recorder and the profile lookup all need the
+  // canonical UUIDs, so they are resolved once (from the post carried in the
+  // navigation state when there is one, otherwise from a lookup).
+  const [resolvedOwnerId, setResolvedOwnerId] = useState(initialPost?.user_id ?? "");
+  const [resolvedPostId, setResolvedPostId] = useState(initialPost?.id ?? "");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState("");
   const [profileUsername, setProfileUsername] = useState("");
@@ -78,12 +86,36 @@ const WallPost = () => {
   useEffect(() => {
     const loadPageContext = async () => {
       try {
+        let ownerId = resolvedOwnerId;
+        let postId = resolvedPostId;
+        if (!postId && postParam) {
+          if (isPublicId(postParam) || isPublicId(ownerParam)) {
+            // A numeric parameter (new-style link) needs one lookup to recover
+            // both UUIDs; a UUID link is used as-is with no extra request.
+            const { data: rows } = await api
+              .from("profile_wall_posts")
+              .select("id, user_id")
+              .eq(isPublicId(postParam) ? "public_id" : "id", postParam)
+              .limit(1);
+            const row = rows?.[0] as { id?: string; user_id?: string } | undefined;
+            if (row?.id) {
+              postId = row.id;
+              ownerId = row.user_id ?? "";
+            }
+          } else {
+            postId = postParam;
+            ownerId = ownerParam ?? "";
+          }
+          setResolvedPostId(postId);
+          setResolvedOwnerId(ownerId);
+        }
+
         // Both lookups go through TTL caches (ProfileCacheContext 5min for the
         // wall owner, currentUserMeta 5min for the viewer), so revisiting a
         // wall post costs 0 network requests instead of 2 raw profile fetches.
         const [{ data: authData }, ownerProfile] = await Promise.all([
           api.auth.getUser(),
-          userId ? loadProfile(userId) : Promise.resolve({ username: "" } as { username: string }),
+          ownerId ? loadProfile(ownerId) : Promise.resolve({ username: "" } as { username: string }),
         ]);
 
         const authUser = authData.user;
@@ -100,17 +132,23 @@ const WallPost = () => {
     };
 
     void loadPageContext();
-  }, [userId, loadProfile]);
+  }, [postParam, ownerParam, resolvedOwnerId, resolvedPostId, loadProfile]);
+
+  // Record the open in the viewer's «История» once the post + viewer are known.
+  useEffect(() => {
+    if (!resolvedPostId || !currentUserId) return;
+    recordContentView("wall_post", resolvedPostId);
+  }, [resolvedPostId, currentUserId]);
 
   const goToPrevious = useCallback(() => {
     if (window.history.length > 1) {
       navigate(-1);
-    } else if (userId) {
-      navigate(`/profile/${userId}`, { replace: true });
+    } else if (ownerParam) {
+      navigate(`/profile/${ownerParam}`, { replace: true });
     } else {
       navigate("/", { replace: true });
     }
-  }, [navigate, userId]);
+  }, [navigate, ownerParam]);
 
   // Overlay mode slides the surface out to the right, then goes back once it
   // is off screen. A direct link has no underlying page to reveal, so it just
@@ -148,7 +186,7 @@ const WallPost = () => {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  if (!userId || !postId) {
+  if (!ownerParam || !postParam) {
     return (
       <main className="mx-auto flex w-full max-w-4xl flex-1 items-center justify-center p-4">
         <div className="text-sm text-muted-foreground">Запись не найдена.</div>
@@ -179,12 +217,12 @@ const WallPost = () => {
 
       {(initialPost || !loading) && (
         <ProfileWall
-          profileUserId={userId}
+          profileUserId={resolvedOwnerId}
           currentUserId={currentUserId}
           currentUsername={currentUsername}
           canPost={false}
           showWall
-          focusedPostId={postId}
+          focusedPostId={resolvedPostId}
           initialPost={initialPost}
           standalone
           autoplayVideo={navigationState?.autoplayVideo}

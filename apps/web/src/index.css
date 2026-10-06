@@ -17,45 +17,19 @@
   display: none;
 }
 
-/* Plyr theme overrides */
-:root,
-.light,
-.theme-cannabis,
-.theme-pink,
-.theme-blue,
-.theme-blood,
-.theme-pumpkin,
-.theme-graphite,
-.theme-lavender,
-.theme-volcanic,
-.theme-mint,
-.theme-glitch,
-.theme-acid,
-.theme-void {
-  --background: 0 0% 95%;
-  --plyr-color-main: hsl(var(--primary));
-  --plyr-video-controls-background: hsl(var(--card) / 0.92);
-  --plyr-audio-controls-background: hsl(var(--card) / 0.96);
-  --plyr-audio-controls-text: hsl(var(--foreground));
+/* Plyr theme overrides — token values come from theme.css (OKLCH components). */
+:root {
+  --plyr-color-main: oklch(var(--primary));
+  --plyr-video-controls-background: oklch(var(--card) / 0.92);
+  --plyr-audio-controls-background: oklch(var(--card) / 0.96);
+  --plyr-audio-controls-text: oklch(var(--foreground));
 }
 
-.dark,
-.theme-cannabis-dark,
-.theme-pink-dark,
-.theme-blue-dark,
-.theme-blood-dark,
-.theme-pumpkin-dark,
-.theme-graphite-dark,
-.theme-lavender-dark,
-.theme-volcanic-dark,
-.theme-mint-dark,
-.theme-glitch-dark,
-.theme-acid-dark,
-.theme-void-dark {
-  --plyr-video-controls-background: hsl(var(--card) / 0.9);
-  --plyr-audio-controls-background: hsl(var(--card) / 0.9);
-  --plyr-audio-controls-text: hsl(var(--foreground));
-  --plyr-color-main: hsl(var(--primary));
+[data-mode="dark"] {
+  --plyr-video-controls-background: oklch(var(--card) / 0.9);
+  --plyr-audio-controls-background: oklch(var(--card) / 0.9);
+  --plyr-audio-controls-text: oklch(var(--foreground));
+  --plyr-color-main: oklch(var(--primary));
 }
 
 .plyr--audio {
@@ -63,11 +37,11 @@
   border: none;
   box-shadow: none;
   padding: 0;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 .plyr--audio .plyr__controls {
   background: var(--plyr-audio-controls-background) !important;
-  border: 1px solid hsl(var(--border)) !important;
+  border: 1px solid oklch(var(--border)) !important;
   border-radius: 0.65rem;
   padding: 5px 10px 5px !important;
   box-shadow: 0 12px 22px rgba(0, 0, 0, 0.06);
@@ -75,7 +49,7 @@
   align-items: center;
 }
 .plyr--audio .plyr__control {
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
   width: 32px;
   height: 32px;
 }
@@ -85,14 +59,14 @@
 }
 .plyr--audio .plyr__controls button[aria-label="Mute"],
 .plyr--audio .plyr__controls .plyr__controls__item.plyr__control--overlaid {
-  color: hsl(var(--primary-foreground, 0 0% 98%));
-  background: hsl(var(--primary));
+  color: oklch(var(--primary-foreground, 1 0 0));
+  background: oklch(var(--primary));
 }
 .plyr--audio .plyr__controls button:hover {
-  background: color-mix(in srgb, hsl(var(--primary)) 16%, transparent);
+  background: color-mix(in oklch, oklch(var(--primary)) 16%, transparent);
 }
 .plyr--audio .plyr__controls button:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid oklch(var(--primary));
   outline-offset: 2px;
 }
 .plyr--audio .plyr__progress input[type="range"] {
@@ -103,34 +77,34 @@
   background: var(--plyr-video-controls-background);
   backdrop-filter: blur(10px);
   border-radius: 10px;
-  border: 1px solid hsl(var(--border) / 0.6);
+  border: 1px solid oklch(var(--border) / 0.6);
   --plyr-control-spacing: 6px;
   padding: 5px 10px 6px !important;
   gap: 0.35rem;
 }
 .plyr--video .plyr__control {
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 .plyr__control.plyr__tab-focus {
-  box-shadow: 0 0 0 2px hsl(var(--primary));
+  box-shadow: 0 0 0 2px oklch(var(--primary));
 }
 
 .plyr__controls input[type="range"] {
-  accent-color: hsl(var(--primary));
+  accent-color: oklch(var(--primary));
 }
 .plyr__controls input[type="range"]::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  border: 2px solid hsl(var(--card));
+  background: oklch(var(--primary));
+  border: 2px solid oklch(var(--card));
 }
 .plyr__controls input[type="range"]::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  border: 2px solid hsl(var(--card));
+  background: oklch(var(--primary));
+  border: 2px solid oklch(var(--card));
 }
 
 .plyr__controls {
@@ -139,6 +113,18 @@
 
 html, body {
   overscroll-behavior: contain;
+}
+
+/* Always reserve the classic scrollbar's track. Without this, a page that
+   crosses the viewport height — or a route whose content is shorter than the
+   screen — flips the scrollbar on/off, which changes the layout width and
+   shifts everything (including the fixed header, whose inner content is
+   centred) sideways by half the scrollbar. `stable` keeps the gutter reserved
+   whether or not the bar is showing, so nothing moves.
+   Overlay-scrollbar platforms (macOS default, mobile) have a zero gutter, so
+   this is a no-op there. */
+html {
+  scrollbar-gutter: stable;
 }
 
 @media (max-width: 640px) {
@@ -193,22 +179,22 @@ html, body {
 .bbCodeSpoilerButton {
   width: 100%;
   text-align: left;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--background) / 0.6);
-  color: hsl(var(--foreground));
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--background) / 0.6);
+  color: oklch(var(--foreground));
   padding: 0.5rem 0.75rem;
   border-radius: 0.75rem;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
 }
 
 .bbCodeSpoilerButton:hover {
-  background: hsl(var(--muted) / 0.6);
+  background: oklch(var(--muted) / 0.6);
 }
 
 .bbCodeSpoilerText {
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-top: 0;
-  background: hsl(var(--background) / 0.5);
+  background: oklch(var(--background) / 0.5);
   padding: 0.75rem;
   border-radius: 0 0 0.75rem 0.75rem;
 }
@@ -232,8 +218,8 @@ html, body {
   user-select: none;
   -webkit-user-select: none;
   pointer-events: none;
-  background: hsl(var(--muted) / 0.65);
-  border: 1px solid hsl(var(--border) / 0.75);
+  background: oklch(var(--muted) / 0.65);
+  border: 1px solid oklch(var(--border) / 0.75);
   border-radius: 0.45rem;
   padding: 0.08rem 0.35rem;
 }
@@ -251,7 +237,7 @@ html, body {
 }
 
 .CensorSpoilerRoot:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid oklch(var(--primary));
   outline-offset: 2px;
 }
 
@@ -259,606 +245,39 @@ html, body {
    Design System — Colors, Themes
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Design System — base chrome.
+   Theme token values live in src/theme/theme.css (generated from the theme
+   registry). This file must never declare them again, or the two sources drift.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @layer base {
   :root {
-    --background: 40 16% 97%;
-    --foreground: 0 0% 13%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 13%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 13%;
-
-    --primary: 142 70% 25%;
-    --primary-foreground: 0 0% 98%;
-
-    --secondary: 40 16% 95%;
-    --secondary-foreground: 0 0% 13%;
-
-    --muted: 40 16% 92%;
-    --muted-foreground: 0 0% 45%;
-
-    --accent: 142 70% 30%;
-    --accent-foreground: 0 0% 98%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 40 16% 88%;
-    --input: 40 16% 88%;
-    --ring: 142 70% 25%;
-
     --radius: 0.25rem;
+    /* Card / sidebar / panel corners — a touch rounder than the base radius. */
+    --card-radius: calc(var(--radius) + 2px);
 
-    --board-header: 142 70% 25%;
-    --board-header-foreground: 0 0% 98%;
-    --thread-hover: 40 20% 93%;
-    --post-header: 40 16% 92%;
-    --quote-text: 120 100% 25%;
-    --link-text: 240 100% 35%;
-
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-background: 0.9857 0 0;
+    --sidebar-foreground: 0.32 0.01 270;
+    --sidebar-primary: 0.18 0.01 270;
+    --sidebar-primary-foreground: 0.9857 0 0;
+    --sidebar-accent: 0.96 0.008 270;
+    --sidebar-accent-foreground: 0.18 0.01 270;
+    --sidebar-border: 0.92 0.01 250;
+    --sidebar-ring: 0.62 0.19 255;
   }
 
-  .dark {
-    --background: 0 0% 13%;
-    --foreground: 40 16% 97%;
-
-    --card: 0 0% 18%;
-    --card-foreground: 40 16% 97%;
-
-    --popover: 0 0% 18%;
-    --popover-foreground: 40 16% 97%;
-
-    --primary: 142 70% 35%;
-    --primary-foreground: 0 0% 98%;
-
-    --secondary: 0 0% 22%;
-    --secondary-foreground: 40 16% 97%;
-
-    --muted: 0 0% 22%;
-    --muted-foreground: 0 0% 60%;
-
-    --accent: 142 70% 30%;
-    --accent-foreground: 0 0% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 0 0% 25%;
-    --input: 0 0% 25%;
-    --ring: 142 70% 35%;
-
-    --board-header: 142 70% 30%;
-    --board-header-foreground: 0 0% 98%;
-    --thread-hover: 0 0% 20%;
-    --post-header: 0 0% 22%;
-    --quote-text: 120 100% 40%;
-    --link-text: 240 100% 60%;
-
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+  [data-mode="dark"] {
+    --sidebar-background: 0.18 0.01 270;
+    --sidebar-foreground: 0.96 0.008 270;
+    --sidebar-primary: 0.55 0.19 260;
+    --sidebar-primary-foreground: 1 0 0;
+    --sidebar-accent: 0.24 0.008 270;
+    --sidebar-accent-foreground: 0.96 0.008 270;
+    --sidebar-border: 0.24 0.008 270;
+    --sidebar-ring: 0.62 0.19 255;
   }
 
-  /* Cannabis Green Theme */
-  .theme-cannabis {
-    --background: 120 25% 95%;
-    --foreground: 120 15% 15%;
-    --card: 120 20% 98%;
-    --card-foreground: 120 15% 15%;
-    --primary: 120 60% 35%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 120 20% 85%;
-    --secondary-foreground: 120 15% 15%;
-    --muted: 120 20% 90%;
-    --muted-foreground: 120 10% 40%;
-    --border: 120 20% 80%;
-    --input: 120 20% 80%;
-    --ring: 120 60% 35%;
-    --board-header: 120 60% 35%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 120 20% 88%;
-    --post-header: 120 20% 92%;
-    --link: 120 60% 35%;
-  }
-
-  .theme-cannabis-dark {
-    --background: 120 20% 8%;
-    --foreground: 120 10% 90%;
-    --card: 120 20% 10%;
-    --card-foreground: 120 10% 90%;
-    --primary: 120 60% 45%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 120 15% 15%;
-    --secondary-foreground: 120 10% 90%;
-    --muted: 120 15% 15%;
-    --muted-foreground: 120 10% 60%;
-    --border: 120 15% 18%;
-    --input: 120 15% 18%;
-    --ring: 120 60% 45%;
-    --board-header: 120 60% 30%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 120 15% 16%;
-    --post-header: 120 15% 12%;
-    --link: 120 60% 50%;
-  }
-
-  .theme-pink {
-    --background: 330 40% 95%;
-    --foreground: 330 15% 15%;
-    --card: 330 35% 98%;
-    --card-foreground: 330 15% 15%;
-    --primary: 330 70% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 330 30% 85%;
-    --secondary-foreground: 330 15% 15%;
-    --muted: 330 30% 90%;
-    --muted-foreground: 330 10% 40%;
-    --border: 330 30% 80%;
-    --input: 330 30% 80%;
-    --ring: 330 70% 50%;
-    --board-header: 330 70% 50%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 330 30% 88%;
-    --post-header: 330 30% 92%;
-    --link: 330 70% 50%;
-  }
-
-  .theme-pink-dark {
-    --background: 330 25% 8%;
-    --foreground: 330 10% 90%;
-    --card: 330 25% 10%;
-    --card-foreground: 330 10% 90%;
-    --primary: 330 70% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 330 20% 15%;
-    --secondary-foreground: 330 10% 90%;
-    --muted: 330 20% 15%;
-    --muted-foreground: 330 10% 60%;
-    --border: 330 20% 18%;
-    --input: 330 20% 18%;
-    --ring: 330 70% 55%;
-    --board-header: 330 70% 40%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 330 20% 16%;
-    --post-header: 330 20% 12%;
-    --link: 330 70% 60%;
-  }
-
-  .theme-blue {
-    --background: 220 30% 92%;
-    --foreground: 220 15% 20%;
-    --card: 220 25% 96%;
-    --card-foreground: 220 15% 20%;
-    --primary: 220 60% 35%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 25% 80%;
-    --secondary-foreground: 220 15% 20%;
-    --muted: 220 25% 85%;
-    --muted-foreground: 220 10% 40%;
-    --border: 220 25% 75%;
-    --input: 220 25% 75%;
-    --ring: 220 60% 35%;
-    --board-header: 220 60% 35%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 220 25% 83%;
-    --post-header: 220 25% 88%;
-    --link: 220 60% 35%;
-  }
-
-  .theme-blue-dark {
-    --background: 220 25% 8%;
-    --foreground: 220 10% 85%;
-    --card: 220 25% 10%;
-    --card-foreground: 220 10% 85%;
-    --primary: 220 60% 45%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 20% 15%;
-    --secondary-foreground: 220 10% 85%;
-    --muted: 220 20% 15%;
-    --muted-foreground: 220 10% 55%;
-    --border: 220 20% 18%;
-    --input: 220 20% 18%;
-    --ring: 220 60% 45%;
-    --board-header: 220 60% 30%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 220 20% 16%;
-    --post-header: 220 20% 12%;
-    --link: 220 60% 50%;
-  }
-
-  .theme-blood {
-    --background: 0 30% 94%;
-    --foreground: 0 15% 15%;
-    --card: 0 25% 97%;
-    --card-foreground: 0 15% 15%;
-    --primary: 0 80% 45%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 25% 85%;
-    --secondary-foreground: 0 15% 15%;
-    --muted: 0 25% 90%;
-    --muted-foreground: 0 10% 40%;
-    --border: 0 25% 80%;
-    --input: 0 25% 80%;
-    --ring: 0 80% 45%;
-    --board-header: 0 80% 45%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 25% 88%;
-    --post-header: 0 25% 92%;
-    --link: 0 80% 45%;
-  }
-
-  .theme-blood-dark {
-    --background: 0 25% 8%;
-    --foreground: 0 10% 90%;
-    --card: 0 25% 10%;
-    --card-foreground: 0 10% 90%;
-    --primary: 0 80% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 20% 15%;
-    --secondary-foreground: 0 10% 90%;
-    --muted: 0 20% 15%;
-    --muted-foreground: 0 10% 60%;
-    --border: 0 20% 18%;
-    --input: 0 20% 18%;
-    --ring: 0 80% 50%;
-    --board-header: 0 80% 35%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 20% 16%;
-    --post-header: 0 20% 12%;
-    --link: 0 80% 55%;
-  }
-
-  .theme-pumpkin {
-    --background: 30 40% 94%;
-    --foreground: 30 15% 15%;
-    --card: 30 35% 97%;
-    --card-foreground: 30 15% 15%;
-    --primary: 30 85% 45%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 30 30% 85%;
-    --secondary-foreground: 30 15% 15%;
-    --muted: 30 30% 90%;
-    --muted-foreground: 30 10% 40%;
-    --border: 30 30% 80%;
-    --input: 30 30% 80%;
-    --ring: 30 85% 45%;
-    --board-header: 30 85% 45%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 30 30% 88%;
-    --post-header: 30 30% 92%;
-    --link: 30 85% 45%;
-  }
-
-  .theme-pumpkin-dark {
-    --background: 30 25% 8%;
-    --foreground: 30 10% 90%;
-    --card: 30 25% 10%;
-    --card-foreground: 30 10% 90%;
-    --primary: 30 85% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 30 20% 15%;
-    --secondary-foreground: 30 10% 90%;
-    --muted: 30 20% 15%;
-    --muted-foreground: 30 10% 60%;
-    --border: 30 20% 18%;
-    --input: 30 20% 18%;
-    --ring: 30 85% 50%;
-    --board-header: 30 85% 35%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 30 20% 16%;
-    --post-header: 30 20% 12%;
-    --link: 30 85% 55%;
-  }
-
-  .theme-graphite {
-    --background: 0 0% 94%;
-    --foreground: 0 0% 14%;
-    --card: 0 0% 98%;
-    --card-foreground: 0 0% 14%;
-    --primary: 208 100% 42%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 88%;
-    --secondary-foreground: 0 0% 18%;
-    --muted: 0 0% 91%;
-    --muted-foreground: 0 0% 36%;
-    --border: 0 0% 78%;
-    --input: 0 0% 78%;
-    --ring: 208 100% 42%;
-    --board-header: 0 0% 24%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 90%;
-    --post-header: 0 0% 92%;
-    --link: 208 100% 42%;
-  }
-
-  .theme-graphite-dark {
-    --background: 0 0% 12%;
-    --foreground: 0 0% 90%;
-    --card: 0 0% 18%;
-    --card-foreground: 0 0% 92%;
-    --primary: 208 100% 42%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 24%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 0 0% 20%;
-    --muted-foreground: 0 0% 68%;
-    --border: 0 0% 24%;
-    --input: 0 0% 24%;
-    --ring: 208 100% 42%;
-    --board-header: 0 0% 24%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 24%;
-    --post-header: 0 0% 16%;
-    --link: 208 100% 48%;
-  }
-
-  .theme-lavender {
-    --background: 264 32% 95%;
-    --foreground: 264 22% 16%;
-    --card: 264 38% 98%;
-    --card-foreground: 264 22% 16%;
-    --primary: 265 100% 83%;
-    --primary-foreground: 264 32% 16%;
-    --secondary: 163 70% 90%;
-    --secondary-foreground: 264 22% 18%;
-    --muted: 264 32% 91%;
-    --muted-foreground: 264 12% 42%;
-    --border: 264 26% 82%;
-    --input: 264 26% 82%;
-    --ring: 265 100% 83%;
-    --board-header: 264 38% 38%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 264 30% 90%;
-    --post-header: 264 30% 93%;
-    --link: 265 78% 56%;
-  }
-
-  .theme-lavender-dark {
-    --background: 261 25% 12%;
-    --foreground: 264 40% 92%;
-    --card: 261 22% 16%;
-    --card-foreground: 264 40% 92%;
-    --primary: 265 100% 83%;
-    --primary-foreground: 264 32% 14%;
-    --secondary: 163 100% 84%;
-    --secondary-foreground: 264 30% 14%;
-    --muted: 261 18% 19%;
-    --muted-foreground: 264 18% 68%;
-    --border: 261 18% 23%;
-    --input: 261 18% 23%;
-    --ring: 265 100% 83%;
-    --board-header: 261 26% 20%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 261 18% 20%;
-    --post-header: 261 18% 15%;
-    --link: 265 100% 83%;
-  }
-
-  .theme-volcanic {
-    --background: 24 10% 93%;
-    --foreground: 24 12% 14%;
-    --card: 24 12% 97%;
-    --card-foreground: 24 12% 14%;
-    --primary: 18 100% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 24 10% 86%;
-    --secondary-foreground: 24 12% 16%;
-    --muted: 24 8% 89%;
-    --muted-foreground: 24 6% 40%;
-    --border: 24 8% 78%;
-    --input: 24 8% 78%;
-    --ring: 18 100% 50%;
-    --board-header: 24 10% 18%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 24 8% 87%;
-    --post-header: 24 8% 91%;
-    --link: 18 100% 44%;
-  }
-
-  .theme-volcanic-dark {
-    --background: 0 0% 12%;
-    --foreground: 0 0% 92%;
-    --card: 0 0% 14%;
-    --card-foreground: 0 0% 92%;
-    --primary: 18 100% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 20%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 0 0% 17%;
-    --muted-foreground: 0 0% 63%;
-    --border: 0 0% 22%;
-    --input: 0 0% 22%;
-    --ring: 18 100% 50%;
-    --board-header: 0 0% 16%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 19%;
-    --post-header: 0 0% 14%;
-    --link: 18 100% 50%;
-  }
-
-  .theme-mint {
-    --background: 140 100% 97%;
-    --foreground: 145 35% 14%;
-    --card: 0 0% 100%;
-    --card-foreground: 145 35% 14%;
-    --primary: 158 100% 50%;
-    --primary-foreground: 145 35% 12%;
-    --secondary: 66 100% 74%;
-    --secondary-foreground: 145 35% 16%;
-    --muted: 140 65% 94%;
-    --muted-foreground: 145 12% 38%;
-    --border: 145 32% 84%;
-    --input: 145 32% 84%;
-    --ring: 158 100% 50%;
-    --board-header: 149 55% 90%;
-    --board-header-foreground: 145 45% 18%;
-    --thread-hover: 140 75% 95%;
-    --post-header: 140 75% 96%;
-    --link: 158 100% 38%;
-  }
-
-  .theme-mint-dark {
-    --background: 150 18% 10%;
-    --foreground: 145 36% 92%;
-    --card: 150 16% 13%;
-    --card-foreground: 145 36% 92%;
-    --primary: 158 100% 50%;
-    --primary-foreground: 145 40% 12%;
-    --secondary: 66 90% 68%;
-    --secondary-foreground: 145 40% 14%;
-    --muted: 150 14% 17%;
-    --muted-foreground: 145 12% 68%;
-    --border: 150 12% 22%;
-    --input: 150 12% 22%;
-    --ring: 158 100% 50%;
-    --board-header: 150 18% 16%;
-    --board-header-foreground: 145 36% 92%;
-    --thread-hover: 150 12% 19%;
-    --post-header: 150 12% 14%;
-    --link: 158 100% 56%;
-  }
-
-  .theme-glitch {
-    --background: 0 0% 95%;
-    --foreground: 0 0% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 10%;
-    --primary: 186 100% 50%;
-    --primary-foreground: 0 0% 8%;
-    --secondary: 301 100% 50%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 92%;
-    --muted-foreground: 0 0% 38%;
-    --border: 0 0% 80%;
-    --input: 0 0% 80%;
-    --ring: 301 100% 50%;
-    --board-header: 0 0% 8%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 90%;
-    --post-header: 0 0% 93%;
-    --link: 301 100% 42%;
-  }
-
-  .theme-glitch-dark {
-    --background: 0 0% 7%;
-    --foreground: 0 0% 94%;
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 94%;
-    --primary: 186 100% 50%;
-    --primary-foreground: 0 0% 7%;
-    --secondary: 301 100% 50%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 12%;
-    --muted-foreground: 0 0% 68%;
-    --border: 0 0% 16%;
-    --input: 0 0% 16%;
-    --ring: 301 100% 50%;
-    --board-header: 0 0% 9%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 13%;
-    --post-header: 0 0% 10%;
-    --link: 186 100% 56%;
-  }
-
-  .theme-acid {
-    --background: 0 0% 4%;
-    --foreground: 0 0% 96%;
-    --card: 0 0% 7%;
-    --card-foreground: 0 0% 96%;
-    --primary: 110 100% 54%;
-    --primary-foreground: 0 0% 4%;
-    --secondary: 306 100% 53%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 11%;
-    --muted-foreground: 0 0% 70%;
-    --border: 0 0% 14%;
-    --input: 0 0% 14%;
-    --ring: 110 100% 54%;
-    --board-header: 0 0% 6%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 10%;
-    --post-header: 0 0% 8%;
-    --link: 306 100% 53%;
-  }
-
-  .theme-acid-dark {
-    --background: 0 0% 0%;
-    --foreground: 0 0% 96%;
-    --card: 0 0% 4%;
-    --card-foreground: 0 0% 96%;
-    --primary: 110 100% 54%;
-    --primary-foreground: 0 0% 4%;
-    --secondary: 306 100% 53%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 8%;
-    --muted-foreground: 0 0% 70%;
-    --border: 0 0% 12%;
-    --input: 0 0% 12%;
-    --ring: 110 100% 54%;
-    --board-header: 0 0% 4%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 8%;
-    --post-header: 0 0% 6%;
-    --link: 306 100% 53%;
-  }
-
-  .theme-void {
-    --background: 0 0% 8%;
-    --foreground: 0 0% 96%;
-    --card: 0 0% 12%;
-    --card-foreground: 0 0% 96%;
-    --primary: 0 0% 100%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 0 0% 72%;
-    --secondary-foreground: 0 0% 8%;
-    --muted: 0 0% 16%;
-    --muted-foreground: 0 0% 70%;
-    --border: 0 0% 20%;
-    --input: 0 0% 20%;
-    --ring: 0 0% 100%;
-    --board-header: 0 0% 10%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 15%;
-    --post-header: 0 0% 13%;
-    --link: 0 0% 100%;
-  }
-
-  .theme-void-dark {
-    --background: 0 0% 0%;
-    --foreground: 0 0% 96%;
-    --card: 0 0% 5%;
-    --card-foreground: 0 0% 96%;
-    --primary: 0 0% 100%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 0 0% 74%;
-    --secondary-foreground: 0 0% 0%;
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 70%;
-    --border: 0 0% 12%;
-    --input: 0 0% 12%;
-    --ring: 0 0% 100%;
-    --board-header: 0 0% 4%;
-    --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 0% 8%;
-    --post-header: 0 0% 6%;
-    --link: 0 0% 100%;
-  }
-  
   #lovable-badge {
     display: none !important;
   }
@@ -871,6 +290,10 @@ html, body {
 
   body {
     @apply bg-background text-foreground;
+    background-image: var(--bg-image, none);
+    background-size: var(--bg-size, cover);
+    background-repeat: var(--bg-repeat, no-repeat);
+    background-attachment: fixed;
     width: 100%;
     max-width: 100%;
     margin: 0;
@@ -911,18 +334,18 @@ html, body {
   }
 
   .mention {
-    color: hsl(var(--link-text));
+    color: oklch(var(--link-text));
     font-weight: 500;
   }
 
   .url {
-    color: hsl(var(--link-text));
+    color: oklch(var(--link-text));
     text-decoration: underline;
   }
 
   [contenteditable]:empty:before {
     content: attr(data-placeholder);
-    color: hsl(var(--muted-foreground));
+    color: oklch(var(--muted-foreground));
     pointer-events: none;
   }
 }
@@ -1133,4 +556,663 @@ main.is-app-surface {
     opacity: 0;
     animation: none;
   }
+/* ═══════════════════════════════════════════════════════════════════════════
+   Glass site header (AppLayout)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   One pane of neutral frosted glass. It deliberately does NOT take the theme's
+   board-header colour — a tinted pane reads as coloured plastic, while a
+   neutral one behaves like real glass over every theme.
+
+   It does follow the theme's SURFACE though: the pane frosts the theme
+   background and takes the theme foreground, so a light theme gets light glass
+   with dark text and a dark theme dark glass with light text. A single fixed
+   dark pane (0 0% 8% + always-white text) made every light theme look like a
+   heavy darkening rather than glass.
+
+   Three things make it read as glass rather than as a translucent bar:
+     • blur plus a saturation boost, so the colours behind the pane stay vivid
+       instead of turning to grey mush;
+     • a crisp 1px highlight along the top edge and a denser bottom edge, so
+       the pane has visible thickness;
+     • two deliberate "defects" — fractal-noise grain, and an off-centre sheen
+       with a faint diagonal streak — because real glass is never perfectly
+       clean or evenly lit.
+
+   The defects live in ::before / ::after at z-index 0, and every direct child
+   is lifted to z-index 1, so they can never bleed over the icons or text.
+
+   Tune via the custom properties below.
+
+   ── Cost ──────────────────────────────────────────────────────────────────
+   This is the only always-on backdrop-filter in the app, so it is the one
+   thing that runs on EVERY scroll frame. Everything static (thickness, streak,
+   sheen) rides in the element's own background-image, which the browser
+   rasterises once into the header's layer, and the filter chain is kept to the
+   two passes that actually pay for themselves.
+
+   Three progressively cheaper tiers live further down ("Cost tiers"): narrow
+   screens, html.perf-lite, and the no-backdrop-filter fallback. */
+.app-header-glass {
+  /* Driven by the theme's surface profile (see registry/theme.css): glass
+     themes blur, flat/outlined/paper/contrast themes stay opaque with no
+     blur, neon/terminal get a sheen-less flat pane with a glow elsewhere. */
+  --glass-alpha: var(--surface-alpha, 1);
+  --glass-blur: var(--surface-blur, 0px);
+  --glass-saturate: var(--surface-saturate, 100%);
+
+  background-color: oklch(var(--background) / var(--glass-alpha));
+  color: oklch(var(--foreground));
+  background-image: var(--surface-sheen, none);
+
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+
+  border-bottom: 1px solid oklch(var(--border) / 0.85);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.1),
+    0 10px 30px -14px hsl(0 0% 0% / 0.22);
+}
+
+/* The mark is white-and-purple: on light glass its white facets would vanish.
+   A tight dark hairline keeps the whole mark readable — on dark glass it would
+   only add mud, so it is light-mode only (data-mode is set by applyTheme). */
+html[data-mode="light"] .app-header-logo {
+  filter: drop-shadow(0 0 1px hsl(0 0% 0% / 0.5));
+}
+
+/* Grain. Isolated in its own layer so soft-light only textures the glass —
+   not the children. */
+.app-header-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: calc(0.5 * var(--surface-grain, 1));
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* Keep icon/text children above the grain layer. */
+.app-header-glass > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Cost tiers ────────────────────────────────────────────────────────────
+
+   The header is the only always-on backdrop-filter in the app and the browser
+   re-runs it on every scroll frame, so the cheaper versions matter:
+
+     • narrow screens — fewer pixels and weaker GPUs: a smaller radius, a
+       gentler saturation, and the grain drops its per-frame compositor blend
+       (mix-blend-mode) for a plain source-over overlay;
+     • html.perf-lite — hardware that cannot hold a full-radius live blur (set
+       by utils/perfTier.ts from device hints, then re-checked against real
+       frame pacing during the first scroll): no live filter at all, just a
+       translucent pane. Un-blurred translucency is pure compositing, and on
+       this tier smoothness is worth more than the frosting. */
+@media (max-width: 767px) {
+  .app-header-glass {
+    --glass-blur: calc(var(--surface-blur, 0px) * 0.5);
+    --glass-saturate: var(--surface-saturate, 100%);
+  }
+  .app-header-glass::before {
+    mix-blend-mode: normal;
+    opacity: calc(0.2 * var(--surface-grain, 1));
+  }
+}
+
+html.perf-lite .app-header-glass {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background-color: oklch(var(--background) / 0.86);
+}
+
+html.perf-lite .app-header-glass::before {
+  mix-blend-mode: normal;
+  opacity: 0.08;
+}
+
+/* No backdrop-filter → an unreadable see-through pane; fall back to a
+   near-solid neutral bar. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-header-glass {
+    background-color: oklch(var(--background) / 0.96);
+  }
+  .app-header-glass::before {
+    display: none;
+  }
+}
+
+/* Respect the OS "reduce transparency" switch. */
+@media (prefers-reduced-transparency: reduce) {
+  .app-header-glass {
+    background-color: oklch(var(--background));
+    background-image: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .app-header-glass::before {
+    display: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Profile tab bar — frosted once it sticks
+   ═══════════════════════════════════════════════════════════════════════════
+
+   While the bar travels with the page it is an opaque strip; the moment it
+   pins under the app header (ProfileTabs adds .profile-tabbar--stuck) it turns
+   into frosted glass.
+
+   The switch is deliberately instant. The bar pins over the profile header — a
+   flat block of colour — so an animated wipe would not be visible there, and a
+   transition would be per-frame cost with nothing to show for it.
+
+   The pane is a child <span>, not the sticky bar itself: Chrome drops a
+   backdrop-filter sitting on a sticky element while a Radix portal is open,
+   which used to make the whole bar vanish. */
+.profile-tabbar__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: oklch(var(--background));
+}
+
+.profile-tabbar--stuck .profile-tabbar__bg {
+  --tabbar-glass-blur: 14px;
+  background-color: oklch(var(--background) / 0.62);
+  -webkit-backdrop-filter: blur(var(--tabbar-glass-blur)) saturate(150%);
+  backdrop-filter: blur(var(--tabbar-glass-blur)) saturate(150%);
+}
+
+/* No backdrop-filter → a translucent pane would be an unreadable smear; keep
+   the opaque strip instead. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .profile-tabbar--stuck .profile-tabbar__bg {
+    background-color: oklch(var(--background));
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .profile-tabbar--stuck .profile-tabbar__bg {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: oklch(var(--background));
+  }
+}
+
+/* Weak hardware: same tier as the header (see utils/perfTier.ts). */
+html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
+  --tabbar-glass-blur: 6px;
+  -webkit-backdrop-filter: blur(var(--tabbar-glass-blur));
+  backdrop-filter: blur(var(--tabbar-glass-blur));
+}
+
+/* Forum layout: the tab bar lives inside a surface panel, so it adopts that
+   panel's surface and rounds its corners instead of painting the full-bleed
+   page-coloured strip. It never takes the frosted "stuck" treatment here. */
+.profile-tabbar--panel {
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.profile-tabbar--panel .profile-tabbar__bg {
+  background-color: oklch(var(--card) / var(--surface-alpha, 1));
+  -webkit-backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
+  backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
+}
+
+/* Soft content surface for cards, the feed sidebar and panels: `--card` at
+   40% over the page background. Mixed to an OPAQUE colour so the surface is
+   identical everywhere — a translucent fill would read lighter on pages with
+   their own background image (e.g. the profile wall). Used as `bg-surface`
+   (see components/ui/card.tsx and components/post/PostCardChrome.tsx). */
+@layer utilities {
+  .bg-surface {
+    background-color: color-mix(in oklch, oklch(var(--card)) var(--surface-tint, 100%), oklch(var(--background)));
+    box-shadow: var(--surface-shadow, none);
+  }
+  /* Panels: dialogs, popovers, menus, sheets. Glass themes blur + stay
+     translucent, flat/outlined/paper/contrast themes are opaque with no blur. */
+  .surface-panel {
+    background-color: oklch(var(--card) / var(--surface-alpha, 1));
+    -webkit-backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
+    backdrop-filter: blur(var(--surface-blur, 0px)) saturate(var(--surface-saturate, 100%));
+  }
+}
+
+/* Indeterminate segment for the header loading bar (components/TopLoadingBar). */
+@keyframes gomo-loading-bar {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+
+.loading-bar-segment {
+  animation: gomo-loading-bar 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar-segment {
+    animation-duration: 2.2s;
+  }
+}
+
+/* ── View Transitions (Settings → Внешний вид → Анимация переходов) ──────────
+   Only the content column animates, not the whole chrome: the root transition
+   is disabled and the main column carries `view-transition-name: view-content`
+   (see hooks/usePendingView + pages/Index). Two browser-animated styles share
+   this machinery and pick their choreography from html[data-transition-style]:
+   "view-transition" (fade through) and "slide" (direction-aware push). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+.view-transition-target {
+  view-transition-name: view-content;
+}
+
+::view-transition-group(view-content) {
+  animation-duration: 320ms;
+}
+
+/* NOTE: selectors for `::view-transition-*` pseudo-elements may only be a
+   compound selector built around the pseudo-element itself, optionally prefixed
+   with `:root` — a descendant combinator (`html[attr] ::view-transition-…`)
+   silently matches nothing. Hence `:root[data-transition-style=…]::…`. */
+
+/* Fade through, not a crossfade: the outgoing view fades out first, then the
+   incoming one fades in. A crossfade ghosts two different layouts (the old list
+   shows through the new one), which reads as «double content». */
+:root[data-transition-style="view-transition"]::view-transition-old(view-content) {
+  animation: 120ms cubic-bezier(0.4, 0, 1, 1) both gomo-vt-out;
+}
+
+:root[data-transition-style="view-transition"]::view-transition-new(view-content) {
+  animation: 200ms cubic-bezier(0, 0, 0.2, 1) 110ms both gomo-vt-in;
+}
+
+/* Slide: the old view is pushed out and the new one arrives from the other
+   side. Direction comes from data-vt-direction (set by pages/Index from the
+   route depth) — opening a раздел slides left, going back slides right. */
+:root[data-transition-style="slide"]::view-transition-group(view-content) {
+  animation-duration: 300ms;
+}
+
+:root[data-transition-style="slide"]::view-transition-old(view-content) {
+  animation: 260ms cubic-bezier(0.4, 0, 0.2, 1) both gomo-vt-slide-out;
+}
+
+:root[data-transition-style="slide"]::view-transition-new(view-content) {
+  animation: 260ms cubic-bezier(0.4, 0, 0.2, 1) both gomo-vt-slide-in;
+}
+
+:root[data-transition-style="slide"][data-vt-direction="back"]::view-transition-old(view-content) {
+  animation-name: gomo-vt-slide-out-back;
+}
+
+:root[data-transition-style="slide"][data-vt-direction="back"]::view-transition-new(view-content) {
+  animation-name: gomo-vt-slide-in-back;
+}
+
+@keyframes gomo-vt-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes gomo-vt-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes gomo-vt-slide-out {
+  to {
+    opacity: 0;
+    transform: translateX(-16%);
+  }
+}
+
+@keyframes gomo-vt-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16%);
+  }
+}
+
+@keyframes gomo-vt-slide-out-back {
+  to {
+    opacity: 0;
+    transform: translateX(16%);
+  }
+}
+
+@keyframes gomo-vt-slide-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-16%);
+  }
+}
+
+/* ── View content entrance animations ─────────────────────────────────────────
+   Used by the pending-view containers (hooks/usePendingView) and by individual
+   views when THEIR content changes (a раздел swapping its list, infinite scroll
+   refreshes, …). Disabled for the styles where the browser animates the swap
+   itself — an inner fade would double up, and the "new" snapshot can be captured
+   mid-fade (which reads as a double flash). `rise` keeps it: it only animates
+   mode switches, so the inner fade is what covers same-component swaps. */
+.view-fade-in {
+  animation: gomo-view-fade-in 200ms ease-out both;
+}
+
+.view-rise-in {
+  animation: gomo-view-rise-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes gomo-view-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gomo-view-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-fade-in,
+  .view-rise-in {
+    animation: none;
+  }
+}
+
+html[data-transition-style="view-transition"] .view-fade-in,
+html[data-transition-style="slide"] .view-fade-in,
+html[data-transition-style="none"] .view-fade-in,
+html.perf-lite .view-fade-in,
+html.perf-lite .view-rise-in {
+  animation: none;
+}
+
+/* ── Transition previews (Settings → «Анимация переходов», expand a style) ────
+   A tiny two-layer mock of the content swap so the user can see a style before
+   picking it. It reuses the SAME keyframes as the real thing and scopes them by
+   data-style / data-direction — no View Transitions API needed, so it also
+   demonstrates styles the current browser cannot actually run. */
+.vt-preview {
+  position: relative;
+  height: 9.5rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--background));
+}
+
+.vt-preview-scene {
+  position: absolute;
+  inset: 0;
+}
+
+.vt-preview-layer {
+  position: absolute;
+  inset: 0;
+  padding: 0.75rem;
+}
+
+/* CSS-only styles animate the incoming screen alone — the old one is gone. */
+.vt-preview-scene[data-style="fade"] .vt-preview-layer--old,
+.vt-preview-scene[data-style="rise"] .vt-preview-layer--old,
+.vt-preview-scene[data-style="none"] .vt-preview-layer--old {
+  display: none;
+}
+
+.vt-preview-scene[data-style="fade"] .vt-preview-layer--new {
+  animation: gomo-view-fade-in 200ms ease-out both;
+}
+
+.vt-preview-scene[data-style="rise"] .vt-preview-layer--new {
+  animation: gomo-view-rise-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vt-preview-scene[data-style="none"] .vt-preview-layer--new {
+  animation: none;
+}
+
+.vt-preview-scene[data-style="view-transition"] .vt-preview-layer--old {
+  animation: 120ms cubic-bezier(0.4, 0, 1, 1) both gomo-vt-out;
+}
+
+.vt-preview-scene[data-style="view-transition"] .vt-preview-layer--new {
+  animation: 200ms cubic-bezier(0, 0, 0.2, 1) 110ms both gomo-vt-in;
+}
+
+.vt-preview-scene[data-style="slide"] .vt-preview-layer--old {
+  animation: 260ms cubic-bezier(0.4, 0, 0.2, 1) both gomo-vt-slide-out;
+}
+
+.vt-preview-scene[data-style="slide"] .vt-preview-layer--new {
+  animation: 260ms cubic-bezier(0.4, 0, 0.2, 1) both gomo-vt-slide-in;
+}
+
+.vt-preview-scene[data-style="slide"][data-direction="back"] .vt-preview-layer--old {
+  animation-name: gomo-vt-slide-out-back;
+}
+
+.vt-preview-scene[data-style="slide"][data-direction="back"] .vt-preview-layer--new {
+  animation-name: gomo-vt-slide-in-back;
+}
+
+/* Timeline rail under the mock: a page dot at each end, the animation moment in
+   the CENTRE, and a head that travels page 1 ↔ page 2. The head crosses the
+   centre exactly when the scene swaps (the JS timer fires there), so the
+   durations are set inline from the same constant. */
+.vt-preview-track {
+  position: relative;
+  height: 2px;
+  margin: 0 5px;
+  border-radius: 999px;
+  background: oklch(var(--border));
+}
+
+/* page 1 / page 2 */
+.vt-preview-track-dot {
+  position: absolute;
+  top: 50%;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 999px;
+  background: oklch(var(--muted-foreground));
+  opacity: 0.45;
+}
+
+.vt-preview-track-dot--end {
+  left: auto;
+  right: -4px;
+}
+
+/* the moment the animation plays — the centre of the strip */
+.vt-preview-track-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 2px;
+  background: oklch(var(--primary));
+  transform: rotate(45deg);
+}
+
+.vt-preview-track-center::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 3px;
+  border: 1px solid oklch(var(--primary));
+  animation: vt-preview-center-pulse 2.2s linear infinite;
+}
+
+/* head travelling between the two pages */
+.vt-preview-track-head {
+  position: absolute;
+  top: 50%;
+  left: -4.5px;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 999px;
+  background: oklch(var(--primary));
+  box-shadow: 0 0 8px oklch(var(--primary) / 0.6);
+  animation: vt-preview-head 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+
+@keyframes vt-preview-head {
+  from {
+    left: -4.5px;
+  }
+  to {
+    left: calc(100% - 4.5px);
+  }
+}
+
+@keyframes vt-preview-center-pulse {
+  0%,
+  45% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+  55%,
+  100% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vt-preview-layer,
+  .vt-preview-track-head,
+  .vt-preview-track-center::after {
+    animation: none !important;
+  }
+}
+
+/* Generic character hooks — used by custom (user-built) themes, which have no
+   generated [data-theme] rule. Built-in themes get their font/texture from
+   src/theme/theme.css instead. */
+[data-font="serif"] {
+  --font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+}
+[data-font="mono"] {
+  --font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+[data-font="rounded"] {
+  --font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+}
+[data-font="serif"] body,
+[data-font="mono"] body,
+[data-font="rounded"] body {
+  font-family: var(--font-family);
+}
+[data-texture] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.5;
+}
+[data-texture="scanlines"] body::after {
+  background-image: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.16) 0 1px, transparent 1px 3px);
+}
+[data-texture="grid"] body::after {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+[data-texture="dots"] body::after {
+  background-image: radial-gradient(rgb(255 255 255 / 0.07) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Brand mark, "alive" (components/Gomo6Mark on pages/Auth)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   The mark breathes — a ~2% scale and a hair of vertical drift — while a soft
+   halo in the theme's primary pulses behind it. Both animate transform/opacity
+   only, so they ride the compositor and cost nothing per frame on the main
+   thread.
+
+   Motion is a garnish, never load-bearing: reduced-motion users and the
+   perf-lite tier (utils/perfTier.ts) get the same mark and glow, just held
+   still — the base transform keeps the halo centred when the animation is off. */
+@keyframes gomo-mark-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-1.5%) scale(1.02);
+  }
+}
+
+@keyframes gomo-mark-halo {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  50% {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+.gomo-mark-breathe {
+  transform-origin: center;
+  animation: gomo-mark-breathe 7s ease-in-out infinite;
+}
+
+.gomo-mark-halo {
+  transform: translate(-50%, -50%) scale(0.9);
+  animation: gomo-mark-halo 7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gomo-mark-breathe,
+  .gomo-mark-halo {
+    animation: none;
+  }
+}
+
+html.perf-lite .gomo-mark-breathe,
+html.perf-lite .gomo-mark-halo {
+  animation: none;
 }

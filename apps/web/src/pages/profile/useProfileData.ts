@@ -26,16 +26,12 @@ export interface UseProfileDataResult {
   trophies: Trophy[];
   /** True once the trophy fetch for the current user has settled. */
   trophiesLoaded: boolean;
-  userThreads: any[];
-  profileLikesMap: Map<string, { count: number; isLiked: boolean }>;
-  threadsLoading: boolean;
   avatarHistory: AvatarHistoryItem[];
   showAvatarGallery: boolean;
   avatarGalleryIndex: number;
   giftCatalog: GiftCatalogItem[];
   giftCount: number;
   giftCountLoaded: boolean;
-  loadUserThreads: () => Promise<void>;
   loadAvatarHistory: () => Promise<AvatarHistoryItem[]>;
   openAvatarGallery: () => Promise<void>;
   closeAvatarGallery: () => void;
@@ -45,10 +41,10 @@ export interface UseProfileDataResult {
 }
 
 /**
- * Tab-scoped profile data: achievements (pinned on mount, full list when the
- * achievements tab is first opened), user threads with like counts, avatar
- * history + gallery, and the gift catalog/count. Everything is loaded lazily
- * so the first paint only fetches the profile row + the pinned achievements.
+ * Tab-scoped profile data: trophies (milestones + hand-granted awards, fetched
+ * when the achievements tab is first opened), avatar history + gallery, and the
+ * gift catalog/count. Everything is loaded lazily so the first paint only
+ * fetches the profile row.
  */
 export function useProfileData({
   userId,
@@ -58,92 +54,15 @@ export function useProfileData({
 }: UseProfileDataParams): UseProfileDataResult {
   const { t } = useTranslation();
 
-  // ── Achievements & awards ──────────────────────────────────────────────────
-  // Auto milestones (`user_achievements`) and hand-granted awards (`user_awards`)
-  // are both heavy payloads, so they load lazily when the achievements tab is
-  // first opened. The hook fetches them in parallel and merges the milestones
-  // and awards into one rarest-first trophy list.
+  // ── Trophies (milestones + hand-granted awards) ─────────────────────────────
+  // Both `user_achievements` and `user_awards` are heavy payloads, so they load
+  // lazily when the achievements tab is first opened. `useTrophies` fetches
+  // them in parallel, merges them into one rarest-first list, and resets itself
+  // when the target user changes — so switching profiles never flashes the
+  // previous user's trophies.
   const { trophies, loaded: trophiesLoaded } = useTrophies(userId, {
-    enabled: activeTab === "achievements",
+    enabled: activeTab === 'achievements',
   });
-
-  // ── User threads + likes ───────────────────────────────────────────────────
-  const [userThreads, setUserThreads] = useState<any[]>([]);
-  const [profileLikesMap, setProfileLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
-  const [threadsLoading, setThreadsLoading] = useState(false);
-
-  const loadUserThreads = useCallback(async () => {
-    if (!userId) return;
-
-    setThreadsLoading(true);
-    try {
-      // Fetch threads
-      const threadsRes = await fetch(`/api/v1/threads?user_id=eq.${userId}&order=created_at.desc&limit=20`);
-      const threadsResult = await threadsRes.json();
-      const threadsData = threadsResult.data || [];
-
-      if (threadsData.length === 0) {
-        setUserThreads([]);
-        return;
-      }
-
-      // Get profiles for all threads
-      const userIds = [...new Set(threadsData.map((t: { user_id: string }) => t.user_id).filter(Boolean))];
-      const profilesMap: Record<string, unknown> = {};
-      if (userIds.length > 0) {
-        const profilesRes = await fetch(`/api/v1/profiles?id=in.(${userIds.join(',')})`);
-        const profilesResult = await profilesRes.json();
-        (profilesResult.data || []).forEach((p: { id: string }) => { profilesMap[p.id] = p; });
-      }
-
-      // Get post counts for threads
-      const threadIds = threadsData.map((t: { id: string }) => t.id);
-      const postCountMap: Record<string, number> = {};
-      if (threadIds.length > 0) {
-        const postsRes = await fetch(`/api/v1/posts?thread_id=in.(${threadIds.join(',')})`);
-        const postsResult = await postsRes.json();
-        (postsResult.data || []).forEach((p: { thread_id: string }) => {
-          postCountMap[p.thread_id] = (postCountMap[p.thread_id] || 0) + 1;
-        });
-      }
-
-      // Combine data
-      const threadsWithData = threadsData.map((thread: { id: string; user_id: string; [key: string]: unknown }) => ({
-        ...thread,
-        profiles: profilesMap[thread.user_id] || null,
-        post_count: postCountMap[thread.id] || 0
-      }));
-
-      setUserThreads(threadsWithData);
-
-      // Batch fetch likes for all user threads
-      if (threadIds.length > 0) {
-        try {
-          const likesResp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${threadIds.join(",")}&user_uuid=${currentUser?.id || ""}`);
-          const likesResult = await likesResp.json();
-          if (likesResult.data && Array.isArray(likesResult.data)) {
-            const newMap = new Map<string, { count: number; isLiked: boolean }>();
-            for (const item of likesResult.data) {
-              newMap.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
-            }
-            setProfileLikesMap(newMap);
-          }
-        } catch { /* ignore */ }
-      }
-    } catch (error) {
-      console.error('Error loading user threads:', error);
-      toast.error(t("profile.threadsLoadError"));
-    } finally {
-      setThreadsLoading(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, t]);
-
-  useEffect(() => {
-    if (activeTab === 'threads' && userThreads.length === 0) {
-      loadUserThreads();
-    }
-  }, [activeTab, userId, userThreads.length, loadUserThreads]);
 
   // ── Avatar history + gallery ───────────────────────────────────────────────
   const [avatarHistory, setAvatarHistory] = useState<AvatarHistoryItem[]>([]);
@@ -257,16 +176,12 @@ export function useProfileData({
   return {
     trophies,
     trophiesLoaded,
-    userThreads,
-    profileLikesMap,
-    threadsLoading,
     avatarHistory,
     showAvatarGallery,
     avatarGalleryIndex,
     giftCatalog,
     giftCount,
     giftCountLoaded,
-    loadUserThreads,
     loadAvatarHistory,
     openAvatarGallery,
     closeAvatarGallery,

@@ -126,7 +126,7 @@ export function BadgeEditor({ text, css, onTextChange, onCssChange }: BadgeEdito
                 const nextState = parseBadgeCss(preset.css);
                 emitChange(nextState);
               }}
-              className="group relative overflow-hidden rounded-lg border border-border bg-card p-2 text-left transition-all hover:border-primary/40 hover:shadow-sm"
+              className="group relative overflow-hidden rounded-lg border border-border bg-surface p-2 text-left transition-all hover:border-primary/40 hover:shadow-sm"
             >
               <div className="flex items-center gap-1.5">
                 <span

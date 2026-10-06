@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic, Smile, Maximize2, Minimize2, Camera } from "lucide-react";
+import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic, Smile, Maximize2, Minimize2, Camera, ChevronUp, ChevronDown } from "lucide-react";
 import { GomoRichEditor, Toolbar, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { EmojiPicker } from "@/components/EmojiPicker";
 
@@ -134,6 +134,16 @@ export const MessageComposer = memo(function MessageComposer({
   placeholder,
 }: Props) {
   const editorRef = useRef<GomoRichEditorHandle>(null);
+  // Stable editor ref callback: keeps the local handle and mirrors it into
+  // composerRef (ChatView/MessengerView focus). The tiptap instance itself is
+  // captured by the effect below (a ref callback runs during commit / render in
+  // tests, so it must not call setState).
+  const handleEditorRef = useCallback((node: GomoRichEditorHandle | null) => {
+    editorRef.current = node;
+    if (composerRef) {
+      (composerRef as React.MutableRefObject<GomoRichEditorHandle | null>).current = node;
+    }
+  }, [composerRef]);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   // Pending native-picker session (launched from the touch attach sheet):
@@ -221,6 +231,29 @@ export const MessageComposer = memo(function MessageComposer({
   swapOpenRef.current = swap.open;
 
   const [fullMode, setFullMode] = useState(false);
+  // Wall-style fullscreen: the whole composer expands into a viewport overlay
+  // (reusing this very body, not a second editor). Desktop-oriented — the
+  // button is hidden on touch so the mobile keyboard machinery is untouched.
+  const [fullscreen, setFullscreen] = useState(false);
+  // Live tiptap instance, captured AFTER commit and tagged with the mode it
+  // belongs to. Fullscreen renders the editor through a portal (a fresh
+  // instance), so the formatting Toolbar must not be handed the previous,
+  // already-destroyed editor during the swap — hence the mode tag.
+  const [capturedEditor, setCapturedEditor] = useState<{
+    fullscreen: boolean;
+    editor: ReturnType<GomoRichEditorHandle["getEditor"]>;
+  }>({ fullscreen: false, editor: null });
+
+  // Fullscreen swaps the editor for a fresh portal instance — re-read the
+  // tiptap instance once the new one has committed (layout effect: before the
+  // browser paints, so the Toolbar appears with no flash).
+  useLayoutEffect(() => {
+    const instance = editorRef.current?.getEditor() ?? null;
+    setCapturedEditor({ fullscreen, editor: instance });
+    // Entering fullscreen mounts a fresh editor — focus it so typing starts
+    // right away.
+    if (fullscreen) editorRef.current?.focus();
+  }, [fullscreen]);
   // While the formatting panel is closing it stays mounted (with the exit
   // animation) and unmounts after a short delay — so closing reads as one
   // smooth motion instead of a hard pop.
@@ -246,7 +279,15 @@ export const MessageComposer = memo(function MessageComposer({
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastChangeFromEditorRef = useRef(false);
+  // The exact draft value the editor last emitted (null until its first
+  // change). Used to tell an EXTERNAL clear (send / cancel-edit empties the
+  // parent draft) apart from the editor itself emptying. A boolean
+  // "last change came from the editor" flag goes stale when the editor
+  // re-emits a value that serializes to the SAME wire text — pressing Enter
+  // appends a paragraph whose trailing newline is trimmed by the serializer,
+  // so `setDraft` is a no-op, no re-render happens, and the flag stays true;
+  // the send-clear then skipped the editor reset and left the text in the box.
+  const lastEditorDraftRef = useRef<string | null>(null);
   const prevDraftRef = useRef(draft);
   const prevEditingIdRef = useRef(editingMessageId);
 
@@ -277,11 +318,20 @@ export const MessageComposer = memo(function MessageComposer({
   useEffect(() => {
     const prev = prevDraftRef.current;
     prevDraftRef.current = draft;
-    if (prev !== "" && draft === "" && !lastChangeFromEditorRef.current) {
+    // External clear: the parent emptied a previously non-empty draft while the
+    // editor's own last emitted value was itself non-empty — the user did not
+    // delete the text, so wipe the editor via a reset-key bump. When the editor
+    // emptied itself (user selected-all + delete) `lastEditorDraftRef` is "" and
+    // the reset is skipped, so the caret is never yanked mid-edit.
+    if (
+      prev !== "" &&
+      draft === "" &&
+      lastEditorDraftRef.current !== null &&
+      lastEditorDraftRef.current !== ""
+    ) {
       setEditorResetKey((key) => key + 1);
       setFullMode(false);
     }
-    lastChangeFromEditorRef.current = false;
   }, [draft]);
 
   // ── Typing indicator ───────────────────────────────────────────────────────
@@ -302,8 +352,9 @@ export const MessageComposer = memo(function MessageComposer({
 
   const handleEditorChange = useCallback(
     ({ json, text }: { json: unknown; text: string }) => {
-      lastChangeFromEditorRef.current = true;
-      setDraft(prosemirrorToMessengerText(json));
+      const next = prosemirrorToMessengerText(json);
+      lastEditorDraftRef.current = next;
+      setDraft(next);
 
       if (onTyping && text.trim().length > 0) {
         if (!isTypingRef.current) {
@@ -336,6 +387,12 @@ export const MessageComposer = memo(function MessageComposer({
     }
     if (!isSending && uploadingFiles.length === 0 && (hasContent || pendingAttachments.length > 0)) {
       stopTyping();
+      // Wipe the editor in the SAME tick as the send: the optimistic store call
+      // resolves only after a network round-trip, and waiting for it left the
+      // sent text visible (and, on desktop, its Enter-inserted empty line) for
+      // as long as the request took. clear() emits onChange, so the parent
+      // draft lands on "" immediately too.
+      editorRef.current?.clear();
       onSend();
     }
   }, [isEditing, draft, editingContent, editingMessageId, onSaveEdit, onCancelEdit, isSending, uploadingFiles, hasContent, pendingAttachments, stopTyping, onSend]);
@@ -1204,34 +1261,88 @@ useEffect(() => {
     };
   }, [swap.open, activeSheet, handleSheetClose]);
 
-  // The formatting panel's Toolbar needs the live tiptap instance. The pill
-  // editor is always mounted, so the ref is populated before the panel can
-  // render — read it at render time (the instance is stable across renders).
-  const toolbarEditor = editorRef.current?.getEditor() ?? null;
+  // The formatting panel's Toolbar needs the live tiptap instance. Only use the
+  // one captured for the CURRENT mode, and never a destroyed instance — during
+  // the fullscreen swap the previous editor is momentarily still in state.
+  const toolbarEditor =
+    capturedEditor.fullscreen === fullscreen &&
+    capturedEditor.editor &&
+    !capturedEditor.editor.isDestroyed
+      ? capturedEditor.editor
+      : null;
 
-  return (
-    // The mousedown guard is not an interaction — it only cancels the
-    // browser's default focus move on the chrome (see handleComposerMouseDown).
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div
-      ref={rootRef}
-      onMouseDown={handleComposerMouseDown}
-      className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${swap.open ? " is-sheet-open" : ""}`}
+  const sendButton = (
+    <button
+      type="button"
+      className={`send-button${isEditing ? " is-edit" : ""}`}
+      disabled={!canSend}
+      aria-label={isEditing ? "Сохранить" : "Отправить"}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={handleSubmit}
     >
+      {isEditing ? <Pencil size={16} /> : <SendHorizontal size={16} />}
+    </button>
+  );
+
+  const emojiPicker = (
+    <EmojiPicker
+      onEmojiSelect={handleEmojiSelect}
+      triggerRef={emojiButtonRef}
+      keyboardSwap
+      swapOpen={swap.open && activeSheet === "emoji"}
+      swapHeight={sheetSlot || swap.height}
+      swapTop={sheetTop}
+      onSwapToggle={handleEmojiTrigger}
+      onSwapClose={handleSheetClose}
+    >
+      <button
+        type="button"
+        className="composer-emoji-btn"
+        title="Добавить эмодзи"
+        aria-label="Добавить эмодзи"
+      >
+        <Smile size={15} />
+      </button>
+    </EmojiPicker>
+  );
+
+  const attachFileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      multiple
+      accept="image/*,video/*,audio/*,.pdf,.txt,.md"
+      onChange={handleFileSelect}
+      style={{ display: "none" }}
+    />
+  );
+
+  const attachButton = (
+    <button
+      type="button"
+      className="composer-attach-btn"
+      onClick={isTouch ? handleAttachTrigger : openFilePicker}
+      onMouseDown={(e) => e.preventDefault()}
+      aria-label="Прикрепить файл"
+    >
+      <Paperclip size={18} />
+    </button>
+  );
+
+  // Banners shared by the inline composer and the fullscreen shell.
+  const composerBanners = (
+    <>
       {replyToMessage && (
         <div className="composer-reply-banner">
-          <CornerDownRight size={14} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />
+          <CornerDownRight size={14} style={{ color: "oklch(var(--primary))", flexShrink: 0 }} />
           <span className="reply-label">{replySenderLabel}</span>
           <span className="reply-text">
             {replyToMessage.is_deleted ? "Удалено" : messengerPlainPreview(replyToMessage.content, 120)}
           </span>
-          {/* The ✕ is a pressable button, but it must NOT steal focus from
-              the editor: the browser's mousedown default would focus the
-              button — blurring the editor and dismissing the soft keyboard
-              on iOS — and leave a focus ring ("square") behind. preventDefault
-              cancels that default; the click still fires, and the editor is
-              re-focused synchronously in the same gesture so the keyboard
-              stays up (same rule as reply/edit focus). */}
+          {/* The ✕ must NOT steal focus from the editor: the browser's mousedown
+              default would blur it (dismissing the iOS keyboard) and leave a
+              focus ring. preventDefault cancels that; the click still fires and
+              the editor is re-focused synchronously in the same gesture. */}
           <button
             type="button"
             className="composer-reply-cancel"
@@ -1304,74 +1415,159 @@ useEffect(() => {
           ))}
         </div>
       )}
+    </>
+  );
 
-      {/* Formatting panel — full-width row above the input, opened by the ▢
-          button. The ▢ relocates to its left edge while it is open; the
-          bottom slot it vacated becomes the paperclip attach button. */}
+  // Touch attach sheet — occupies the keyboard's slot (same swap machinery as
+  // the emoji panel). The native picker only opens after an explicit source
+  // choice; the editor stays blurred and the composer lifted, so nothing in the
+  // flow depends on iOS.
+  const attachSheet = ((swap.open && activeSheet === "attach") || attachClosing) &&
+    createPortal(
+      <div
+        className={`composer-attach-sheet${attachClosing ? " is-closing" : ""}`}
+        data-testid="attach-sheet"
+        style={{ ...(sheetTop > 0 ? { top: sheetTop } : {}), height: sheetSlot || swap.height || 300 }}
+      >
+        <button
+          type="button"
+          className="composer-attach-backdrop"
+          aria-label="Закрыть меню"
+          onClick={handleSheetClose}
+        />
+        <div className="composer-attach-options">
+          <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("camera")}>
+            <Camera size={22} />
+            <span>Камера</span>
+          </button>
+          <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("photo")}>
+            <ImageIcon size={22} />
+            <span>Фото</span>
+          </button>
+          <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("file")}>
+            <FileText size={22} />
+            <span>Файлы</span>
+          </button>
+        </div>
+      </div>,
+      document.body,
+    );
+
+  // ── Fullscreen shell — a wall-style full-viewport editor: header on top, the
+  // editor filling the middle, and ONE bottom bar holding the formatting
+  // toolbar plus every control (paperclip / emoji / send). Portalled so it
+  // really covers the viewport (the chat panel's framer transform traps
+  // position:fixed). The messages are intentionally not shown here.
+  if (fullscreen) {
+    return createPortal(
+      <div className="composer-fs-overlay">
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+        <div
+          ref={rootRef}
+          onMouseDown={handleComposerMouseDown}
+          className={`composer-fs-dialog${isSending ? " is-sending" : ""}`}
+        >
+          <div className="composer-fs-header">
+            <button
+              type="button"
+              className="composer-fs-close"
+              onClick={() => setFullscreen(false)}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label="Закрыть полноэкранный режим"
+              title="Закрыть"
+            >
+              <X size={18} />
+            </button>
+            <span className="composer-fs-title">{isEditing ? "Редактирование" : "Сообщение"}</span>
+            <button
+              type="button"
+              className="composer-fs-minimize"
+              onClick={() => setFullscreen(false)}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label="Свернуть"
+              title="Свернуть"
+            >
+              <Minimize2 size={16} />
+            </button>
+          </div>
+
+          {composerBanners}
+
+          <div className="composer-fs-editor">
+            <GomoRichEditor
+              ref={handleEditorRef}
+              resetKey={editorResetKey}
+              maxLength={MAX_LENGTH}
+              contentJson={editorJson}
+              onChange={handleEditorChange}
+              onSubmit={handleSubmit}
+              placeholder={isEditing ? "" : placeholder ?? "Напиши сообщение..."}
+              minHeightClassName="min-h-[240px]"
+              maxHeightClassName="max-h-none"
+              showToolbar={false}
+            />
+          </div>
+
+          <div className="composer-fs-bar">
+            {toolbarEditor && <Toolbar editor={toolbarEditor} className="composer-toolbar-panel" />}
+            <div className="composer-fs-bar-spacer" />
+            {attachFileInput}
+            {attachButton}
+            {emojiPicker}
+            {sendButton}
+          </div>
+        </div>
+        {attachSheet}
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    // The mousedown guard is not an interaction — it only cancels the
+    // browser's default focus move on the chrome (see handleComposerMouseDown).
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div
+      ref={rootRef}
+      onMouseDown={handleComposerMouseDown}
+      className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${swap.open ? " is-sheet-open" : ""}`}
+    >
+      {composerBanners}
+
+      {/* Formatting toolbar — hugs its content (no more full-width row) and
+          sits above the input's right side. The fullscreen button is set a
+          little apart at its right edge. */}
       {(fullMode || panelExiting) && (
         <div className={`composer-panel-row${panelExiting ? " is-exiting" : ""}`}>
-          <button
-            type="button"
-            className="composer-panel-toggle"
-            onClick={closeFullMode}
-            onMouseDown={(e) => e.preventDefault()}
-            aria-label="Свернуть компоузер"
-            title="Свернуть"
-          >
-            <Minimize2 size={18} />
-          </button>
           {toolbarEditor && <Toolbar editor={toolbarEditor} className="composer-toolbar-panel" />}
+          {!isTouch && (
+            <button
+              type="button"
+              className="composer-fullscreen-btn"
+              onClick={() => setFullscreen(true)}
+              onMouseDown={(e) => e.preventDefault()}
+              aria-label="На весь экран"
+              title="На весь экран"
+            >
+              <Maximize2 size={16} />
+            </button>
+          )}
         </div>
       )}
 
       <div className="composer-row">
-        {/* The ▢ full-composer toggle; while the panel is open the slot holds
-            the paperclip attach button instead (the ▢ moved to the panel). */}
-        {fullMode ? (
-          <div className="composer-attach-btn-wrap is-visible">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,video/*,audio/*,.pdf,.txt,.md"
-              onChange={handleFileSelect}
-              style={{ display: "none" }}
-            />
-            <button
-              type="button"
-              className="composer-attach-btn"
-              onClick={isTouch ? handleAttachTrigger : openFilePicker}
-              onMouseDown={(e) => e.preventDefault()}
-              aria-label="Прикрепить файл"
-            >
-              <Paperclip size={18} />
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="composer-expand-btn"
-            onClick={openFullMode}
-            onMouseDown={(e) => e.preventDefault()}
-            aria-label="Развернуть компоузер"
-            title="Развернуть"
-          >
-            <Maximize2 size={18} />
-          </button>
-        )}
+        {/* Left of the input: the paperclip only. */}
+        <div className="composer-attach-btn-wrap">
+          {attachFileInput}
+          {attachButton}
+        </div>
 
-        {/* The input pill — emoji trigger lives inside it (right side) */}
+        {/* The input pill — the formatting toggle and the emoji trigger live
+            inside it, on the right. */}
         <div className="composer-input-pill">
           <div className="composer-input-area" onPaste={handleEditorPaste}>
             <GomoRichEditor
-              ref={(node) => {
-                // The local editorRef drives emoji insertion + the keyboard
-                // swap; composerRef lets ChatView/MessengerView focus it.
-                editorRef.current = node;
-                if (composerRef) {
-                  (composerRef as React.MutableRefObject<GomoRichEditorHandle | null>).current = node;
-                }
-              }}
+              ref={handleEditorRef}
               resetKey={editorResetKey}
               maxLength={MAX_LENGTH}
               contentJson={editorJson}
@@ -1388,28 +1584,20 @@ useEffect(() => {
             />
           </div>
 
-          {/* Emoji — transparent circle inside the pill, vertically centered
-              on the text line (wall-post behaviour: keyboard swap on touch,
-              popover on desktop) */}
-          <EmojiPicker
-            onEmojiSelect={handleEmojiSelect}
-            triggerRef={emojiButtonRef}
-            keyboardSwap
-            swapOpen={swap.open && activeSheet === "emoji"}
-            swapHeight={sheetSlot || swap.height}
-            swapTop={sheetTop}
-            onSwapToggle={handleEmojiTrigger}
-            onSwapClose={handleSheetClose}
+          {/* Formatting toggle — a chevron inside the pill, immediately left
+              of the emoji trigger. */}
+          <button
+            type="button"
+            className={`composer-toolbar-toggle${fullMode ? " is-open" : ""}`}
+            onClick={fullMode ? closeFullMode : openFullMode}
+            onMouseDown={(e) => e.preventDefault()}
+            aria-label={fullMode ? "Свернуть компоузер" : "Развернуть компоузер"}
+            title={fullMode ? "Скрыть форматирование" : "Форматирование"}
           >
-            <button
-              type="button"
-              className="composer-emoji-btn"
-              title="Добавить эмодзи"
-              aria-label="Добавить эмодзи"
-            >
-              <Smile size={15} />
-            </button>
-          </EmojiPicker>
+            {fullMode ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+          </button>
+
+          {emojiPicker}
 
           {remaining < 100 && plainDraft.length > 0 && (
             <span className={`composer-counter ${remaining < 20 ? "is-critical" : ""}`}>
@@ -1418,52 +1606,10 @@ useEffect(() => {
           )}
         </div>
 
-        <button
-          type="button"
-          className={`send-button${isEditing ? " is-edit" : ""}`}
-          disabled={!canSend}
-          aria-label={isEditing ? "Сохранить" : "Отправить"}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={handleSubmit}
-        >
-          {isEditing ? <Pencil size={16} /> : <SendHorizontal size={16} />}
-        </button>
+        {sendButton}
       </div>
 
-      {/* Touch attach sheet — occupies the keyboard's slot (same swap
-          machinery as the emoji panel). The native picker only opens after
-          an explicit source choice; the editor stays blurred and the
-          composer lifted, so nothing in the flow depends on iOS. */}
-      {((swap.open && activeSheet === "attach") || attachClosing) &&
-        createPortal(
-          <div
-            className={`composer-attach-sheet${attachClosing ? " is-closing" : ""}`}
-            data-testid="attach-sheet"
-            style={{ ...(sheetTop > 0 ? { top: sheetTop } : {}), height: sheetSlot || swap.height || 300 }}
-          >
-            <button
-              type="button"
-              className="composer-attach-backdrop"
-              aria-label="Закрыть меню"
-              onClick={handleSheetClose}
-            />
-            <div className="composer-attach-options">
-              <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("camera")}>
-                <Camera size={22} />
-                <span>Камера</span>
-              </button>
-              <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("photo")}>
-                <ImageIcon size={22} />
-                <span>Фото</span>
-              </button>
-              <button type="button" className="composer-attach-option" onClick={() => handleAttachOption("file")}>
-                <FileText size={22} />
-                <span>Файлы</span>
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {attachSheet}
     </div>
   );
 });

@@ -1,8 +1,8 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState, type RefObject } from "react";
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { MessageComposer } from "./MessageComposer";
-import type { RefObject } from "react";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -10,6 +10,8 @@ const editorSpies = vi.hoisted(() => ({
   insertEmojiOpts: [] as any[],
   focusCalls: [] as boolean[],
   toolbarVisibility: [] as boolean[],
+  clearCalls: 0,
+  events: [] as string[],
   // Mutable so a test can attach a fake state/view/on/off for the caret.
   mockEditor: { isActive: () => false } as any,
 }));
@@ -48,6 +50,11 @@ vi.mock("@/components/GomoRichEditor", () => {
           },
           insertText: (value: string) => {
             onChange?.({ json: makeDoc(value), text: value });
+          },
+          clear: () => {
+            editorSpies.clearCalls += 1;
+            editorSpies.events.push("clear");
+            onChange?.({ json: makeDoc(""), text: "" });
           },
           insertEmoji: (
             data: { emojiId: string; packId: string; url: string; name: string },
@@ -172,7 +179,7 @@ function setup(overrides: {
   draft?: string;
   isSending?: boolean;
   onTyping?: (isTyping: boolean) => void;
-  composerRef?: RefObject<{ focus: () => void; insertText: (text: string) => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>;
+  composerRef?: RefObject<{ focus: () => void; insertText: (text: string) => void; clear: () => void; insertEmoji: (data: unknown, opts?: { focus?: boolean }) => void; getEditor: () => null } | null>;
 } = {}) {
   const setDraft = vi.fn();
   const onSend = vi.fn();
@@ -204,6 +211,8 @@ describe("MessageComposer", () => {
     editorSpies.insertEmojiOpts.length = 0;
     editorSpies.focusCalls.length = 0;
     editorSpies.toolbarVisibility.length = 0;
+    editorSpies.clearCalls = 0;
+    editorSpies.events.length = 0;
     mockEmojiSwap.open = false;
     mockEmojiSwap.isTouch = false;
     mockMobileKeyboard.keyboardInset = 0;
@@ -438,12 +447,12 @@ describe("MessageComposer", () => {
     expect(panel.style.getPropertyValue("--kb-inset")).toBe("");
   });
 
-  it("keeps the full input height regardless of focus (paperclip waits for full mode)", () => {
+  it("keeps the full input height regardless of focus, paperclip always on the left", () => {
     const { textarea } = setup();
     fireEvent.focus(textarea);
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
-    // The paperclip only takes the ▢'s slot once the full composer opens.
-    expect(screen.queryByRole("button", { name: "Прикрепить файл" })).not.toBeInTheDocument();
+    // The paperclip is always available; the chevron toggle opens formatting.
+    expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
   });
 
@@ -503,6 +512,40 @@ describe("MessageComposer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("clears the editor in the same tick as Enter, before onSend", async () => {
+    // The optimistic send resolves only after the network round-trip. Clearing
+    // must not wait for it — otherwise the sent text (and ProseMirror's Enter
+    // paragraph) stays visible for the whole request.
+    const onSend = vi.fn(() => editorSpies.events.push("send"));
+    const composerRef = { current: null } as RefObject<{
+      insertText: (text: string) => void;
+    } | null>;
+
+    function Host() {
+      const [draft, setDraft] = useState("");
+      return (
+        <MessageComposer
+          draft={draft}
+          setDraft={setDraft}
+          isSending={false}
+          onSend={onSend}
+          composerRef={composerRef as never}
+        />
+      );
+    }
+
+    render(<Host />);
+    act(() => composerRef.current?.insertText("hi"));
+
+    const textarea = screen.getByTestId("rich-editor-textarea");
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(editorSpies.clearCalls).toBe(1);
+    // Synchronously, in this order — so the text is gone the moment it is sent.
+    expect(editorSpies.events).toEqual(["clear", "send"]);
+  });
+
   it("calls onTyping(true) when the user starts typing", () => {
     const onTyping = vi.fn();
     const { textarea } = setup({ onTyping, draft: "" });
@@ -558,18 +601,21 @@ describe("MessageComposer", () => {
     expect(screen.getByText("42%")).toBeInTheDocument();
   });
 
-  it("full composer: toolbar panel spans full width, ▢ moves up, paperclip appears", async () => {
+  it("formatting panel: hugging toolbar with a fullscreen button, paperclip always present", async () => {
     const { textarea } = setup({ draft: "Hello" });
     const toggle = screen.getByRole("button", { name: "Развернуть компоузер" });
+
+    // The paperclip lives on the left of the input at all times.
+    expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
 
     await userEvent.click(toggle);
     // The formatting panel (external toolbar) appears above the input pill.
     expect(screen.getByTestId("external-toolbar")).toBeInTheDocument();
     expect(screen.getByTestId("external-toolbar")).toHaveAttribute("data-editor", "yes");
-    // The ▢ moved to the panel's left edge (now a close button)…
+    // The chevron flips to "close"…
     expect(screen.getByRole("button", { name: "Свернуть компоузер" })).toBeInTheDocument();
-    // …and the paperclip takes its old bottom slot.
-    expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
+    // …and a fullscreen button sits apart at the toolbar's right.
+    expect(screen.getByRole("button", { name: "На весь экран" })).toBeInTheDocument();
     // The toolbar is rendered outside the editor; the editor grows taller.
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-show-toolbar", "false");
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-max-height", "max-h-[45vh] overflow-y-auto overscroll-contain");
@@ -578,11 +624,26 @@ describe("MessageComposer", () => {
     fireEvent.blur(textarea);
     expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
 
-    // Closing via the panel's ▢: the paperclip leaves and the ▢ returns.
+    // Closing via the chevron: the toolbar leaves, the paperclip stays.
     await userEvent.click(screen.getByRole("button", { name: "Свернуть компоузер" }));
     await waitFor(() => expect(screen.queryByTestId("external-toolbar")).not.toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Прикрепить файл" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Прикрепить файл" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Развернуть компоузер" })).toBeInTheDocument();
+  });
+
+  it("fullscreen: expands into an overlay with a header, then restores", async () => {
+    setup({ draft: "Hello" });
+    await userEvent.click(screen.getByRole("button", { name: "Развернуть компоузер" }));
+    await userEvent.click(screen.getByRole("button", { name: "На весь экран" }));
+
+    // Overlay header is present and the editor fills the area.
+    expect(screen.getByRole("button", { name: "Закрыть полноэкранный режим" })).toBeInTheDocument();
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[240px]");
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-max-height", "max-h-none");
+
+    await userEvent.click(screen.getByRole("button", { name: "Свернуть" }));
+    expect(screen.queryByRole("button", { name: "Закрыть полноэкранный режим" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("gomo-rich-editor")).toHaveAttribute("data-min-height", "min-h-[20px]");
   });
 
   describe("emoji panel ↔ keyboard", () => {

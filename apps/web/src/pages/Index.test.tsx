@@ -1,5 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { BrowserRouter } from "react-router-dom";
@@ -28,10 +27,11 @@ function makePromiseChain(resolvedValue: any): any {
   return chain;
 }
 
-const { mockFrom, mockRpc, mockAuth } = vi.hoisted(() => ({
+const { mockFrom, mockRpc, mockAuth, mockParams } = vi.hoisted(() => ({
   mockFrom: vi.fn<any>().mockImplementation(() => makePromiseChain({ data: [], error: null })),
   mockRpc: vi.fn<any>().mockResolvedValue({ data: null, error: null }),
   mockAuth: { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn() },
+  mockParams: { current: {} as Record<string, string> },
 }));
 
 vi.mock("@/integrations/api/compat", () => ({
@@ -42,14 +42,37 @@ vi.mock("@/integrations/api/compat", () => ({
   },
 }));
 
-vi.mock("@/components/ThreadFeed", () => ({
-  ThreadFeed: () => <div data-testid="thread-feed">ThreadFeed</div>,
+// «Mr. рандомность» and other view blocks talk to the raw client; keep them
+// offline in tests.
+vi.mock("@/integrations/api/client", () => ({
+  apiClient: { request: vi.fn().mockResolvedValue({ data: [] }) },
 }));
 
-vi.mock("@/components/FeedThreadCard", () => ({
-  FeedThreadCard: ({ thread }: { thread: { id: string; title: string } }) => (
-    <div data-testid="thread-card">{thread.title}</div>
+vi.mock("@/components/ThreadFeed", () => ({
+  ThreadFeed: ({ onReady }: { onReady?: () => void }) => (
+    <div data-testid="thread-feed">
+      ThreadFeed
+      <button type="button" data-testid="feed-ready" onClick={() => onReady?.()}>
+        ready
+      </button>
+    </div>
   ),
+}));
+
+vi.mock("@/components/SectionThreads", () => ({
+  SectionThreads: ({ section }: { section: { name: string } }) => (
+    <div data-testid="section-threads">{section.name}</div>
+  ),
+}));
+
+vi.mock("@/components/MyPosts", () => ({
+  MyPosts: () => <div data-testid="my-posts">MyPosts</div>,
+}));
+vi.mock("@/components/HistoryView", () => ({
+  HistoryView: () => <div data-testid="history-view">History</div>,
+}));
+vi.mock("@/components/FavoritesView", () => ({
+  FavoritesView: () => <div data-testid="favorites-view">Favorites</div>,
 }));
 
 vi.mock("@/components/PentagramLoader", () => ({
@@ -60,10 +83,9 @@ vi.mock("@/components/NotificationBell", () => ({ NotificationBell: () => null }
 vi.mock("@/components/ChatIcon", () => ({ ChatIcon: () => null }));
 vi.mock("@/components/MobileMenu", () => ({ MobileMenu: () => null }));
 vi.mock("@/components/ProfileHoverCard", () => ({ ProfileHoverCard: () => null }));
-vi.mock("@/components/ThemeToggle", () => ({ ThemeToggle: () => null }));
 vi.mock("@/components/UserBadge", () => ({ UserBadge: () => null }));
 vi.mock("@/components/HeaderUsername", () => ({ HeaderUsername: () => null }));
-vi.mock("@/components/TermsOfService", () => ({ TermsOfService: () => null }));
+vi.mock("@/components/legal/LegalConsentGate", () => ({ LegalConsentGate: () => null }));
 vi.mock("@/components/PrefetchLink", () => ({
   PrefetchLink: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
@@ -117,6 +139,7 @@ vi.mock("react-router-dom", async () => {
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useParams: () => mockParams.current,
     Link: ({ children, to, className }: { children: React.ReactNode; to: string; className?: string }) => (
       <a href={to} className={className}>{children}</a>
     ),
@@ -152,20 +175,39 @@ function setupLoggedIn() {
         return makePromiseChain({ data: { user_id: "user-1" }, error: null });
       case "gomosub_memberships":
         return makePromiseChain({ data: [], error: null });
-      case "thread_subscriptions":
-        return makePromiseChain({ data: [], error: null });
+      case "thread_sections":
+        return makePromiseChain({
+          data: [
+            {
+              id: "sec-1",
+              slug: "general",
+              name: "Общение",
+              description: null,
+              icon: "message-circle",
+              is_nsfw: false,
+              sort_order: 10,
+            },
+          ],
+          error: null,
+        });
+      case "thread_subsections":
+        return makePromiseChain({
+          data: [
+            {
+              id: "sub-1",
+              section_id: "sec-1",
+              slug: "dating",
+              name: "Знакомства",
+              description: null,
+              sort_order: 10,
+            },
+          ],
+          error: null,
+        });
       default:
         return makePromiseChain({ data: [], error: null });
     }
   });
-  mockRpc.mockResolvedValue({ data: null, error: null });
-}
-
-function setupLoggedOut() {
-  mockAuth.getSession.mockResolvedValue({ data: { session: null }, error: null });
-  mockAuth.getUser.mockResolvedValue({ data: { user: null }, error: null });
-  mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
-  mockFrom.mockImplementation((_table: string) => makePromiseChain({ data: [], error: null }));
   mockRpc.mockResolvedValue({ data: null, error: null });
 }
 
@@ -175,6 +217,19 @@ const queryClient = new QueryClient({
 
 function renderWithProviders(ui: React.ReactElement) {
   return render(
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        {ui}
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}
+
+function rerenderWithProviders(
+  result: { rerender: (ui: React.ReactElement) => void },
+  ui: React.ReactElement,
+) {
+  result.rerender(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         {ui}
@@ -195,6 +250,8 @@ describe("Index", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockParams.current = {};
+    window.history.pushState({}, "", "/");
   });
 
   afterEach(() => {});
@@ -217,15 +274,16 @@ describe("Index", () => {
     });
   });
 
-  it("shows subscription/promo tab switcher", async () => {
+  it("renders the feed without the recommendations/subscriptions switcher", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      const recommendBtns = screen.getAllByText("Рекомендации");
-      expect(recommendBtns.length).toBeGreaterThanOrEqual(1);
-      const subBtns = screen.getAllByText("Подписки");
-      expect(subBtns.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId("thread-feed")).toBeInTheDocument();
     });
+    // The feed is recommendations-only now: the toggle (and the subscriptions
+    // view behind it) has been removed.
+    expect(screen.queryByText("Рекомендации")).not.toBeInTheDocument();
+    expect(screen.queryByText("Новые записи из подписок")).not.toBeInTheDocument();
   });
 
   it("renders sidebar navigation buttons", async () => {
@@ -236,22 +294,24 @@ describe("Index", () => {
     });
   });
 
-  it("renders important links in sidebar", async () => {
+  it("renders the restyled sidebar blocks with their lists", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      expect(screen.getByText("Информация")).toBeInTheDocument();
-      expect(screen.getByText("Баги/Идеи")).toBeInTheDocument();
-      expect(screen.getByText("FAQ")).toBeInTheDocument();
+      expect(screen.getByText("Подписки")).toBeInTheDocument();
+      expect(screen.getByText("Mr. рандомность")).toBeInTheDocument();
     });
   });
 
-  it("loads boards on mount", async () => {
+  it("does not render links to the removed forum boards", async () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      expect(mockFrom).toHaveBeenCalledWith("boards");
+      expect(screen.getByText("Mr. рандомность")).toBeInTheDocument();
     });
+    expect(screen.queryByText("Важное")).not.toBeInTheDocument();
+    expect(screen.queryByText("Информация")).not.toBeInTheDocument();
+    expect(screen.queryByText("FAQ")).not.toBeInTheDocument();
   });
 
   it("loads user roles when logged in", async () => {
@@ -260,5 +320,61 @@ describe("Index", () => {
     await waitFor(() => {
       expect(mockFrom).toHaveBeenCalled();
     });
+  });
+
+  it("on a раздел path renders the section and never mounts the feed", async () => {
+    setupLoggedIn();
+    mockParams.current = { sectionSlug: "general" };
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() => expect(screen.getByTestId("section-threads")).toHaveTextContent("Общение"));
+    expect(screen.queryByTestId("thread-feed")).not.toBeInTheDocument();
+  });
+
+  it("redirects the legacy ?section= URL to the /c/ path form", async () => {
+    setupLoggedIn();
+    window.history.pushState({}, "", "/?section=general&sub=dating");
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("/c/general/dating", { replace: true }),
+    );
+  });
+
+  it("redirects the legacy ?view= URL to its path", async () => {
+    setupLoggedIn();
+    window.history.pushState({}, "", "/?view=favorites");
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/favorites", { replace: true }));
+  });
+
+  it("renders «Мои записи» on /mine", async () => {
+    setupLoggedIn();
+    window.history.pushState({}, "", "/mine");
+    renderWithProviders(<IndexComponent />);
+
+    await waitFor(() => expect(screen.getByTestId("my-posts")).toBeInTheDocument());
+  });
+
+  it("keeps the раздел on screen until the feed reports ready", async () => {
+    setupLoggedIn();
+    mockParams.current = { sectionSlug: "general" };
+    const result = renderWithProviders(<IndexComponent />);
+    await waitFor(() => expect(screen.getByTestId("section-threads")).toBeInTheDocument());
+
+    // Navigate to the feed: it mounts, but stays hidden until it is ready.
+    mockParams.current = {};
+    rerenderWithProviders(result, <IndexComponent />);
+    await waitFor(() => expect(screen.getByTestId("thread-feed")).toBeInTheDocument());
+    expect(screen.getByTestId("thread-feed").parentElement?.className).toContain("hidden");
+    // …so the раздел is still the visible view, not a skeleton.
+    expect(screen.getByTestId("section-threads").closest("div.hidden")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("feed-ready"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("thread-feed").parentElement?.className).not.toContain("hidden"),
+    );
   });
 });

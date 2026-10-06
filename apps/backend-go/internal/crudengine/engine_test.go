@@ -10,6 +10,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -95,6 +96,25 @@ func TestEngineGet_DBError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+// TestEngineGet_InvalidUUIDFilter_Returns400 pins the regression behind the
+// /api/v1/user_roles 5xx: a non-UUID value compared against a uuid column makes
+// Postgres reject the query (SQLSTATE 22P02). That is a bad client value, not a
+// server fault, so the generic surface must answer 400 instead of 500.
+func TestEngineGet_InvalidUUIDFilter_Returns400(t *testing.T) {
+	h, mock := setupEngine(t)
+
+	mock.ExpectQuery(`SELECT \* FROM user_roles WHERE user_id = \$1`).
+		WithArgs("abc").
+		WillReturnError(&pq.Error{Code: "22P02", Message: `invalid input syntax for type uuid: "abc"`})
+
+	c, w := newRequestContext("GET", "/api/v1/user_roles?user_id=eq.abc", nil, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1264,6 +1284,56 @@ func TestInvalidateEmojiPacksDispatch(t *testing.T) {
 		if mr.Exists(key) {
 			t.Errorf("cache key %q was not invalidated after emoji_packs write", key)
 		}
+	}
+}
+
+// TestInvalidateProfileCustomizationCoversPublicAppearance guards the cache half
+// of the "other people never see my nickname colour" bug: badges and profile
+// headers read a foreign user through the public /users/:id/customization route,
+// and that response is served from the Redis data cache. If a customization
+// write only invalidated the generic /profile_customization keys, the refetch
+// triggered by the realtime broadcast would be served the PREVIOUS nickname
+// colour, so the change would still never appear for anyone else.
+func TestInvalidateProfileCustomizationCoversPublicAppearance(t *testing.T) {
+	h, _ := setupEngine(t)
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+	h.redis = client
+
+	staleKeys := []string{
+		// The public appearance read (per-viewer cached, no query string).
+		"data:/api/v1/users/u1/customization?|viewer=anon",
+		"data:/api/v1/users/u1/customization?|viewer=u2",
+		// Owner-scoped generic reads.
+		"data:/api/v1/profile_customization?user_id=eq.u1|viewer=anon",
+		"data:/api/v1/profile_customization?user_id=u1|viewer=anon",
+		// The hover card embeds the same fields.
+		"data:/api/v1/profiles?id=eq.u1|viewer=anon",
+	}
+	otherUserKey := "data:/api/v1/users/u2/customization?|viewer=anon"
+
+	for _, key := range append(append([]string{}, staleKeys...), otherUserKey) {
+		if err := mr.Set(key, `{"data":{}}`); err != nil {
+			t.Fatalf("failed to seed cache key %q: %v", key, err)
+		}
+	}
+
+	c, _ := newRequestContext("POST", "/api/v1/profile_customization", nil, nil)
+	h.invalidateCacheForTableResult(c, "profile_customization", map[string]interface{}{"user_id": "u1"})
+
+	for _, key := range staleKeys {
+		if mr.Exists(key) {
+			t.Errorf("cache key %q was not invalidated after a profile_customization write", key)
+		}
+	}
+	if !mr.Exists(otherUserKey) {
+		t.Errorf("another user's appearance key %q must not be invalidated", otherUserKey)
 	}
 }
 

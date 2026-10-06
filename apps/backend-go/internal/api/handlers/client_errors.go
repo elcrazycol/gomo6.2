@@ -1,9 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -99,4 +104,82 @@ func (h *ClientErrorsHandler) ReportClientError(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
+}
+
+const (
+	// clientErrorRetentionDays is how long client error reports are kept.
+	// Override with CLIENT_ERRORS_RETENTION_DAYS (positive integer).
+	clientErrorRetentionDays = 90
+	// clientErrorRetentionInterval is how often the retention loop runs.
+	clientErrorRetentionInterval = 24 * time.Hour
+	// clientErrorRetentionBatch bounds a single DELETE so a large backlog never
+	// holds one long transaction; the loop repeats until the backlog is drained.
+	clientErrorRetentionBatch = 5000
+	// clientErrorRetentionMaxBatches caps how much work one run does.
+	clientErrorRetentionMaxBatches = 100
+)
+
+// StartClientErrorRetention starts a low-frequency maintenance loop that deletes
+// client error reports older than the retention window. client_errors is
+// append-only and unbounded otherwise (unlike bot_logs, which is trimmed by a
+// trigger). Runs once at startup, then daily; failures are logged and never
+// affect request handling or server readiness.
+func (h *ClientErrorsHandler) StartClientErrorRetention() {
+	if h == nil || h.db == nil {
+		return
+	}
+	go func() {
+		h.cleanupOldClientErrors()
+		ticker := time.NewTicker(clientErrorRetentionInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.cleanupOldClientErrors()
+		}
+	}()
+}
+
+// clientErrorRetentionWindow resolves the retention window, honouring the
+// optional CLIENT_ERRORS_RETENTION_DAYS override.
+func clientErrorRetentionWindow() time.Duration {
+	days := clientErrorRetentionDays
+	if raw := os.Getenv("CLIENT_ERRORS_RETENTION_DAYS"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			days = n
+		}
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+func (h *ClientErrorsHandler) cleanupOldClientErrors() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	cutoff := time.Now().UTC().Add(-clientErrorRetentionWindow())
+	var total int64
+	for i := 0; i < clientErrorRetentionMaxBatches; i++ {
+		res, err := h.db.ExecContext(ctx, `
+			DELETE FROM client_errors
+			WHERE id IN (
+				SELECT id FROM client_errors
+				WHERE created_at < $1
+				ORDER BY created_at
+				LIMIT $2
+			)`, cutoff, clientErrorRetentionBatch)
+		if err != nil {
+			log.Printf("client_errors retention: delete: %v", err)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			log.Printf("client_errors retention: rows affected: %v", err)
+			return
+		}
+		total += n
+		if n < clientErrorRetentionBatch {
+			break
+		}
+	}
+	if total > 0 {
+		log.Printf("client_errors retention: deleted %d rows older than %s", total, cutoff.Format(time.RFC3339))
+	}
 }

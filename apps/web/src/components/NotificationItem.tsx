@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Pencil,
   Repeat2,
+  Gavel,
   Trophy,
   Undo2,
   UserCheck,
@@ -43,10 +44,13 @@ const TYPE_STYLES: Record<string, TypeStyle> = {
   wall_post: { Icon: Pencil, text: "text-sky-500", bg: "bg-sky-500/15" },
   friend_request: { Icon: UserPlus, text: "text-sky-500", bg: "bg-sky-500/15" },
   friend_accepted: { Icon: UserCheck, text: "text-emerald-500", bg: "bg-emerald-500/15" },
+  new_subscriber: { Icon: UserPlus, text: "text-sky-500", bg: "bg-sky-500/15" },
+  friend_mutual: { Icon: UserCheck, text: "text-emerald-500", bg: "bg-emerald-500/15" },
   gift_received: { Icon: Gift, text: "text-purple-500", bg: "bg-purple-500/15" },
   achievement_unlock: { Icon: Trophy, text: "text-amber-500", bg: "bg-amber-500/15" },
   award_granted: { Icon: Award, text: "text-amber-500", bg: "bg-amber-500/15" },
   award_revoked: { Icon: Undo2, text: "text-muted-foreground", bg: "bg-muted" },
+  sanction: { Icon: Gavel, text: "text-destructive", bg: "bg-destructive/15" },
 };
 
 const DEFAULT_STYLE: TypeStyle = { Icon: Bell, text: "text-muted-foreground", bg: "bg-muted" };

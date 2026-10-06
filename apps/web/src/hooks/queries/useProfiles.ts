@@ -1,8 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/integrations/api/compat';
+import { isPublicId } from "@/utils/entityUrl";
 
 export interface Profile {
   id: string;
+  public_id?: number | null;
   username: string;
   email?: string;
   domain?: string;
@@ -23,21 +25,24 @@ export interface Profile {
  * Hook for fetching a single profile with caching
  */
 export function useProfile(userId: string | undefined) {
+  // The route parameter is a public number on new links and a UUID on old ones;
+  // the backend accepts both, so the filter column follows the parameter shape.
+  const param = userId ?? '';
   return useQuery({
-    queryKey: ['profile', userId],
+    queryKey: ['profile', param],
     queryFn: async () => {
-      if (!userId) return null;
+      if (!param) return null;
 
       const { data, error } = await api
         .from('profiles')
         .select('*')
-        .eq('id', userId)
+        .eq(isPublicId(param) ? 'public_id' : 'id', param)
         .single();
 
       if (error) throw error;
       return data as unknown as Profile;
     },
-    enabled: !!userId,
+    enabled: !!param,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
   });

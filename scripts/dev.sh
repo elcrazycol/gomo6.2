@@ -47,11 +47,11 @@ else
 fi
 
 # ── Host port conflicts ─────────────────────────────────────────────────────
-# The dev containers publish to 127.0.0.1:5432/6379/3900. A native service on
-# one of them (a Homebrew Postgres is the usual suspect) makes the container
+# The dev containers publish to 127.0.0.1:5432/6379/3900/7700. A native service
+# on one of them (a Homebrew Postgres is the usual suspect) makes the container
 # fail to bind — fail fast with a clear message instead of a 2-minute timeout.
 # Ports already held by Docker are fine (that is the dev stack itself).
-for port in 5432 6379 3900; do
+for port in 5432 6379 3900 7700; do
     holder_pid="$(lsof -nP -i4TCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
     [ -z "$holder_pid" ] && continue
     holder="$(ps -o comm= -p "$holder_pid" 2>/dev/null || true)"
@@ -104,11 +104,11 @@ bash scripts/generate-keys.sh --quiet .env
 bash scripts/generate-garage-config.sh .env
 
 # ── Infrastructure ──────────────────────────────────────────────────────────
-say "→ Starting Postgres + Redis + Garage (dev ports on localhost)..."
+say "→ Starting Postgres + Redis + Meilisearch + Garage (dev ports on localhost)..."
 # garage-init must be named explicitly: Compose starts dependencies, not
 # dependents, so `up postgres redis garage` would leave it out and the S3 key
 # would never be created on a fresh volume.
-$COMPOSE $COMPOSE_FILES up -d postgres redis garage garage-init
+$COMPOSE $COMPOSE_FILES up -d postgres redis meilisearch garage garage-init
 
 # Load generated secrets from the root .env
 set -a
@@ -127,6 +127,13 @@ say "→ Waiting for Redis..."
 for i in $(seq 1 30); do
     $COMPOSE $COMPOSE_FILES exec -T redis redis-cli -a "$REDIS_PASSWORD" ping 2>/dev/null | grep -q PONG && break
     [ "$i" = 30 ] && { err "❌ Redis did not become ready."; exit 1; }
+    sleep 2
+done
+
+say "→ Waiting for Meilisearch..."
+for i in $(seq 1 30); do
+    $COMPOSE $COMPOSE_FILES exec -T meilisearch curl -fsS http://localhost:7700/health >/dev/null 2>&1 && break
+    [ "$i" = 30 ] && { err "❌ Meilisearch did not become ready."; exit 1; }
     sleep 2
 done
 
@@ -179,6 +186,8 @@ DEV_ENV_FILE=".dev.env"
     echo "export GARAGE_S3_PUBLIC_ENDPOINT=http://127.0.0.1:3900"
     echo "export GARAGE_S3_REGION=garage"
     echo "export GARAGE_S3_USE_SSL=false"
+    printf "export MEILISEARCH_URL='http://127.0.0.1:7700'\n"
+    echo "export MEILISEARCH_INDEX_PREFIX='gomo6_'"
     if [ -n "$GARAGE_S3_ACCESS_KEY" ] && [ -n "$GARAGE_S3_SECRET_KEY" ]; then
         printf "export GARAGE_S3_ACCESS_KEY='%s'\n" "$GARAGE_S3_ACCESS_KEY"
         printf "export GARAGE_S3_SECRET_KEY='%s'\n" "$GARAGE_S3_SECRET_KEY"
@@ -196,7 +205,7 @@ fi
 
 # ── Health summary ──────────────────────────────────────────────────────────
 say ""
-say "   ✅  infra up — Postgres :5432  •  Redis :6379  •  Garage :3900"
+say "   ✅  infra up — Postgres :5432  •  Redis :6379  •  Meilisearch :7700  •  Garage :3900"
 say ""
 say "   🚀  http://localhost:8081        — main web app"
 say "       http://localhost:3001        — docs"

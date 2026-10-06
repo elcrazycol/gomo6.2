@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { apiClient, type Notification } from "@/integrations/api/client";
@@ -7,13 +7,74 @@ import { Button } from "@/components/ui/button";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { NotificationItem } from "@/components/NotificationItem";
 import { ArrowLeft, CheckCheck } from "lucide-react";
+import { normalizeLanguage } from "@/i18n/languages";
+import { groupByDay, type NotifWithSlug } from "@/utils/notificationGroups";
 
-interface NotifWithSlug extends Notification {
-  thread_slug?: string;
-}
+/**
+ * A row that marks its notification read once it has actually been on screen
+ * for a second — scrolling through the inbox clears the unread badge the way
+ * reading it would, without requiring a click on every item.
+ */
+const ReadOnViewRow = ({
+  notification,
+  threadSlug,
+  onOpen,
+  onSeen,
+}: {
+  notification: NotifWithSlug;
+  threadSlug?: string;
+  onOpen?: (id: string) => void;
+  onSeen: (id: string) => void;
+}) => {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (notification.is_read) return;
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          if (!timer) timer = setTimeout(() => onSeen(notification.id), 1000);
+        } else if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      },
+      { threshold: 0.6 },
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [notification.id, notification.is_read, onSeen]);
+
+  return (
+    <div ref={ref}>
+      <NotificationItem notification={notification} threadSlug={threadSlug} onOpen={onOpen} />
+    </div>
+  );
+};
+
+/** Placeholder rows shown while the first page (or a tab switch) is loading. */
+const NotificationListSkeleton = () => (
+  <div className="divide-y divide-border/60">
+    {Array.from({ length: 6 }).map((_, i) => (
+      <div key={i} className="flex items-start gap-3 px-4 py-3">
+        <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-muted" />
+        <div className="flex-1 space-y-2 pt-0.5">
+          <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          <div className="h-2.5 w-1/4 animate-pulse rounded bg-muted" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 const Notify = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [user, setUser] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
@@ -25,6 +86,8 @@ const Notify = () => {
   const notifications = useNotificationStore((s) => s.notifications);
   const hasMore = useNotificationStore((s) => s.hasMore);
   const isLoadingMore = useNotificationStore((s) => s.isLoadingMore);
+  const isLoading = useNotificationStore((s) => s.isLoading);
+  const activeFilter = useNotificationStore((s) => s.activeFilter);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const fetchMore = useNotificationStore((s) => s.fetchMore);
   const resetAndFetch = useNotificationStore((s) => s.resetAndFetch);
@@ -88,14 +151,27 @@ const Notify = () => {
   }, []);
 
   useEffect(() => {
-    if (user) {
-      resetAndFetch(tab === "unread" ? "false" : undefined);
-    }
+    if (!user) return;
+    const filter = tab === "unread" ? "false" : undefined;
+    // The bell usually preloaded this exact list — resetting it would clear the
+    // rows and flash «нет уведомлений» for a frame.
+    if (activeFilter === filter && notifications.length > 0) return;
+    resetAndFetch(filter);
   }, [tab, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     attachSlugs(notifications).then(setSlugifiedNotifs);
   }, [notifications, attachSlugs]);
+
+  const dateLocale = normalizeLanguage(i18n.language) === "en" ? "en-US" : "ru-RU";
+  const groups = useMemo(
+    () => groupByDay(slugifiedNotifs, new Date(), t, dateLocale),
+    [slugifiedNotifs, t, dateLocale],
+  );
+  // Pending while the store loads, and for the tick between the store list
+  // arriving and attachSlugs resolving it into `slugifiedNotifs` — without this
+  // the empty state flashed for a frame before the rows appeared.
+  const listPending = isLoading || (notifications.length > 0 && slugifiedNotifs.length === 0);
 
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
@@ -116,7 +192,11 @@ const Notify = () => {
     return () => {
       if (observerRef.current) observerRef.current.disconnect();
     };
-  }, [hasMore, isLoadingMore, fetchMore]);
+    // `slugifiedNotifs.length` matters: on the first render the page is still
+    // showing its loader, so there is no sentinel to observe — without this the
+    // observer was never attached once the list appeared and the inbox silently
+    // stopped after the first page.
+  }, [hasMore, isLoadingMore, fetchMore, slugifiedNotifs.length]);
 
   if (loading) {
     return (
@@ -172,26 +252,38 @@ const Notify = () => {
         </div>
       </header>
 
-      {slugifiedNotifs.length === 0 ? (
+      {groups.length === 0 && listPending ? (
+        <NotificationListSkeleton />
+      ) : groups.length === 0 ? (
         <div className="px-4 py-16 text-center">
           <p className="text-sm text-muted-foreground">
             {tab === "unread" ? t("notif.noUnreadNotifications") : t("notif.noNotifications")}
           </p>
         </div>
       ) : (
-        <div className="divide-y divide-border/60">
-          {slugifiedNotifs.map((notif) => (
-            <NotificationItem
-              key={notif.id}
-              notification={notif}
-              threadSlug={notif.thread_slug}
-              onOpen={(id) => {
-                if (!notif.is_read) markAsRead(id);
-              }}
-            />
+        <div>
+          {groups.map((group) => (
+            <section key={group.key}>
+              <h2 className="border-b border-border/60 bg-muted/30 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {group.label}
+              </h2>
+              <div className="divide-y divide-border/60">
+                {group.items.map((notif) => (
+                  <ReadOnViewRow
+                    key={notif.id}
+                    notification={notif}
+                    threadSlug={notif.thread_slug}
+                    onSeen={markAsRead}
+                    onOpen={(id) => {
+                      if (!notif.is_read) markAsRead(id);
+                    }}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
 
-          <div ref={sentinelRef} className="h-4" />
+          <div ref={sentinelRef} data-testid="notify-sentinel" className="h-4" />
 
           {isLoadingMore && (
             <div className="flex justify-center py-4">
@@ -199,7 +291,7 @@ const Notify = () => {
             </div>
           )}
 
-          {!hasMore && slugifiedNotifs.length > 0 && (
+          {!hasMore && (
             <p className="py-4 text-center text-xs text-muted-foreground">
               {t("notif.allLoaded")}
             </p>

@@ -10,11 +10,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/bg"
 	"github.com/redis/go-redis/v9"
 )
 
 // DefaultDataCacheTTL is the default TTL for data cache entries (2 minutes).
 const DefaultDataCacheTTL = 2 * time.Minute
+
+// cacheWrites bounds the goroutines that persist cache entries. Caching is
+// best-effort: a saturated pool drops the write (the next request re-caches)
+// instead of spawning one goroutine per cacheable response.
+var cacheWrites = bg.New("cache-write", 4, 1024)
 
 // cacheTTLByPath returns a differentiated TTL based on the request path:
 // - 30s for threads/posts (frequently updated content)
@@ -113,6 +119,34 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Moderation must be immediately consistent. The queue, the user cards and
+		// the activity log are read right after an action (apply a sanction, add a
+		// note, resolve a report), so a cached copy is always wrong: a moderator
+		// saw "Санкций не было" for two minutes after issuing a warning. The
+		// surface is moderator-only and low-traffic, so nothing is lost by not
+		// caching it at all.
+		if strings.HasPrefix(path, "/api/v1/moderation") {
+			c.Next()
+			return
+		}
+
+		// Skip caching for the viewing history / favorites — per-viewer, change
+		// on every action, and their writes have no generic CRUD invalidator
+		// (the endpoints are custom, not registry tables).
+		if strings.HasPrefix(path, "/api/v1/history") ||
+			strings.HasPrefix(path, "/api/v1/favorites") ||
+			strings.HasPrefix(path, "/api/v1/sidebar_tabs") ||
+			strings.HasPrefix(path, "/api/v1/user/settings") {
+			c.Next()
+			return
+		}
+
+		// Skip caching for «Mr. рандомность» — it must be random on every call.
+		if strings.HasPrefix(path, "/api/v1/random") {
+			c.Next()
+			return
+		}
+
 		// Determine TTL based on path (threads/posts=30s, boards/profiles=5min)
 		effectiveTTL := cacheTTLByPath(c.Request.URL.Path, ttl)
 
@@ -168,15 +202,17 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			// Check if response is an empty array []
 			bodyStr := string(writer.body)
 			if bodyStr != "[]" && bodyStr != "{\"data\":[]}" {
-				go func() {
+				// Detach from the request: the middleware returns before this
+				// runs, and the body buffer would otherwise be reused.
+				payload := append([]byte(nil), writer.body...)
+				cacheWrites.Go(func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 					defer cancel()
 
-					err := redisClient.Set(ctx, cacheKey, writer.body, effectiveTTL).Err()
-					if err != nil {
+					if err := redisClient.Set(ctx, cacheKey, payload, effectiveTTL).Err(); err != nil {
 						log.Printf("[DataCache] Failed to cache response: %v", err)
 					}
-				}()
+				})
 			}
 		}
 	}

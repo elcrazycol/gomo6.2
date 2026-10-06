@@ -1,6 +1,44 @@
 <!doctype html>
 <html lang="ru">
   <head>
+    <script>
+      // Pre-boot theme: resolve and paint the saved theme before any stylesheet
+      // or bundle loads, so there is no flash of the default theme (FOUC).
+      // Keep the id list in sync with src/theme/registry.ts (guarded by a test).
+      (function () {
+        try {
+          var THEMES = ["cannabis", "pink", "graphite", "lavender", "volcanic", "mint", "glass", "linen", "ash", "sand", "slate", "charcoal", "obsidian", "synthwave", "terminal", "paper", "contrast", "contrastLight"];
+          var store = window.localStorage;
+          var theme = store.getItem("color-theme");
+          if (THEMES.indexOf(theme) === -1) theme = "ash";
+          var pref = store.getItem("theme-mode");
+          if (pref !== "light" && pref !== "dark" && pref !== "system") {
+            var legacy = store.getItem("dark-mode");
+            pref = legacy === null ? "system" : legacy === "true" ? "dark" : "light";
+          }
+          var mode =
+            pref === "system"
+              ? window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light"
+              : pref;
+          if (store.getItem("theme-time-auto") === "true") {
+            var hour = new Date().getHours();
+            mode = hour >= 7 && hour < 19 ? "light" : "dark";
+          }
+          // Single-mode themes ignore the switch (keep in sync with the registry).
+          var SINGLE = { terminal: "dark", paper: "light", contrast: "dark", contrastLight: "light", linen: "light", charcoal: "dark" };
+          if (SINGLE[theme]) mode = SINGLE[theme];
+          var root = document.documentElement;
+          root.classList.toggle("dark", mode === "dark");
+          root.dataset.theme = theme;
+          root.dataset.mode = mode;
+          root.dataset.themePref = pref;
+        } catch (e) {
+          /* storage blocked — fall back to defaults */
+        }
+      })();
+    </script>
     <meta charset="UTF-8" />
     <!-- interactive-widget=resizes-content (Chrome Android 108+, Firefox Android 132+):
      shrink the layout viewport when the software keyboard opens so flex/grid
@@ -11,13 +49,17 @@
     <meta name="description" content="gomo6 — социальная сеть с мессенджером, досками и обсуждениями." />
     <meta name="author" content="gomo6" />
     <meta name="robots" content="index,follow" />
-    <meta name="theme-color" content="#16a34a" />
+    <meta name="theme-color" content="#0d0d0d" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d0d0d" />
     <link rel="canonical" href="https://gomo6.wtf/" />
 
     <!-- PWA / iOS -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="gomo6" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/svg+xml" href="/gomo6-mark.svg" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <meta property="og:site_name" content="gomo6" />

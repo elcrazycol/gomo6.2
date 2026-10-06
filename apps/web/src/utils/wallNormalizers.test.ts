@@ -29,27 +29,32 @@ function makePost(overrides: Partial<WallPost> = {}): WallPost {
 describe("normalizeWallPostAuthor", () => {
   it("extracts author from object", () => {
     const result = normalizeWallPostAuthor({ username: "alice", is_anonymous: false, avatar_url: "av.jpg" });
-    expect(result).toEqual({ username: "alice", display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: "av.jpg" });
+    expect(result).toEqual({ username: "alice", public_id: null, display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: "av.jpg" });
   });
 
   it("extracts author from array (takes first element)", () => {
     const result = normalizeWallPostAuthor([{ username: "bob", is_anonymous: true }]);
-    expect(result).toEqual({ username: "bob", display_name: null, nickname_emoji_id: null, is_anonymous: true, avatar_url: null });
+    expect(result).toEqual({ username: "bob", public_id: null, display_name: null, nickname_emoji_id: null, is_anonymous: true, avatar_url: null });
   });
 
   it("returns fallback when author is null", () => {
     const result = normalizeWallPostAuthor(null, "fallback_user");
-    expect(result).toEqual({ username: "fallback_user", display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: null });
+    expect(result).toEqual({ username: "fallback_user", public_id: null, display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: null });
   });
 
   it("returns 'user' when author is null and no fallback", () => {
     const result = normalizeWallPostAuthor(null);
-    expect(result).toEqual({ username: "user", display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: null });
+    expect(result).toEqual({ username: "user", public_id: null, display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: null });
   });
 
   it("returns fallback for non-object author", () => {
     const result = normalizeWallPostAuthor("string", "fallback");
-    expect(result).toEqual({ username: "fallback", display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: null });
+    expect(result).toEqual({ username: "fallback", public_id: null, display_name: null, nickname_emoji_id: null, is_anonymous: false, avatar_url: null });
+  });
+
+  it("keeps the author's public number (the only source for the card link)", () => {
+    const result = normalizeWallPostAuthor({ username: "alice", public_id: 42, is_anonymous: false });
+    expect(result.public_id).toBe(42);
   });
 
   it("returns null avatar_url when avatar_url is falsy", () => {
@@ -171,8 +176,14 @@ describe("normalizeWallComment", () => {
 });
 
 describe("getWallPostPath", () => {
-  it("generates correct path", () => {
-    expect(getWallPostPath("user-1", "post-1")).toBe("/profile/user-1/wall/post-1");
+  it("uses the public numbers when the payload has them", () => {
+    expect(getWallPostPath({ id: "user-1", public_id: 42 }, { id: "post-1", public_id: 1337 })).toBe(
+      "/profile/42/wall/1337",
+    );
+  });
+
+  it("falls back to UUIDs when the numbers are missing (cached payloads)", () => {
+    expect(getWallPostPath({ id: "user-1" }, { id: "post-1" })).toBe("/profile/user-1/wall/post-1");
   });
 });
 
@@ -213,6 +224,23 @@ describe("isInteractiveTarget", () => {
     const div = document.createElement("div");
     div.setAttribute("role", "button");
     expect(isInteractiveTarget(div)).toBe(true);
+  });
+
+  it("returns true for an SVG icon inside a button (icons must not open the post)", () => {
+    const btn = document.createElement("button");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    svg.appendChild(path);
+    btn.appendChild(svg);
+    // Sanity: SVG is not an HTMLElement — the original bug bailed out here.
+    expect(svg instanceof HTMLElement).toBe(false);
+    expect(isInteractiveTarget(svg)).toBe(true);
+    expect(isInteractiveTarget(path)).toBe(true);
+  });
+
+  it("returns false for an SVG icon that is not inside an interactive element", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    expect(isInteractiveTarget(svg)).toBe(false);
   });
 
   it("returns true for media elements (photos/videos never open the post)", () => {

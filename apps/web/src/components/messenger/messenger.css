@@ -26,9 +26,9 @@ main.is-messenger-page {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: var(--radius);
-  background: hsl(var(--background));
+  background: oklch(var(--background));
 }
 
 .messenger-shell {
@@ -46,8 +46,8 @@ main.is-messenger-page {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
   min-height: 0;
-  background: hsl(var(--card));
-  border-right: 1px solid hsl(var(--border));
+  background: oklch(var(--card));
+  border-right: 1px solid oklch(var(--border));
 }
 
 .sidebar-resizer {
@@ -74,21 +74,21 @@ main.is-messenger-page {
   width: 2px;
   height: 44px;
   border-radius: 999px;
-  background: hsl(var(--border));
+  background: oklch(var(--border));
   transform: translateY(-50%);
   transition: height 0.15s ease, background-color 0.15s ease;
 }
 
 .sidebar-resizer:hover,
 .sidebar-resizer:focus-visible {
-  background: hsl(var(--primary) / 0.08);
+  background: oklch(var(--primary) / 0.08);
   outline: none;
 }
 
 .sidebar-resizer:hover::after,
 .sidebar-resizer:focus-visible::after {
   height: 72px;
-  background: hsl(var(--primary));
+  background: oklch(var(--primary));
 }
 
 .sidebar-panel.is-collapsed .sidebar-resizer::after {
@@ -101,7 +101,7 @@ main.is-messenger-page {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: hsl(var(--background));
+  background: oklch(var(--background));
   /* Anchors the message-menu scrim (::before) and keeps its z-indexes local
      to the panel, so the selected message can paint above the blur without
      colliding with anything outside the chat. */
@@ -132,16 +132,16 @@ main.is-messenger-page {
   height: 40px;
   box-sizing: border-box;
   /*padding: 2px 3px 2px 10px;*/
-  border: 1px solid hsl(var(--border) / 0.45);
+  border: 1px solid oklch(var(--border) / 0.45);
   border-radius: 999px;
-  background: hsl(var(--muted) / 0.72);
-  box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.025);
+  background: oklch(var(--muted) / 0.72);
+  box-shadow: inset 0 1px 0 oklch(var(--foreground) / 0.025);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .sidebar-top:focus-within {
-  border-color: hsl(var(--primary) / 0.35);
-  box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.025);
+  border-color: oklch(var(--primary) / 0.35);
+  box-shadow: inset 0 1px 0 oklch(var(--foreground) / 0.025);
 }
 
 .sidebar-search-wrap {
@@ -155,7 +155,7 @@ main.is-messenger-page {
 .sidebar-search-icon {
   position: absolute;
   left: 10px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   pointer-events: none;
 }
 
@@ -167,14 +167,14 @@ main.is-messenger-page {
   border-radius: 999px;
   outline: none;
   background: transparent;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
   font: inherit;
   font-size: 14px;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .sidebar-search::placeholder {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .sidebar-search:focus {
@@ -192,8 +192,8 @@ main.is-messenger-page {
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
+  background: oklch(var(--destructive));
+  color: oklch(var(--destructive-foreground));
   font-size: 11px;
   font-weight: 700;
   pointer-events: none;
@@ -204,17 +204,17 @@ main.is-messenger-page {
   height: 34px;
   flex: 0 0 34px;
   border-radius: 50%;
-  background: hsl(var(--card) / 0.72);
-  color: hsl(var(--foreground));
-  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.08);
+  background: oklch(var(--card) / 0.72);
+  color: oklch(var(--foreground));
+  box-shadow: 0 1px 3px oklch(var(--foreground) / 0.08);
   transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .new-chat-button:hover,
 .new-chat-button:focus-visible {
-  background: hsl(var(--card));
-  color: hsl(var(--primary));
-  box-shadow: 0 2px 7px hsl(var(--foreground) / 0.16);
+  background: oklch(var(--card));
+  color: oklch(var(--primary));
+  box-shadow: 0 2px 7px oklch(var(--foreground) / 0.16);
   outline: none;
 }
 
@@ -232,8 +232,8 @@ main.is-messenger-page {
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
   font-size: 11px;
   font-weight: 700;
 }
@@ -249,7 +249,7 @@ main.is-messenger-page {
   height: 57px;
   background: transparent;
   box-shadow: none;
-  border-bottom: 0.5px solid hsl(var(--border));
+  border-bottom: 0.5px solid oklch(var(--border));
 }
 .sidebar-panel.is-collapsed .sidebar-top:hover {
     background: rgb(0 0 0 / 0.07);
@@ -356,7 +356,7 @@ main.is-messenger-page {
 }
 
 .conversation-card.is-active {
-  background: hsl(var(--primary) / 0.18);
+  background: oklch(var(--primary) / 0.18);
 }
 
 /* Unread accent bar */
@@ -368,7 +368,7 @@ main.is-messenger-page {
   bottom: 14px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background: hsl(var(--primary));
+  background: oklch(var(--primary));
 }
 
 .conversation-copy {
@@ -421,21 +421,21 @@ main.is-messenger-page {
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 11px;
   line-height: 1;
   white-space: nowrap;
 }
 
 .conversation-status {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 13px;
   font-weight: 700;
   letter-spacing: -0.08em;
 }
 
 .conversation-time {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 11px;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -456,7 +456,7 @@ main.is-messenger-page {
   gap: 8px;
   min-width: 0;
   overflow: hidden;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 12px;
   margin-top: 3px;
 }
@@ -467,7 +467,7 @@ main.is-messenger-page {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 12px;
   line-height: 1.35;
 }
@@ -483,7 +483,7 @@ main.is-messenger-page {
   vertical-align: -2px;
   margin-right: 4px;
   flex-shrink: 0;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   opacity: 0.85;
 }
 
@@ -498,7 +498,7 @@ main.is-messenger-page {
   position: absolute;
   bottom: -1px;
   right: -1px;
-  border: 2px solid hsl(var(--card));
+  border: 2px solid oklch(var(--card));
 }
 
 .avatar {
@@ -506,11 +506,11 @@ main.is-messenger-page {
   height: 44px;
   border-radius: 50%;
   overflow: hidden;
-  background: hsl(var(--muted));
+  background: oklch(var(--muted));
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 13px;
   font-weight: 700;
   flex-shrink: 0;
@@ -567,15 +567,15 @@ main.is-messenger-page {
   align-items: center;
   justify-content: space-between;
   padding: 6px 14px;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
+  border-bottom: 1px solid oklch(var(--border));
+  background: oklch(var(--card));
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.04);
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .chat-topbar:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 .chat-topbar-main {
@@ -631,7 +631,7 @@ main.is-messenger-page {
 
 .presence-copy {
   margin-top: 2px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 12px;
 }
 
@@ -644,15 +644,15 @@ main.is-messenger-page {
   flex: 0 0 auto;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid hsl(var(--input));
-  background: hsl(var(--background));
+  border: 1px solid oklch(var(--input));
+  background: oklch(var(--background));
   color: inherit;
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .messenger-back-button:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 /* ── Pinned message banner ── */
@@ -662,8 +662,8 @@ main.is-messenger-page {
   align-items: center;
   gap: 8px;
   padding: 5px 12px;
-  background: hsl(var(--primary) / 0.08);
-  border-top: 1px solid hsl(var(--primary) / 0.12);
+  background: oklch(var(--primary) / 0.08);
+  border-top: 1px solid oklch(var(--primary) / 0.12);
   font-size: 12px;
   cursor: pointer;
   transition: background-color 0.15s ease;
@@ -671,11 +671,11 @@ main.is-messenger-page {
 }
 
 .pinned-message-banner:hover {
-  background: hsl(var(--primary) / 0.14);
+  background: oklch(var(--primary) / 0.14);
 }
 
 .pinned-message-icon {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   flex-shrink: 0;
 }
 
@@ -689,7 +689,7 @@ main.is-messenger-page {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 
 .pinned-message-jump {
@@ -701,15 +701,15 @@ main.is-messenger-page {
   border-radius: 50%;
   border: none;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   flex-shrink: 0;
   transition: background-color 0.15s ease;
 }
 
 .pinned-message-jump:hover {
-  background: hsl(var(--primary) / 0.12);
-  color: hsl(var(--primary));
+  background: oklch(var(--primary) / 0.12);
+  color: oklch(var(--primary));
 }
 
 /* ── Message scroll area ── */
@@ -806,16 +806,16 @@ main.is-messenger-page {
   top: 50%;
   width: 100%;
   height: 1px;
-  background: hsl(var(--border) / 0.5);
+  background: oklch(var(--border) / 0.5);
 }
 
 .date-separator span {
   position: relative;
   z-index: 1;
   display: inline-block;
-  background: hsl(var(--background));
+  background: oklch(var(--background));
   padding: 0 10px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 11px;
   font-weight: 500;
   text-transform: lowercase;
@@ -867,8 +867,8 @@ main.is-messenger-page {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
+  background: oklch(var(--primary) / 0.1);
+  color: oklch(var(--primary));
   pointer-events: none;
   /* Horizontal anchoring (left/right) is set inline at arm time so the badge
      sits on the RIGHT of the message, inside the row (the message list clips
@@ -898,9 +898,9 @@ main.is-messenger-page {
   max-width: min(70%, 640px);
   min-width: 0;
   padding: 9px 12px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 14px;
-  background: hsl(var(--card));
+  background: oklch(var(--card));
   overflow-wrap: anywhere;
   position: relative;
 }
@@ -917,8 +917,8 @@ main.is-messenger-page {
 }
 
 .message-bubble.is-mine {
-  border-color: hsl(var(--primary) / 0.25);
-  background: hsl(var(--primary) / 0.06);
+  border-color: oklch(var(--primary) / 0.25);
+  background: oklch(var(--primary) / 0.06);
 }
 
 /* Responsive media bubbles: preserve the source proportions and let the
@@ -991,21 +991,21 @@ main.is-messenger-page {
    instead of being overlaid on the photo. Photo-only messages keep the
    flush-image look with the white meta on the image. */
 .message-bubble.is-media-bubble.has-caption {
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--card));
 }
 
 .message-bubble.is-media-bubble.is-mine.has-caption,
 .message-bubble.is-media-bubble.is-mine.has-caption:hover {
-  border-color: hsl(var(--primary) / 0.25);
-  background: hsl(var(--primary) / 0.06);
+  border-color: oklch(var(--primary) / 0.25);
+  background: oklch(var(--primary) / 0.06);
 }
 
 .message-bubble.is-media-bubble.has-caption .message-media-caption {
   padding: 9px 12px 22px;
   background: transparent;
   border-top: 0;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
   white-space: pre-wrap;
 }
 
@@ -1023,7 +1023,7 @@ main.is-messenger-page {
   right: 11px;
   bottom: 8px;
   padding: 1px 0 1px 6px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   opacity: 0.78;
   text-shadow: none;
 }
@@ -1042,7 +1042,7 @@ main.is-messenger-page {
 }
 
 .message-bubble.is-media-bubble.has-caption .status-double-check.is-read {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
 }
 
 .message-media-caption {
@@ -1050,18 +1050,18 @@ main.is-messenger-page {
   width: 100%;
   max-width: 100%;
   padding: 9px 62px 9px 11px;
-  color: hsl(var(--foreground));
-  background: hsl(var(--card));
-  border-top: 1px solid hsl(var(--border) / 0.35);
+  color: oklch(var(--foreground));
+  background: oklch(var(--card));
+  border-top: 1px solid oklch(var(--border) / 0.35);
   font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
 .message-bubble.is-mine .message-media-caption {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  border-top-color: hsl(var(--primary-foreground) / 0.14);
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
+  border-top-color: oklch(var(--primary-foreground) / 0.14);
 }
 
 .message-media-caption a {
@@ -1156,8 +1156,8 @@ main.is-messenger-page {
   gap: 6px;
   padding: 6px 8px;
   margin-bottom: 6px;
-  border-left: 3px solid hsl(var(--primary));
-  background: hsl(var(--primary) / 0.06);
+  border-left: 3px solid oklch(var(--primary));
+  background: oklch(var(--primary) / 0.06);
   border-radius: 0 6px 6px 0;
   cursor: default;
   min-width: 0;
@@ -1166,20 +1166,20 @@ main.is-messenger-page {
 
 .quoted-message svg {
   flex-shrink: 0;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
 }
 
 .quoted-author {
   font-size: 12px;
   font-weight: 600;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .quoted-text {
   font-size: 12px;
-  color: hsl(var(--foreground) / 0.6);
+  color: oklch(var(--foreground) / 0.6);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1187,16 +1187,16 @@ main.is-messenger-page {
 }
 
 .message-bubble.is-mine .quoted-message {
-  background: hsl(var(--primary-foreground) / 0.06);
-  border-left-color: hsl(var(--primary-foreground) / 0.4);
+  background: oklch(var(--primary-foreground) / 0.06);
+  border-left-color: oklch(var(--primary-foreground) / 0.4);
 }
 
 .message-bubble.is-mine .quoted-author {
-  color: hsl(var(--primary-foreground));
+  color: oklch(var(--primary-foreground));
 }
 
 .message-bubble.is-mine .quoted-text {
-  color: hsl(var(--primary-foreground) / 0.6);
+  color: oklch(var(--primary-foreground) / 0.6);
 }
 
 /* ── Messenger link previews (simple panels) ── */
@@ -1204,8 +1204,8 @@ main.is-messenger-page {
 .msg-link-panel {
   margin-top: 4px;
   padding: 6px 10px;
-  border-left: 3px solid hsl(var(--primary) / 0.4);
-  background: hsl(var(--muted) / 0.2);
+  border-left: 3px solid oklch(var(--primary) / 0.4);
+  background: oklch(var(--muted) / 0.2);
   border-radius: 0 6px 6px 0;
   width: 100%;
   min-width: 0;
@@ -1219,7 +1219,7 @@ main.is-messenger-page {
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   margin-bottom: 2px;
 }
 
@@ -1232,12 +1232,12 @@ main.is-messenger-page {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   word-break: break-word;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 
 .msg-link-panel-meta {
   font-size: 11px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   margin-top: 2px;
 }
 
@@ -1248,8 +1248,8 @@ main.is-messenger-page {
   margin-top: 4px;
   padding: 4px 10px;
   border-radius: 6px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
@@ -1268,7 +1268,7 @@ main.is-messenger-page {
   height: 32px;
   border-radius: 50%;
   overflow: hidden;
-  background: hsl(var(--muted));
+  background: oklch(var(--muted));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1284,13 +1284,13 @@ main.is-messenger-page {
 .msg-link-panel-avatar span {
   font-size: 13px;
   font-weight: 700;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .msg-link-panel-loading {
   height: 40px;
   border-radius: 6px;
-  background: hsl(var(--muted) / 0.3);
+  background: oklch(var(--muted) / 0.3);
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   margin-top: 4px;
 }
@@ -1309,9 +1309,9 @@ main.is-messenger-page {
   align-items: center;
   gap: 6px;
   padding: 12px 20px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 14px;
-  background: hsl(var(--card));
+  background: oklch(var(--card));
   max-width: 200px;
   width: 100%;
 }
@@ -1321,7 +1321,7 @@ main.is-messenger-page {
   height: 56px;
   border-radius: 12px;
   overflow: hidden;
-  background: hsl(var(--muted));
+  background: oklch(var(--muted));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1334,7 +1334,7 @@ main.is-messenger-page {
 }
 
 .msg-gift-standalone-img svg {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .msg-gift-standalone-name {
@@ -1350,9 +1350,9 @@ main.is-messenger-page {
 .msg-gift-standalone-btn {
   padding: 5px 14px;
   border-radius: 20px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--background));
+  color: oklch(var(--foreground));
   font-size: 12px;
   font-weight: 500;
   font-family: inherit;
@@ -1361,11 +1361,11 @@ main.is-messenger-page {
 }
 
 .msg-gift-standalone-btn:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 .msg-link {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   text-decoration: underline;
   text-underline-offset: 2px;
   word-break: break-all;
@@ -1397,7 +1397,7 @@ main.is-messenger-page {
   gap: 4px;
   margin: 0;
   padding: 1px 0 1px 6px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 11px;
   line-height: 1;
   white-space: nowrap;
@@ -1412,11 +1412,11 @@ main.is-messenger-page {
   inset: 0 0 0 3px;
   z-index: -1;
   border-radius: 4px;
-  background: hsl(var(--card) / 0.9);
+  background: oklch(var(--card) / 0.9);
 }
 
 .message-bubble.is-mine .message-meta::before {
-  background: hsl(var(--primary) / 0.06);
+  background: oklch(var(--primary) / 0.06);
 }
 
 .message-bubble.is-compact .message-meta {
@@ -1443,15 +1443,15 @@ main.is-messenger-page {
 }
 
 .status-check {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .status-double-check {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .status-double-check.is-read {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
 }
 
 .status-dot {
@@ -1459,19 +1459,19 @@ main.is-messenger-page {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: hsl(var(--muted-foreground));
+  background: oklch(var(--muted-foreground));
 }
 
 .status-dot.status-pending-slow {
-  background: hsl(var(--warning, 40 80% 50%));
+  background: oklch(var(--warning, 0.8 0.15 80));
 }
 
 .status-icon {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .status-icon.status-stuck {
-  color: hsl(var(--destructive));
+  color: oklch(var(--destructive));
 }
 
 /* ── Message actions (three-dot menu) — desktop only ── */
@@ -1500,8 +1500,8 @@ main.is-messenger-page {
   left: 50%;
   transform: translateX(-50%);
   min-width: 170px;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
+  background: oklch(var(--card));
+  border: 1px solid oklch(var(--border));
   border-radius: 10px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.14);
   padding: 4px;
@@ -1531,7 +1531,7 @@ main.is-messenger-page {
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
@@ -1540,15 +1540,15 @@ main.is-messenger-page {
 }
 
 .msg-actions-item:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 .msg-actions-item-danger {
-  color: hsl(var(--destructive));
+  color: oklch(var(--destructive));
 }
 
 .msg-actions-item-danger:hover {
-  background: hsl(var(--destructive) / 0.1);
+  background: oklch(var(--destructive) / 0.1);
 }
 @keyframes fade-in-scale {
   from { opacity: 0; transform: scale(0.92); }
@@ -1563,7 +1563,7 @@ main.is-messenger-page {
 }
 
 .bubble-row-inner.is-long-press .message-bubble {
-  background: hsl(var(--primary) / 0.12);
+  background: oklch(var(--primary) / 0.12);
 }
 
 /* ── Message action panel (press-and-hold / right-click) ──
@@ -1584,9 +1584,9 @@ main.is-messenger-page {
   max-height: min(70dvh, 480px);
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 12px;
-  background: hsl(var(--card));
+  background: oklch(var(--card));
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.22);
   animation: msg-panel-in 0.16s cubic-bezier(0.34, 1.3, 0.64, 1);
   -webkit-user-select: none;
@@ -1638,26 +1638,26 @@ main.is-messenger-page {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
   font: inherit;
   font-size: 14px;
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.msg-action-item svg { flex: none; color: hsl(var(--muted-foreground)); }
+.msg-action-item svg { flex: none; color: oklch(var(--muted-foreground)); }
 .msg-action-item:hover,
-.msg-action-item:focus-visible { background: hsl(var(--muted)); }
-.msg-action-item:active { background: hsl(var(--muted)); }
+.msg-action-item:focus-visible { background: oklch(var(--muted)); }
+.msg-action-item:active { background: oklch(var(--muted)); }
 
-.msg-action-item-danger { color: hsl(var(--destructive)); }
-.msg-action-item-danger svg { color: hsl(var(--destructive)); }
+.msg-action-item-danger { color: oklch(var(--destructive)); }
+.msg-action-item-danger svg { color: oklch(var(--destructive)); }
 .msg-action-item-danger:hover,
-.msg-action-item-danger:focus-visible { background: hsl(var(--destructive) / 0.1); }
+.msg-action-item-danger:focus-visible { background: oklch(var(--destructive) / 0.1); }
 
 /* Read receipt — an informational (non-action) panel row. */
 .msg-action-item-read {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 12px;
   cursor: default;
 }
@@ -1666,7 +1666,7 @@ main.is-messenger-page {
 .msg-action-sep {
   height: 1px;
   margin: 4px 8px;
-  background: hsl(var(--border));
+  background: oklch(var(--border));
 }
 
 /* Blur + dim every chat surface except the selected message and its panel.
@@ -1707,8 +1707,8 @@ main.is-messenger-page {
 
 /* Mark the floated copy as the selected message. */
 .msg-action-lift .message-bubble {
-  background: hsl(var(--primary) / 0.08);
-  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.3);
+  background: oklch(var(--primary) / 0.08);
+  box-shadow: 0 0 0 1px oklch(var(--primary) / 0.3);
 }
 
 /* Prevent text selection on message bubbles — use "Копировать" menu item instead */
@@ -1747,21 +1747,21 @@ main.is-messenger-page {
   gap: 8px;
   padding: 8px 12px;
   margin-bottom: 8px;
-  background: hsl(var(--primary) / 0.06);
-  border-left: 3px solid hsl(var(--primary));
+  background: oklch(var(--primary) / 0.06);
+  border-left: 3px solid oklch(var(--primary));
   border-radius: 8px;
   font-size: 13px;
   animation: fade-in-scale 0.15s ease;
 }
-.composer-reply-banner .reply-label { font-weight: 600; color: hsl(var(--primary)); }
-.composer-reply-banner .reply-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--foreground) / 0.7); }
-.composer-reply-cancel { background: none; border: none; cursor: pointer; color: hsl(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; outline: none; }
-.composer-reply-cancel:hover { background: hsl(var(--foreground) / 0.1); color: hsl(var(--foreground)); }
-.composer-reply-cancel:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.composer-reply-banner .reply-label { font-weight: 600; color: oklch(var(--primary)); }
+.composer-reply-banner .reply-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: oklch(var(--foreground) / 0.7); }
+.composer-reply-cancel { background: none; border: none; cursor: pointer; color: oklch(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; outline: none; }
+.composer-reply-cancel:hover { background: oklch(var(--foreground) / 0.1); color: oklch(var(--foreground)); }
+.composer-reply-cancel:focus-visible { outline: 2px solid oklch(var(--ring)); outline-offset: 1px; }
 
 /* Pinned message highlight */
 .message-bubble.is-pinned {
-  border-color: hsl(var(--primary) / 0.35);
+  border-color: oklch(var(--primary) / 0.35);
 }
 
 /* ── Retry / error header ── */
@@ -1771,7 +1771,7 @@ main.is-messenger-page {
   align-items: center;
   gap: 4px;
   margin-bottom: 3px;
-  color: hsl(var(--destructive));
+  color: oklch(var(--destructive));
   font-size: 11px;
 }
 
@@ -1784,14 +1784,14 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--destructive));
+  color: oklch(var(--destructive));
   cursor: pointer;
   padding: 0;
   transition: background-color 0.15s ease;
 }
 
 .retry-button:hover {
-  background: hsl(var(--destructive) / 0.12);
+  background: oklch(var(--destructive) / 0.12);
 }
 
 /* ── Composer edit banner ── */
@@ -1802,10 +1802,10 @@ main.is-messenger-page {
   align-items: center;
   gap: 6px;
   padding: 4px 0 6px;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   font-size: 12px;
   font-weight: 500;
-  border-bottom: 1px solid hsl(var(--primary) / 0.15);
+  border-bottom: 1px solid oklch(var(--primary) / 0.15);
   margin-bottom: 2px;
   animation: fade-in-scale 0.15s ease;
 }
@@ -1820,18 +1820,18 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   outline: none;
   transition: background-color 0.15s ease;
 }
 
 .composer-edit-cancel:hover {
-  background: hsl(var(--primary) / 0.12);
-  color: hsl(var(--foreground));
+  background: oklch(var(--primary) / 0.12);
+  color: oklch(var(--foreground));
 }
 
-.composer-edit-cancel:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.composer-edit-cancel:focus-visible { outline: 2px solid oklch(var(--ring)); outline-offset: 1px; }
 
 /* ── Composer (always-visible, autogrowing input) ── */
 
@@ -1841,8 +1841,8 @@ main.is-messenger-page {
      the indicator; when the keyboard is open env() reports 0 and the composer
      already sits exactly on top of it (the shell shrank via --app-vh). */
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
+  border-top: 1px solid oklch(var(--border));
+  background: oklch(var(--card));
   box-shadow: 0 -4px 16px -4px rgba(0, 0, 0, 0.04);
 }
 
@@ -1874,9 +1874,9 @@ main.is-messenger-page {
   align-items: center;
   gap: 4px;
   padding: 7px 6px 7px 12px;
-  border: 1px solid hsl(var(--input));
+  border: 1px solid oklch(var(--input));
   border-radius: 22px;
-  background: hsl(var(--background));
+  background: oklch(var(--background));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1884,8 +1884,8 @@ main.is-messenger-page {
 /* A keyboard-slot sheet (emoji panel / touch attach) blurs the editor —
    keep the pill looking focused. */
 .composer.is-sheet-open .composer-input-pill {
-  border-color: hsl(var(--primary));
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15);
+  border-color: oklch(var(--primary));
+  box-shadow: 0 0 0 2px oklch(var(--primary) / 0.15);
 }
 
 /* The editor area flexes to fill the pill; the emoji trigger is a flex item
@@ -1899,7 +1899,7 @@ main.is-messenger-page {
    editor (min-h-[20px] — exactly one text line, max-h-[140px]) — a CSS rule
    here would override them by specificity. */
 .composer-input-pill [contenteditable] {
-  caret-color: hsl(var(--foreground));
+  caret-color: oklch(var(--foreground));
 }
 
 .composer-input-pill .ProseMirror p {
@@ -1908,58 +1908,58 @@ main.is-messenger-page {
 
 .composer-counter {
   position: absolute;
-  /* Left of the emoji trigger, which occupies the pill's right edge. */
-  right: 38px;
+  /* Left of the formatting toggle + emoji trigger, which occupy the pill's
+     right edge. */
+  right: 66px;
   bottom: 4px;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   pointer-events: none;
 }
 
 .composer-counter.is-critical {
-  color: hsl(var(--destructive));
+  color: oklch(var(--destructive));
 }
 
-/* ── Full-composer toggle (▢) — quiet transparent circle, same style as the
-   paperclip and emoji triggers so the row reads as one family ── */
+/* ── Formatting toggle — a quiet chevron inside the pill, immediately left of
+   the emoji trigger (same family as the paperclip/emoji circles) ── */
 
-.composer-expand-btn,
-.composer-panel-toggle {
+.composer-toolbar-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
 }
 
-.composer-expand-btn:hover,
-.composer-panel-toggle:hover {
-  color: hsl(var(--foreground));
-  background: hsl(var(--thread-hover));
+.composer-toolbar-toggle:hover,
+.composer-toolbar-toggle.is-open {
+  color: oklch(var(--foreground));
+  background: oklch(var(--thread-hover));
 }
 
-.composer-expand-btn:active,
-.composer-panel-toggle:active {
+.composer-toolbar-toggle:active {
   transform: scale(0.92);
 }
 
-/* ── Formatting panel — a full-width row above the input pill, opened by the
-   ▢ button. The panel spans the whole composer (not the pill), the ▢ sits on
-   its left edge and closes it; the bottom slot then holds the paperclip. ── */
+/* ── Formatting panel — a content-hugging row above the input's right side,
+   opened by the pill's chevron. It no longer spans the whole composer. ── */
 
 .composer-panel-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 8px auto;
   overflow: hidden;
   animation: composer-panel-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -1979,14 +1979,167 @@ main.is-messenger-page {
 }
 
 .composer-toolbar-panel {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: 100%;
   margin: 0;
   border-radius: 10px;
 }
 
-/* ── Attach button (paperclip) — takes the bottom slot the ▢ vacated while
-   the formatting panel is open ── */
+/* ── Fullscreen button — sits a little apart at the toolbar's right edge ── */
+
+.composer-fullscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  margin-left: 6px;
+  border: 1px solid oklch(var(--border));
+  border-radius: 50%;
+  background: oklch(var(--background) / 0.6);
+  color: oklch(var(--muted-foreground));
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.composer-fullscreen-btn:hover {
+  color: oklch(var(--foreground));
+  border-color: oklch(var(--primary) / 0.5);
+  background: oklch(var(--thread-hover));
+}
+
+.composer-fullscreen-btn:active {
+  transform: scale(0.92);
+}
+
+/* ── Fullscreen composer — a wall-style full-viewport editor: header on top,
+   the editor filling the middle, and ONE bottom bar with the formatting
+   toolbar plus every control. Rendered through a portal (the chat panel's
+   framer transform would trap a position:fixed inside it), so it really covers
+   the viewport. ── */
+
+.composer-fs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: oklch(var(--background));
+}
+
+.composer-fs-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  background: oklch(var(--background));
+}
+
+.composer-fs-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-bottom: 1px solid oklch(var(--border));
+  background: oklch(var(--card));
+}
+
+.composer-fs-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: oklch(var(--foreground));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-fs-close,
+.composer-fs-minimize {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: oklch(var(--muted-foreground));
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.composer-fs-close:hover,
+.composer-fs-minimize:hover {
+  background: oklch(var(--thread-hover));
+  color: oklch(var(--foreground));
+}
+
+/* The editor fills everything between the header and the bottom bar. */
+.composer-fs-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+
+/* Stretch the editor (its wrapper chain) to the full height of the area. */
+.composer-fs-editor > .space-y-2 {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.composer-fs-editor > .space-y-2 > div {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.composer-fs-editor > .space-y-2 > div > div {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.composer-fs-editor [contenteditable] {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* One bottom bar: formatting toolbar on the left, controls on the right. */
+.composer-fs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid oklch(var(--border));
+  background: oklch(var(--card));
+}
+
+.composer-fs-bar-spacer {
+  flex: 1 1 auto;
+}
+
+.composer-fs-bar .composer-toolbar-panel {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* ── Attach button (paperclip) — always sits on the left of the input row ── */
 
 .composer-attach-btn-wrap {
   display: flex;
@@ -1994,15 +2147,6 @@ main.is-messenger-page {
   justify-content: center;
   width: 36px;
   flex: 0 0 36px;
-}
-
-.composer-attach-btn-wrap.is-visible {
-  animation: composer-attach-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes composer-attach-in {
-  from { opacity: 0; transform: translateX(-6px) scale(0.9); }
-  to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 /* ── Send button ── */
@@ -2013,10 +2157,10 @@ main.is-messenger-page {
   justify-content: center;
   width: 42px;
   height: 42px;
-  border: 1px solid hsl(var(--input));
+  border: 1px solid oklch(var(--input));
   border-radius: 50%;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
   cursor: pointer;
   transition: transform 0.12s ease, background-color 0.15s ease, opacity 0.15s ease;
 }
@@ -2032,8 +2176,8 @@ main.is-messenger-page {
 .send-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  background: oklch(var(--muted));
+  color: oklch(var(--muted-foreground));
   /* An inert disabled control would swallow the tap and browsers treat it as
      a tap outside → the editor blurs and the soft keyboard dismisses. Let
      the press fall through to the composer chrome, whose mousedown guard
@@ -2043,15 +2187,15 @@ main.is-messenger-page {
 
 /* Edit mode send button (checkmark) */
 .send-button.is-edit {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
   animation: fade-in-scale 0.15s ease;
 }
 
 /* Edit mode textarea — subtle left border accent */
 .composer-edit-input {
-  border-color: hsl(var(--primary) / 0.35) !important;
-  border-left: 2px solid hsl(var(--primary)) !important;
+  border-color: oklch(var(--primary) / 0.35) !important;
+  border-left: 2px solid oklch(var(--primary)) !important;
 }
 
 /* ── Attach button ── */
@@ -2065,14 +2209,14 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .composer-attach-btn:hover {
-  background: hsl(var(--thread-hover));
-  color: hsl(var(--foreground));
+  background: oklch(var(--thread-hover));
+  color: oklch(var(--foreground));
 }
 
 /* ── Touch attach sheet — occupies the keyboard's slot like the emoji panel.
@@ -2089,8 +2233,8 @@ main.is-messenger-page {
   flex-direction: column;
   overflow: hidden;
   border-radius: 20px 20px 0 0;
-  border-top: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
+  border-top: 1px solid oklch(var(--border));
+  background: oklch(var(--card));
   box-shadow: 0 -8px 32px -8px rgba(0, 0, 0, 0.25);
 }
 
@@ -2135,10 +2279,10 @@ main.is-messenger-page {
   flex: 1;
   min-height: 72px;
   padding: 10px 8px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 14px;
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background: oklch(var(--background));
+  color: oklch(var(--foreground));
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
@@ -2147,7 +2291,7 @@ main.is-messenger-page {
 
 .composer-attach-option:active {
   transform: scale(0.96);
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 /* ── Emoji trigger — transparent circle inside the pill (right), sized a bit
@@ -2173,14 +2317,14 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .composer-emoji-btn:hover {
-  background: hsl(var(--thread-hover));
-  color: hsl(var(--foreground));
+  background: oklch(var(--thread-hover));
+  color: oklch(var(--foreground));
 }
 
 /* ── Pending attachments preview ── */
@@ -2198,9 +2342,9 @@ main.is-messenger-page {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 8px;
-  background: hsl(var(--muted) / 0.3);
+  background: oklch(var(--muted) / 0.3);
   font-size: 12px;
   max-width: 200px;
 }
@@ -2215,7 +2359,7 @@ main.is-messenger-page {
 .composer-attachment-icon {
   display: flex;
   align-items: center;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
 }
 
 .composer-attachment-name {
@@ -2226,7 +2370,7 @@ main.is-messenger-page {
 }
 
 .composer-attachment-size {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -2240,7 +2384,7 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
@@ -2248,11 +2392,11 @@ main.is-messenger-page {
 }
 
 .composer-attachment-remove:hover {
-  background: hsl(var(--destructive) / 0.15);
-  color: hsl(var(--destructive));
+  background: oklch(var(--destructive) / 0.15);
+  color: oklch(var(--destructive));
 }
 
-.composer-attachment-remove:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.composer-attachment-remove:focus-visible { outline: 2px solid oklch(var(--ring)); outline-offset: 1px; }
 
 /* ── Uploading files progress (in-flight attach) ── */
 
@@ -2263,9 +2407,9 @@ main.is-messenger-page {
   padding: 6px 10px;
   min-width: 190px;
   max-width: 260px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 10px;
-  background: hsl(var(--card));
+  background: oklch(var(--card));
 }
 
 .composer-uploading-info {
@@ -2280,7 +2424,7 @@ main.is-messenger-page {
   display: block;
   height: 3px;
   border-radius: 999px;
-  background: hsl(var(--muted));
+  background: oklch(var(--muted));
   overflow: hidden;
 }
 
@@ -2288,7 +2432,7 @@ main.is-messenger-page {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: hsl(var(--primary));
+  background: oklch(var(--primary));
   transition: width 0.2s ease;
 }
 
@@ -2296,7 +2440,7 @@ main.is-messenger-page {
   flex-shrink: 0;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 /* ── Message attachments display ── */
@@ -2335,7 +2479,7 @@ main.is-messenger-page {
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  background: hsl(var(--muted) / 0.35);
+  background: oklch(var(--muted) / 0.35);
 }
 
 .message-content-media .msg-attachment-image {
@@ -2356,7 +2500,7 @@ main.is-messenger-page {
   gap: 3px;
   overflow: hidden;
   border-radius: 0;
-  background: hsl(var(--muted) / 0.28);
+  background: oklch(var(--muted) / 0.28);
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -2374,7 +2518,7 @@ main.is-messenger-page {
   padding: 0;
   border: 0;
   overflow: hidden;
-  background: hsl(var(--muted) / 0.35);
+  background: oklch(var(--muted) / 0.35);
   cursor: pointer;
 }
 
@@ -2412,7 +2556,7 @@ main.is-messenger-page {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: hsl(var(--muted) / 0.18);
+  background: oklch(var(--muted) / 0.18);
   transition: opacity 260ms ease, filter 260ms ease, transform 260ms ease;
 }
 
@@ -2515,8 +2659,8 @@ main.is-messenger-page {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: linear-gradient(135deg, hsl(var(--muted) / 0.7), hsl(var(--muted) / 0.35));
-  color: hsl(var(--muted-foreground));
+  background: linear-gradient(135deg, oklch(var(--muted) / 0.7), oklch(var(--muted) / 0.35));
+  color: oklch(var(--muted-foreground));
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -2530,7 +2674,7 @@ main.is-messenger-page {
 .msg-attachment-loading-shimmer {
   position: absolute;
   inset: 0;
-  background: linear-gradient(110deg, hsl(var(--muted) / 0.3) 25%, hsl(var(--muted) / 0.6) 45%, hsl(var(--muted) / 0.3) 65%);
+  background: linear-gradient(110deg, oklch(var(--muted) / 0.3) 25%, oklch(var(--muted) / 0.6) 45%, oklch(var(--muted) / 0.3) 65%);
   background-size: 200% 100%;
   animation: media-shimmer 1.4s linear infinite;
 }
@@ -2544,20 +2688,20 @@ main.is-messenger-page {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 8px;
-  background: hsl(var(--muted) / 0.2);
+  background: oklch(var(--muted) / 0.2);
   text-decoration: none;
   color: inherit;
   transition: background-color 0.15s ease;
 }
 
 .msg-attachment-file:hover {
-  background: hsl(var(--muted) / 0.4);
+  background: oklch(var(--muted) / 0.4);
 }
 
 .msg-attachment-file-icon {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   flex-shrink: 0;
 }
 
@@ -2576,7 +2720,7 @@ main.is-messenger-page {
 
 .msg-attachment-file-size {
   font-size: 11px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 /* ── Utility buttons ── */
@@ -2591,14 +2735,14 @@ main.is-messenger-page {
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
 }
 
 .icon-button:hover {
-  background: hsl(var(--foreground) / 0.07);
-  color: hsl(var(--foreground));
+  background: oklch(var(--foreground) / 0.07);
+  color: oklch(var(--foreground));
 }
 
 .sidebar-top .new-chat-button {
@@ -2615,9 +2759,9 @@ main.is-messenger-page {
 
 .sidebar-top .new-chat-button:hover,
 .sidebar-top .new-chat-button:focus-visible {
-  background: hsl(var(--card));
-  color: hsl(var(--primary));
-  box-shadow: 0 2px 7px hsl(var(--foreground) / 0.16);
+  background: oklch(var(--card));
+  color: oklch(var(--primary));
+  box-shadow: 0 2px 7px oklch(var(--foreground) / 0.16);
   outline: none;
 }
 
@@ -2639,9 +2783,9 @@ main.is-messenger-page {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid hsl(var(--input));
+  border: 1px solid oklch(var(--input));
   border-radius: var(--radius);
-  background: hsl(var(--card));
+  background: oklch(var(--card));
   color: inherit;
   cursor: pointer;
   padding: 8px 16px;
@@ -2650,7 +2794,7 @@ main.is-messenger-page {
 }
 
 .cta-button:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 /* ── Empty states ── */
@@ -2662,9 +2806,9 @@ main.is-messenger-page {
   gap: 10px;
   padding: 24px 20px;
   text-align: center;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: var(--radius);
-  background: hsl(var(--post-header));
+  background: oklch(var(--post-header));
 }
 
 .empty-thread.hero {
@@ -2680,8 +2824,8 @@ main.is-messenger-page {
   max-width: none;
   min-height: 180px;
   box-sizing: border-box;
-  border-color: hsl(var(--border) / 0.7);
-  background: hsl(var(--card) / 0.55);
+  border-color: oklch(var(--border) / 0.7);
+  background: oklch(var(--card) / 0.55);
 }
 
 .empty-thread h2 {
@@ -2693,7 +2837,7 @@ main.is-messenger-page {
 .empty-card p,
 .empty-thread p {
   margin: 0;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 13px;
 }
 
@@ -2716,7 +2860,7 @@ main.is-messenger-page {
   inset: 0;
   display: grid;
   place-items: center;
-  background: hsl(var(--background) / 0.42);
+  background: oklch(var(--background) / 0.42);
   backdrop-filter: blur(8px) saturate(1.15);
   z-index: 3;
   pointer-events: none;
@@ -2731,10 +2875,10 @@ main.is-messenger-page {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid hsl(var(--destructive) / 0.35);
+  border: 1px solid oklch(var(--destructive) / 0.35);
   border-radius: var(--radius);
-  background: hsl(var(--destructive) / 0.12);
-  color: hsl(var(--foreground));
+  background: oklch(var(--destructive) / 0.12);
+  color: oklch(var(--foreground));
   font-size: 13px;
   margin: 4px 8px;
 }
@@ -2748,14 +2892,14 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   font-size: 16px;
   flex-shrink: 0;
 }
 
 .error-dismiss:hover {
-  background: hsl(var(--destructive) / 0.15);
+  background: oklch(var(--destructive) / 0.15);
 }
 
 /* ── Scroll to bottom FAB ── */
@@ -2772,10 +2916,10 @@ main.is-messenger-page {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 50%;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
+  background: oklch(var(--card));
+  color: oklch(var(--foreground));
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   z-index: 5;
@@ -2783,7 +2927,7 @@ main.is-messenger-page {
 }
 
 .scroll-to-bottom-btn:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 /* Unread count badge on the FAB — replaces the centered "N новых сообщений"
@@ -2801,10 +2945,10 @@ main.is-messenger-page {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid hsl(var(--card));
+  border: 2px solid oklch(var(--card));
   border-radius: 999px;
-  background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
+  background: oklch(var(--destructive));
+  color: oklch(var(--destructive-foreground));
   font-size: 10px;
   font-weight: 700;
   pointer-events: none;
@@ -2828,8 +2972,8 @@ main.is-messenger-page {
   right: 0;
   width: 320px;
   height: var(--app-vh, 100dvh);
-  background: hsl(var(--background));
-  border-left: 1px solid hsl(var(--border));
+  background: oklch(var(--background));
+  border-left: 1px solid oklch(var(--border));
   z-index: 41;
   display: flex;
   flex-direction: column;
@@ -2847,7 +2991,7 @@ main.is-messenger-page {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid hsl(var(--border));
+  border-bottom: 1px solid oklch(var(--border));
   font-size: 14px;
   font-weight: 600;
   flex-shrink: 0;
@@ -2862,13 +3006,13 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .user-info-panel-close:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 .user-info-panel-body {
@@ -2886,12 +3030,12 @@ main.is-messenger-page {
   height: 80px;
   border-radius: 50%;
   overflow: hidden;
-  background: hsl(var(--muted));
+  background: oklch(var(--muted));
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border: 2px solid hsl(var(--border));
+  border: 2px solid oklch(var(--border));
 }
 
 .user-info-avatar img {
@@ -2903,7 +3047,7 @@ main.is-messenger-page {
 .user-info-avatar span {
   font-size: 28px;
   font-weight: 700;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .user-info-name {
@@ -2918,7 +3062,7 @@ main.is-messenger-page {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   text-decoration: none;
   transition: opacity 0.15s ease;
 }
@@ -2929,7 +3073,7 @@ main.is-messenger-page {
 
 .user-info-presence {
   font-size: 12px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   margin: 0;
 }
 
@@ -2949,9 +3093,9 @@ main.is-messenger-page {
   gap: 6px;
   padding: 8px 14px;
   border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--card));
+  color: oklch(var(--foreground));
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
@@ -2961,12 +3105,12 @@ main.is-messenger-page {
 }
 
 .user-info-action-btn:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 .user-info-action-btn.primary {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
   border-color: transparent;
 }
 
@@ -2985,7 +3129,7 @@ main.is-messenger-page {
     height: auto;
     max-height: 70dvh;
     border-left: none;
-    border-top: 1px solid hsl(var(--border));
+    border-top: 1px solid oklch(var(--border));
     border-radius: 16px 16px 0 0;
     transform: translateY(100%);
   }
@@ -3008,10 +3152,10 @@ main.is-messenger-page {
 }
 
 .load-more-button {
-  border: 1px solid hsl(var(--input));
+  border: 1px solid oklch(var(--input));
   border-radius: var(--radius);
-  background: hsl(var(--card));
-  color: hsl(var(--primary));
+  background: oklch(var(--card));
+  color: oklch(var(--primary));
   cursor: pointer;
   padding: 6px 14px;
   font-size: 12px;
@@ -3019,7 +3163,7 @@ main.is-messenger-page {
 }
 
 .load-more-button:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 .header-actions {
@@ -3030,7 +3174,7 @@ main.is-messenger-page {
 
 .eyebrow {
   margin: 0 0 4px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 11px;
   text-transform: uppercase;
 }
@@ -3133,7 +3277,7 @@ main.is-messenger-page {
     right: 0;
     bottom: 0;
     z-index: 30;
-    background: hsl(var(--background));
+    background: oklch(var(--background));
     grid-template-rows: auto 1fr auto;
     /* Pre-JS fallback: the mobile slide is owned by framer-motion (MessengerView
        animates x for open/close and the swipe-back drag) — a CSS transition on
@@ -3234,7 +3378,7 @@ main.is-messenger-page {
   .chat-topbar {
     padding: 5px 10px;
     padding-top: max(5px, env(safe-area-inset-top));
-    background: hsl(var(--card));
+    background: oklch(var(--card));
   }
 
   .chat-topbar-main {
@@ -3356,22 +3500,22 @@ main.is-messenger-page {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   animation: msg-history-fade-in 0.15s ease-out;
 }
 
 .msg-history-loader-spinner {
   width: 13px;
   height: 13px;
-  border: 2px solid hsl(var(--border));
-  border-top-color: hsl(var(--primary));
+  border: 2px solid oklch(var(--border));
+  border-top-color: oklch(var(--primary));
   border-radius: 50%;
   animation: msg-history-spin 0.8s linear infinite;
 }
 
 .msg-history-end-label {
   font-size: 12px;
-  color: hsl(var(--muted-foreground) / 0.8);
+  color: oklch(var(--muted-foreground) / 0.8);
 }
 
 @keyframes msg-history-spin {
@@ -3430,8 +3574,8 @@ main.is-messenger-page {
   width: 18px;
   height: 18px;
   border-radius: 6px;
-  background: hsl(var(--primary) / 0.16);
-  color: hsl(var(--primary));
+  background: oklch(var(--primary) / 0.16);
+  color: oklch(var(--primary));
   flex-shrink: 0;
 }
 
@@ -3480,7 +3624,7 @@ main.is-messenger-page {
 
 /* ── Notes security dialog ── */
 .notes-settings-dialog .notes-lock-badge-icon {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
 }
 
 .notes-settings-body {
@@ -3493,9 +3637,9 @@ main.is-messenger-page {
   align-items: flex-start;
   gap: 10px;
   padding: 12px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 12px;
-  background: hsl(var(--muted) / 0.4);
+  background: oklch(var(--muted) / 0.4);
 }
 
 .notes-settings-status-icon {
@@ -3506,8 +3650,8 @@ main.is-messenger-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  background: oklch(var(--muted));
+  color: oklch(var(--muted-foreground));
 }
 
 .notes-settings-status-icon.is-active {
@@ -3523,15 +3667,15 @@ main.is-messenger-page {
 .notes-settings-status-sub {
   margin-top: 2px;
   font-size: 12px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   line-height: 1.45;
 }
 
 .notes-key-fingerprint {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
+  background: oklch(var(--background));
+  border: 1px solid oklch(var(--border));
   border-radius: 5px;
   padding: 1px 5px;
 }
@@ -3542,13 +3686,13 @@ main.is-messenger-page {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .notes-settings-section-text {
   margin: 0 0 10px;
   font-size: 12.5px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   line-height: 1.5;
 }
 
@@ -3559,8 +3703,8 @@ main.is-messenger-page {
   padding: 8px 12px;
   border: none;
   border-radius: 8px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: oklch(var(--primary));
+  color: oklch(var(--primary-foreground));
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -3583,7 +3727,7 @@ main.is-messenger-page {
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: hsl(var(--muted));
+  background: oklch(var(--muted));
   font-size: 11px;
   line-height: 1.5;
   word-break: break-all;
@@ -3604,24 +3748,24 @@ main.is-messenger-page {
   min-width: 0;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--background));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 
 .notes-settings-import input:focus {
   outline: none;
-  border-color: hsl(var(--primary));
+  border-color: oklch(var(--primary));
 }
 
 .notes-settings-import button {
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--secondary));
-  color: hsl(var(--foreground));
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--secondary));
+  color: oklch(var(--foreground));
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
@@ -3629,7 +3773,7 @@ main.is-messenger-page {
 }
 
 .notes-settings-import button:hover {
-  background: hsl(var(--accent));
+  background: oklch(var(--accent));
 }
 
 .notes-settings-import button:disabled {
@@ -3640,7 +3784,7 @@ main.is-messenger-page {
 .notes-settings-import-error {
   margin-top: 6px;
   font-size: 12px;
-  color: hsl(var(--destructive));
+  color: oklch(var(--destructive));
 }
 
 /* ── Notes organization: pinned section, folder filter, quick pin, chips ── */
@@ -3652,10 +3796,10 @@ main.is-messenger-page {
   overflow-y: auto;
   margin: 10px 14px 2px;
   padding: 10px 12px 8px;
-  border: 1px solid hsl(var(--primary) / 0.22);
+  border: 1px solid oklch(var(--primary) / 0.22);
   border-radius: 12px;
-  background: linear-gradient(180deg, hsl(var(--primary) / 0.07), hsl(var(--primary) / 0.03));
-  box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.03);
+  background: linear-gradient(180deg, oklch(var(--primary) / 0.07), oklch(var(--primary) / 0.03));
+  box-shadow: inset 0 1px 0 oklch(var(--foreground) / 0.03);
 }
 
 .notes-section-heading {
@@ -3663,7 +3807,7 @@ main.is-messenger-page {
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -3678,8 +3822,8 @@ main.is-messenger-page {
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: hsl(var(--primary) / 0.16);
-  color: hsl(var(--primary));
+  background: oklch(var(--primary) / 0.16);
+  color: oklch(var(--primary));
   font-size: 10px;
   font-weight: 700;
 }
@@ -3707,10 +3851,10 @@ main.is-messenger-page {
 .notes-filter-bar button {
   flex-shrink: 0;
   padding: 5px 12px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 999px;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
+  background: oklch(var(--card));
+  color: oklch(var(--muted-foreground));
   font: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -3719,8 +3863,8 @@ main.is-messenger-page {
 }
 
 .notes-filter-bar button:hover {
-  color: hsl(var(--foreground));
-  border-color: hsl(var(--primary) / 0.35);
+  color: oklch(var(--foreground));
+  border-color: oklch(var(--primary) / 0.35);
 }
 
 .notes-filter-bar button.is-active {
@@ -3737,7 +3881,7 @@ main.is-messenger-page {
   gap: 8px;
   align-content: center;
   padding: 32px 20px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 13px;
   text-align: center;
 }
@@ -3768,10 +3912,10 @@ main.is-messenger-page {
   gap: 4px;
   max-width: 180px;
   padding: 2px 8px;
-  border: 1px solid hsl(var(--primary) / 0.2);
+  border: 1px solid oklch(var(--primary) / 0.2);
   border-radius: 999px;
-  background: hsl(var(--primary) / 0.08);
-  color: hsl(var(--primary));
+  background: oklch(var(--primary) / 0.08);
+  color: oklch(var(--primary));
   font: inherit;
   font-size: 11px;
   font-weight: 600;
@@ -3784,17 +3928,17 @@ main.is-messenger-page {
 }
 
 .notes-chip:hover {
-  background: hsl(var(--primary) / 0.16);
+  background: oklch(var(--primary) / 0.16);
 }
 
 .notes-tag-chip {
-  border-color: hsl(var(--muted-foreground) / 0.25);
-  background: hsl(var(--muted) / 0.35);
-  color: hsl(var(--muted-foreground));
+  border-color: oklch(var(--muted-foreground) / 0.25);
+  background: oklch(var(--muted) / 0.35);
+  color: oklch(var(--muted-foreground));
 }
 
 .notes-tag-chip:hover {
-  background: hsl(var(--muted) / 0.6);
+  background: oklch(var(--muted) / 0.6);
 }
 
 /* Quick pin button — a sibling of the bubble inside .bubble-row-inner, so it
@@ -3813,12 +3957,12 @@ main.is-messenger-page {
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 50%;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
+  background: oklch(var(--card));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
-  box-shadow: 0 1px 4px hsl(var(--foreground) / 0.12);
+  box-shadow: 0 1px 4px oklch(var(--foreground) / 0.12);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
@@ -3832,8 +3976,8 @@ main.is-messenger-page {
 }
 
 .notes-quick-pin:hover {
-  background: hsl(var(--primary) / 0.12);
-  color: hsl(var(--primary));
+  background: oklch(var(--primary) / 0.12);
+  color: oklch(var(--primary));
 }
 
 .notes-quick-pin:active {
@@ -3856,7 +4000,7 @@ main.is-messenger-page {
 
 /* ── Notes organize dialog (pin / folder / tags) ── */
 .notes-organize-dialog .notes-lock-badge-icon {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
 }
 
 .notes-organize-body {
@@ -3871,9 +4015,9 @@ main.is-messenger-page {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 10px;
-  background: hsl(var(--muted) / 0.2);
+  background: oklch(var(--muted) / 0.2);
 }
 
 .notes-organize-row-copy {
@@ -3885,18 +4029,18 @@ main.is-messenger-page {
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
   font-size: 13px;
   font-weight: 600;
 }
 
 .notes-organize-label svg {
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
   flex-shrink: 0;
 }
 
 .notes-organize-hint {
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   font-size: 12px;
   line-height: 1.4;
 }
@@ -3914,10 +4058,10 @@ main.is-messenger-page {
 .notes-organize-input-wrap input {
   width: 100%;
   padding: 8px 30px 8px 10px;
-  border: 1px solid hsl(var(--input));
+  border: 1px solid oklch(var(--input));
   border-radius: 8px;
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background: oklch(var(--background));
+  color: oklch(var(--foreground));
   font: inherit;
   font-size: 13px;
   outline: none;
@@ -3925,8 +4069,8 @@ main.is-messenger-page {
 }
 
 .notes-organize-input-wrap input:focus {
-  border-color: hsl(var(--primary));
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15);
+  border-color: oklch(var(--primary));
+  box-shadow: 0 0 0 2px oklch(var(--primary) / 0.15);
 }
 
 .notes-clear-field {
@@ -3941,13 +4085,13 @@ main.is-messenger-page {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   cursor: pointer;
 }
 
 .notes-clear-field:hover {
-  background: hsl(var(--destructive) / 0.12);
-  color: hsl(var(--destructive));
+  background: oklch(var(--destructive) / 0.12);
+  color: oklch(var(--destructive));
 }
 
 .notes-tag-suggestions {
@@ -3959,10 +4103,10 @@ main.is-messenger-page {
 
 .notes-tag-suggestion {
   padding: 3px 9px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid oklch(var(--border));
   border-radius: 999px;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
+  background: oklch(var(--card));
+  color: oklch(var(--muted-foreground));
   font: inherit;
   font-size: 11.5px;
   cursor: pointer;
@@ -3970,8 +4114,8 @@ main.is-messenger-page {
 }
 
 .notes-tag-suggestion:hover {
-  border-color: hsl(var(--primary) / 0.35);
-  color: hsl(var(--primary));
+  border-color: oklch(var(--primary) / 0.35);
+  color: oklch(var(--primary));
 }
 
 .notes-organize-footer {
@@ -3984,10 +4128,10 @@ main.is-messenger-page {
 
 .notes-organize-cancel {
   padding: 7px 14px;
-  border: 1px solid hsl(var(--input));
+  border: 1px solid oklch(var(--input));
   border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
+  background: oklch(var(--card));
+  color: oklch(var(--foreground));
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -3996,7 +4140,7 @@ main.is-messenger-page {
 }
 
 .notes-organize-cancel:hover {
-  background: hsl(var(--thread-hover));
+  background: oklch(var(--thread-hover));
 }
 
 .notes-organize-save {
@@ -4034,7 +4178,7 @@ main.is-messenger-page {
   background: hsl(38 92% 55% / 0.12);
   font-size: 12px;
   line-height: 1.45;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 
 /* ── Notes: mobile-friendly key import panel ── */
@@ -4091,7 +4235,7 @@ main.is-messenger-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: hsl(var(--background) / 0.55);
+  background: oklch(var(--background) / 0.55);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   pointer-events: none;
@@ -4104,10 +4248,10 @@ main.is-messenger-page {
   align-items: center;
   gap: 10px;
   padding: 30px 48px;
-  border: 1.5px dashed hsl(var(--primary) / 0.55);
+  border: 1.5px dashed oklch(var(--primary) / 0.55);
   border-radius: 20px;
-  background: hsl(var(--card));
-  box-shadow: 0 14px 44px hsl(var(--foreground) / 0.14);
+  background: oklch(var(--card));
+  box-shadow: 0 14px 44px oklch(var(--foreground) / 0.14);
   animation: chat-drop-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
   box-sizing: border-box;
   max-width: calc(100vw - 32px);
@@ -4120,21 +4264,21 @@ main.is-messenger-page {
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  color: hsl(var(--primary-foreground));
-  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.72));
-  box-shadow: 0 8px 22px hsl(var(--primary) / 0.35);
+  color: oklch(var(--primary-foreground));
+  background: linear-gradient(135deg, oklch(var(--primary)), oklch(var(--primary) / 0.72));
+  box-shadow: 0 8px 22px oklch(var(--primary) / 0.35);
 }
 
 .chat-drop-card-title {
   font-size: 15px;
   font-weight: 700;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
   text-align: center;
 }
 
 .chat-drop-card-sub {
   font-size: 12.5px;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   text-align: center;
 }
 
@@ -4160,17 +4304,17 @@ main.is-messenger-page {
   min-width: 0;
   box-sizing: border-box;
   padding: 10px 12px;
-  border: 1px solid hsl(var(--border) / 0.8);
+  border: 1px solid oklch(var(--border) / 0.8);
   border-radius: 12px;
-  background: hsl(var(--card) / 0.6);
+  background: oklch(var(--card) / 0.6);
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s ease, background-color 0.15s ease;
   font: inherit;
 }
 .msg-share-card:hover {
-  border-color: hsl(var(--primary) / 0.45);
-  background: hsl(var(--card));
+  border-color: oklch(var(--primary) / 0.45);
+  background: oklch(var(--card));
 }
 .msg-share-card:disabled {
   cursor: default;
@@ -4187,7 +4331,7 @@ main.is-messenger-page {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: hsl(var(--primary));
+  color: oklch(var(--primary));
 }
 .msg-share-card-label {
   flex: 1;
@@ -4199,11 +4343,11 @@ main.is-messenger-page {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 .msg-share-card-arrow {
   flex-shrink: 0;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
 }
 
 .msg-share-card-author {
@@ -4225,8 +4369,8 @@ main.is-messenger-page {
   justify-content: center;
   font-size: 9px;
   font-weight: 700;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  background: oklch(var(--muted));
+  color: oklch(var(--muted-foreground));
 }
 .msg-share-card-username {
   min-width: 0;
@@ -4235,19 +4379,19 @@ main.is-messenger-page {
   white-space: nowrap;
   font-size: 12px;
   font-weight: 600;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 
 .msg-share-card-title {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.3;
-  color: hsl(var(--foreground));
+  color: oklch(var(--foreground));
 }
 .msg-share-card-text {
   font-size: 12.5px;
   line-height: 1.45;
-  color: hsl(var(--muted-foreground));
+  color: oklch(var(--muted-foreground));
   overflow-wrap: break-word;
 }
 
@@ -4257,7 +4401,7 @@ main.is-messenger-page {
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: 8px;
-  background: hsl(var(--muted) / 0.5);
+  background: oklch(var(--muted) / 0.5);
 }
 .msg-share-card-image img {
   display: block;
@@ -4269,7 +4413,7 @@ main.is-messenger-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: hsl(var(--muted-foreground) / 0.7);
+  color: oklch(var(--muted-foreground) / 0.7);
 }
 
 .msg-share-card-muted {

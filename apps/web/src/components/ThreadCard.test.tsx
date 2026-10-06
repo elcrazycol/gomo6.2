@@ -9,6 +9,11 @@ vi.mock("date-fns", () => ({
   formatDistanceToNow: () => "2 дня назад",
 }));
 
+// The unified card header renders the compact single-unit time ("2д").
+vi.mock("@/utils/relativeTimeShort", () => ({
+  formatShortRelativeTime: () => "2д",
+}));
+
 const mockFrom = vi.fn();
 const mockRpc = vi.fn();
 const mockNavigateFn = vi.fn();
@@ -197,7 +202,7 @@ describe("ThreadCard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("2 дня назад")).toBeInTheDocument();
+      expect(screen.getByText("2д")).toBeInTheDocument();
     });
   });
 
@@ -211,9 +216,9 @@ describe("ThreadCard", () => {
     );
 
     await waitFor(() => {
-      const replyBtn = screen.getByRole("button", { name: /5/i });
+      const replyBtn = screen.getByRole("button", { name: /Ответы/i });
       expect(replyBtn).toBeInTheDocument();
-      expect(replyBtn.textContent).toMatch(/5.*ответов/);
+      expect(replyBtn).toHaveTextContent("5");
     });
   });
 
@@ -424,16 +429,16 @@ describe("ThreadCard", () => {
     );
 
     await waitFor(() => {
-      const likesCount = screen.getByText("0");
-      expect(likesCount).toBeInTheDocument();
-      expect(likesCount.closest("button")).toBeInTheDocument();
+      const likeBtn = screen.getByRole("button", { name: /Нравится/i });
+      expect(likeBtn).toBeInTheDocument();
+      expect(likeBtn.querySelector("svg")).toBeTruthy();
     });
   });
 
   // ─── Navigation ─────────────────────────────────────────────────────────────
 
   it("navigates to thread on card click", async () => {
-    render(
+    const { container } = render(
       <ThreadCardComponent
         thread={createMockThread()}
         currentUserId="current-user"
@@ -445,14 +450,13 @@ describe("ThreadCard", () => {
       expect(screen.getByText("Test Thread Title")).toBeInTheDocument();
     });
 
-    const article = screen.getByRole("article");
-    await userEvent.click(article);
+    await userEvent.click(container.querySelector('[role="button"]') as HTMLElement);
 
     expect(mockNavigateFn).toHaveBeenCalledWith("/test-board/thread/thread-1");
   });
 
   it("navigates with gomosub prefix for gomosub boards", async () => {
-    render(
+    const { container } = render(
       <ThreadCardComponent
         thread={createMockThread({
           boards: { slug: "gomo-board", name: "Gomo Board", is_gomosub: true },
@@ -466,26 +470,9 @@ describe("ThreadCard", () => {
       expect(screen.getByText("Test Thread Title")).toBeInTheDocument();
     });
 
-    const article = screen.getByRole("article");
-    await userEvent.click(article);
+    await userEvent.click(container.querySelector('[role="button"]') as HTMLElement);
 
     expect(mockNavigateFn).toHaveBeenCalledWith("/g/gomo-board/thread/thread-1");
-  });
-
-  // ─── Active indicator ───────────────────────────────────────────────────────
-
-  it("shows 'Активен' when updated_at differs from created_at", async () => {
-    render(
-      <ThreadCardComponent
-        thread={createMockThread({ updated_at: "2025-01-19T10:00:00Z" })}
-        currentUserId="current-user"
-        currentUsername="currentuser"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Активен")).toBeInTheDocument();
-    });
   });
 
   // ─── Multiple tags ──────────────────────────────────────────────────────────

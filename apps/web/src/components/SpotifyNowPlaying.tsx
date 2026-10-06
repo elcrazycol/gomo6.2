@@ -105,7 +105,7 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
       : 0;
 
   return (
-    <div className="bg-card border border-border rounded-lg p-3 space-y-3">
+    <div className="bg-surface border border-border rounded-lg p-3 space-y-3">
       {/* Header */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Disc3 className="h-3.5 w-3.5 text-[#1DB954] animate-pulse" />

@@ -1,6 +1,14 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Footer } from "./Footer";
+
+const renderFooter = () =>
+  render(
+    <MemoryRouter>
+      <Footer />
+    </MemoryRouter>,
+  );
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -11,7 +19,7 @@ describe("Footer", () => {
     vi.stubEnv("VITE_APP_VERSION", "2.0.0");
     vi.stubEnv("VITE_GIT_COMMIT", "deadbeefcafe1234");
 
-    render(<Footer />);
+    renderFooter();
 
     expect(screen.getByText("v2.0.0")).toBeInTheDocument();
     expect(screen.getByTitle("Deployed commit: deadbeefcafe1234")).toBeInTheDocument();
@@ -22,9 +30,23 @@ describe("Footer", () => {
     vi.stubEnv("VITE_APP_VERSION", "unknown");
     vi.stubEnv("VITE_GIT_COMMIT", "unknown");
 
-    render(<Footer />);
+    renderFooter();
 
     expect(screen.queryByText(/v\d/)).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Deployed commit/)).not.toBeInTheDocument();
+  });
+
+  it("links to the legal documents", () => {
+    vi.stubEnv("VITE_APP_VERSION", "unknown");
+    vi.stubEnv("VITE_GIT_COMMIT", "unknown");
+
+    renderFooter();
+
+    expect(screen.getByRole("link", { name: "Соглашение" })).toHaveAttribute("href", "/legal/terms");
+    expect(screen.getByRole("link", { name: "Конфиденциальность" })).toHaveAttribute(
+      "href",
+      "/legal/privacy",
+    );
+    expect(screen.getByRole("link", { name: "Правила" })).toHaveAttribute("href", "/legal/rules");
   });
 });

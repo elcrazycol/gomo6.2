@@ -10,9 +10,10 @@ import (
 func (s *Service) EmitPostsAchievements(result map[string]interface{}) {
 	e := s.achEngine
 	if uid := profiles.RowUserID(result["author_id"]); uid != "" {
-		achievements.EmitAchievement(e, uid, achievements.EventEntryCreated)
+		postID := crud.WallResultString(result["id"])
+		achievements.EmitAchievementTarget(e, uid, achievements.EventEntryCreated, "wall_post", postID)
 		if postHasImage(result) {
-			achievements.EmitAchievement(e, uid, achievements.EventImageUploaded)
+			achievements.EmitAchievementTarget(e, uid, achievements.EventImageUploaded, "wall_post", postID)
 		}
 	}
 }
@@ -21,7 +22,7 @@ func (s *Service) EmitPostsAchievements(result map[string]interface{}) {
 func (s *Service) EmitPostCommentsAchievements(result map[string]interface{}) {
 	e := s.achEngine
 	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
-		achievements.EmitAchievement(e, uid, achievements.EventCommentCreated)
+		achievements.EmitAchievementTarget(e, uid, achievements.EventCommentCreated, "wall_comment", crud.WallResultString(result["id"]))
 	}
 }
 
@@ -29,13 +30,14 @@ func (s *Service) EmitPostCommentsAchievements(result map[string]interface{}) {
 // wall-post like write.
 func (s *Service) EmitPostLikesAchievements(result map[string]interface{}) {
 	e := s.achEngine
+	postID := crud.WallResultString(result["post_id"])
 	if liker := profiles.RowUserID(result["user_id"]); liker != "" {
-		achievements.EmitAchievement(e, liker, achievements.EventLikeGiven)
+		achievements.EmitAchievementTarget(e, liker, achievements.EventLikeGiven, "wall_post", postID)
 	}
-	if postID := crud.WallResultString(result["post_id"]); postID != "" {
+	if postID != "" {
 		var authorID string
 		_ = s.db.QueryRow("SELECT author_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&authorID)
-		achievements.EmitAchievement(e, authorID, achievements.EventLikeReceived)
+		achievements.EmitAchievementTarget(e, authorID, achievements.EventLikeReceived, "wall_post", postID)
 	}
 }
 
@@ -43,13 +45,14 @@ func (s *Service) EmitPostLikesAchievements(result map[string]interface{}) {
 // wall-comment like write.
 func (s *Service) EmitCommentLikesAchievements(result map[string]interface{}) {
 	e := s.achEngine
+	commentID := crud.WallResultString(result["comment_id"])
 	if liker := profiles.RowUserID(result["user_id"]); liker != "" {
-		achievements.EmitAchievement(e, liker, achievements.EventLikeGiven)
+		achievements.EmitAchievementTarget(e, liker, achievements.EventLikeGiven, "wall_comment", commentID)
 	}
-	if commentID := crud.WallResultString(result["comment_id"]); commentID != "" {
+	if commentID != "" {
 		var authorID string
 		_ = s.db.QueryRow("SELECT user_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&authorID)
-		achievements.EmitAchievement(e, authorID, achievements.EventLikeReceived)
+		achievements.EmitAchievementTarget(e, authorID, achievements.EventLikeReceived, "wall_comment", commentID)
 	}
 }
 
@@ -57,7 +60,7 @@ func (s *Service) EmitCommentLikesAchievements(result map[string]interface{}) {
 func (s *Service) EmitPostRepostsAchievements(result map[string]interface{}) {
 	e := s.achEngine
 	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
-		achievements.EmitAchievement(e, uid, achievements.EventRepostCreated)
+		achievements.EmitAchievementTarget(e, uid, achievements.EventRepostCreated, "wall_post", crud.WallResultString(result["id"]))
 	}
 }
 

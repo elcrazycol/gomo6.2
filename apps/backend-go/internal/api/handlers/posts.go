@@ -15,20 +15,26 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/moderation"
 	"github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type PostsHandler struct {
-	db    *sql.DB
-	redis *redis.Client
+	db            *sql.DB
+	redis         *redis.Client
+	searchIndexer *search.Indexer
 }
 
 // NewPostsHandler creates a new PostsHandler
 func NewPostsHandler(db *sql.DB) *PostsHandler {
 	return &PostsHandler{db: db}
 }
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *PostsHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
 
 // SetRedis sets the Redis client for cache invalidation
 func (h *PostsHandler) SetRedis(redis *redis.Client) {
@@ -55,7 +61,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	baseSelect := `
 		p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
-		u.username, u.nickname_emoji_id, u.avatar_url
+		u.username, u.public_id, u.nickname_emoji_id, u.avatar_url
 	`
 
 	// H1 (security audit): posts must inherit the visibility of their parent
@@ -162,7 +168,10 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	if viewerID != "" {
 		p1 := strconv.Itoa(len(args) + 1)
 		p2 := strconv.Itoa(len(args) + 2)
-		boardCond := "(b.visibility != 'private' OR b.owner_id::text = $" + p1 +
+		// COALESCE keeps board-less (global) topics visible: their b.visibility is
+		// NULL, and `NULL != 'private'` is NULL (not true), which silently hid
+		// every reply to a global topic from everyone.
+		boardCond := "(COALESCE(b.visibility, 'public') != 'private' OR b.owner_id::text = $" + p1 +
 			" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $" + p2 + "))"
 		channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $" + p1 +
 			" OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $" + p2 + "))"
@@ -170,7 +179,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		args = append(args, viewerID, viewerID)
 	} else {
 		conditions = append(conditions,
-			"b.visibility != 'private'",
+			"COALESCE(b.visibility, 'public') != 'private'",
 			"(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false)")
 	}
 	// Apply WHERE conditions to non-latest query.
@@ -315,13 +324,14 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	for rows.Next() {
 		var post models.Post
 		var username, nicknameEmojiID, avatarURL sql.NullString
+		var userPublicID *int64
 		var contentJSON []byte
 
 		err := rows.Scan(
 			&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 			&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 			&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
-			&username, &nicknameEmojiID, &avatarURL,
+			&username, &userPublicID, &nicknameEmojiID, &avatarURL,
 		)
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
@@ -330,6 +340,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		if username.Valid {
 			post.Username = username.String
 		}
+		post.UserPublicID = userPublicID
 		if nicknameEmojiID.Valid {
 			post.NicknameEmojiID = &nicknameEmojiID.String
 		}
@@ -386,17 +397,17 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	// threads.go GetThread: owner or gomosub member may read; guests and
 	// non-members cannot. The ::text casts keep the empty anonymous viewerID
 	// from tripping the uuid type.
-	visibilityCond := "b.visibility != 'private'"
+	visibilityCond := "COALESCE(b.visibility, 'public') != 'private'"
 	channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false)"
 	if viewerID != "" {
-		visibilityCond = "(b.visibility != 'private' OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $3))"
+		visibilityCond = "(COALESCE(b.visibility, 'public') != 'private' OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $3))"
 		channelCond = "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $3 OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $3))"
 	}
 
 	query := `
 		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
-		       u.username, u.nickname_emoji_id, u.avatar_url
+		       u.username, u.public_id, u.nickname_emoji_id, u.avatar_url
 		FROM posts p
 		LEFT JOIN users u ON p.user_id = u.id
 		LEFT JOIN threads t ON p.thread_id = t.id
@@ -409,6 +420,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	`
 
 	var post models.Post
+	var userPublicID *int64
 	var username, nicknameEmojiID, avatarURL sql.NullString
 	var contentJSON []byte
 
@@ -421,7 +433,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
-		&username, &nicknameEmojiID, &avatarURL,
+		&username, &userPublicID, &nicknameEmojiID, &avatarURL,
 	)
 
 	if err != nil {
@@ -435,6 +447,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	if username.Valid {
 		post.Username = username.String
 	}
+	post.UserPublicID = userPublicID
 	if nicknameEmojiID.Valid {
 		post.NicknameEmojiID = &nicknameEmojiID.String
 	}
@@ -542,6 +555,10 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		return
 	}
 
+	// Polymorphic reports have no FK cascade — drop this post's reports
+	// explicitly so they cannot linger as orphan queue rows.
+	_ = moderation.PurgeReportsForTarget(c.Request.Context(), h.db, moderation.TargetPost, id)
+
 	_, _ = h.db.Exec(`
 		UPDATE threads SET post_count = GREATEST(0, post_count - 1), updated_at = NOW() WHERE id = $1
 	`, threadID)
@@ -565,6 +582,9 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		// Posts bump threads in the unified feed — deletion does the opposite.
 		cache.InvalidateCacheForFeed(h.redis)
 	}
+
+	// The post row is gone — the indexer drops the document.
+	h.searchIndexer.SyncPost(id)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
@@ -654,6 +674,9 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 	if h.redis != nil {
 		cache.InvalidateCacheForPost(h.redis, post.ID, post.ThreadID)
 	}
+
+	// Content changed — refresh the search document.
+	h.searchIndexer.SyncPost(post.ID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(post))
 }

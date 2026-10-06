@@ -11,21 +11,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ThreadCard } from "@/components/ThreadCard";
 import { Loader2, Plus, UserPlus, UserCheck, Flame, Compass } from "lucide-react";
 import { toast } from "sonner";
-
-type GomoSub = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  cover_image_url?: string | null;
-  created_at: string;
-};
+import { useCachedQuery } from "@/hooks/useCachedQuery";
+import {
+  fetchPublicGomoSubs,
+  GOMOSUBS_LIST_KEY,
+  GOMOSUBS_STALE_MS,
+  GOMOSUBS_TTL_MS,
+  type GomoSub,
+} from "@/routes/data/gomosubData";
 
 const GomoSubs = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<{ garma: number; username?: string | null; created_at?: string } | null>(null);
-  const [subs, setSubs] = useState<GomoSub[]>([]);
-  const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [joinedSubIds, setJoinedSubIds] = useState<Set<string>>(new Set());
   const [membersBySub, setMembersBySub] = useState<Record<string, number>>({});
@@ -34,6 +31,17 @@ const GomoSubs = () => {
   const [feedLikesMap, setFeedLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
   const [myFeedLoading, setMyFeedLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "my-feed">("all");
+
+  // SWR: instant on a warm cache, background revalidation otherwise. The list
+  // is global and rarely changes; keeping it for 30 min stale means returning
+  // to /g is instant while a fresh copy lands.
+  const { data: subsData, error: subsError } = useCachedQuery<GomoSub[]>(
+    GOMOSUBS_LIST_KEY,
+    fetchPublicGomoSubs,
+    { ttlMs: GOMOSUBS_TTL_MS, staleTtlMs: GOMOSUBS_STALE_MS },
+  );
+  const subs = useMemo(() => subsData ?? [], [subsData]);
+  const loading = subsData === undefined && !subsError;
 
   const _canCreate = useMemo(() => {
     const garmaOk = (profile?.garma ?? 0) >= 10;
@@ -49,78 +57,74 @@ const GomoSubs = () => {
   );
   const randomSubs = useMemo(() => [...subs].sort(() => Math.random() - 0.5).slice(0, 3), [subs]);
 
+  // Auth + own profile (once per mount).
   useEffect(() => {
     const load = async () => {
-      setLoading(true);
-      try {
-        const { data: { session } } = await api.auth.getSession();
-        setUserId(session?.user?.id ?? null);
+      const { data: { session } } = await api.auth.getSession();
+      setUserId(session?.user?.id ?? null);
 
-        if (session?.user) {
-          const { data: profileData } = await api
-            .from("profiles")
-            .select("garma, username, created_at")
-            .eq("id", session.user.id)
-            .single();
-          if (profileData) {
-            setProfile({ garma: ((profileData as Record<string, unknown>).garma as number) ?? 0, username: (profileData as Record<string, unknown>).username as string | null, created_at: (profileData as Record<string, unknown>).created_at as string | undefined });
-          }
+      if (session?.user) {
+        const { data: profileData } = await api
+          .from("profiles")
+          .select("garma, username, created_at")
+          .eq("id", session.user.id)
+          .single();
+        if (profileData) {
+          setProfile({ garma: ((profileData as Record<string, unknown>).garma as number) ?? 0, username: (profileData as Record<string, unknown>).username as string | null, created_at: (profileData as Record<string, unknown>).created_at as string | undefined });
         }
-
-        const { data } = await api
-          .from("boards")
-          .select(`
-          id,
-          slug,
-          name,
-          description,
-          cover_image_url,
-          created_at,
-          visibility
-        `)
-          .eq("is_gomosub", true)
-          .eq("visibility", "public")
-          .order("created_at", { ascending: false });
-
-        const loadedSubs = (data as GomoSub[]) ?? [];
-        setSubs(loadedSubs);
-
-        if (loadedSubs.length > 0) {
-          const countResults = await Promise.all(
-            loadedSubs.map(async (sub) => {
-              const { count } = await api
-                .from("gomosub_memberships")
-                .select("*", { count: "exact", head: true })
-                .eq("board_id", sub.id);
-              return { boardId: sub.id, count: count ?? 0 };
-            })
-          );
-
-          const nextCounts: Record<string, number> = {};
-          countResults.forEach((item) => {
-            nextCounts[item.boardId] = item.count;
-          });
-          setMembersBySub(nextCounts);
-        }
-
-        if (session?.user && loadedSubs.length > 0) {
-          const { data: memberships } = await api
-            .from("gomosub_memberships")
-            .select("board_id")
-            .eq("user_id", session.user.id)
-            .in("board_id", loadedSubs.map((sub) => sub.id));
-
-          setJoinedSubIds(new Set((memberships ?? []).map((m: { board_id: string }) => m.board_id)));
-        } else {
-          setJoinedSubIds(new Set());
-        }
-      } finally {
-        setLoading(false);
       }
     };
 
     load();
   }, []);
+
+  // Member counts + the viewer's memberships; re-runs when the catalogue
+  // changes (including a background SWR revalidation).
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      if (subs.length === 0) {
+        setMembersBySub({});
+        setJoinedSubIds(new Set());
+        return;
+      }
+
+      const countResults = await Promise.all(
+        subs.map(async (sub) => {
+          const { count } = await api
+            .from("gomosub_memberships")
+            .select("*", { count: "exact", head: true })
+            .eq("board_id", sub.id);
+          return { boardId: sub.id, count: count ?? 0 };
+        })
+      );
+      if (cancelled) return;
+
+      const nextCounts: Record<string, number> = {};
+      countResults.forEach((item) => {
+        nextCounts[item.boardId] = item.count;
+      });
+      setMembersBySub(nextCounts);
+
+      if (userId) {
+        const { data: memberships } = await api
+          .from("gomosub_memberships")
+          .select("board_id")
+          .eq("user_id", userId)
+          .in("board_id", subs.map((sub) => sub.id));
+        if (cancelled) return;
+        setJoinedSubIds(new Set((memberships ?? []).map((m: { board_id: string }) => m.board_id)));
+      } else {
+        setJoinedSubIds(new Set());
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [subs, userId]);
 
   useEffect(() => {
     const loadMyFeed = async () => {

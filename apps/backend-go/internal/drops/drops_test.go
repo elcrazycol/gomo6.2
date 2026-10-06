@@ -7,8 +7,10 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -451,7 +453,7 @@ func TestManualVerify_RequiresAdmin(t *testing.T) {
 	claims := &auth.Claims{UserID: "user-123"}
 
 	// C2: manual crediting is an admin action — a regular user gets 403.
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role = 'admin'`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
 		WithArgs("user-123").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -467,7 +469,7 @@ func TestManualVerify_MissingFields(t *testing.T) {
 	handler, mock := setupDropsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role = 'admin'`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
 		WithArgs("user-123").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -536,5 +538,90 @@ func TestSearchUsers_EmptyQuery(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+// TestManualVerify_LedgerFailureAbortsTx guards the money path: if recording
+// the transaction fails, the whole credit must roll back — a committed balance
+// change with no ledger row is unaccountable.
+func TestManualVerify_LedgerFailureAbortsTx(t *testing.T) {
+	handler, mock := setupDropsHandler(t)
+	claims := &auth.Claims{UserID: "user-123"}
+
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
+		WithArgs("user-123").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM drops_transactions WHERE tx_hash = \$1\)`).
+		WithArgs("0xabc").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`SELECT drops_amount FROM drops_pending`).
+		WithArgs("user-123").
+		WillReturnRows(sqlmock.NewRows([]string{"drops_amount"}).AddRow(100))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE users SET drops`).
+		WithArgs(100, "user-123").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT COALESCE\(drops, 0\) FROM users`).
+		WithArgs("user-123").
+		WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(100))
+	mock.ExpectExec(`INSERT INTO drops_transactions`).
+		WillReturnError(errors.New("ledger down"))
+	mock.ExpectRollback()
+
+	c, w := testutil.NewPOSTContext("/api/v1/drops/manual-verify", map[string]interface{}{
+		"tx_hash":    "0xabc",
+		"blockchain": "ethereum",
+	}, claims, nil)
+	handler.ManualVerify(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d, body: %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); strings.Contains(body, "ledger down") {
+		t.Fatalf("raw DB error leaked to client: %s", body)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations (transaction not rolled back?): %v", err)
+	}
+}
+
+// TestManualVerify_SuccessCommits guards the happy path after the error checks.
+func TestManualVerify_SuccessCommits(t *testing.T) {
+	handler, mock := setupDropsHandler(t)
+	claims := &auth.Claims{UserID: "user-123"}
+
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role = 'admin'\)`).
+		WithArgs("user-123").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM drops_transactions WHERE tx_hash = \$1\)`).
+		WithArgs("0xabc").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`SELECT drops_amount FROM drops_pending`).
+		WithArgs("user-123").
+		WillReturnRows(sqlmock.NewRows([]string{"drops_amount"}).AddRow(100))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE users SET drops`).WithArgs(100, "user-123").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT COALESCE\(drops, 0\) FROM users`).WithArgs("user-123").
+		WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(100))
+	mock.ExpectExec(`INSERT INTO drops_transactions`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE drops_pending`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	c, w := testutil.NewPOSTContext("/api/v1/drops/manual-verify", map[string]interface{}{
+		"tx_hash":    "0xabc",
+		"blockchain": "ethereum",
+	}, claims, nil)
+	handler.ManualVerify(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }

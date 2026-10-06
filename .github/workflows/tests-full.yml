@@ -1,0 +1,245 @@
+# =============================================================================
+# tests-full.yml — тяжёлые тесты: race + настоящие Postgres/Redis + e2e.
+# =============================================================================
+# Почему отдельным воркфлоу: это минуты, а не секунды. На PR такой набор гонять
+# дорого, а ценность его — в регулярности, поэтому ночью по расписанию.
+#
+# Триггеры:
+#   schedule          — каждую ночь в 06:00 UTC
+#   workflow_dispatch — руками (можно указать ref)
+#
+# Что внутри:
+#   backend-race — go test -race против настоящих Postgres 17 и Redis 7,
+#                  поверх схемы, накатанной из apps/backend-go/migrations;
+#   smoke        — поднимается весь docker compose стек и прогоняется
+#                  scripts/e2e-smoke.sh (register → upload → board → thread →
+#                  post → like);
+#   privacy      — тот же стек + scripts/e2e-privacy-wall.sh (REST + WS + media).
+#
+# Раннер: GitHub-hosted ubuntu-latest. Стек поднимается в докере самого раннера,
+# наружу ничего не публикуется (compose слушает localhost).
+# =============================================================================
+
+name: Full Tests
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ветка / тег / commit SHA'
+        required: false
+        default: main
+
+concurrency:
+  group: full-tests
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Go с race-детектором против живой БД.
+  # ---------------------------------------------------------------------------
+  backend-race:
+    name: Go · race · Postgres + Redis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/backend-go
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: gomo6
+          POSTGRES_DB: gomo6
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/backend-go/go.mod
+          cache-dependency-path: apps/backend-go/go.sum
+
+      # Накатываем миграции сами: в старом CI глоб был `0*.sql`, то есть файлы
+      # с 100-го по 131-й (их 32) не применялись вообще, и тесты бегали на
+      # неполной схеме. `sort -V` — чтобы порядок не поехал на смешанных префиксах.
+      - name: Apply migrations to test DB
+        env:
+          PGHOST: localhost
+          PGUSER: gomo6
+          PGDATABASE: gomo6
+        run: |
+          set -euo pipefail
+          applied=0
+          while IFS= read -r f; do
+            psql -q -v ON_ERROR_STOP=1 < "$f"
+            applied=$((applied + 1))
+          done < <(printf '%s\n' migrations/*.sql | sort -V)
+          echo "Применено миграций: $applied"
+
+      - name: Test with race detector
+        env:
+          DATABASE_URL_TEST: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+        run: go test -race -count=1 ./...
+
+      - name: Coverage report
+        env:
+          DATABASE_URL_TEST: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          go test -covermode=atomic -coverprofile=coverage.out -count=1 ./...
+          go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: apps/backend-go/coverage.out
+          flags: backend
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend-full
+          path: apps/backend-go/coverage.out
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # E2E. Общий каркас вынесен в отдельный job-шаблон через yaml anchors не
+  # сделаешь (у Actions нет реюз-степов), поэтому подготовка стека дублируется:
+  # два независимых сценария на своих раннерах, каждый со своим стеком.
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: E2E · smoke (register → upload → post → like)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+
+      # .env собирается из .env.example: generate-keys.sh досоздаёт JWT_SECRET,
+      # FEDERATION_KEY, пароли Postgres/Redis и MEILI_MASTER_KEY (его требует
+      # новый сервис meilisearch, без ключа compose вообще не поднимется).
+      - name: Prepare local secrets and Garage config
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          bash scripts/generate-keys.sh --quiet .env
+          bash scripts/generate-garage-config.sh .env
+
+      - name: Start all services
+        run: |
+          set -euo pipefail
+          docker compose down -v 2>/dev/null || true
+          docker compose up -d --wait --build
+          # Запас на миграции и бакеты Garage.
+          sleep 15
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost/health; then
+              echo "Health OK"
+              exit 0
+            fi
+            echo "Ждём backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend не поднялся"; exit 1
+
+      - name: Run E2E smoke test
+        run: bash scripts/e2e-smoke.sh http://localhost
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          echo "=== Backend ===";   docker compose logs --tail=150 backend
+          echo "=== Garage ===";    docker compose logs --tail=50 garage garage-init
+          echo "=== Meili ===";     docker compose logs --tail=50 meilisearch
+          echo "=== Caddy ===";     docker compose logs --tail=50 caddy
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
+
+  privacy:
+    name: E2E · privacy wall (REST + WS + media)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+
+      - name: Prepare local secrets and Garage config
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          bash scripts/generate-keys.sh --quiet .env
+          bash scripts/generate-garage-config.sh .env
+
+      - name: Start all services
+        run: |
+          set -euo pipefail
+          docker compose down -v 2>/dev/null || true
+          docker compose up -d --wait --build
+          sleep 15
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost/health; then
+              echo "Health OK"
+              exit 0
+            fi
+            echo "Ждём backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend не поднялся"; exit 1
+
+      - name: Run privacy wall E2E
+        run: bash scripts/e2e-privacy-wall.sh http://localhost
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          echo "=== Backend ===";   docker compose logs --tail=150 backend
+          echo "=== Garage ===";    docker compose logs --tail=50 garage garage-init
+          echo "=== Meili ===";     docker compose logs --tail=50 meilisearch
+          echo "=== Caddy ===";     docker compose logs --tail=50 caddy
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v

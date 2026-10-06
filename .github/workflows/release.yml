@@ -1,0 +1,69 @@
+# =============================================================================
+# release.yml — GitHub Release по тегу.
+# =============================================================================
+# Триггер: push аннотированного тега vX.Y.Z.
+#
+# ЧЕГО ЗДЕСЬ СОЗНАТЕЛЬНО НЕТ: этот воркфлоу НЕ правит CHANGELOG.md. Текст
+# релиза берётся из секции, которую уже написал ритуал релиза (CONTRIBUTING.md:
+# бамп VERSION → `## [X.Y.Z] — дата` в CHANGELOG → аннотированный тег). Одно
+# место правды: если бы воркфлоу генерировал секцию сам, в CHANGELOG попадали
+# бы две записи на одну версию — написанная руками и сгенерированная.
+#
+# Образы здесь тоже не собираются: deploy.yml собирает их на каждый push в main
+# и вешает три тега — :latest, :vX.Y.Z и :sha-<commit>. Git-тег нужен только
+# ради Release, версия в образе берётся из файла VERSION.
+#
+# Требуется: переменная PRIMARY_FORGE=github. До переезда job пропускается,
+# чтобы main на GitHub и на Codeberg не разъезжались.
+#
+# Права: contents: write — иначе Release не создать.
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: GitHub Release
+    if: vars.PRIMARY_FORGE == 'github'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          OUT="$RUNNER_TEMP/release-body.md"
+
+          # Берём секцию от `## [VER]` до следующего заголовка версии. awk, а не
+          # sed: нужен выход по второму `## [`. Скобка в шаблоне обязательна —
+          # иначе `## [2.16.0]` совпал бы с `## [2.16.01]`.
+          awk -v ver="$VER" '
+            index($0, "## [" ver "]") == 1 { found = 1; next }
+            found && index($0, "## [") == 1 { exit }
+            found { print }
+          ' CHANGELOG.md > "$OUT"
+
+          if [ ! -s "$OUT" ]; then
+            echo "::warning::В CHANGELOG.md нет секции ## [$VER]"
+            echo "Секция для $VER не найдена в CHANGELOG.md — добавьте её ритуалом релиза." > "$OUT"
+          fi
+
+          echo "--- тело релиза ---"
+          cat "$OUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ runner.temp }}/release-body.md
+          generate_release_notes: false

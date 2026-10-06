@@ -95,7 +95,7 @@ export default function Wallet() {
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
       {/* Balance Card */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="bg-surface border border-border rounded-xl p-6">
         <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
           <Droplets className="w-4 h-4" />
           Баланс

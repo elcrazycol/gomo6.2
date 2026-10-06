@@ -8,6 +8,7 @@ export interface LocaleResources {
   nav: Record<string, string>;
   auth: Record<string, string>;
   settings: Record<string, string>;
+  settings2: Record<string, string>;
   time: Record<string, string>;
   notif: Record<string, string>;
   notifTypes: Record<string, string>;

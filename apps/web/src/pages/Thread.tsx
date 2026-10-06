@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
@@ -25,13 +26,20 @@ import { ProcessedContent } from "@/components/ProcessedContent";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { recordContentView } from "@/utils/viewHistory";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import type { Thread as ThreadModel } from "@/types/forum";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components/editor/media/mediaSchema";
+import { PostCover } from "@/components/wall/PostCover";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { ThreadCommentTree } from "@/components/thread/ThreadCommentTree";
+import { SectionIcon } from "@/components/topic/sectionIcons";
 import type { AttachmentMeta } from "@/types/forum";
+import { entityParam } from "@/utils/entityUrl";
 
 interface ThreadWithExtras extends ThreadModel {
   content_json?: unknown;
@@ -43,6 +51,8 @@ interface ThreadWithExtras extends ThreadModel {
   nickname_emoji_id?: string | null;
   avatar_url?: string;
   tags?: { content?: string; format?: string; atmosphere?: string; flag?: string };
+  section?: { id: string; slug: string; name: string; icon?: string | null; is_nsfw: boolean } | null;
+  subsection?: { id: string; slug: string; name: string } | null;
 }
 
 // Record a thread visit at most once per browser session. The backend upsert
@@ -90,6 +100,9 @@ const Thread = () => {
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
+  // g-sub threads live under /g/<sub>/... ; global topics under /thread/<id>.
+  const boardBasePath = slug ? `${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}` : "";
+  const threadPath = boardBasePath || `/thread/${threadId}`;
   // Set when the thread opened by tapping a feed video — autoplays the clip.
   const autoplayVideo = Boolean((location.state as { autoplayVideo?: boolean } | null)?.autoplayVideo);
   const navigate = useNavigate();
@@ -114,7 +127,19 @@ const Thread = () => {
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
 
-  const { data: isSubscribed = false } = useThreadSubscription(threadId, user?.id);
+  // The route parameter is a public number on new links and a UUID on old ones.
+  // The thread query accepts both, but every downstream write/read (polls,
+  // subscriptions, history, edit/delete, the comment tree) needs the canonical
+  // UUID — so the loaded row's id is what gets passed around.
+  const resolvedThreadId = thread?.id ?? "";
+
+  const { data: isSubscribed = false } = useThreadSubscription(resolvedThreadId, user?.id);
+
+  // Record the open in the viewer's «История» (once the id + viewer are known).
+  useEffect(() => {
+    if (!resolvedThreadId || !user?.id) return;
+    recordContentView("thread", resolvedThreadId);
+  }, [resolvedThreadId, user?.id]);
 
   // Sync the visible post count with the loaded thread + live changes.
   useEffect(() => {
@@ -144,14 +169,14 @@ const Thread = () => {
 
   // Load poll data + record a visit when the thread is loaded.
   useEffect(() => {
-    if (!thread?.id || !threadId) return;
+    if (!resolvedThreadId) return;
 
     const loadPollData = async () => {
       try {
         const token = (await api.auth.getSession()).data.session?.access_token;
         const headers = token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : undefined;
 
-        const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${threadId}`);
+        const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${resolvedThreadId}`);
         const pollResult = await pollRes.json();
         const poll = pollResult.data?.[0];
 
@@ -189,7 +214,7 @@ const Thread = () => {
     };
 
     loadPollData();
-  }, [thread, threadId, user]);
+  }, [thread, resolvedThreadId, user]);
 
   const toggleSubscription = async () => {
     if (!user) {
@@ -200,7 +225,7 @@ const Thread = () => {
     const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
     if (isSubscribed) {
-      const res = await fetch(`/api/v1/thread_subscriptions?user_id=eq.${user.id}&thread_id=eq.${threadId}`, {
+      const res = await fetch(`/api/v1/thread_subscriptions?user_id=eq.${user.id}&thread_id=eq.${resolvedThreadId}`, {
         method: "DELETE",
         headers,
       });
@@ -209,7 +234,7 @@ const Thread = () => {
       const res = await fetch("/api/v1/thread_subscriptions", {
         method: "POST",
         headers,
-        body: JSON.stringify({ user_id: user.id, thread_id: threadId }),
+        body: JSON.stringify({ user_id: user.id, thread_id: resolvedThreadId }),
       });
       if (res.ok) toast.success(t("thread.subscribed"));
     }
@@ -224,10 +249,10 @@ const Thread = () => {
   };
 
   const handleEditThread = async () => {
-    if (!editContent.trim() || !threadId) return;
+    if (!editContent.trim() || !resolvedThreadId) return;
     try {
       const headers = await authHeaders();
-      const res = await fetch(`/api/v1/threads?id=eq.${threadId}`, {
+      const res = await fetch(`/api/v1/threads?id=eq.${resolvedThreadId}`, {
         method: "PUT",
         headers,
         body: JSON.stringify({ content: editContent.trim(), content_json: editContentJson }),
@@ -245,10 +270,10 @@ const Thread = () => {
   };
 
   const handleDeleteThread = async () => {
-    if (!threadId) return;
+    if (!resolvedThreadId) return;
     try {
       const headers = await authHeaders();
-      const res = await fetch(`/api/v1/threads?id=eq.${threadId}`, {
+      const res = await fetch(`/api/v1/threads?id=eq.${resolvedThreadId}`, {
         method: "DELETE",
         headers,
       });
@@ -256,17 +281,25 @@ const Thread = () => {
       toast.success(t("thread.threadDeleted"));
       invalidateByPrefix("/api/v1/threads");
       invalidateByPrefix("/api/v1/boards");
-      navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`);
+      invalidateByPrefix("/api/v1/feed");
+      navigate(boardBasePath || "/", { replace: true });
     } catch {
       toast.error(t("thread.threadDeleteError"));
     }
   };
 
-  const threadPath = `${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`;
-
   // Hooks must run before the early returns below.
   const tx = thread as ThreadWithExtras | null;
-  const attachments = useMemo(() => (tx ? buildAttachments(tx) : []), [tx]);
+  const attachments = useMemo(() => (tx ? ensureAttachmentIds(buildAttachments(tx)) : []), [tx]);
+  // Inline media is the new presentation; when the document has no media nodes
+  // (every legacy thread) the attachments fall back to the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(tx?.content_json), [tx?.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(tx?.content_json), [tx?.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
 
   if (threadLoading) {
     return (
@@ -280,7 +313,7 @@ const Thread = () => {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen flex-col gap-4">
         <p className="text-muted-foreground text-lg">{t("thread.threadNotFound")}</p>
-        <Link to="/" className="text-primary hover:underline text-sm">{t("thread.goHome")}</Link>
+        <NavigationLink to="/" className="text-primary hover:underline text-sm">{t("thread.goHome")}</NavigationLink>
       </div>
     );
   }
@@ -331,7 +364,7 @@ const Thread = () => {
         </div>
 
         {/* Thread card — wall style */}
-        <div className="overflow-clip border border-border/70 shadow-none bg-background rounded-xl mb-4">
+        <div className="overflow-clip border border-border/70 shadow-none bg-surface rounded-[var(--card-radius)] mb-4">
           <div className="space-y-4 p-3 sm:p-4">
             {/* Header */}
             <div className="flex items-start justify-between gap-3">
@@ -351,6 +384,7 @@ const Thread = () => {
                   <div className="flex flex-wrap items-center gap-2">
                     <UserBadge
                       userId={thread.user_id}
+                      userPublicId={thread.user_public_id}
                       username={authorName}
                       displayName={tx.display_name}
                       emojiId={tx.nickname_emoji_id}
@@ -365,52 +399,68 @@ const Thread = () => {
                       })}
                     </span>
                     {channelSlug && (
-                      <Link
+                      <NavigationLink
                         to={threadPath}
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
                       >
                         # {channelSlug}
-                      </Link>
+                      </NavigationLink>
                     )}
-                    <Link
-                      to={threadPath}
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
-                    >
-                      в {isGomoRoute ? "g/" : ""}{slug}/
-                    </Link>
+                    {tx.section ? (
+                      <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                        <SectionIcon name={tx.section.icon} className="h-3 w-3" />
+                        {tx.section.name}
+                        {tx.subsection ? ` · ${tx.subsection.name}` : ""}
+                      </span>
+                    ) : slug ? (
+                      <NavigationLink
+                        to={threadPath}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                      >
+                        в {isGomoRoute ? "g/" : ""}{slug}/
+                      </NavigationLink>
+                    ) : null}
                   </div>
                 </div>
               </div>
 
-              {/* Own-thread actions */}
-              {isOwner && (
-                <div className="flex shrink-0 items-center gap-1">
-                  <PostActionsMenu>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setEditingThread(true);
-                        setEditContent(tx.content);
-                        setEditContentJson(tx.content_json ?? null);
-                      }}
-                      className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
-                      title="Изменить запись"
-                    >
-                      <Edit3 className="h-4 w-4 mr-3" />
-                      Изменить запись
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={handleDeleteThread}
-                      className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
-                      title="Удалить запись"
-                    >
-                      <Trash2 className="h-4 w-4 mr-3" />
-                      Удалить запись
-                    </DropdownMenuItem>
-                  </PostActionsMenu>
-                </div>
-              )}
+              {/* Thread actions: management for the owner, report for everyone */}
+              <div className="flex shrink-0 items-center gap-1">
+                <PostActionsMenu
+                  targetType="thread"
+                  targetId={thread.id}
+                  reportLabel="Пожаловаться на запись"
+                  reportTargetLabel="на запись"
+                  triggerTitle="Меню записи"
+                >
+                  {isOwner && (
+                    <>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setEditingThread(true);
+                          setEditContent(tx.content);
+                          setEditContentJson(tx.content_json ?? null);
+                        }}
+                        className="cursor-pointer hover:bg-primary/15 hover:text-primary focus:bg-primary/15 focus:text-primary transition-colors px-3 py-2"
+                        title="Изменить запись"
+                      >
+                        <Edit3 className="h-4 w-4 mr-3" />
+                        Изменить запись
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={handleDeleteThread}
+                        className="cursor-pointer text-destructive hover:bg-destructive/15 hover:text-destructive focus:bg-destructive/15 focus:text-destructive transition-colors px-3 py-2"
+                        title="Удалить запись"
+                      >
+                        <Trash2 className="h-4 w-4 mr-3" />
+                        Удалить запись
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </PostActionsMenu>
+              </div>
             </div>
 
             {/* Title */}
@@ -479,38 +529,55 @@ const Thread = () => {
                 </div>
               </div>
             ) : (
-              <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-                <ProcessedContent
-                  content={thread.content}
-                  contentJson={tx.content_json}
-                  currentUserId={user?.id || null}
-                  isAdmin={isAdmin}
-                  currentUsername={currentUserUsername}
-                  currentUserColor={currentUserColor}
-                  postAuthorId={thread.user_id}
-                  authorUsername={tx.username}
-                />
-              </div>
-            )}
-
-            {/* Attachments */}
-            {attachments.length > 0 && (
-              <WallAttachments
-                attachments={attachments}
-                galleryKey={`thread-${thread.id}`}
-                onImageClick={(items, idx) => {
-                  setGalleryItems(items);
-                  setGalleryIndex(idx);
+              <MediaAttachmentsProvider
+                value={{
+                  attachments,
+                  inlineMedia,
+                  galleryKey: `thread-${thread.id}`,
+                  hiddenMediaIds,
+                  onImageClick: (items, idx) => {
+                    setGalleryItems(items);
+                    setGalleryIndex(idx);
+                  },
+                  autoPlayVideo: autoplayVideo,
                 }}
-                autoPlayVideo={autoplayVideo}
-              />
+              >
+                {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+                <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+                  <ProcessedContent
+                    content={thread.content}
+                    contentJson={tx.content_json}
+                    currentUserId={user?.id || null}
+                    isAdmin={isAdmin}
+                    currentUsername={currentUserUsername}
+                    currentUserColor={currentUserColor}
+                    postAuthorId={thread.user_id}
+                    postAuthorPublicId={thread.user_public_id}
+                    authorUsername={tx.username}
+                  />
+                </div>
+
+                {/* Attachments — legacy bottom gallery. With inline media on the
+                    photos already live inside the document (including spoilers). */}
+                {attachments.length > 0 && !inlineMedia && (
+                  <WallAttachments
+                    attachments={attachments}
+                    galleryKey={`thread-${thread.id}`}
+                    onImageClick={(items, idx) => {
+                      setGalleryItems(items);
+                      setGalleryIndex(idx);
+                    }}
+                    autoPlayVideo={autoplayVideo}
+                  />
+                )}
+              </MediaAttachmentsProvider>
             )}
 
             {/* Poll */}
             {pollData && (
               <Poll
                 poll={pollData}
-                threadId={threadId!}
+                threadId={resolvedThreadId}
                 currentUserId={user?.id || null}
                 isPageLoading={false}
               />
@@ -547,7 +614,7 @@ const Thread = () => {
         {/* Comments — wall-style tree */}
         <div data-thread-comments>
           <ThreadCommentTree
-            threadId={threadId!}
+            threadId={resolvedThreadId}
             currentUserId={canPost ? user?.id ?? null : null}
             onPostCountChange={(delta) => setPostCount((prev) => Math.max(0, prev + delta))}
           />
@@ -567,7 +634,7 @@ const Thread = () => {
         open={shareOpen}
         onOpenChange={setShareOpen}
         target={{ type: "thread", id: thread.id }}
-        url={`${window.location.origin}${threadPath}/thread/${thread.id}`}
+        url={`${window.location.origin}${slug ? `${threadPath}/thread/${entityParam(thread)}` : `/thread/${entityParam(thread)}`}`}
         title={thread.title || "Запись"}
       />
     </>

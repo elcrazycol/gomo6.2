@@ -119,8 +119,8 @@ export function NewChatDialog({ open, onClose }: Props) {
           position: "relative",
           width: 340,
           maxHeight: "70vh",
-          background: "hsl(var(--card))",
-          border: "1px solid hsl(var(--border))",
+          background: "oklch(var(--card))",
+          border: "1px solid oklch(var(--border))",
           borderRadius: 12,
           boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
           overflow: "hidden",
@@ -129,13 +129,13 @@ export function NewChatDialog({ open, onClose }: Props) {
         }}
       >
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid hsl(var(--border))" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: "1px solid oklch(var(--border))" }}>
           <span style={{ fontSize: 14, fontWeight: 600 }}>
             {mode === "menu" && "Новый чат"}
             {mode === "search" && "Найти пользователя"}
             {mode === "group" && "Новая группа"}
           </span>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 2, display: "flex" }}>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "oklch(var(--muted-foreground))", padding: 2, display: "flex" }}>
             <X size={16} />
           </button>
         </div>
@@ -160,10 +160,10 @@ export function NewChatDialog({ open, onClose }: Props) {
                   textAlign: "left",
                   fontSize: 13,
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "hsl(var(--thread-hover))"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
               >
-                <MessageCircle size={18} style={{ color: "hsl(var(--primary))" }} />
+                <MessageCircle size={18} style={{ color: "oklch(var(--primary))" }} />
                 <span>Написать пользователю</span>
               </button>
               <button
@@ -182,10 +182,10 @@ export function NewChatDialog({ open, onClose }: Props) {
                   textAlign: "left",
                   fontSize: 13,
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "hsl(var(--thread-hover))"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
               >
-                <Users size={18} style={{ color: "hsl(var(--primary))" }} />
+                <Users size={18} style={{ color: "oklch(var(--primary))" }} />
                 <span>Создать группу</span>
               </button>
             </div>
@@ -194,7 +194,7 @@ export function NewChatDialog({ open, onClose }: Props) {
           {mode === "search" && (
             <div style={{ padding: "8px 12px 12px" }}>
               <div style={{ position: "relative", marginBottom: 8 }}>
-                <Search size={16} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "hsl(var(--muted-foreground))" }} />
+                <Search size={16} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "oklch(var(--muted-foreground))" }} />
                 <input
                   ref={inputRef}
                   type="text"
@@ -205,9 +205,9 @@ export function NewChatDialog({ open, onClose }: Props) {
                     width: "100%",
                     padding: "8px 10px 8px 34px",
                     borderRadius: 8,
-                    border: "1px solid hsl(var(--input))",
-                    background: "hsl(var(--background))",
-                    color: "hsl(var(--foreground))",
+                    border: "1px solid oklch(var(--input))",
+                    background: "oklch(var(--background))",
+                    color: "oklch(var(--foreground))",
                     fontSize: 13,
                     outline: "none",
                     boxSizing: "border-box",
@@ -216,7 +216,7 @@ export function NewChatDialog({ open, onClose }: Props) {
               </div>
               {isSearching && <div style={{ textAlign: "center", padding: 12 }}><PentagramLoader size="sm" /></div>}
               {!isSearching && query.length >= 1 && results.length === 0 && (
-                <p style={{ textAlign: "center", color: "hsl(var(--muted-foreground))", fontSize: 12, padding: 8 }}>Ничего не найдено</p>
+                <p style={{ textAlign: "center", color: "oklch(var(--muted-foreground))", fontSize: 12, padding: 8 }}>Ничего не найдено</p>
               )}
               {results.map((user) => (
                 <button
@@ -237,7 +237,7 @@ export function NewChatDialog({ open, onClose }: Props) {
                     textAlign: "left",
                     opacity: isCreating ? 0.6 : 1,
                   }}
-                  onMouseEnter={(e) => { if (!isCreating) e.currentTarget.style.background = "hsl(var(--thread-hover))"; }}
+                  onMouseEnter={(e) => { if (!isCreating) e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 >
                   <div className="avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
@@ -249,7 +249,7 @@ export function NewChatDialog({ open, onClose }: Props) {
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{user.display_name || user.username}</div>
-                    <div style={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }}>@{user.username}</div>
+                    <div style={{ fontSize: 11, color: "oklch(var(--muted-foreground))" }}>@{user.username}</div>
                   </div>
                 </button>
               ))}
@@ -269,9 +269,9 @@ export function NewChatDialog({ open, onClose }: Props) {
                   width: "100%",
                   padding: "8px 10px",
                   borderRadius: 8,
-                  border: "1px solid hsl(var(--input))",
-                  background: "hsl(var(--background))",
-                  color: "hsl(var(--foreground))",
+                  border: "1px solid oklch(var(--input))",
+                  background: "oklch(var(--background))",
+                  color: "oklch(var(--foreground))",
                   fontSize: 13,
                   outline: "none",
                   boxSizing: "border-box",
@@ -287,8 +287,8 @@ export function NewChatDialog({ open, onClose }: Props) {
                   padding: "8px 16px",
                   borderRadius: 8,
                   border: "none",
-                  background: groupName.trim() ? "hsl(var(--primary))" : "hsl(var(--muted))",
-                  color: groupName.trim() ? "hsl(var(--primary-foreground))" : "hsl(var(--muted-foreground))",
+                  background: groupName.trim() ? "oklch(var(--primary))" : "oklch(var(--muted))",
+                  color: groupName.trim() ? "oklch(var(--primary-foreground))" : "oklch(var(--muted-foreground))",
                   fontSize: 13,
                   fontWeight: 500,
                   cursor: isCreating || !groupName.trim() ? "not-allowed" : "pointer",
@@ -296,7 +296,7 @@ export function NewChatDialog({ open, onClose }: Props) {
               >
                 {isCreating ? "Создание..." : "Создать"}
               </button>
-              <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", marginTop: 8, textAlign: "center" }}>
+              <p style={{ fontSize: 11, color: "oklch(var(--muted-foreground))", marginTop: 8, textAlign: "center" }}>
                 После создания можно добавить участников
               </p>
             </div>

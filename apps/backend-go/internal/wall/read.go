@@ -18,6 +18,7 @@ import (
 const profileWallAuthorJSON = `COALESCE(
   json_build_object(
     'username', u.username,
+    'public_id', u.public_id,
     'display_name', u.display_name,
     'nickname_emoji_id', u.nickname_emoji_id,
     'is_anonymous', COALESCE(u.is_anonymous, false),
@@ -36,6 +37,7 @@ const profileWallAuthorJSON = `COALESCE(
 const profileWallCommentAuthorJSON = `CASE WHEN c.is_deleted THEN '{}'::json ELSE COALESCE(
   json_build_object(
     'username', u.username,
+    'public_id', u.public_id,
     'display_name', u.display_name,
     'nickname_emoji_id', u.nickname_emoji_id,
     'is_anonymous', COALESCE(u.is_anonymous, false),
@@ -70,12 +72,15 @@ const wallCommentCountsSQL = `
 // path and the keyset pages. The {viewer} placeholder is substituted by
 // runSelectQuery.
 const wallPostListBaseQuery = `
-SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
+SELECT p.id, p.public_id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
+       u.public_id AS author_public_id,
+       ow.public_id AS user_public_id,
        ` + wallPostCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
+LEFT JOIN users ow ON ow.id = p.user_id
 LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 `
 
@@ -429,12 +434,15 @@ func (s *Service) finishSelectQuery(c *gin.Context, baseQuery, tableAlias string
 
 func (s *Service) fetchPostWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
 	q := `
-SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
+SELECT p.id, p.public_id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
+       u.public_id AS author_public_id,
+       ow.public_id AS user_public_id,
        ` + wallPostCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
+LEFT JOIN users ow ON ow.id = p.user_id
 WHERE p.id = $1`
 	query := strings.ReplaceAll(q, "{viewer}", viewerArg(viewerID, 2))
 	if viewerID == "" {

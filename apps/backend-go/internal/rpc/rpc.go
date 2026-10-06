@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gomo6/backend/internal/httpx"
+	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/notifications"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,7 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -36,6 +38,7 @@ type RPCHandler struct {
 	recomputeStatsFn func(*sql.DB, string)
 	achEngine        *achievements.Engine
 	notif            *notifications.Service
+	searchIndexer    *search.Indexer
 }
 
 // NewRPCHandler creates a new RPCHandler.
@@ -46,6 +49,11 @@ func NewRPCHandler(db *sql.DB) *RPCHandler {
 			profiles.RecomputeUserProfileStats(db, userID)
 		},
 	}
+}
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *RPCHandler) SetSearchIndexer(idx *search.Indexer) {
+	h.searchIndexer = idx
 }
 
 func (h *RPCHandler) SetAchievementEngine(e *achievements.Engine) {
@@ -261,6 +269,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		return
 	}
 
+	metrics.App.PostCreated()
 	c.JSON(http.StatusCreated, models.SuccessResponse(post))
 }
 
@@ -314,6 +323,10 @@ func (h *RPCHandler) insertPostAndNotify(userID, username string, req *models.Cr
 		post.ContentJSON = json.RawMessage(retContentJSON)
 	}
 
+	// Index the new reply. Private posts are excluded by the index query, so
+	// this is a no-op for them.
+	h.searchIndexer.SyncPost(post.ID)
+
 	_, err = h.db.Exec("UPDATE threads SET post_count = post_count + 1, updated_at = NOW() WHERE id = $1", req.ThreadID)
 	if err != nil {
 		log.Printf("ERROR: Failed to update thread post count: %v\n", err)
@@ -321,10 +334,18 @@ func (h *RPCHandler) insertPostAndNotify(userID, username string, req *models.Cr
 
 	h.recomputeStatsFn(h.db, userID)
 
-	achievements.EmitAchievement(h.achEngine, userID, achievements.EventCommentCreated)
+	achievements.EmitAchievementTarget(h.achEngine, userID, achievements.EventCommentCreated, "post", post.ID)
 
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
+	// Unified stats: the thread author's garma includes "replies by others in my
+	// threads" (see the formula in profiles.recomputeStatsSQL), so a reply
+	// changes the author's number even though the author did nothing. Only the
+	// commenter was refreshed before, which left that term stale until the
+	// author's next own action or profile view.
+	if threadAuthor != "" && threadAuthor != userID {
+		h.recomputeStatsFn(h.db, threadAuthor)
+	}
 	// Private posts (is_private = true) are DMs between the author and
 	// private_recipient_id. The thread author is not necessarily a participant in
 	// that DM, so no reply notification carrying a content snippet may reach them
@@ -408,65 +429,151 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	req.Title = strings.TrimSpace(req.Title)
 	req.Content = strings.TrimSpace(req.Content)
 
-	if req.BoardID == "" || req.Title == "" || req.Content == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("board_id, title, and content are required"))
+	if req.Title == "" || req.Content == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("title and content are required"))
 		return
 	}
 
-	if _, err := uuid.Parse(req.BoardID); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid board_id format"))
+	if req.BoardID == "" && req.SectionID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("board_id or section_id is required"))
 		return
 	}
 
-	var boardExists bool
-	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM boards WHERE id = $1)", req.BoardID).Scan(&boardExists)
-	if err != nil || !boardExists {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Board not found"))
-		return
-	}
+	boardVisibility := "public"
 
-	// Check board-level access for private boards
-	var boardVisibility string
-	var boardOwnerID string
-	err = h.db.QueryRow("SELECT visibility, owner_id FROM boards WHERE id = $1", req.BoardID).Scan(&boardVisibility, &boardOwnerID)
-	if err == nil && boardVisibility == "private" && boardOwnerID != claims.UserID {
-		var isMember bool
-		memberErr := h.db.QueryRow(
-			"SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)",
-			req.BoardID, claims.UserID,
-		).Scan(&isMember)
-		if memberErr == nil && !isMember {
-			c.JSON(http.StatusForbidden, models.ErrorResponse("You are not a member of this gomosub"))
+	if req.BoardID != "" {
+		if _, err := uuid.Parse(req.BoardID); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid board_id format"))
 			return
 		}
-	}
 
-	// Check channel write access for private channels
-	if req.ChannelID != nil && *req.ChannelID != "" {
-		// First verify the channel exists
-		var channelExists bool
-		err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM channels WHERE id = $1)", *req.ChannelID).Scan(&channelExists)
-		if err != nil || !channelExists {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Channel not found"))
+		var boardExists bool
+		err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM boards WHERE id = $1)", req.BoardID).Scan(&boardExists)
+		if err != nil || !boardExists {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Board not found"))
 			return
 		}
-		canWrite, err := h.canWriteChannel(claims.UserID, *req.ChannelID)
-		if err != nil && err != sql.ErrNoRows {
+
+		// Check board-level access for private boards
+		var boardOwnerID string
+		err = h.db.QueryRow("SELECT visibility, owner_id FROM boards WHERE id = $1", req.BoardID).Scan(&boardVisibility, &boardOwnerID)
+		if err == nil && boardVisibility == "private" && boardOwnerID != claims.UserID {
+			var isMember bool
+			memberErr := h.db.QueryRow(
+				"SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)",
+				req.BoardID, claims.UserID,
+			).Scan(&isMember)
+			if memberErr == nil && !isMember {
+				c.JSON(http.StatusForbidden, models.ErrorResponse("You are not a member of this gomosub"))
+				return
+			}
+		}
+
+		// Check channel write access for private channels
+		if req.ChannelID != nil && *req.ChannelID != "" {
+			// First verify the channel exists
+			var channelExists bool
+			err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM channels WHERE id = $1)", *req.ChannelID).Scan(&channelExists)
+			if err != nil || !channelExists {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Channel not found"))
+				return
+			}
+			canWrite, err := h.canWriteChannel(claims.UserID, *req.ChannelID)
+			if err != nil && err != sql.ErrNoRows {
+				httpx.ServerError(c, "handler error", err)
+				return
+			}
+			if !canWrite {
+				c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to post in this channel"))
+				return
+			}
+		}
+	} else {
+		// Global topic: a section is required and validates the placement. A
+		// channel is board-scoped, so a global topic can never carry one.
+		if req.ChannelID != nil && *req.ChannelID != "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("channel_id requires board_id"))
+			return
+		}
+		status, err := h.resolveThreadSection(&req)
+		if err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
 		}
-		if !canWrite {
-			c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to post in this channel"))
+		if status != sectionOK {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(sectionErrorForStatus(status)))
 			return
 		}
 	}
+
 	thread, createErr := h.insertThreadAndNotify(claims.UserID, &req, boardVisibility)
 	if createErr != nil {
 		httpx.ServerError(c, "create thread", createErr)
 		return
 	}
 
+	metrics.App.ThreadCreated()
 	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
+}
+
+// Section lookup outcomes for resolveThreadSection.
+const (
+	sectionOK            = 0
+	sectionBadFormat     = 1
+	sectionNotFound      = 2
+	sectionInvalidSubset = 3
+	sectionSubsetBadFmt  = 4
+)
+
+func sectionErrorForStatus(status int) string {
+	switch status {
+	case sectionBadFormat:
+		return "Invalid section_id format"
+	case sectionNotFound:
+		return "Section not found"
+	case sectionSubsetBadFmt:
+		return "Invalid subsection_id format"
+	case sectionInvalidSubset:
+		return "Subsection not found in the selected section"
+	default:
+		return "Invalid section"
+	}
+}
+
+// resolveThreadSection validates the раздел/подраздел of a global topic. It
+// returns sectionOK when the placement is valid, another status constant when
+// the caller's input is bad, and a non-nil error only for infrastructure
+// failures (the caller maps that to 500). A missing subsection is normalised to
+// nil so "no subsection" and "empty string" persist identically.
+func (h *RPCHandler) resolveThreadSection(req *models.CreateThreadRequest) (int, error) {
+	if _, err := uuid.Parse(req.SectionID); err != nil {
+		return sectionBadFormat, nil
+	}
+	var exists bool
+	if err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_sections WHERE id = $1)", req.SectionID).Scan(&exists); err != nil {
+		return 0, err
+	}
+	if !exists {
+		return sectionNotFound, nil
+	}
+	if req.SubsectionID != nil && *req.SubsectionID != "" {
+		if _, err := uuid.Parse(*req.SubsectionID); err != nil {
+			return sectionSubsetBadFmt, nil
+		}
+		var belongs bool
+		if err := h.db.QueryRow(
+			"SELECT EXISTS(SELECT 1 FROM thread_subsections WHERE id = $1 AND section_id = $2)",
+			*req.SubsectionID, req.SectionID,
+		).Scan(&belongs); err != nil {
+			return 0, err
+		}
+		if !belongs {
+			return sectionInvalidSubset, nil
+		}
+	} else {
+		req.SubsectionID = nil
+	}
+	return sectionOK, nil
 }
 
 // insertThreadAndNotify inserts the thread row (with optional poll) inside a
@@ -492,6 +599,19 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 		insertContentJSON = []byte(req.ContentJSON)
 	}
 
+	var boardID interface{}
+	if req.BoardID != "" {
+		boardID = req.BoardID
+	}
+	var sectionID interface{}
+	if req.SectionID != "" {
+		sectionID = req.SectionID
+	}
+	var subsectionID interface{}
+	if req.SubsectionID != nil && *req.SubsectionID != "" {
+		subsectionID = *req.SubsectionID
+	}
+
 	tx, err := h.db.Begin()
 	if err != nil {
 		return models.Thread{}, err
@@ -500,25 +620,35 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 
 	var thread models.Thread
 	var retContentJSON []byte
+	var retBoardID, retSectionID, retSubsectionID sql.NullString
 	var channelID interface{}
 	if req.ChannelID != nil && *req.ChannelID != "" {
 		channelID = *req.ChannelID
 	}
 	err = tx.QueryRow(`
-		INSERT INTO threads (board_id, channel_id, user_id, title, content, content_json, image_url, image_urls,
+		INSERT INTO threads (board_id, channel_id, section_id, subsection_id, user_id, title, content, content_json, image_url, image_urls,
 		                    attachments, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, board_id, channel_id, user_id, title, content, content_json, image_url, image_urls,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, board_id, channel_id, section_id, subsection_id, user_id, title, content, content_json, image_url, image_urls,
 		          attachments, post_count, server_domain, created_at, updated_at, is_remote
-	`, req.BoardID, channelID, userID, req.Title, req.Content, insertContentJSON,
+	`, boardID, channelID, sectionID, subsectionID, userID, req.Title, req.Content, insertContentJSON,
 		imageURL, imageURLs, req.Attachments, "localhost:8080",
 	).Scan(
-		&thread.ID, &thread.BoardID, &thread.ChannelID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
+		&thread.ID, &retBoardID, &thread.ChannelID, &retSectionID, &retSubsectionID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
 	if err != nil {
 		return models.Thread{}, err
+	}
+	if retBoardID.Valid {
+		thread.BoardID = retBoardID.String
+	}
+	if retSectionID.Valid {
+		thread.SectionID = &retSectionID.String
+	}
+	if retSubsectionID.Valid {
+		thread.SubsectionID = &retSubsectionID.String
 	}
 	if len(retContentJSON) > 0 {
 		thread.ContentJSON = json.RawMessage(retContentJSON)
@@ -552,15 +682,20 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 		return models.Thread{}, err
 	}
 
+	// Index the new thread (best-effort, off the request path).
+	h.searchIndexer.SyncThread(thread.ID)
+
 	h.recomputeStatsFn(h.db, userID)
 
-	achievements.EmitAchievement(h.achEngine, userID, achievements.EventEntryCreated)
+	achievements.EmitAchievementTarget(h.achEngine, userID, achievements.EventEntryCreated, "thread", thread.ID)
 	if len(req.ImageURLs) > 0 {
-		achievements.EmitAchievement(h.achEngine, userID, achievements.EventImageUploaded)
+		achievements.EmitAchievementTarget(h.achEngine, userID, achievements.EventImageUploaded, "thread", thread.ID)
 	}
 
 	if h.redis != nil {
-		cache.InvalidateCacheForBoard(h.redis, req.BoardID)
+		if req.BoardID != "" {
+			cache.InvalidateCacheForBoard(h.redis, req.BoardID)
+		}
 		// A brand-new thread is a candidate for the unified feed.
 		cache.InvalidateCacheForFeed(h.redis)
 	}
@@ -576,6 +711,7 @@ func (h *RPCHandler) insertThreadAndNotify(userID string, req *models.CreateThre
 				"id":         thread.ID,
 				"board_id":   thread.BoardID,
 				"channel_id": thread.ChannelID,
+				"section_id": thread.SectionID,
 				"user_id":    thread.UserID,
 				"title":      thread.Title,
 				"created_at": thread.CreatedAt,

@@ -175,7 +175,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
   if (hasPendingSecret && setupUri) {
     return (
       <div className="space-y-4">
-        <div className="bg-card border border-border p-3 rounded">
+        <div className="bg-surface border border-border p-3 rounded">
           <p className="text-sm font-medium mb-2">Настройка 2FA</p>
           <p className="text-xs text-muted-foreground mb-3">
             1. Откройте приложение-аутентификатор (Google Authenticator, Authy и т.д.)
@@ -269,7 +269,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
 
       {/* Confirm disable with a current 2FA/recovery code (M1) */}
       {showDisableInput && (
-        <div className="bg-card border border-border p-3 rounded space-y-2">
+        <div className="bg-surface border border-border p-3 rounded space-y-2">
           <Label htmlFor="disable-totp" className="text-xs">
             Введите текущий код 2FA (или код восстановления) для отключения
           </Label>
@@ -295,7 +295,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
 
       {/* Confirm setup with the current password (M1) */}
       {showSetupPassword && (
-        <div className="bg-card border border-border p-3 rounded space-y-2">
+        <div className="bg-surface border border-border p-3 rounded space-y-2">
           <Label htmlFor="setup-password" className="text-xs">
             Введите текущий пароль для включения 2FA
           </Label>

@@ -24,7 +24,7 @@ func TestGetPostLikesCount_Success(t *testing.T) {
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	// M-1: the anonymous count must filter by board/channel visibility — a
 	// post on a private board/channel reports 0, not its real like count.
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id LEFT JOIN threads t ON p\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE pl\.post_id = \$1 AND \(b\.visibility != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)`).
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id LEFT JOIN threads t ON p\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE pl\.post_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)`).
 		WithArgs(postID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 
@@ -51,7 +51,7 @@ func TestGetPostLikesCount_MemberSeesPrivateBoard(t *testing.T) {
 
 	viewer := "770e8400-e29b-41d4-a716-446655440002"
 	postID := "550e8400-e29b-41d4-a716-446655440000"
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id LEFT JOIN threads t ON p\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE pl\.post_id = \$1 AND \(b\.visibility != 'private' OR b\.owner_id::text = \$2 OR EXISTS\(SELECT 1 FROM gomosub_memberships gm WHERE gm\.board_id = t\.board_id AND gm\.user_id::text = \$3\).*`).
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id LEFT JOIN threads t ON p\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE pl\.post_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private' OR b\.owner_id::text = \$2 OR EXISTS\(SELECT 1 FROM gomosub_memberships gm WHERE gm\.board_id = t\.board_id AND gm\.user_id::text = \$3\).*`).
 		WithArgs(postID, viewer, viewer).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 
@@ -92,7 +92,7 @@ func TestGetPostLikesCount_DBError(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id = \$1 AND \(b\.visibility != 'private'.*`).
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*`).
 		WithArgs(postID).
 		WillReturnError(sqlmock.ErrCancelled)
 
@@ -110,7 +110,7 @@ func TestGetThreadLikesCount_Success(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE tl\.thread_id = \$1 AND \(b\.visibility != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)`).
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\) FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE tl\.thread_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)`).
 		WithArgs(threadID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 
@@ -130,7 +130,7 @@ func TestHasUserLikedPost_True(t *testing.T) {
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	userID := "660e8400-e29b-41d4-a716-446655440001"
 	// M-1: the boolean must be gated by visibility too (invisible post → false).
-	mock.ExpectQuery(`(?s)SELECT EXISTS\(SELECT 1 FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id LEFT JOIN threads t ON p\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE pl\.post_id = \$1 AND pl\.user_id = \$2 AND \(b\.visibility != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)\)`).
+	mock.ExpectQuery(`(?s)SELECT EXISTS\(SELECT 1 FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id LEFT JOIN threads t ON p\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE pl\.post_id = \$1 AND pl\.user_id = \$2 AND \(COALESCE\(b\.visibility, 'public'\) != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)\)`).
 		WithArgs(postID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
@@ -162,7 +162,7 @@ func TestHasUserLikedThread_False(t *testing.T) {
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	userID := "660e8400-e29b-41d4-a716-446655440001"
 	// M-1: same visibility gate as HasUserLikedPost.
-	mock.ExpectQuery(`(?s)SELECT EXISTS\(SELECT 1 FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE tl\.thread_id = \$1 AND tl\.user_id = \$2 AND \(b\.visibility != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)\)`).
+	mock.ExpectQuery(`(?s)SELECT EXISTS\(SELECT 1 FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE tl\.thread_id = \$1 AND tl\.user_id = \$2 AND \(COALESCE\(b\.visibility, 'public'\) != 'private' AND \(t\.channel_id IS NULL OR COALESCE\(ch\.is_private, false\) = false\)\)\)`).
 		WithArgs(threadID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
@@ -200,7 +200,7 @@ func TestGetUserLikesReceivedCount_Success(t *testing.T) {
 	userID := "660e8400-e29b-41d4-a716-446655440001"
 	// M-1: the received count must exclude likes on private boards/channels
 	// for anonymous callers.
-	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM post_likes pl.*JOIN posts p ON pl\.post_id = p\.id.*LEFT JOIN boards b.*WHERE p\.user_id = \$1 AND \(b\.visibility != 'private'.*`).
+	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM post_likes pl.*JOIN posts p ON pl\.post_id = p\.id.*LEFT JOIN boards b.*WHERE p\.user_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
 
@@ -253,7 +253,7 @@ func TestGetUserLikesReceivedCount_DBError(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
-	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM post_likes pl.*JOIN posts p ON pl\.post_id = p\.id.*WHERE p\.user_id = \$1 AND \(b\.visibility != 'private'.*`).
+	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM post_likes pl.*JOIN posts p ON pl\.post_id = p\.id.*WHERE p\.user_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*`).
 		WithArgs(userID).
 		WillReturnError(sqlmock.ErrCancelled)
 
@@ -290,7 +290,7 @@ func TestGetUserThreadLikesReceivedCount_Success(t *testing.T) {
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
 	// M-1: same visibility gate as GetUserLikesReceivedCount.
-	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM thread_likes tl.*JOIN threads t ON tl\.thread_id = t\.id.*LEFT JOIN boards b.*WHERE t\.user_id = \$1 AND \(b\.visibility != 'private'.*`).
+	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM thread_likes tl.*JOIN threads t ON tl\.thread_id = t\.id.*LEFT JOIN boards b.*WHERE t\.user_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
@@ -343,7 +343,7 @@ func TestGetUserThreadLikesReceivedCount_DBError(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
-	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM thread_likes tl.*JOIN threads t ON tl\.thread_id = t\.id.*WHERE t\.user_id = \$1 AND \(b\.visibility != 'private'.*`).
+	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM thread_likes tl.*JOIN threads t ON tl\.thread_id = t\.id.*WHERE t\.user_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*`).
 		WithArgs(userID).
 		WillReturnError(sqlmock.ErrCancelled)
 
@@ -363,11 +363,11 @@ func TestGetRecentPostLikers_Success(t *testing.T) {
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	// M-1: the likers list (usernames/ids/avatars — PII) must be filtered by
 	// board/channel visibility for anonymous callers.
-	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM post_likes pl.*JOIN users u.*LEFT JOIN boards b.*WHERE pl\.post_id = \$1 AND \(b\.visibility != 'private'.*ORDER BY.*LIMIT \$2`).
+	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.public_id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM post_likes pl.*JOIN users u.*LEFT JOIN boards b.*WHERE pl\.post_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*ORDER BY.*LIMIT \$2`).
 		WithArgs(postID, 10).
-		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
-			AddRow("user1", "u1", nil, nil, false).
-			AddRow("user2", "u2", nil, nil, true))
+		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "public_id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
+			AddRow("user1", "u1", 42, nil, nil, false).
+			AddRow("user2", "u2", 43, nil, nil, true))
 
 	c, w := testutil.NewRPCGETContext(map[string]string{"post_uuid": postID})
 	h.GetRecentPostLikers(c)
@@ -396,10 +396,10 @@ func TestGetRecentThreadLikers_Success(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	// M-1: same visibility gate as GetRecentPostLikers.
-	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM thread_likes tl.*JOIN users u.*LEFT JOIN boards b.*WHERE tl\.thread_id = \$1 AND \(b\.visibility != 'private'.*ORDER BY.*LIMIT \$2`).
+	mock.ExpectQuery(`(?s).*SELECT u.username, u.id, u.public_id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous.*FROM thread_likes tl.*JOIN users u.*LEFT JOIN boards b.*WHERE tl\.thread_id = \$1 AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*ORDER BY.*LIMIT \$2`).
 		WithArgs(threadID, 10).
-		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
-			AddRow("user1", "u1", nil, nil, false))
+		WillReturnRows(sqlmock.NewRows([]string{"username", "id", "public_id", "avatar_url", "nickname_emoji_id", "is_anonymous"}).
+			AddRow("user1", "u1", 42, nil, nil, false))
 
 	c, w := testutil.NewRPCGETContext(map[string]string{"thread_uuid": threadID})
 	h.GetRecentThreadLikers(c)
@@ -1258,14 +1258,14 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 
 	// INSERT thread + RETURNING
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, nil, "u1", "Test Title", "Test Content",
+		WithArgs(boardID, nil, nil, nil, "u1", "Test Title", "Test Content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+			"id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 			"image_url", "image_urls", "attachments", "post_count", "server_domain",
 			"created_at", "updated_at", "is_remote",
 		}).AddRow(
-			"thread-1", boardID, nil, "u1", "Test Title", "Test Content", nil,
+			"thread-1", boardID, nil, nil, nil, "u1", "Test Title", "Test Content", nil,
 			nil, nil, nil, 0, "localhost:8080",
 			now, now, false,
 		))
@@ -1333,14 +1333,14 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 
 	// INSERT thread + RETURNING
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, nil, "u1", "Poll Thread", "Poll content",
+		WithArgs(boardID, nil, nil, nil, "u1", "Poll Thread", "Poll content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+			"id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 			"image_url", "image_urls", "attachments", "post_count", "server_domain",
 			"created_at", "updated_at", "is_remote",
 		}).AddRow(
-			"thread-poll", boardID, nil, "u1", "Poll Thread", "Poll content", nil,
+			"thread-poll", boardID, nil, nil, nil, "u1", "Poll Thread", "Poll content", nil,
 			nil, nil, nil, 0, "localhost:8080",
 			now, now, false,
 		))
@@ -1508,7 +1508,7 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, nil, "u1", "Test", "Test",
+		WithArgs(boardID, nil, nil, nil, "u1", "Test", "Test",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnError(sqlmock.ErrCancelled)
 
@@ -1526,6 +1526,157 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 	}
 }
 
+// ─── Global topics (раздел / подраздел) ─────────────────────────────────────
+
+func TestCreateThreadRPC_GlobalSection_Success(t *testing.T) {
+	h, mock := setupRPCHandlerWithSyncStats(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	sectionID := "660e8400-e29b-41d4-a716-446655440000"
+	subsectionID := "770e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_sections WHERE id = \$1\)`).
+		WithArgs(sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_subsections WHERE id = \$1 AND section_id = \$2\)`).
+		WithArgs(subsectionID, sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
+		WithArgs(nil, nil, sectionID, subsectionID, "u1", "Global topic", "Body",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
+			"image_url", "image_urls", "attachments", "post_count", "server_domain",
+			"created_at", "updated_at", "is_remote",
+		}).AddRow(
+			"thread-global", nil, nil, sectionID, subsectionID, "u1", "Global topic", "Body", nil,
+			nil, nil, nil, 0, "localhost:8080",
+			now, now, false,
+		))
+
+	mock.ExpectCommit()
+
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id":    sectionID,
+		"subsection_id": subsectionID,
+		"title":         "Global topic",
+		"content":       "Body",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	data, _ := json.Marshal(resp.Data)
+	var thread models.Thread
+	if err := json.Unmarshal(data, &thread); err != nil {
+		t.Fatalf("response data is not a valid Thread: %v", err)
+	}
+	if thread.SectionID == nil || *thread.SectionID != sectionID {
+		t.Fatalf("expected section_id %q, got %v", sectionID, thread.SectionID)
+	}
+	if thread.SubsectionID == nil || *thread.SubsectionID != subsectionID {
+		t.Fatalf("expected subsection_id %q, got %v", subsectionID, thread.SubsectionID)
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_BadFormat(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id": "not-a-uuid",
+		"title":      "T",
+		"content":    "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_NotFound(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	sectionID := "660e8400-e29b-41d4-a716-446655440000"
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_sections WHERE id = \$1\)`).
+		WithArgs(sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id": sectionID,
+		"title":      "T",
+		"content":    "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_SubsectionMismatch(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	sectionID := "660e8400-e29b-41d4-a716-446655440000"
+	subsectionID := "770e8400-e29b-41d4-a716-446655440000"
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_sections WHERE id = \$1\)`).
+		WithArgs(sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_subsections WHERE id = \$1 AND section_id = \$2\)`).
+		WithArgs(subsectionID, sectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id":    sectionID,
+		"subsection_id": subsectionID,
+		"title":         "T",
+		"content":       "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_GlobalSection_ChannelRejected(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"section_id": "660e8400-e29b-41d4-a716-446655440000",
+		"channel_id": "880e8400-e29b-41d4-a716-446655440000",
+		"title":      "T",
+		"content":    "C",
+	}, claims)
+	h.CreateThreadRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // ─── GetThreadLikesBatch ────────────────────────────────────────────────────
 
 func TestGetThreadLikesBatch_Success(t *testing.T) {
@@ -1536,7 +1687,7 @@ func TestGetThreadLikesBatch_Success(t *testing.T) {
 
 	// M-1: the batch count must filter private boards/channels for anonymous
 	// callers (invisible threads report count 0).
-	mock.ExpectQuery(`(?s)SELECT tl\.thread_id, COUNT\(\*\) FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE tl\.thread_id IN \(\$1,\$2\) AND \(b\.visibility != 'private'.*GROUP BY tl\.thread_id`).
+	mock.ExpectQuery(`(?s)SELECT tl\.thread_id, COUNT\(\*\) FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id LEFT JOIN boards b ON t\.board_id = b\.id LEFT JOIN channels ch ON t\.channel_id = ch\.id WHERE tl\.thread_id IN \(\$1,\$2\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*GROUP BY tl\.thread_id`).
 		WithArgs(t1, t2).
 		WillReturnRows(sqlmock.NewRows([]string{"thread_id", "count"}).AddRow(t1, 5).AddRow(t2, 2))
 
@@ -1571,11 +1722,11 @@ func TestGetThreadLikesBatch_WithUser(t *testing.T) {
 	t2 := "550e8400-e29b-41d4-a716-446655440001"
 	uid := "660e8400-e29b-41d4-a716-446655440001"
 
-	mock.ExpectQuery(`(?s)SELECT tl\.thread_id, COUNT\(\*\) FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id.*WHERE tl\.thread_id IN \(\$1,\$2\) AND \(b\.visibility != 'private'.*GROUP BY tl\.thread_id`).
+	mock.ExpectQuery(`(?s)SELECT tl\.thread_id, COUNT\(\*\) FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id.*WHERE tl\.thread_id IN \(\$1,\$2\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*GROUP BY tl\.thread_id`).
 		WithArgs(t1, t2).
 		WillReturnRows(sqlmock.NewRows([]string{"thread_id", "count"}).AddRow(t1, 3).AddRow(t2, 0))
 
-	mock.ExpectQuery(`(?s)SELECT tl\.thread_id FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id.*WHERE tl\.user_id = \$1 AND tl\.thread_id IN \(\$2,\$3\) AND \(b\.visibility != 'private'.*`).
+	mock.ExpectQuery(`(?s)SELECT tl\.thread_id FROM thread_likes tl LEFT JOIN threads t ON tl\.thread_id = t\.id.*WHERE tl\.user_id = \$1 AND tl\.thread_id IN \(\$2,\$3\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*`).
 		WithArgs(uid, t1, t2).
 		WillReturnRows(sqlmock.NewRows([]string{"thread_id"}).AddRow(t1))
 
@@ -1599,7 +1750,7 @@ func TestGetPostLikesBatch_Success(t *testing.T) {
 	p2 := "550e8400-e29b-41d4-a716-446655440001"
 
 	// M-1: same visibility gate as GetThreadLikesBatch.
-	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id IN \(\$1,\$2\) AND \(b\.visibility != 'private'.*GROUP BY pl\.post_id`).
+	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id IN \(\$1,\$2\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*GROUP BY pl\.post_id`).
 		WithArgs(p1, p2).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 5).AddRow(p2, 2))
 
@@ -1647,11 +1798,11 @@ func TestGetPostLikesBatch_WithUser(t *testing.T) {
 	p2 := "550e8400-e29b-41d4-a716-446655440001"
 	uid := "660e8400-e29b-41d4-a716-446655440001"
 
-	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id IN \(\$1,\$2\) AND \(b\.visibility != 'private'.*GROUP BY pl\.post_id`).
+	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id IN \(\$1,\$2\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*GROUP BY pl\.post_id`).
 		WithArgs(p1, p2).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 3).AddRow(p2, 0))
 
-	mock.ExpectQuery(`(?s)SELECT pl\.post_id FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.user_id = \$1 AND pl\.post_id IN \(\$2,\$3\) AND \(b\.visibility != 'private'.*`).
+	mock.ExpectQuery(`(?s)SELECT pl\.post_id FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.user_id = \$1 AND pl\.post_id IN \(\$2,\$3\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*`).
 		WithArgs(uid, p1, p2).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id"}).AddRow(p1))
 
@@ -1694,11 +1845,11 @@ func TestGetPostLikesBatch_MemberSeesPrivateBoard(t *testing.T) {
 	uid := "660e8400-e29b-41d4-a716-446655440001"
 	viewer := "770e8400-e29b-41d4-a716-446655440002"
 
-	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id IN \(\$1\) AND \(b\.visibility != 'private' OR b\.owner_id::text = \$2.*`).
+	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.post_id IN \(\$1\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private' OR b\.owner_id::text = \$2.*`).
 		WithArgs(p1, viewer, viewer).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 5))
 
-	mock.ExpectQuery(`(?s)SELECT pl\.post_id FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.user_id = \$1 AND pl\.post_id IN \(\$2\) AND \(b\.visibility != 'private' OR b\.owner_id::text = \$3.*`).
+	mock.ExpectQuery(`(?s)SELECT pl\.post_id FROM post_likes pl LEFT JOIN posts p ON pl\.post_id = p\.id.*WHERE pl\.user_id = \$1 AND pl\.post_id IN \(\$2\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private' OR b\.owner_id::text = \$3.*`).
 		WithArgs(uid, p1, viewer, viewer).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id"}).AddRow(p1))
 
@@ -1720,7 +1871,7 @@ func TestGetPostLikesBatch_InvalidUUIDsSkipped(t *testing.T) {
 	p1 := "550e8400-e29b-41d4-a716-446655440000"
 
 	// "not-a-uuid" must be skipped silently, leaving a single-placeholder query
-	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl.*WHERE pl\.post_id IN \(\$1\) AND \(b\.visibility != 'private'.*GROUP BY pl\.post_id`).
+	mock.ExpectQuery(`(?s)SELECT pl\.post_id, COUNT\(\*\) FROM post_likes pl.*WHERE pl\.post_id IN \(\$1\) AND \(COALESCE\(b\.visibility, 'public'\) != 'private'.*GROUP BY pl\.post_id`).
 		WithArgs(p1).
 		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 7))
 
@@ -1729,5 +1880,58 @@ func TestGetPostLikesBatch_InvalidUUIDsSkipped(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ── unified stats: a reply must also refresh the thread author ──
+//
+// The thread author's garma includes "replies by others in my threads", so a
+// reply changes their number even though they did nothing. Only the commenter
+// used to be refreshed, leaving that term stale until the author's next action.
+func TestCreatePostRPC_RecomputesThreadAuthor(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	var got []string
+	h.recomputeStatsFn = func(_ *sql.DB, userID string) { got = append(got, userID) }
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectQuery(`(?s).*INSERT INTO posts.*RETURNING.*`).
+		WithArgs(threadID, "u1", "Test post content",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "thread_id", "user_id", "content", "content_json",
+			"image_url", "image_urls", "attachments", "reply_to", "is_private",
+			"private_recipient_id", "server_domain", "created_at", "is_remote",
+		}).AddRow(
+			"post-1", threadID, "u1", "Test post content", nil,
+			nil, nil, nil, nil, false,
+			nil, "localhost:8080", now, false,
+		))
+
+	mock.ExpectExec(`UPDATE threads SET post_count = post_count \+ 1, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("author-9"))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"thread_id": threadID,
+		"content":   "Test post content",
+	}, claims)
+	h.CreatePostRPC(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(got) != 2 || got[0] != "u1" || got[1] != "author-9" {
+		t.Fatalf("expected recompute [u1 author-9] (commenter then thread author), got %v", got)
 	}
 }

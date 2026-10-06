@@ -262,8 +262,8 @@ func TestVoteTranslation_RequiresAuth(t *testing.T) {
 func TestDeleteTranslation_AuthorCanDelete(t *testing.T) {
 	h, mock := setupTranslationsHandler(t)
 
-	// isMod lookup returns no rows → not a moderator.
-	mock.ExpectQuery(`SELECT role FROM user_roles WHERE user_id = \$1`).
+	// isMod lookup returns an error → not a moderator.
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u1").
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(`DELETE FROM translation_values WHERE id = \$1 AND user_id = \$2`).

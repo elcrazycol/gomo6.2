@@ -13,13 +13,20 @@
 services:
   # ── Database ──────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:15
+    image: postgres:18
+    # pg_stat_statements is preloaded so postgres_exporter can expose per-query
+    # statistics (migration 122 creates the extension itself).
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     environment:
       POSTGRES_DB: gomo6
       POSTGRES_USER: gomo6
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL 18+ keeps the cluster in a major-versioned subdirectory
+      # ($PGDATA=/var/lib/postgresql/18/docker), so the mount is the PARENT dir.
+      # Mounting .../data (the pre-18 layout) makes the entrypoint refuse to
+      # start — see docker-library/postgres#1259.
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gomo6 -d gomo6"]
@@ -36,6 +43,28 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Search (Meilisearch) ──────────────────────────────────────────────────
+  # Lightweight Rust search engine. Documents are indexed best-effort from the
+  # write path and fully rebuilt with `cmd/reindex`; when MEILISEARCH_URL is
+  # unset the backend falls back to PostgreSQL full-text search. Index data is
+  # disposable — it can always be rebuilt from Postgres — but the volume keeps
+  # restarts cheap.
+  meilisearch:
+    image: getmeili/meilisearch:v1.53.1
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required}
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_HTTP_ADDR: 0.0.0.0:7700
+    volumes:
+      - meilisearch_data:/meili_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:7700/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -175,7 +204,8 @@ services:
       DOMAIN: ${DOMAIN:-localhost}
       FEDERATION_KEY: ${FEDERATION_KEY:?FEDERATION_KEY is required}
       # /metrics auth — set METRICS_TOKEN to expose Prometheus metrics
-      # (scraped by the alloy container with the same token). Empty = 404.
+      # (scraped by the self-hosted vmagent container with the same token).
+      # Empty = 404.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://localhost:5173,http://localhost:8081,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
@@ -207,6 +237,11 @@ services:
       # include localhost/127.0.0.1.
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       TURNSTILE_HOSTNAMES: ${TURNSTILE_HOSTNAMES:-gomo6.wtf}
+      # Search (Meilisearch). MEILISEARCH_URL unset/empty disables the engine
+      # and the backend uses the PostgreSQL full-text fallback.
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://meilisearch:7700}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required}
+      MEILISEARCH_INDEX_PREFIX: ${MEILISEARCH_INDEX_PREFIX:-gomo6_}
       # Garage S3 — credentials from /garage-keys/s3.env (written by garage-init)
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
@@ -219,6 +254,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
       garage-init:
         condition: service_completed_successfully
@@ -253,25 +290,6 @@ services:
       dockerfile: apps/dev-dashboard/Dockerfile
     restart: unless-stopped
 
-  # ── Observability: Grafana Alloy ───────────────────────────────────────
-  # Scrapes backend /metrics (METRICS_TOKEN) and remote-writes the series to
-  # Grafana Cloud Prometheus. Config is bind-mounted; the VPS needs a one-time
-  # `docker compose up -d --no-build alloy` after this service appears in the
-  # compose file (deploy restarts only the 4 matrix services).
-  alloy:
-    image: grafana/alloy:v1.9.0
-    volumes:
-      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
-    environment:
-      METRICS_TOKEN: ${METRICS_TOKEN:-}
-      GRAFANA_CLOUD_METRICS_URL: ${GRAFANA_CLOUD_METRICS_URL:-}
-      GRAFANA_CLOUD_METRICS_USERNAME: ${GRAFANA_CLOUD_METRICS_USERNAME:-}
-      GRAFANA_CLOUD_METRICS_PASSWORD: ${GRAFANA_CLOUD_METRICS_PASSWORD:-}
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
-
   # ── Caddy Reverse Proxy (TLS + routing + S3 CORS proxy) ─────────────────
   caddy:
     image: caddy:2-alpine
@@ -299,11 +317,158 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Observability: VictoriaMetrics stack ──────────────────────────────────
+  # Replaces Grafana Cloud + Grafana Alloy: metric storage, ad-hoc UI (vmui),
+  # alert rules and Telegram delivery, all self-hosted. Config lives in
+  # observability/ (in git); the Telegram token lives in
+  # observability/alertmanager.yml, which is gitignored.
+  #
+  # UIs are bound to 127.0.0.1 only and are reached through an SSH tunnel:
+  #   ssh -L 8428:127.0.0.1:8428 -L 9093:127.0.0.1:9093 root@gomo6.wtf
+  #   vmui:         http://localhost:8428/vmui
+  #   Alertmanager: http://localhost:9093
+  #
+  # These are third-party images and are NOT in the deploy matrix: after a
+  # config change, recreate them on the VPS with
+  #   docker compose up -d --no-build victoriametrics vmagent vmalert alertmanager
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.153.0
+    command:
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=1y"
+      - "-httpListenAddr=:8428"
+    volumes:
+      - vm_data:/victoria-metrics-data
+    ports:
+      # localhost only — never exposed to the internet (admin UI, no auth).
+      - "127.0.0.1:8428:8428"
+    restart: unless-stopped
+
+  vmagent:
+    image: victoriametrics/vmagent:v1.153.0
+    command:
+      - "-promscrape.config=/etc/vmagent/vmagent.yml"
+      # The remote-write endpoint is explicit: vmagent does not append a path,
+      # and POSTing to "/" makes VictoriaMetrics answer 400.
+      - "-remoteWrite.url=http://victoriametrics:8428/api/v1/write"
+    environment:
+      # The /metrics bearer token; empty disables the backend scrape upstream.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    volumes:
+      - ./observability/vmagent.yml:/etc/vmagent/vmagent.yml:ro
+    ports:
+      # /targets — the "is scraping working" page (localhost only).
+      - "127.0.0.1:8429:8429"
+    depends_on:
+      victoriametrics:
+        condition: service_started
+    restart: unless-stopped
+
+  vmalert:
+    image: victoriametrics/vmalert:v1.153.0
+    command:
+      - "-rule=/etc/vmalert/rules.yml"
+      - "-datasource.url=http://victoriametrics:8428"
+      - "-remoteRead.url=http://victoriametrics:8428"
+      - "-notifier.url=http://alertmanager:9093"
+      - "-evaluationInterval=30s"
+    volumes:
+      - ./observability/vmalert-rules.yml:/etc/vmalert/rules.yml:ro
+    ports:
+      # Rule/alert status API + UI (localhost only).
+      - "127.0.0.1:8880:8880"
+    depends_on:
+      - victoriametrics
+      - alertmanager
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.28.0
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./observability/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    command:
+      - "--path.rootfs=/host"
+      # Per-container memory/CPU written by observability/container-metrics.sh
+      # (cron, once a minute) — the cheap alternative to cAdvisor on a 1 GB VPS.
+      - "--collector.textfile.directory=/textfile"
+    pid: host
+    volumes:
+      - "/:/host:ro,rslave"
+      - "/var/lib/gomo6-node-exporter:/textfile:ro"
+    restart: unless-stopped
+
+  # Database / cache exporters. They read only, and expose the numbers a
+  # forum actually cares about: active connections, cache hit ratio, deadlocks,
+  # Redis hits/misses and evictions.
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    environment:
+      DATA_SOURCE_NAME: "postgres://gomo6:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/gomo6?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.92.1
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Dashboards-as-code UI for the stack above. Config and provisioning live in
+  # observability/perses/ (git); the file DB persists in the perses_data volume.
+  perses:
+    image: persesdev/perses:v0.54.0
+    command:
+      - "--config=/etc/perses/config.yaml"
+    # The distroless image runs as uid 65532 and the named volume is created
+    # root-owned, so the file DB cannot be written (provisioning then fails
+    # with "mkdir /perses/data/projects: permission denied"). Run as root here:
+    # the container is localhost-only and mounts nothing else. The alternative
+    # is `chown -R 65532:65532` on the volume once per fresh host.
+    user: root
+    volumes:
+      - ./observability/perses/config.yaml:/etc/perses/config.yaml:ro
+      - ./observability/perses/provisioning:/etc/perses/provisioning:ro
+      - perses_data:/perses/data
+    ports:
+      # localhost only — reached through the SSH tunnel.
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      victoriametrics:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
+  meilisearch_data:
   garage_meta:
   garage_data:
   garage_keys:
   caddy_data:
   caddy_config:
+  vm_data:
+  alertmanager_data:
+  perses_data:

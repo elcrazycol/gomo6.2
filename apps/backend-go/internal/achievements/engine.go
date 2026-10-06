@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/activity"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
@@ -46,6 +47,11 @@ type Event struct {
 	UserID string
 	Type   EventType
 	At     time.Time
+	// TargetType/TargetID optionally point at the object the action touched
+	// (post, thread, wall_post, wall_comment, user, board). They are carried
+	// into the activity ledger for moderation; "" means untargeted.
+	TargetType string
+	TargetID   string
 }
 
 // eventCounters maps an event to the counter milestones it increments.
@@ -85,6 +91,11 @@ type Engine struct {
 	// Notifier is called when a milestone level rises. Nil = silent.
 	Notifier Notifier
 
+	// ledger records every handled event in the append-only activity log, which
+	// powers moderation and time-series. Nil = the ledger is disabled (the
+	// engine still works). Wired by the routes layer via SetActivityRecorder.
+	ledger *activity.Recorder
+
 	mu          sync.Mutex
 	dirtyGroups map[string]bool // groups whose definition changed at last Sync
 }
@@ -104,6 +115,12 @@ func GroupID(key string) string {
 	return uuid.NewMD5(uuid.NameSpaceOID, []byte(key)).String()
 }
 
+// SetActivityRecorder wires the append-only activity ledger. A nil recorder
+// disables ledger writes; the engine keeps working.
+func (e *Engine) SetActivityRecorder(r *activity.Recorder) {
+	e.ledger = r
+}
+
 func (e *Engine) logf(format string, args ...interface{}) {
 	log.Printf("[Achievements] "+format, args...)
 }
@@ -114,6 +131,11 @@ func (e *Engine) logf(format string, args ...interface{}) {
 func (e *Engine) HandleEvent(ev Event) {
 	if e.db == nil || ev.UserID == "" {
 		return
+	}
+	// Activity ledger: record the action (fire-and-forget) before the counter
+	// work, so moderation sees the action even if a later step fails.
+	if e.ledger != nil {
+		e.ledger.Record(ev.UserID, string(ev.Type), ev.TargetType, ev.TargetID)
 	}
 	at := ev.At
 	if at.IsZero() {

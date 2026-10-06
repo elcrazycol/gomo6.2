@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -130,6 +132,8 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 		notifications = notifications[:limit]
 	}
 
+	h.fillNotificationPublicIDs(notifications)
+
 	notificationCount := len(notifications)
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
@@ -137,6 +141,99 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 		Count:   &notificationCount,
 		HasMore: &hasMore,
 	})
+}
+
+// fillNotificationPublicIDs resolves the related UUIDs to the human-readable
+// numbers the client uses to build links (/profile/<n>, /thread/<n>,
+// /profile/<wallUser>/wall/<post>).
+//
+// Second pass on purpose: the notification query is a plain table read, so the
+// numbers are looked up by primary key afterwards rather than joined in. One
+// UNION query per page, best-effort — on failure the client falls back to the
+// UUID links it already has.
+func (h *NotificationsHandler) fillNotificationPublicIDs(notifications []models.Notification) {
+	if len(notifications) == 0 {
+		return
+	}
+	var userIDs, threadIDs, wallPostIDs, wallUserIDs []string
+	seen := make(map[string]bool)
+	collect := func(dst *[]string, id *string) {
+		if id == nil || *id == "" || seen[*id] {
+			return
+		}
+		seen[*id] = true
+		*dst = append(*dst, *id)
+	}
+	for i := range notifications {
+		n := &notifications[i]
+		collect(&userIDs, n.RelatedUserID)
+		collect(&wallUserIDs, n.RelatedWallUserID)
+		collect(&threadIDs, n.RelatedThreadID)
+		collect(&wallPostIDs, n.RelatedWallPostID)
+	}
+	if len(userIDs)+len(threadIDs)+len(wallPostIDs)+len(wallUserIDs) == 0 {
+		return
+	}
+
+	users := make(map[string]int64, len(userIDs)+len(wallUserIDs))
+	threads := make(map[string]int64, len(threadIDs))
+	wallPosts := make(map[string]int64, len(wallPostIDs))
+
+	rows, err := h.db.Query(`
+		SELECT 'user'::text AS kind, u.id, u.public_id
+		  FROM users u WHERE u.id = ANY($1::uuid[])
+		UNION ALL
+		SELECT 'thread', t.id, t.public_id
+		  FROM threads t WHERE t.id = ANY($2::uuid[])
+		UNION ALL
+		SELECT 'wall_post', p.id, p.public_id
+		  FROM profile_wall_posts p WHERE p.id = ANY($3::uuid[])`,
+		pq.Array(append(userIDs, wallUserIDs...)), pq.Array(threadIDs), pq.Array(wallPostIDs))
+	if err != nil {
+		log.Printf("[notifications] public_id lookup failed: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var kind, id string
+		var publicID int64
+		if err := rows.Scan(&kind, &id, &publicID); err != nil {
+			continue
+		}
+		switch kind {
+		case "user":
+			users[id] = publicID
+		case "thread":
+			threads[id] = publicID
+		case "wall_post":
+			wallPosts[id] = publicID
+		}
+	}
+
+	for i := range notifications {
+		n := &notifications[i]
+		if n.RelatedUserID != nil {
+			if v, ok := users[*n.RelatedUserID]; ok {
+				n.RelatedUserPublicID = &v
+			}
+		}
+		if n.RelatedWallUserID != nil {
+			if v, ok := users[*n.RelatedWallUserID]; ok {
+				n.RelatedWallUserPublicID = &v
+			}
+		}
+		if n.RelatedThreadID != nil {
+			if v, ok := threads[*n.RelatedThreadID]; ok {
+				n.RelatedThreadPublicID = &v
+			}
+		}
+		if n.RelatedWallPostID != nil {
+			if v, ok := wallPosts[*n.RelatedWallPostID]; ok {
+				n.RelatedWallPostPublicID = &v
+			}
+		}
+	}
 }
 
 // GetNotification godoc

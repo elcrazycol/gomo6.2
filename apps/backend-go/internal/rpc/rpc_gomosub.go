@@ -160,6 +160,9 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		INSERT INTO gomosub_memberships (board_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
 	`, board.ID, claims.UserID)
 
+	// Index the new gomosub (best-effort; private ones are excluded by query).
+	h.searchIndexer.SyncBoard(board.ID)
+
 	// Achievements: created a gomosub.
 	achievements.EmitAchievement(h.achEngine, claims.UserID, achievements.EventSubCreated)
 

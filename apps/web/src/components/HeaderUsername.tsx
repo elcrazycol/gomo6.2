@@ -5,11 +5,13 @@ import { parseCssToStyle } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { NicknameEmoji } from "./NicknameEmoji";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface CachedProfile {
   username: string;
   display_name?: string | null;
   nickname_emoji_id?: string | null;
+  public_id?: number | null;
   color?: string;
   customization?: {
     username_css?: string;
@@ -42,13 +44,16 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
     ? parseCssToStyle(profileData.customization.username_css)
     : {};
 
-  const usernameClassName = `text-sm sm:text-base drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] text-quote`;
+  // Neutral, like every other nickname: inherits the header's foreground colour
+  // (dark on light glass, light on dark glass) instead of the theme's quote
+  // accent + white halo.
+  const usernameClassName = `text-sm sm:text-base`;
 
   return (
     <ProfileHoverCard userId={userId} showDrops>
       <span
         className={`inline-flex items-center gap-1 cursor-pointer group ${className}`}
-        onClick={() => navigate(`/profile/${userId}`)}
+        onClick={() => navigate(profileUrl({ id: userId, public_id: profileData.public_id }))}
         style={{ userSelect: 'none' }}
       >
         <span className={`${usernameClassName} relative inline-block transition-transform duration-200 group-hover:translate-x-0.5`} style={usernameStyle}>

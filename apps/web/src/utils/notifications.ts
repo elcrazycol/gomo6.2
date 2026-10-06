@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { Notification } from "@/integrations/api/client";
 import { getWallPostPath } from "@/utils/wallNormalizers";
+import { entityParam, profileUrl } from "@/utils/entityUrl";
 
 /** Structured, language-neutral display data carried by new notifications. */
 export interface NotificationParams {
@@ -46,21 +47,29 @@ export function notificationLink(notif: Notification, threadSlug?: string): stri
   }
 
   if (isWallNotification(type)) {
+    // The owner may be the recipient themself (a notification about your own
+    // wall); their number is not part of the payload, so the UUID fallback is
+    // what keeps that link working.
     const ownerId = notif.related_wall_user_id || notif.user_id;
     if (notif.related_wall_post_id && ownerId) {
-      return getWallPostPath(ownerId, notif.related_wall_post_id);
+      return getWallPostPath(
+        { id: ownerId, public_id: notif.related_wall_user_public_id },
+        { id: notif.related_wall_post_id, public_id: notif.related_wall_post_public_id },
+      );
     }
-    return ownerId ? `/profile/${ownerId}` : "#";
+    return ownerId ? profileUrl({ id: ownerId, public_id: notif.related_wall_user_public_id }) : "#";
   }
 
-  if (type === "friend_request" || type === "friend_accepted") {
-    return notif.related_user_id ? `/profile/${notif.related_user_id}` : "#";
+  if (type === "friend_request" || type === "friend_accepted" || type === "new_subscriber" || type === "friend_mutual") {
+    return notif.related_user_id
+      ? profileUrl({ id: notif.related_user_id, public_id: notif.related_user_public_id })
+      : "#";
   }
 
   if (notif.related_thread_id) {
-    return threadSlug
-      ? `/${threadSlug}/thread/${notif.related_thread_id}`
-      : `/notify?thread=${notif.related_thread_id}`;
+    // Thread notifications carry the board slug; the app routes those under /g.
+    const param = entityParam({ id: notif.related_thread_id, public_id: notif.related_thread_public_id });
+    return threadSlug ? `/g/${threadSlug}/thread/${param}` : `/thread/${param}`;
   }
 
   return "#";
@@ -182,6 +191,14 @@ export function notificationTitle(notif: Notification, t: TFunction, actorName?:
         key = "notif.friendAccepted";
         values = { actor: params.actor };
         break;
+      case "new_subscriber":
+        key = "notif.newSubscriber";
+        values = { actor: params.actor };
+        break;
+      case "friend_mutual":
+        key = "notif.friendMutual";
+        values = { actor: params.actor };
+        break;
       case "gift_received":
         key = params.anonymous ? "notif.giftReceivedAnonymous" : "notif.giftReceived";
         values = { actor: params.actor, gift: params.gift_name };
@@ -204,6 +221,26 @@ export function notificationTitle(notif: Notification, t: TFunction, actorName?:
         values = { name: name ?? "" };
         break;
       }
+      case "sanction":
+        key = "notif.sanction";
+        values = { reason: notif.message };
+        break;
+      case "report_resolved":
+        key = "notif.reportResolved";
+        values = { actor: params.actor };
+        break;
+      case "appeal_accepted":
+        key = "notif.appealAccepted";
+        values = { actor: params.actor };
+        break;
+      case "appeal_rejected":
+        key = "notif.appealRejected";
+        values = { actor: params.actor };
+        break;
+      case "report_rejected":
+        key = "notif.reportRejected";
+        values = { actor: params.actor };
+        break;
     }
     if (key) return interpolateNotification(t(key, values), params);
   }

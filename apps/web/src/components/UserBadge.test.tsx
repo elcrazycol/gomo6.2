@@ -101,11 +101,13 @@ describe("UserBadge", () => {
     });
   });
 
-  it("applies showOutline class", async () => {
-    render(<UserBadge userId="u1" username="testuser" showOutline />);
+  it("renders nicknames in the neutral text colour without the legacy halo", async () => {
+    render(<UserBadge userId="u1" username="testuser" />);
     await waitFor(() => {
       const text = screen.getByText("testuser");
-      expect(text.className).toContain("text-base");
+      expect(text.className).toContain("text-sm");
+      expect(text.className).not.toContain("text-quote");
+      expect(text.className).not.toContain("drop-shadow");
     });
   });
 

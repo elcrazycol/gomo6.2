@@ -64,18 +64,21 @@ func TestSearch_AnonymousExcludesPrivateProfiles(t *testing.T) {
 
 	// The users query must contain the private-profile exclusion and receive a
 	// NULL viewer id for anonymous callers.
-	mock.ExpectQuery(`SELECT u\.id, u\.username, u\.display_name[\s\S]*COALESCE\(ps\.private_profile, false\) = false`).
+	mock.ExpectQuery(`SELECT u\.id, u\.public_id, u\.username, u\.display_name[\s\S]*COALESCE\(ps\.private_profile, false\) = false`).
 		WithArgs("admin", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "avatar_url"}))
 	mock.ExpectQuery(`SELECT id, slug, name, description, cover_image_url, is_gomosub`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "name", "description", "cover_image_url", "is_gomosub"}))
-	mock.ExpectQuery(`SELECT t\.id, t\.title, t\.content`).
+	mock.ExpectQuery(`SELECT t\.id, t\.public_id, t\.title, t\.content`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at", "board_id", "board_slug", "board_name", "board_is_gomosub"}))
 	mock.ExpectQuery(`SELECT p\.id, p\.content`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "content", "created_at", "thread_id", "thread_title", "board_id", "board_slug", "board_name", "board_is_gomosub", "username", "avatar_url"}))
+	mock.ExpectQuery(`FROM profile_wall_posts p`).
+		WithArgs("admin", nil, 30).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "public_id", "title", "content", "created_at", "updated_at", "author_id", "author_username", "wall_user_id", "wall_username"}))
 
 	c, w := newGETContext("/api/v1/search", map[string]string{"q": "admin"})
 	handler.Search(c)
@@ -92,19 +95,22 @@ func TestSearch_AuthenticatedPassesViewerID(t *testing.T) {
 
 	// Private-profile user "admin" is returned for the owner viewer "user-1"
 	// (the WHERE gate admits u.id = $2::uuid), proving the viewer id is wired.
-	mock.ExpectQuery(`SELECT u\.id, u\.username, u\.display_name[\s\S]*u\.id = \$2::uuid`).
+	mock.ExpectQuery(`SELECT u\.id, u\.public_id, u\.username, u\.display_name[\s\S]*u\.id = \$2::uuid`).
 		WithArgs("admin", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "avatar_url"}).
 			AddRow("user-a", "admin", "Admin", nil))
 	mock.ExpectQuery(`SELECT id, slug, name, description, cover_image_url, is_gomosub`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "name", "description", "cover_image_url", "is_gomosub"}))
-	mock.ExpectQuery(`SELECT t\.id, t\.title, t\.content`).
+	mock.ExpectQuery(`SELECT t\.id, t\.public_id, t\.title, t\.content`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "content", "created_at", "updated_at", "board_id", "board_slug", "board_name", "board_is_gomosub"}))
 	mock.ExpectQuery(`SELECT p\.id, p\.content`).
 		WithArgs("admin").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "content", "created_at", "thread_id", "thread_title", "board_id", "board_slug", "board_name", "board_is_gomosub", "username", "avatar_url"}))
+	mock.ExpectQuery(`FROM profile_wall_posts p`).
+		WithArgs("admin", "user-1", 30).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "public_id", "title", "content", "created_at", "updated_at", "author_id", "author_username", "wall_user_id", "wall_username"}))
 
 	c, w := newGETContextWithClaims("/api/v1/search", map[string]string{"q": "admin"}, &auth.Claims{UserID: "user-1"})
 	handler.Search(c)

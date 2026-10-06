@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
@@ -280,7 +281,7 @@ func TestUploadFileWithKey_GiftLayers_AdminAllowed(t *testing.T) {
 	h, f := setupStorageHandlerWithS3(t, db)
 
 	// Gift keys are not user-namespaced — an admin must be able to write them.
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("admin-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -311,7 +312,7 @@ func TestUploadFileWithKey_GiftLayers_NonAdmin_Forbidden(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	h, _ := setupStorageHandlerWithS3(t, db)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -340,7 +341,7 @@ func TestDeleteFile_GiftLayers_AdminAllowed(t *testing.T) {
 	h, f := setupStorageHandlerWithS3(t, db)
 	f.put("gift-layers", "gifts/abc/base.png", []byte("png-bytes"), "image/png")
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("admin-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -368,7 +369,7 @@ func TestDeleteFile_GiftLayers_NonAdmin_Forbidden(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	h, _ := setupStorageHandlerWithS3(t, db)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`)).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -679,6 +680,27 @@ func TestServeObject_NotFound_JSON(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Object not found") {
 		t.Errorf("unexpected body: %s", w.Body.String())
+	}
+}
+
+// A client that disconnects mid-request (navigated away, aborted the image)
+// cancels the request context; Garage then fails with context canceled. That is
+// not a server fault and must not be reported as a 5xx.
+func TestServeObject_ClientDisconnectIsNot500(t *testing.T) {
+	h, f := setupStorageHandlerWithS3(t, nil)
+	f.put("content", "user-1/photo.jpg", []byte("jpeg-bytes"), "image/jpeg")
+
+	c, w := newStoragePathContext(http.MethodGet, "/storage/v1/object/content/user-1/photo.jpg",
+		map[string]string{"bucket": "content", "key": "user-1/photo.jpg"}, nil)
+
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	cancel()
+	c.Request = c.Request.WithContext(ctx)
+
+	h.ServeObject(c)
+
+	if w.Code >= http.StatusInternalServerError {
+		t.Fatalf("client disconnect must not be a 5xx, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

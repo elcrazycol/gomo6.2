@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getCached, invalidateByPrefix, clearQueryCache } from "./queryCache";
+import { getCached, invalidateByPrefix, clearQueryCache, peekCached, subscribe } from "./queryCache";
 
 describe("queryCache", () => {
   beforeEach(() => {
@@ -119,5 +119,112 @@ describe("queryCache", () => {
     await getCached("profile-page:owner:u1", fetcher);
     await getCached("profile-page:viewer:u1", fetcher);
     expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("peekCached returns a warm value without fetching", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ id: 1 });
+
+    expect(peekCached("peek1")).toBeUndefined();
+
+    await getCached("peek1", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(peekCached("peek1")).toEqual({ id: 1 });
+    // Still no second fetch — peek never triggers one.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("peekCached misses after the TTL expires", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn().mockResolvedValue({ id: 1 });
+
+    await getCached("peek2", fetcher, { ttlMs: 1000 });
+    expect(peekCached("peek2")).toEqual({ id: 1 });
+
+    vi.advanceTimersByTime(1001);
+    expect(peekCached("peek2")).toBeUndefined();
+  });
+
+  it("peekCached returns a clone so callers cannot poison the cache", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ id: 1, tags: ["a"] });
+
+    await getCached("peek3", fetcher);
+    (peekCached("peek3") as { tags: string[] }).tags.push("b");
+
+    expect((peekCached("peek3") as { tags: string[] }).tags).toEqual(["a"]);
+  });
+
+  it("serves a stale value immediately and revalidates in the background", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ v: 1 })
+      .mockResolvedValueOnce({ v: 2 });
+
+    await getCached("swr1", fetcher, { ttlMs: 1000, staleTtlMs: 5000 });
+    vi.advanceTimersByTime(1001);
+
+    // Stale read: returns the old value without blocking on the network.
+    const stale = await getCached("swr1", fetcher, { ttlMs: 1000, staleTtlMs: 5000 });
+    expect(stale).toEqual({ v: 1 });
+
+    // The revalidation runs on the microtask queue and refreshes the entry.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(peekCached("swr1")).toEqual({ v: 2 });
+  });
+
+  it("notifies subscribers when a background revalidation lands", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ v: 1 })
+      .mockResolvedValueOnce({ v: 2 });
+
+    await getCached("swr2", fetcher, { ttlMs: 1000, staleTtlMs: 5000 });
+    const listener = vi.fn();
+    const unsubscribe = subscribe("swr2", listener);
+
+    vi.advanceTimersByTime(1001);
+    await getCached("swr2", fetcher, { ttlMs: 1000, staleTtlMs: 5000 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(peekCached("swr2")).toEqual({ v: 2 });
+    unsubscribe();
+  });
+
+  it("blocks on a fetch once the stale window has passed", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ v: 1 })
+      .mockResolvedValueOnce({ v: 3 });
+
+    await getCached("swr3", fetcher, { ttlMs: 1000, staleTtlMs: 1000 });
+    vi.advanceTimersByTime(2001);
+
+    const value = await getCached("swr3", fetcher, { ttlMs: 1000, staleTtlMs: 1000 });
+    expect(value).toEqual({ v: 3 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the stale value when a background revalidation fails", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ v: 1 })
+      .mockRejectedValueOnce(new Error("offline"));
+
+    await getCached("swr4", fetcher, { ttlMs: 1000, staleTtlMs: 5000 });
+    vi.advanceTimersByTime(1001);
+
+    const stale = await getCached("swr4", fetcher, { ttlMs: 1000, staleTtlMs: 5000 });
+    expect(stale).toEqual({ v: 1 });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(peekCached("swr4")).toEqual({ v: 1 });
   });
 });

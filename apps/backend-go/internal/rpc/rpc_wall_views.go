@@ -91,9 +91,11 @@ func (h *RPCHandler) anonymousViewerKeyAllowed(c *gin.Context, viewerKey string)
 //     under the same viewer_key are migrated to the account, so a person who
 //     browsed anonymously and then logged in still counts as ONE viewer.
 //
-// The visible views_count is a correlated COUNT(*) subquery in the wall GET /
-// feed, so this endpoint only writes to profile_wall_post_views — there is no
-// denormalized counter to keep in sync.
+// The visible per-post views_count is a correlated COUNT(*) subquery in the
+// wall GET / feed, so this endpoint only writes to profile_wall_post_views. The
+// one denormalized counter that DOES depend on it is users.views_received_count
+// (the profile "views" metric), refreshed for the affected authors when new
+// view rows land — see recomputeWallViewAuthors.
 //
 // RecordWallViews godoc
 // @Summary      Record wall post views
@@ -219,5 +221,41 @@ ON CONFLICT DO NOTHING`, viewerIDArg, viewerKeyArg, pq.Array(ids), viewerID)
 	if n, err := res.RowsAffected(); err == nil {
 		inserted = int(n)
 	}
+	// Unified stats: users.views_received_count is a denormalized counter over
+	// profile_wall_post_views (the per-card views_count on the wall/feed is a
+	// live COUNT, but the profile "views" metric reads this column). Refresh the
+	// authors ONLY when at least one new view row landed — re-scrolls and
+	// revisits insert nothing and must not trigger a recompute.
+	if inserted > 0 {
+		h.recomputeWallViewAuthors(ids)
+	}
 	c.JSON(http.StatusOK, models.SuccessResponse(inserted))
+}
+
+// recomputeWallViewAuthors refreshes the unified profile stats of every author
+// whose wall post just received a view. One extra query for the whole batch
+// regardless of size; profiles.RecomputeUserProfileStats coalesces per author,
+// so N posts by the same author cost one recompute. Best-effort: a failed lookup
+// must never fail the view that was already recorded.
+func (h *RPCHandler) recomputeWallViewAuthors(postIDs []string) {
+	if h.recomputeStatsFn == nil || len(postIDs) == 0 {
+		return
+	}
+	rows, err := h.db.Query(
+		`SELECT DISTINCT author_id::text FROM profile_wall_posts WHERE id::text = ANY($1)`,
+		pq.Array(postIDs),
+	)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var authorID string
+		if err := rows.Scan(&authorID); err != nil {
+			continue
+		}
+		if authorID != "" {
+			h.recomputeStatsFn(h.db, authorID)
+		}
+	}
 }

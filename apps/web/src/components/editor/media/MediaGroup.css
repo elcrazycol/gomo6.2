@@ -171,7 +171,7 @@
   display: block;
   overflow: hidden;
   border-radius: 10px;
-  background: hsl(var(--muted) / 0.4);
+  background: oklch(var(--muted) / 0.4);
   aspect-ratio: 16 / 10;
   touch-action: pan-y;
   user-select: none;
@@ -234,7 +234,7 @@
   outline: none;
 }
 .media-compare-handle:focus-visible {
-  box-shadow: 0 0 0 2px hsl(var(--primary));
+  box-shadow: 0 0 0 2px oklch(var(--primary));
 }
 .media-compare-grip {
   position: absolute;
@@ -247,9 +247,9 @@
   width: 34px;
   height: 34px;
   border-radius: 9999px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  border: 1px solid oklch(var(--border));
+  background: oklch(var(--background));
+  color: oklch(var(--foreground));
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 .media-compare-label {
@@ -280,7 +280,7 @@
 
 /* Highlight of the media the dragged one will merge into. */
 .media-merge-target {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid oklch(var(--primary));
   outline-offset: 3px;
   border-radius: 6px;
 }

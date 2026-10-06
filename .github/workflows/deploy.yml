@@ -1,0 +1,336 @@
+# =============================================================================
+# deploy.yml — сборка образов и выкат на VPS.
+# =============================================================================
+# Поток:
+#   push в main (или ручной запуск)
+#     → job `ci`   — те же проверки, что на PR (переиспользует ci.yml) — ГЕЙТ
+#     → job `plan` — что реально изменилось (git diff по github.event.before)
+#     → job `ship` — matrix по 4 сервисам: buildx build --push → pull+restart
+#                    на VPS. Каждый сервис выкатывается сразу, как только
+#                    собрался, а не ждёт самый медленный.
+#
+# VPS (1 vCPU / 1 GB) НИКОГДА не собирает: только `docker pull` из ghcr.io и
+# `docker compose up -d --no-build <service>`. Образы берутся из ghcr.io,
+# пакеты публичные — на VPS не нужно ни логина, ни токена.
+#
+# Скорость:
+#   · сборка идёт на self-hosted Mac (переменная BUILD_RUNNER), где между
+#     запусками живут тёплый BuildKit-кэш ($HOME/gomo6-buildx-cache/<service>)
+#     и cache-mounts из Dockerfile'ов (go-build, npm). Это ровно та же
+#     механика, что в .forgejo-пайплайне — она даёт ~60s на web-only коммит.
+#   · параллельность — matrix. ВНИМАНИЕ: один процесс actions-runner умеет
+#     ровно один job за раз. Чтобы 4 сервиса собирались одновременно, нужно
+#     зарегистрировать 4 инстанса раннера (actions-runner, actions-runner2, …).
+#     С одним раннером matrix отработает последовательно — корректно, просто
+#     дольше.
+#
+# ── Переменная PRIMARY_FORGE ─────────────────────────────────────────────────
+# Пока она не равна `github`, workflow не трогает прод: job `ship` пропускается.
+# Это нужно, чтобы можно было спокойно закоммитить новые воркфлоу, пока каноном
+# ещё остаётся Codeberg, и не получить двойной деплой.
+# Переключение: Settings → Secrets and variables → Actions → Variables →
+#   PRIMARY_FORGE=github
+# (имя не может начинаться с GITHUB_ — этот префикс зарезервирован GitHub'ом)
+#
+# Секреты: VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_PORT (опц.),
+#          VITE_DEPAY_INTEGRATION_ID, VITE_TURNSTILE_SITEKEY, VITE_SENTRY_DSN
+# Переменные: PRIMARY_FORGE ('github' включает выкат), BUILD_RUNNER (опц., JSON
+#          массив меток раннера; по умолчанию self-hosted Mac).
+# =============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    # Теги не деплоят: версия образа берётся из файла VERSION, а git-тег нужен
+    # только release.yml для GitHub Release. Без этой строки пуш тега поднимал
+    # ВТОРОЙ Deploy на тот же коммит (наблюдалось на релизе 2.16.0) — concurrency
+    # его сериализует, но это лишняя полная пересборка.
+    tags-ignore: ['**']
+  workflow_dispatch:
+    inputs:
+      services:
+        description: Какие сервисы пересобрать
+        type: choice
+        default: all
+        options: [all, backend, web, docs, dev-dashboard]
+      reindex:
+        description: Перестроить индексы Meilisearch после выката
+        type: boolean
+        default: false
+
+# Деплой не отменяем никогда: прерванный на середине выкат оставит часть
+# сервисов на новом образе, а часть на старом.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Гейт: те же проверки, что на PR. Деплой не стартует, пока этот job красный.
+  # ---------------------------------------------------------------------------
+  ci:
+    name: CI (гейт)
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # План: какие сервисы пересобирать. Диффаем реальные коммиты, а не эвристику:
+  # github.event.before — это предыдущий tip main, поэтому пачка коммитов
+  # (в т.ч. merge и rebase) видна целиком. Если базы нет (force push) — собираем всё.
+  # ---------------------------------------------------------------------------
+  plan:
+    name: План сборки
+    needs: ci
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_work: ${{ steps.plan.outputs.has_work }}
+      caddy: ${{ steps.plan.outputs.caddy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine what to build
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          REQUESTED: ${{ inputs.services }}
+        run: |
+          set -euo pipefail
+
+          DIFF=""
+          ALL=false
+          CADDY=false
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            ALL=true
+          else
+            # `before` = предыдущий tip main. Пустой/нулевой/недостижимый
+            # (первый push в ветку или force push) → пересобираем всё.
+            if [ -z "$BEFORE" ] \
+               || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+               || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              echo "База для diff недоступна — пересобираем все сервисы"
+              ALL=true
+            else
+              DIFF="$(git diff --name-only "$BEFORE" "$SHA")"
+            fi
+          fi
+
+          if [ "$ALL" = false ]; then
+            # Корневые файлы и общие манифесты влияют на все сервисы сразу:
+            # VERSION запекается и в web, и в backend; package*.json/turbo.json
+            # и packages/ меняют сборку всех фронтендов; scripts/ копируется
+            # в контекст web-сборки и в образ (Dockerfile'ы копируют scripts/).
+            if echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore|VERSION|package\.json|package-lock\.json|turbo\.json)$'; then
+              ALL=true
+            fi
+            # Правки .github/workflows/ сознательно НЕ пересобирают образы:
+            # они не входят ни в один build-контекст, а их влияние на сборку
+            # применится к следующему же изменению кода (или через ручной запуск
+            # services=all). Иначе любой чих в воркфлоу гнал бы полную пересборку.
+            if echo "$DIFF" | grep -qE '^(packages/|scripts/)'; then
+              ALL=true
+            fi
+            # Caddyfile bind-mount'ится в контейнер, Compose не видит правку —
+            # поэтому caddy надо рестартовать явно (флаг уходит в restart-service.sh).
+            if echo "$DIFF" | grep -qE '^Caddyfile$'; then
+              CADDY=true
+            fi
+          fi
+
+          SEL=""
+          if [ "$ALL" = true ]; then
+            SEL="backend web docs dev-dashboard"
+            # Мы не знаем, что именно поменялось (force push / ручной запуск),
+            # а Caddyfile bind-mounted — Compose его правку не увидит. Рестарт
+            # caddy дешёвый, поэтому в неопределённом случае делаем его всегда.
+            CADDY=true
+          else
+            echo "$DIFF" | grep -qE '^apps/backend-go/'     && SEL="$SEL backend"
+            echo "$DIFF" | grep -qE '^apps/web/'            && SEL="$SEL web"
+            echo "$DIFF" | grep -qE '^apps/docs/'           && SEL="$SEL docs"
+            echo "$DIFF" | grep -qE '^apps/dev-dashboard/'  && SEL="$SEL dev-dashboard"
+            true
+          fi
+
+          # Ручной запуск может сузить набор до одного сервиса.
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$REQUESTED" != "all" ]; then
+            SEL="$REQUESTED"
+          fi
+
+          # Матрица собирается здесь и попадает в strategy.matrix через fromJSON.
+          #
+          # Почему не «статическая matrix + if на каждой ноге»: matrix-контекст
+          # НЕДОСТУПЕН в jobs.<id>.if (там разрешены только github/inputs/needs/
+          # vars). Поэтому набор ног определяется на этапе плана.
+          #
+          # Почему при пустом списке всё равно одна запись: пустой include в
+          # strategy.matrix — это ошибка валидации воркфлоу. Заглушка __none__
+          # матрицу делает непустой, а job всё равно скипается по has_work.
+          if [ -z "${SEL// /}" ]; then
+            MATRIX='[{"service":"__none__","context":".","dockerfile":"apps/web/Dockerfile"}]'
+            HAS_WORK=false
+            echo "Нечего пересобирать"
+          else
+            MATRIX="$(python3 -c '
+          import json, sys
+          table = {
+              "backend":       ("apps/backend-go", "apps/backend-go/Dockerfile"),
+              "web":           (".",               "apps/web/Dockerfile"),
+              "docs":          (".",               "apps/docs/Dockerfile"),
+              "dev-dashboard": (".",               "apps/dev-dashboard/Dockerfile"),
+          }
+          print(json.dumps([{"service": s, "context": table[s][0], "dockerfile": table[s][1]}
+                            for s in sys.argv[1].split()]))
+          ' "$SEL")"
+            HAS_WORK=true
+          fi
+
+          {
+            echo "matrix=$MATRIX"
+            echo "has_work=$HAS_WORK"
+            echo "caddy=$CADDY"
+          } >> "$GITHUB_OUTPUT"
+          echo "Итог: has_work=$HAS_WORK caddy=$CADDY matrix=$MATRIX"
+
+  # ---------------------------------------------------------------------------
+  # Сборка и выкат. Набор сервисов приезжает матрицей из plan: одна нога на
+  # сервис, все параллельно (насколько позволяет число инстансов раннера).
+  # ---------------------------------------------------------------------------
+  ship:
+    name: ${{ matrix.service }} → сборка и выкат
+    needs: plan
+    if: needs.plan.outputs.has_work == 'true' && vars.PRIMARY_FORGE == 'github'
+    runs-on: ${{ fromJSON(vars.BUILD_RUNNER || '["self-hosted","macOS","ARM64"]') }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Тот же обход, что и в .forgejo-пайплайне, и он тут нужен по тем же
+      # причинам: отдельный DOCKER_CONFIG не даёт Docker Desktop утащить креды
+      # в macOS keychain (там живут устаревшие записи, которые молча выигрывают),
+      # а cliPluginsExtraDirs возвращает видимость плагина buildx — иначе
+      # `docker buildx` не находит билдер и падает на «unknown flag: --platform».
+      - name: Prepare Docker config (ghcr.io, без keychain)
+        run: |
+          set -eo pipefail
+          CFG="$HOME/.docker-gomo6-ci"
+          rm -rf "$CFG"
+          mkdir -p "$CFG"
+          AUTH="$(printf '%s:%s' "${{ github.actor }}" "${{ github.token }}" | base64)"
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}},"cliPluginsExtraDirs":["%s"]}' \
+            "$AUTH" "$HOME/.docker/cli-plugins" > "$CFG/config.json"
+          echo "DOCKER_CONFIG=$CFG" >> "$GITHUB_ENV"
+
+      - name: Build & push ${{ matrix.service }}
+        run: |
+          set -eo pipefail
+          REG="ghcr.io/${{ github.repository_owner }}"
+          IMAGE="$REG/gomo6-${{ matrix.service }}"
+          VERSION="$(cat VERSION)"
+          CACHE="$HOME/gomo6-buildx-cache/${{ matrix.service }}"
+          mkdir -p "$CACHE"
+
+          # Обычная строка, а не массив: под set -u в bash 3.2 (дефолт macOS)
+          # раскрытие пустого массива падает с "unbound variable".
+          ARGS=""
+          if [ "${{ matrix.service }}" = "web" ]; then
+            ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_APP_VERSION=$VERSION --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }} --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }} --build-arg VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}"
+          elif [ "${{ matrix.service }}" = "backend" ]; then
+            ARGS="--build-arg VERSION=$VERSION --build-arg GIT_COMMIT=${{ github.sha }}"
+          fi
+
+          # Три тега: latest (его берёт compose), vX.Y.Z (релиз) и sha-<commit>
+          # (точный снимок — на него откатывается restart-service.sh с TAG=sha-…).
+          # --platform linux/amd64: VPS — amd64, а раннер — arm64; собирается
+          # всё равно нативно ($BUILDPLATFORM в Dockerfile'ах), эмуляции нет.
+          # $ARGS намеренно без кавычек: это набор флагов через пробел, его
+          # НУЖНО разбить на слова (тот же приём, что в .forgejo-пайплайне).
+          # shellcheck disable=SC2086
+          docker buildx build \
+            --platform linux/amd64 \
+            --push \
+            --provenance=false \
+            -t "$IMAGE:latest" \
+            -t "$IMAGE:v$VERSION" \
+            -t "$IMAGE:sha-${{ github.sha }}" \
+            --cache-from "type=local,src=$CACHE" \
+            --cache-to "type=local,dest=$CACHE,mode=max" \
+            $ARGS \
+            -f "${{ matrix.dockerfile }}" \
+            "${{ matrix.context }}"
+
+      - name: Restart ${{ matrix.service }} on VPS
+        run: |
+          set -eo pipefail
+          # Ключ на каждый сервис свой: лёги идут параллельно, и общий путь
+          # приводёл бы к «no such identity», когда один job удаляет ключ,
+          # пока другой ещё ssh-ит. BatchMode — чтобы не виснуть на пароле.
+          KEY="$HOME/.ssh/vps_deploy_key_${{ matrix.service }}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > "$KEY"
+          chmod 600 "$KEY"
+          trap 'rm -f "$KEY"' EXIT
+
+          scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
+              -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              scripts/restart-service.sh \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-restart-service.sh"
+
+          # REG=ghcr.io/<owner>: тот же namespace, что и в docker-compose.yml,
+          # поэтому внутренний retag в скрипте становится no-op — править
+          # сам скрипт не нужно. COMPOSE_NAMESPACE передаём явно, чтобы не
+          # зависеть от его дефолтов.
+          ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
+              -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "REG=ghcr.io/${{ github.repository_owner }} COMPOSE_NAMESPACE=ghcr.io/${{ github.repository_owner }} CADDY_CHANGED=${{ needs.plan.outputs.caddy }} bash /tmp/gomo6-restart-service.sh ${{ matrix.service }}"
+
+  # ---------------------------------------------------------------------------
+  # Перестройка индексов Meilisearch. Нужна после смены схемы/настроек индекса
+  # или после восстановления БД. Только вручную (галка при запуске).
+  # ---------------------------------------------------------------------------
+  reindex:
+    name: Reindex Meilisearch
+    needs: ship
+    if: github.event_name == 'workflow_dispatch' && inputs.reindex && vars.PRIMARY_FORGE == 'github'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run reindex on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || 22 }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          KEY="$HOME/vps_reindex_key"
+          printf '%s\n' "$VPS_SSH_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          trap 'rm -f "$KEY"' EXIT
+
+          ssh -i "$KEY" -p "$VPS_PORT" \
+              -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "$VPS_USER@$VPS_HOST" '
+                set -e
+                for d in /root/gomo6.2 /home/*/gomo6.2; do
+                  [ -d "$d" ] && [ -f "$d/docker-compose.yml" ] && { cd "$d"; break; }
+                done
+                [ -f docker-compose.yml ] || { echo "gomo6.2 repo not found"; exit 1; }
+                docker compose run --rm -T backend ./reindex
+              '

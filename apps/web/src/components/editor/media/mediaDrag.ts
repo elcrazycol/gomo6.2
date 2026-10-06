@@ -26,7 +26,7 @@ const CARET_STYLE = [
   "z-index:9999",
   "width:2px",
   "border-radius:2px",
-  "background:hsl(var(--primary))",
+  "background:oklch(var(--primary))",
   "pointer-events:none",
 ].join(";");
 

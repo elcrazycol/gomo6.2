@@ -33,15 +33,19 @@ export const REPORT_MAX_REASON = 2000;
 interface ReportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  postId: string;
+  /** Polymorphic target: "wall_post" | "thread" | "post" | "wall_comment" | "user" | "gomosub". */
+  targetType: string;
+  targetId: string;
+  /** Human label of the target, shown in the title (e.g. "на запись"). */
+  targetLabel?: string;
 }
 
 /**
- * Report-a-post form: category chips + a free-text description. One report per
- * user per post — the backend returns 409 with code `report_already_exists`
- * for duplicates, which is rendered as a friendly toast.
+ * Report form for ANY target type: category chips + a free-text description.
+ * One report per user per target — the backend returns 409 with code
+ * `report_already_exists` for duplicates, which is rendered as a friendly toast.
  */
-export const ReportDialog = ({ open, onOpenChange, postId }: ReportDialogProps) => {
+export const ReportDialog = ({ open, onOpenChange, targetType, targetId, targetLabel }: ReportDialogProps) => {
   const [category, setCategory] = useState<ReportCategory>("spam");
   // The reason is tracked only for the char counter / submit gate. The textarea
   // itself is UNCONTROLLED (ref-based): controlled textareas on some mobile
@@ -79,9 +83,9 @@ export const ReportDialog = ({ open, onOpenChange, postId }: ReportDialogProps) 
       }
       await apiClient.rawRequest("/api/v1/moderation/reports", {
         method: "POST",
-        body: JSON.stringify({ post_id: postId, category, reason }),
+        body: JSON.stringify({ target_type: targetType, target_id: targetId, category, reason }),
       });
-      markReported(postId);
+      markReported(targetType, targetId);
       toast.success("Жалоба отправлена. Спасибо!");
       handleClose(false);
     } catch (err) {
@@ -89,8 +93,8 @@ export const ReportDialog = ({ open, onOpenChange, postId }: ReportDialogProps) 
       if (e.code === "report_already_exists") {
         // A duplicate means the report is already on file — treat it as
         // reported so the menu blocks further attempts immediately.
-        markReported(postId);
-        toast.error("Вы уже пожаловались на эту запись");
+        markReported(targetType, targetId);
+        toast.error("Вы уже пожаловались на это");
         handleClose(false);
       } else {
         toast.error(e.message || "Не удалось отправить жалобу");
@@ -106,10 +110,10 @@ export const ReportDialog = ({ open, onOpenChange, postId }: ReportDialogProps) 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Flag className="h-4 w-4 text-orange-500" />
-            Пожаловаться на запись
+            Пожаловаться{targetLabel ? ` ${targetLabel}` : ""}
           </DialogTitle>
           <DialogDescription>
-            Расскажите, что не так с этой записью — модераторы увидят жалобу сразу.
+            Расскажите, что не так{targetLabel ? ` с ${targetLabel.replace(/^на /, "")}` : ""} — модераторы увидят жалобу сразу.
           </DialogDescription>
         </DialogHeader>
 

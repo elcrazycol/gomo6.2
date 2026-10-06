@@ -12,9 +12,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
+	"github.com/gomo6/backend/internal/activity"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/backup"
+	"github.com/gomo6/backend/internal/config"
 	"github.com/gomo6/backend/internal/crudengine"
 	"github.com/gomo6/backend/internal/drops"
 	"github.com/gomo6/backend/internal/gifts"
@@ -26,8 +29,10 @@ import (
 	"github.com/gomo6/backend/internal/notifications"
 	"github.com/gomo6/backend/internal/oauth"
 	"github.com/gomo6/backend/internal/privacy"
+	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/rpc"
+	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/socialpreview"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
@@ -42,11 +47,32 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// registered below (admin-only at GET /api/v1/metrics).
 	router.Use(middleware.MetricsMiddleware())
 
+	// Search (Meilisearch): one engine service plus a best-effort indexer that
+	// mirrors writes into it. Both are optional — an empty MEILISEARCH_URL
+	// disables search and leaves the PostgreSQL full-text fallback in charge.
+	// Index data is disposable; cmd/reindex rebuilds it from Postgres.
+	indexPrefix := os.Getenv("MEILISEARCH_INDEX_PREFIX")
+	if indexPrefix == "" {
+		indexPrefix = config.DefaultMeilisearchIndexPrefix
+	}
+	searchService := search.New(search.Config{
+		URL:         os.Getenv("MEILISEARCH_URL"),
+		MasterKey:   os.Getenv("MEILI_MASTER_KEY"),
+		IndexPrefix: indexPrefix,
+	})
+	searchIndexer := search.NewIndexer(db, searchService)
+
 	// Readiness check (registered after all initialization is complete)
 	// Docker healthcheck uses /health (registered in main.go BEFORE heavy init)
-	// This /ready endpoint confirms the full stack is operational
+	// This /ready endpoint confirms the full stack is operational. Search is
+	// reported but never fails readiness: the PostgreSQL fallback keeps the API
+	// working while the engine is absent or empty.
 	router.GET("/ready", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "websocket": wsHub != nil})
+		c.JSON(200, gin.H{
+			"status":    "ok",
+			"websocket": wsHub != nil,
+			"search":    searchService.Enabled(),
+		})
 	})
 
 	// Serve OpenAPI/Swagger JSON for API documentation
@@ -57,6 +83,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db)
+	authHandler.SetSearchIndexer(searchIndexer)
 	// Initialize auth service
 	authService := auth.NewAuthService()
 	authService.SetRedis(redis) // enables token blacklist + refresh tokens
@@ -115,11 +142,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	boardsHandler := handlers.NewBoardsHandler(db)
 	boardsHandler.SetRedis(redis)
 	boardsHandler.SetAuthService(authService)
+	boardsHandler.SetSearchIndexer(searchIndexer)
 	threadsHandler := handlers.NewThreadsHandler(db)
 	threadsHandler.SetRedis(redis)
 	threadsHandler.SetAuthService(authService)
+	threadsHandler.SetSearchIndexer(searchIndexer)
 	postsHandler := handlers.NewPostsHandler(db)
 	postsHandler.SetRedis(redis)
+	postsHandler.SetSearchIndexer(searchIndexer)
 	// Initialize the achievements engine (must be before handlers that use it).
 	// The catalog lives in Go code; the DB table is only a synced mirror.
 	achCatalog, err := achievements.Default()
@@ -128,9 +158,42 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	}
 	achEngine := achievements.New(db, achCatalog)
 
+	// Activity ledger: an append-only, content-free action log for moderation
+	// ("what did user X do") and honest time-series. The achievements engine
+	// records every content action it handles (they all emit one), through a
+	// bounded background pool — so this adds no request latency and degrades by
+	// dropping (counted in the bg metrics) rather than piling up. Partition
+	// maintenance runs at startup and every 6h, so no pg_cron is needed.
+	activityRecorder := activity.New(db)
+	achEngine.SetActivityRecorder(activityRecorder)
+	if err := activity.MaintainPartitions(context.Background(), db, 6); err != nil {
+		log.Printf("[activity] partition maintenance failed: %v", err)
+	}
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := activity.MaintainPartitions(context.Background(), db, 6); err != nil {
+				log.Printf("[activity] partition maintenance failed: %v", err)
+			}
+		}
+	}()
+
+	// Unified stats snapshot: interactions only MARK a user dirty (O(1),
+	// in-memory — see profiles.RecomputeUserProfileStats); a sweep recomputes
+	// them in one batched statement every 2 minutes, with a full reconciliation
+	// hourly. This replaces the per-interaction heavy UPDATE that used to run on
+	// the request path, and the per-view recompute that used to run while
+	// reading a profile.
+	go profiles.StatsSweepLoop(context.Background(), db, 2*time.Minute, time.Hour, func(err error) {
+		log.Printf("[stats] sweep failed: %v", err)
+	})
+
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
 	profilesHandler.SetAchievementEngine(achEngine)
+	profilesHandler.SetHub(wsHub)
+	profilesHandler.SetSearchIndexer(searchIndexer)
 	likesHandler := handlers.NewLikesHandler(db, redis)
 	likesHandler.SetWebSocketHub(wsHub)
 	likesHandler.SetAchievementEngine(achEngine)
@@ -158,6 +221,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	rpcHandler.SetWebSocketHub(wsHub)
 	rpcHandler.SetAchievementEngine(achEngine)
 	rpcHandler.SetNotifier(notifService)
+	rpcHandler.SetSearchIndexer(searchIndexer)
 
 	// Profile-wall domain service: owns the wall read queries, write side
 	// effects, cache invalidation, achievement events and interaction privacy
@@ -170,18 +234,43 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	engine.SetRedis(redis)
 	engine.SetAchievementEngine(achEngine)
 	engine.SetWall(wallService)
+	engine.SetSearchIndexer(searchIndexer)
 	searchHandler := handlers.NewSearchHandler(db)
+	searchHandler.SetSearchService(searchService)
 	feedHandler := handlers.NewFeedHandler(db)
+	historyHandler := handlers.NewHistoryHandler(db)
+	favoritesHandler := handlers.NewFavoritesHandler(db)
+	randomHandler := handlers.NewRandomHandler(db, redis)
+	sidebarTabsHandler := handlers.NewSidebarTabsHandler(db)
+	userSettingsHandler := handlers.NewUserSettingsHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
 	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
 	// Content moderation: report filing (any user) + moderator queue/triage.
 	moderationHandler := moderation.NewHandler(db, redis, wsHub)
+	// Sanction notifications ("почему меня забанили") go through the shared
+	// notification service.
+	moderationHandler.SetNotifier(notifService)
+
+	// Auto-signals: a scan of the activity ledger (bursts) and the content tables
+	// (duplicates) files system reports for a human to review — it never
+	// sanctions anyone. Runs once at startup, then every few minutes.
+	go func() {
+		ctx := context.Background()
+		if n, err := moderationHandler.RunSignalScan(ctx); err != nil {
+			log.Printf("[signals] initial scan failed: %v", err)
+		} else if n > 0 {
+			log.Printf("[signals] initial scan filed %d report(s)", n)
+		}
+		moderationHandler.StartSignalLoop(ctx)
+	}()
 	audioHandler := handlers.NewAudioHandler()
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	actieyeHandler := handlers.NewActiEyeHandler(db)
 	gamificationHandler := handlers.NewGamificationHandler()
+	publicIDHandler := handlers.NewPublicIDHandler(db, redis, wsHub)
+	publicIDHandler.SetSearchIndexer(searchIndexer)
 	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
@@ -210,6 +299,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Client-side error reporting handler
 	clientErrorsHandler := handlers.NewClientErrorsHandler(db)
+	clientErrorsHandler.StartClientErrorRetention()
 	translationsHandler := translations.New(db)
 
 	// Admin-only request metrics (per-route counts, latency, 4xx/5xx/429).
@@ -364,6 +454,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// responses are cached per viewer identity (see data_cache.go).
 		rest.GET("/feed", feedHandler.GetUserFeed)
 
+		// «Mr. рандомность» — a mixed handful of random PUBLIC content for the
+		// sidebar. The candidate pool is cached in Redis (see RandomHandler), and
+		// a per-IP limit keeps this public endpoint from being hammered.
+		randomRateLimiter := middleware.NewAuthRateLimiterWithPrefix("random", redis, 60, time.Minute)
+		rest.GET("/random", middleware.IPRateLimitMiddleware(randomRateLimiter), randomHandler.GetRandom)
+
 		// Public endpoints (no auth required)
 		rest.GET("/profiles", profilesHandler.GetProfiles)
 		rest.GET("/profiles/:id", profilesHandler.GetProfile)
@@ -393,6 +489,21 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// them leaks nothing that was hidden.
 		privacyHandler := handlers.NewPrivacyHandler(db)
 		rest.GET("/users/:id/privacy", privacyHandler.GetUserPrivacy)
+
+		// Profile appearance (public) — nickname CSS, badge and background of a
+		// user, needed to render someone else's nickname styling. The generic
+		// /profile_customization surface is scoped to the caller's own user_id
+		// (TableMeta.UserScopedRead), so it can only ever return the caller's own
+		// row; without this route a viewer never saw any nickname colour but
+		// their own.
+		rest.GET("/users/:id/customization", profilesHandler.GetUserCustomization)
+
+		// Profile statistics (public): snapshot totals, the garma breakdown and
+		// the daily activity series from the append-only ledger. One request
+		// replaces the ~10 the stats page used to make. Visibility follows the
+		// profile rules (private profile / private_hide_stats) and the detailed
+		// part needs show_detailed_stats for non-owners.
+		rest.GET("/users/:id/stats", profilesHandler.GetUserStats)
 
 		// Push VAPID public key (public) — needed by the frontend before it can
 		// call PushManager.subscribe / show the permission prompt.
@@ -451,6 +562,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected := rest.Group("")
 		genericProtected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		genericProtected.Use(middleware.ValidateCSRFMiddleware())
+		// Mutating requests from a muted/banned user are rejected here.
+		genericProtected.Use(middleware.SanctionGateMiddleware(db, redis))
 
 		// The authenticated group for tables whose writes must run through the
 		// RLS middleware chain (emoji tables). Declared here so the generic
@@ -459,6 +572,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		protected := rest.Group("")
 		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		protected.Use(middleware.RLSSetConfigMiddleware(db))
+		// Mutating requests from a muted/banned user are rejected here (staff
+		// bypass inside the middleware).
+		protected.Use(middleware.SanctionGateMiddleware(db, redis))
 
 		// Generate every generic CRUD route from the registry: guest GETs on
 		// genericRead, authenticated GETs and writes on genericProtected, and
@@ -498,6 +614,28 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.DELETE("/posts/:id", postsHandler.DeletePost)
 			protected.GET("/threads/:id/likes", likesHandler.GetThreadLikes)
 
+			// Viewing history («История») — record an opened item, list it,
+			// or clear the whole history.
+			protected.POST("/history", historyHandler.RecordView)
+			protected.GET("/history", historyHandler.GetHistory)
+			protected.DELETE("/history", historyHandler.ClearHistory)
+
+			// Favorites («Избранное») — bookmark threads and wall posts.
+			protected.POST("/favorites", favoritesHandler.AddFavorite)
+			protected.GET("/favorites", favoritesHandler.GetFavorites)
+			protected.GET("/favorites/ids", favoritesHandler.GetFavoriteIds)
+			protected.DELETE("/favorites/:itemType/:itemId", favoritesHandler.RemoveFavorite)
+
+			// Custom sidebar tabs (synced across devices).
+			protected.GET("/sidebar_tabs", sidebarTabsHandler.GetTabs)
+			protected.POST("/sidebar_tabs", sidebarTabsHandler.CreateTab)
+			protected.PUT("/sidebar_tabs/:id", sidebarTabsHandler.UpdateTab)
+			protected.DELETE("/sidebar_tabs/:id", sidebarTabsHandler.DeleteTab)
+
+			// Appearance settings (theme/mode), synced across devices.
+			protected.GET("/user/settings", userSettingsHandler.Get)
+			protected.PUT("/user/settings", userSettingsHandler.Update)
+
 			// Notifications
 			protected.GET("/notifications", notificationsHandler.GetNotifications)
 			protected.GET("/notifications/:id", notificationsHandler.GetNotification)
@@ -524,9 +662,47 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/moderation/reports",
 				middleware.AuthRateLimitMiddleware(moderationReportLimiter),
 				moderationHandler.CreateReport)
-			protected.GET("/moderation/reports", moderatorOrAdminMiddleware(db), moderationHandler.ListReports)
-			protected.POST("/moderation/posts/:postId/resolve", moderatorOrAdminMiddleware(db), moderationHandler.ResolvePostReports)
+			protected.GET("/moderation/reports", moderationReadMiddleware(db), moderationHandler.ListReports)
+			// One report in full: the report, its target, the action trail and the
+			// author's sanction/appeal chain.
+			protected.GET("/moderation/reports/:id", moderationReadMiddleware(db), moderationHandler.GetReport)
+			// Triage: close ONE report (resolve/reject) or every open report of a
+			// target. Every action is written to the append-only
+			// moderation_actions audit log.
+			protected.POST("/moderation/reports/:id/resolve", moderatorOrAdminMiddleware(db), moderationHandler.ResolveReport)
+			protected.POST("/moderation/reports/:id/reject", moderatorOrAdminMiddleware(db), moderationHandler.RejectReport)
+			protected.POST("/moderation/targets/:targetType/:targetId/resolve", moderatorOrAdminMiddleware(db), moderationHandler.ResolveTargetReports)
 			protected.DELETE("/moderation/posts/:postId", moderatorOrAdminMiddleware(db), moderationHandler.DeletePost)
+
+			// Dashboard + audit log (helper-readable).
+			protected.GET("/moderation/stats", moderationReadMiddleware(db), moderationHandler.GetStats)
+			protected.GET("/moderation/actions", moderationReadMiddleware(db), moderationHandler.ListActions)
+			// One audit entry in full.
+			protected.GET("/moderation/actions/:id", moderationReadMiddleware(db), moderationHandler.GetAction)
+
+			// Staff roles: helper/moderator/admin. Read by the moderation
+			// surface, granted and revoked by admins only.
+			protected.GET("/moderation/staff", moderationReadMiddleware(db), moderationHandler.ListStaff)
+			protected.POST("/moderation/staff", adminOnlyMiddleware(db), moderationHandler.GrantRole)
+			protected.DELETE("/moderation/staff/:userId/:role", adminOnlyMiddleware(db), moderationHandler.RevokeRole)
+
+			// Sanction appeals: any user appeals their own sanction; the queue is
+			// moderator-readable and decisions are moderator-only.
+			protected.POST("/moderation/appeals", moderationHandler.SubmitAppeal)
+			protected.GET("/moderation/appeals/mine", moderationHandler.ListMyAppeals)
+			protected.GET("/moderation/sanctions/mine", moderationHandler.ListMySanctions)
+			protected.GET("/moderation/appeals", moderationReadMiddleware(db), moderationHandler.ListAppeals)
+			protected.POST("/moderation/appeals/:id/accept", moderatorOrAdminMiddleware(db), moderationHandler.DecideAppeal)
+			protected.POST("/moderation/appeals/:id/reject", moderatorOrAdminMiddleware(db), moderationHandler.RejectAppeal)
+
+			// User card: sanctions, notes, reports for/against and the activity
+			// ledger. Reads are helper-readable; acting is moderator-only.
+			protected.GET("/moderation/users/:id", moderationReadMiddleware(db), moderationHandler.GetUserCard)
+			protected.GET("/moderation/users/:id/activity", moderationReadMiddleware(db), moderationHandler.GetUserActivity)
+			protected.POST("/moderation/users/:id/notes", moderatorOrAdminMiddleware(db), moderationHandler.AddUserNote)
+			protected.DELETE("/moderation/users/:id/notes/:noteId", moderatorOrAdminMiddleware(db), moderationHandler.DeleteUserNote)
+			protected.POST("/moderation/users/:id/sanctions", moderatorOrAdminMiddleware(db), moderationHandler.ApplySanction)
+			protected.DELETE("/moderation/users/:id/sanctions/:sanctionId", moderatorOrAdminMiddleware(db), moderationHandler.RevokeSanction)
 
 			// Drops
 			protected.GET("/user/drops", dropsHandler.GetDropsBalance)
@@ -535,6 +711,21 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/drops/wallet", dropsHandler.GetWalletInfo)
 			protected.POST("/drops/transfer", dropsHandler.TransferDrops)
 			protected.GET("/drops/users/search", dropsHandler.SearchUsers)
+
+			// Public-number assignment (docs/wiki/PUBLIC_IDS.md §9): the only
+			// writer of users.public_id — it is not client-writable anywhere.
+			//
+			// DISABLED ON PURPOSE (2026-09-30): handing a number to another user
+			// (and re-numbering the previous holder) is a product decision that
+			// has not been made yet, so the route is commented out. Everything
+			// behind it is kept and tested: the handler
+			// (handlers.PublicIDHandler.AssignPublicID), the ledger migration
+			// (129_public_id_transfers.sql) and the handler unit tests. Uncomment
+			// the line below to make the endpoint reachable again — the route
+			// list in routes_test.go and the phase-5 block in
+			// scripts/public-id-acceptance.sh are the other two places to flip.
+			_ = publicIDHandler
+			// protected.POST("/admin/public-id/assign", adminOnlyMiddleware(db), publicIDHandler.AssignPublicID)
 
 			// Admin gift management
 			protected.GET("/admin/gifts", giftAdminHandler.ListGifts)
@@ -618,14 +809,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 					chatWrite.DELETE("/gomosubchat/channels/:id/messages/:msgId", channelChatHandler.DeleteMessage)
 				}
 
-				// Friends
-				protected.POST("/friends/request", friendsHandler.SendRequest)
-				protected.PUT("/friends/request/:id/accept", friendsHandler.AcceptRequest)
-				protected.PUT("/friends/request/:id/reject", friendsHandler.RejectRequest)
-				protected.DELETE("/friends/request/:id", friendsHandler.CancelRequest)
-				protected.DELETE("/friends/:userId", friendsHandler.RemoveFriend)
+				// Friends / subscriptions. A follow is one-directional and needs
+				// no approval; a mutual pair is a friendship.
+				protected.POST("/friends/subscribe", friendsHandler.Subscribe)
+				protected.DELETE("/friends/subscribe/:userId", friendsHandler.Unsubscribe)
 				protected.GET("/friends", friendsHandler.GetFriends)
-				protected.GET("/friends/requests", friendsHandler.GetRequests)
+				protected.GET("/friends/subscribers", friendsHandler.GetSubscribers)
+				protected.GET("/friends/subscriptions", friendsHandler.GetSubscriptions)
 				protected.GET("/friends/status/:userId", friendsHandler.GetFriendStatus)
 
 				// Emoji packs (protected)
@@ -766,17 +956,28 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 						// uploader placed on a private wall). The uploader gate applies
 						// only to keys no legitimate post references (orphans/guessing).
 						found, allowed := privacy.WallAttachmentAccess(db, viewerID, ownerID, key)
-						// Fallback for orphaned/guessed keys: the uploader gate applies
-						// only to keys no legitimate post references. The wall-visibility
-						// rule lives in privacy.CanViewWall; DB errors fail closed but
-						// are logged so an outage is not mistaken for a plain 403.
-						canViewWall, err := privacy.CanViewWall(db, viewerID, ownerID)
-						if err != nil {
-							log.Printf("[storage] wall visibility check failed for viewer=%s owner=%s: %v", viewerID, ownerID, err)
-						}
-						if (found && !allowed) || (!found && !canViewWall) {
-							c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
-							return
+						if found {
+							// A referencing post exists: WallAttachmentAccess already
+							// applied the shared wall-visibility rule, so CanViewWall
+							// would be a second, redundant query on every authorized
+							// wall image. Deny only when the referencing wall is hidden.
+							if !allowed {
+								c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+								return
+							}
+						} else {
+							// Fallback for orphaned/guessed keys: the uploader gate applies
+							// only to keys no legitimate post references. The wall-visibility
+							// rule lives in privacy.CanViewWall; DB errors fail closed but
+							// are logged so an outage is not mistaken for a plain 403.
+							canViewWall, err := privacy.CanViewWall(db, viewerID, ownerID)
+							if err != nil {
+								log.Printf("[storage] wall visibility check failed for viewer=%s owner=%s: %v", viewerID, ownerID, err)
+							}
+							if !canViewWall {
+								c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+								return
+							}
 						}
 					}
 				}
@@ -889,6 +1090,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Bot management
 	botsHandler := handlers.NewBotsHandler(db)
+	botsHandler.SetSearchIndexer(searchIndexer)
 
 	bots := api.Group("/bots")
 	bots.Use(middleware.AuthMiddleware(authService))
@@ -1022,6 +1224,33 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	go achEngine.RarityLoop(context.Background(), 6*time.Hour)
 }
 
+// moderationReadMiddleware allows helpers, moderators and admins — anyone who
+// may READ the moderation surface (queue, user cards, activity, audit, stats).
+// Helpers triage by reading; acting still requires moderatorOrAdminMiddleware.
+func moderationReadMiddleware(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claimsValue, exists := c.Get("claims")
+		claims, ok := claimsValue.(*auth.Claims)
+		if !exists || !ok || claims == nil || claims.UserID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			c.Abort()
+			return
+		}
+		allowed, err := authz.HasModerationReadAccess(c.Request.Context(), db, claims.UserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Role check failed"})
+			c.Abort()
+			return
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Moderation access required"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // moderatorOrAdminMiddleware rejects the request unless the authenticated user
 // holds the platform 'moderator' or 'admin' role. Gates the moderation queue
 // and triage endpoints (reports carry reporter identities).
@@ -1034,8 +1263,8 @@ func moderatorOrAdminMiddleware(db *sql.DB) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`, claims.UserID).Scan(&count); err != nil || count == 0 {
+		ok, err := authz.IsModerator(c.Request.Context(), db, claims.UserID)
+		if err != nil || !ok {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Moderator access required"})
 			c.Abort()
 			return
@@ -1056,8 +1285,8 @@ func adminOnlyMiddleware(db *sql.DB) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, claims.UserID).Scan(&count); err != nil || count == 0 {
+		ok, err := authz.IsAdmin(c.Request.Context(), db, claims.UserID)
+		if err != nil || !ok {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 			c.Abort()
 			return

@@ -74,7 +74,7 @@ export function StartChatDialog({ open, onClose }: Props) {
   return (
     <div style={{ padding: "0 12px 12px" }}>
       <div style={{ position: "relative", marginBottom: 8 }}>
-        <Search size={16} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "hsl(var(--muted-foreground))" }} />
+        <Search size={16} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "oklch(var(--muted-foreground))" }} />
         <input
           ref={inputRef}
           type="text"
@@ -85,9 +85,9 @@ export function StartChatDialog({ open, onClose }: Props) {
             width: "100%",
             padding: "8px 10px 8px 34px",
             borderRadius: 8,
-            border: "1px solid hsl(var(--input))",
-            background: "hsl(var(--background))",
-            color: "hsl(var(--foreground))",
+            border: "1px solid oklch(var(--input))",
+            background: "oklch(var(--background))",
+            color: "oklch(var(--foreground))",
             fontSize: 13,
             outline: "none",
             boxSizing: "border-box",
@@ -96,7 +96,7 @@ export function StartChatDialog({ open, onClose }: Props) {
       </div>
       {isSearching && <div style={{ textAlign: "center", padding: 12 }}><PentagramLoader size="sm" /></div>}
       {!isSearching && query.length >= 1 && results.length === 0 && (
-        <p style={{ textAlign: "center", color: "hsl(var(--muted-foreground))", fontSize: 12, padding: 8 }}>Ничего не найдено</p>
+        <p style={{ textAlign: "center", color: "oklch(var(--muted-foreground))", fontSize: 12, padding: 8 }}>Ничего не найдено</p>
       )}
       {results.map((user) => (
         <button
@@ -117,7 +117,7 @@ export function StartChatDialog({ open, onClose }: Props) {
             textAlign: "left",
             opacity: isCreating ? 0.6 : 1,
           }}
-          onMouseEnter={(e) => { if (!isCreating) e.currentTarget.style.background = "hsl(var(--thread-hover))"; }}
+          onMouseEnter={(e) => { if (!isCreating) e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
         >
           <div className="avatar" style={{ width: 34, height: 34, fontSize: 12 }}>
@@ -129,7 +129,7 @@ export function StartChatDialog({ open, onClose }: Props) {
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 500 }}>{user.display_name || user.username}</div>
-            <div style={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }}>@{user.username}</div>
+            <div style={{ fontSize: 11, color: "oklch(var(--muted-foreground))" }}>@{user.username}</div>
           </div>
         </button>
       ))}

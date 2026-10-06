@@ -5,7 +5,8 @@ import { ArrowLeft, Trophy } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { AwardCard, TrophyCard } from "@/components/TrophyCard";
 import { useTrophies } from "@/hooks/useTrophies";
-import { getCached } from "@/integrations/api/queryCache";
+import { loadAchievementsProfile } from "@/routes/data/achievementsData";
+import { isPublicId } from "@/utils/entityUrl";
 
 /**
  * Трофейный зал: only the trophies the user has actually earned — auto milestone
@@ -16,32 +17,39 @@ import { getCached } from "@/integrations/api/queryCache";
 export default function Achievements() {
   const { t } = useTranslation();
   const { userId } = useParams();
-  const { trophies, loading } = useTrophies(userId);
-  const [profile, setProfile] = useState<{ username: string } | null>(null);
+  const [profile, setProfile] = useState<{ id: string; username: string } | null>(null);
+  const [profileLoading, setProfileLoading] = useState(Boolean(userId));
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      setProfileLoading(false);
+      return;
+    }
     let cancelled = false;
-    getCached<{ username: string } | null>(
-      `achievements-page:profile:${userId}`,
-      async () => {
-        const res = await fetch(`/api/v1/profiles?id=eq.${userId}&select=id,username`);
-        const json = await res.json();
-        return json.data?.[0] ?? null;
-      },
-      { ttlMs: 60_000 },
-    ).then((p) => {
-      if (!cancelled) setProfile(p);
-    });
+    setProfileLoading(true);
+    loadAchievementsProfile(userId)
+      .then((p) => {
+        if (!cancelled) setProfile(p);
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
     return () => {
       cancelled = true;
     };
   }, [userId]);
 
+  // A UUID route parameter is used directly, so the trophy fetch runs in
+  // parallel with the profile lookup; a public number must wait for the
+  // resolved UUID (user_achievements.user_id and user_awards.user_id are UUIDs).
+  const trophyUserId =
+    profile?.id ?? (userId && isPublicId(userId) ? undefined : userId);
+  const { trophies, loading } = useTrophies(trophyUserId);
+
   const milestones = useMemo(() => trophies.filter((x) => x.kind === "milestone"), [trophies]);
   const awards = useMemo(() => trophies.filter((x) => x.kind === "award"), [trophies]);
 
-  if (loading) {
+  if (profileLoading || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <PentagramLoader size="lg" />

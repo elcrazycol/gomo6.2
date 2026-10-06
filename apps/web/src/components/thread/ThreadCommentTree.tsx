@@ -28,18 +28,26 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
+import { ReportTrigger } from "@/components/moderation/ReportTrigger";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
+import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
+import { docHasMediaNodes, ensureAttachmentIds, getDocCover } from "@/components/editor/media/mediaSchema";
+import { PostCover } from "@/components/wall/PostCover";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import { WallCommentComposer } from "@/components/wall/WallCommentComposer";
 import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import type { AttachmentMeta } from "@/types/forum";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
+import { profileUrl } from "@/utils/entityUrl";
 
 const MAX_POST_DEPTH = 6;
 
 interface ThreadPost {
   id: string;
+  /** Public number of the author (the users line). */
+  user_public_id?: number | null;
   thread_id: string;
   user_id: string;
   content: string;
@@ -55,6 +63,7 @@ interface ThreadPost {
   is_deleted?: boolean;
   profiles?: {
     id?: string;
+    public_id?: number | null;
     username?: string;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
@@ -178,6 +187,9 @@ const ThreadPostNode = ({
   const canReply = depth < MAX_POST_DEPTH;
   const canEdit = currentUserId === post.user_id;
   const canDelete = currentUserId === post.user_id;
+  // Reporting requires an authenticated user and applies to other people's
+  // posts (one report per user per post, enforced server-side).
+  const canReport = Boolean(currentUserId) && currentUserId !== post.user_id && !post.is_deleted;
 
   const editState = editorStates[`edit:${post.id}`] || {
     json: post.content_json ?? undefined,
@@ -208,7 +220,15 @@ const ThreadPostNode = ({
     currentUserId !== post.user_id &&
     currentUserId !== post.private_recipient_id;
 
-  const attachments = useMemo(() => buildAttachments(post), [post]);
+  const attachments = useMemo(() => ensureAttachmentIds(buildAttachments(post)), [post]);
+  // Inline media is the new presentation; legacy posts keep the bottom gallery.
+  const hasMediaNodes = useMemo(() => docHasMediaNodes(post.content_json), [post.content_json]);
+  const inlineMedia = isFeatureEnabled("wallInlineMedia") && hasMediaNodes;
+  const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
+  const hiddenMediaIds = useMemo(
+    () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
+    [coverId],
+  );
 
   return (
     <div
@@ -251,7 +271,7 @@ const ThreadPostNode = ({
             </div>
           ) : (
             <Link
-              to={`/profile/${post.user_id}`}
+              to={profileUrl({ id: post.user_id, public_id: post.user_public_id ?? post.profiles?.public_id })}
               className="relative z-10 mt-0.5 shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
@@ -280,7 +300,7 @@ const ThreadPostNode = ({
             ) : (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <Link
-                  to={`/profile/${post.user_id}`}
+                  to={profileUrl({ id: post.user_id, public_id: post.user_public_id ?? post.profiles?.public_id })}
                   className="text-sm font-semibold text-foreground hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -321,32 +341,44 @@ const ThreadPostNode = ({
             ) : post.is_deleted ? (
               <div className="mt-1.5 text-sm italic leading-6 text-muted-foreground/70">Пост удалён</div>
             ) : (
-              <div className="mt-1.5 max-w-[68ch] break-words text-sm leading-6 text-foreground/95">
-                {isHiddenPrivate ? (
-                  <span className="italic text-muted-foreground">Приватный ответ</span>
-                ) : (
-                  <ProcessedContent
-                    content={post.content || ""}
-                    contentJson={post.content_json}
-                    currentUserId={currentUserId}
-                    isAdmin={false}
-                    currentUsername={currentUsername}
-                    currentUserColor={currentUserColor}
-                    postAuthorId={post.user_id}
-                    authorUsername={post.profiles?.username}
-                  />
-                )}
-              </div>
-            )}
+              <MediaAttachmentsProvider
+                value={{
+                  attachments,
+                  inlineMedia,
+                  galleryKey: `thread-post-${post.id}`,
+                  hiddenMediaIds,
+                  onImageClick,
+                }}
+              >
+                {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+                <div className="mt-1.5 max-w-[68ch] break-words text-sm leading-6 text-foreground/95">
+                  {isHiddenPrivate ? (
+                    <span className="italic text-muted-foreground">Приватный ответ</span>
+                  ) : (
+                    <ProcessedContent
+                      content={post.content || ""}
+                      contentJson={post.content_json}
+                      currentUserId={currentUserId}
+                      isAdmin={false}
+                      currentUsername={currentUsername}
+                      currentUserColor={currentUserColor}
+                      postAuthorId={post.user_id}
+                      postAuthorPublicId={post.user_public_id ?? post.profiles?.public_id}
+                      authorUsername={post.profiles?.username}
+                    />
+                  )}
+                </div>
 
-            {!isEditing && attachments.length > 0 && !isHiddenPrivate && (
-              <div className="mt-2">
-                <WallAttachments
-                  attachments={attachments}
-                  galleryKey={`thread-post-${post.id}`}
-                  onImageClick={onImageClick}
-                />
-              </div>
+                {attachments.length > 0 && !isHiddenPrivate && !inlineMedia && (
+                  <div className="mt-2">
+                    <WallAttachments
+                      attachments={attachments}
+                      galleryKey={`thread-post-${post.id}`}
+                      onImageClick={onImageClick}
+                    />
+                  </div>
+                )}
+              </MediaAttachmentsProvider>
             )}
 
             {!isEditing && (
@@ -395,7 +427,7 @@ const ThreadPostNode = ({
                   </Button>
                 )}
 
-                {!post.is_deleted && (canEdit || canDelete) && (
+                {!post.is_deleted && (canEdit || canDelete || canReport) && (
                   <>
                     <div className="hidden items-center gap-1 sm:flex">
                       {canEdit && (
@@ -427,6 +459,7 @@ const ThreadPostNode = ({
                           )}
                         </Button>
                       )}
+                      {canReport && <ReportTrigger targetType="post" targetId={post.id} />}
                     </div>
                     <>
                       <Button
@@ -471,6 +504,14 @@ const ThreadPostNode = ({
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />Удалить
                               </Button>
+                            )}
+                            {canReport && (
+                              <ReportTrigger
+                                variant="sheet"
+                                targetType="post"
+                                targetId={post.id}
+                                onBeforeOpen={() => setMobileActionsOpen(false)}
+                              />
                             )}
                           </div>
                         </SheetContent>

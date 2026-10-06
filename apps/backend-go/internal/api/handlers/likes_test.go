@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -465,9 +466,9 @@ func TestGetThreadLikes_Success(t *testing.T) {
 	c, w := newGETContext("/api/v1/threads/"+threadID+"/likes", nil)
 	c.Params = []gin.Param{{Key: "id", Value: threadID}}
 
-	rows := sqlmock.NewRows([]string{"id", "thread_id", "user_id", "created_at", "username", "avatar_url"}).
-		AddRow("l1", threadID, "u1", time.Now(), "user1", nil).
-		AddRow("l2", threadID, "u2", time.Now(), "user2", nil)
+	rows := sqlmock.NewRows([]string{"id", "thread_id", "user_id", "created_at", "username", "public_id", "avatar_url"}).
+		AddRow("l1", threadID, "u1", time.Now(), "user1", 42, nil).
+		AddRow("l2", threadID, "u2", time.Now(), "user2", 43, nil)
 
 	mock.ExpectQuery(`SELECT tl\.id, tl\.thread_id.*FROM thread_likes tl.*WHERE tl\.thread_id = \$1.*ORDER BY tl\.created_at DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs(threadID, 10, 0).
@@ -516,4 +517,138 @@ func TestGetThreadLikes_DBError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
 	}
+}
+
+// ─────────── unified stats: both author and liker must be refreshed ───────────
+
+// captureRecompute swaps the handler's stats refresher for a recorder so a test
+// can assert exactly which users were recomputed (the real one is async).
+func captureRecompute(h *LikesHandler) *[]string {
+	var got []string
+	h.recomputeStatsFn = func(_ *sql.DB, userID string) { got = append(got, userID) }
+	return &got
+}
+
+// assertRecomputed checks the exact ordered set of recomputed user ids.
+func assertRecomputed(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("recomputed %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("recomputed %v, want %v", got, want)
+		}
+	}
+}
+
+// A thread like changes the owner's likes_received_count AND the liker's
+// likes_given_count. Recomputing only the owner (the old behaviour) left the
+// liker's own counter stale.
+func TestLikeThread_RecomputesAuthorAndLiker(t *testing.T) {
+	handler, mock := setupLikesHandler(t)
+	got := captureRecompute(handler)
+
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+	claims := &auth.Claims{UserID: "liker", Username: "liker"}
+	c, w := newPOSTContext("/api/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM thread_likes WHERE thread_id = \$1 AND user_id = \$2\)`).
+		WithArgs(threadID, "liker").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`INSERT INTO thread_likes.*VALUES.*RETURNING`).
+		WithArgs(threadID, "liker").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "thread_id", "user_id", "created_at"}).
+			AddRow("l1", threadID, "liker", time.Now()))
+	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("owner-1"))
+
+	handler.LikeThread(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	assertRecomputed(t, *got, "owner-1", "liker")
+}
+
+func TestUnlikeThread_RecomputesAuthorAndLiker(t *testing.T) {
+	handler, mock := setupLikesHandler(t)
+	got := captureRecompute(handler)
+
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+	claims := &auth.Claims{UserID: "liker", Username: "liker"}
+	c, w := newDELETEPContext("/api/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
+	c.Set("claims", claims)
+
+	mock.ExpectExec(`DELETE FROM thread_likes WHERE thread_id = \$1 AND user_id = \$2`).
+		WithArgs(threadID, "liker").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("owner-1"))
+
+	handler.UnlikeThread(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	assertRecomputed(t, *got, "owner-1", "liker")
+}
+
+func TestLikePost_RecomputesAuthorAndLiker(t *testing.T) {
+	handler, mock := setupLikesHandler(t)
+	got := captureRecompute(handler)
+
+	postID := "550e8400-e29b-41d4-a716-446655440000"
+	claims := &auth.Claims{UserID: "liker", Username: "liker"}
+	c, w := newPOSTContext("/api/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM posts WHERE id = \$1\)`).
+		WithArgs(postID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM post_likes WHERE post_id = \$1 AND user_id = \$2\)`).
+		WithArgs(postID, "liker").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`INSERT INTO post_likes.*VALUES.*RETURNING`).
+		WithArgs(postID, "liker").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "created_at"}).
+			AddRow("l1", postID, "liker", time.Now()))
+	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
+		WithArgs(postID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "thread_id"}).AddRow("owner-1", "t1"))
+
+	handler.LikePost(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	assertRecomputed(t, *got, "owner-1", "liker")
+}
+
+func TestUnlikePost_RecomputesAuthorAndLiker(t *testing.T) {
+	handler, mock := setupLikesHandler(t)
+	got := captureRecompute(handler)
+
+	postID := "550e8400-e29b-41d4-a716-446655440000"
+	claims := &auth.Claims{UserID: "liker", Username: "liker"}
+	c, w := newDELETEPContext("/api/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
+	c.Set("claims", claims)
+
+	mock.ExpectExec(`DELETE FROM post_likes WHERE post_id = \$1 AND user_id = \$2`).
+		WithArgs(postID, "liker").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
+		WithArgs(postID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "thread_id"}).AddRow("owner-1", "t1"))
+
+	handler.UnlikePost(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	assertRecomputed(t, *got, "owner-1", "liker")
 }

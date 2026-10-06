@@ -440,6 +440,7 @@ var genericTables = []TableMeta{
 		BuildUpsert:      upsertProfileCustomization,
 		InvalidateCache:  invalidateProfileCustomizationCache,
 		EmitAchievements: emitProfileCustomizationAchievements,
+		AfterWrite:       afterProfileCustomizationWrite,
 	},
 	{
 		Name:             "profile_wall_comment_likes",
@@ -569,6 +570,14 @@ var genericTables = []TableMeta{
 		BuildUpsert:    upsertThreadCustomMessageVisits,
 	},
 	{
+		Name:         "thread_sections",
+		ReadAccess:   GuestRead,
+		ReadWildcard: true,
+		// The раздел/подраздел taxonomy is created by migrations only — a client
+		// write could renumber/rename the catalog for everyone (WriteDenied).
+		WriteDenied: true,
+	},
+	{
 		Name:         "thread_subscriptions",
 		ReadAccess:   ProtectedRead,
 		ReadWildcard: true,
@@ -577,6 +586,13 @@ var genericTables = []TableMeta{
 		UserScopedRead:  true,
 		PostOwner:       OwnSingle,
 		WriteOwner:      OwnSingle,
+	},
+	{
+		Name:         "thread_subsections",
+		ReadAccess:   GuestRead,
+		ReadWildcard: true,
+		// Same posture as thread_sections: migrations own the catalog.
+		WriteDenied: true,
 	},
 	{
 		Name:         "user_achievements",
@@ -601,11 +617,6 @@ var genericTables = []TableMeta{
 		ReadHandler:    (*Engine).handleUserAwardsGet,
 		WriteDenied:    true,
 		UserScopedRead: true,
-	},
-	{
-		Name:       "user_bans",
-		ReadDenied: true,
-		// Same posture as reports: reads are sensitive, no routes registered.
 	},
 	{
 		Name:             "user_daily_visits",

@@ -39,8 +39,8 @@ export function CensorBlur({ children }: { children: React.ReactNode }) {
           userSelect: revealed ? "text" : "none",
           WebkitUserSelect: revealed ? "text" : "none",
           pointerEvents: revealed ? "auto" : "none",
-          background: revealed ? "transparent" : "hsl(var(--muted) / 0.65)",
-          borderColor: revealed ? "transparent" : "hsl(var(--border) / 0.75)",
+          background: revealed ? "transparent" : "oklch(var(--muted) / 0.65)",
+          borderColor: revealed ? "transparent" : "oklch(var(--border) / 0.75)",
           padding: revealed ? "0" : "0.08rem 0.35rem",
         }}
       >

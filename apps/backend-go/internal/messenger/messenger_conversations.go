@@ -343,7 +343,7 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 		if h.hub == nil {
 			return
 		}
-		go func() {
+		publishPool.Go(func() {
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "member_left",
 				Payload: map[string]interface{}{
@@ -353,7 +353,7 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}
-		}()
+		})
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"left": true}))
@@ -638,7 +638,7 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 		if h.hub == nil {
 			return
 		}
-		go func() {
+		publishPool.Go(func() {
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "group_updated",
 				Payload: map[string]interface{}{
@@ -648,7 +648,7 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}
-		}()
+		})
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": added}))

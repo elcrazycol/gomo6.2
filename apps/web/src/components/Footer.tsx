@@ -1,3 +1,11 @@
+import { NavigationLink } from "@/components/NavigationLink";
+
+import { openCookieSettings } from "@/lib/cookieConsent";
+import { BRAND } from "@/lib/legal/config";
+
+const linkClass =
+  "text-xs text-muted-foreground hover:text-foreground transition-colors";
+
 export const Footer = () => {
   // Use window.location.hostname so subdomain links work both locally
   // (localhost ports) and in production (dev.example.com, docs.example.com)
@@ -22,17 +30,33 @@ export const Footer = () => {
 
   return (
     <footer className="bg-card border-t border-border">
-      <div className="max-w-5xl mx-auto px-4 py-3">
-        <div className="flex items-center justify-center gap-4">
+      <div className="max-w-6xl mx-auto px-4 py-3">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
           <p className="text-xs sm:text-sm text-muted-foreground">
-            © 2026 gomo6
+            © {new Date().getFullYear()} {BRAND.name}
           </p>
           {versionLabel && <span className="text-xs text-muted-foreground/70 font-medium">{versionLabel}</span>}
+          <NavigationLink to="/legal/terms" className={linkClass}>
+            Соглашение
+          </NavigationLink>
+          <NavigationLink to="/legal/privacy" className={linkClass}>
+            Конфиденциальность
+          </NavigationLink>
+          <NavigationLink to="/legal/rules" className={linkClass}>
+            Правила
+          </NavigationLink>
+          <button
+            type="button"
+            onClick={openCookieSettings}
+            className={linkClass}
+          >
+            Куки
+          </button>
           <a
             href={devHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className={linkClass}
           >
             Dev
           </a>
@@ -40,7 +64,7 @@ export const Footer = () => {
             href={docsHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className={linkClass}
           >
             Docs
           </a>

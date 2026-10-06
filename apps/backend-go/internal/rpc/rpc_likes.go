@@ -35,12 +35,15 @@ func rpcLikesViewerID(c *gin.Context) string {
 // parameter. Returns the SQL clause plus the viewer args to append (nil for
 // anonymous callers).
 func rpcLikesVisibilityPredicate(viewerID string, argIndex int) (string, []interface{}) {
+	// COALESCE keeps board-less (global) topics visible: their b.visibility is
+	// NULL, and `NULL != 'private'` is NULL (not true), which silently zeroed
+	// every like count on global topics.
 	if viewerID == "" {
-		return "(b.visibility != 'private' AND (t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false))", nil
+		return "(COALESCE(b.visibility, 'public') != 'private' AND (t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false))", nil
 	}
 	p1 := strconv.Itoa(argIndex)
 	p2 := strconv.Itoa(argIndex + 1)
-	boardCond := "(b.visibility != 'private' OR b.owner_id::text = $" + p1 +
+	boardCond := "(COALESCE(b.visibility, 'public') != 'private' OR b.owner_id::text = $" + p1 +
 		" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id::text = $" + p2 + "))"
 	channelCond := "(t.channel_id IS NULL OR COALESCE(ch.is_private, false) = false OR b.owner_id::text = $" + p1 +
 		" OR EXISTS(SELECT 1 FROM gomosub_memberships gm2 WHERE gm2.board_id = t.board_id AND gm2.user_id::text = $" + p2 + "))"
@@ -460,7 +463,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 	viewerID := rpcLikesViewerID(c)
 	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 3)
 	query := `
-		SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
+		SELECT u.username, u.id, u.public_id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
 		FROM post_likes pl
 		JOIN users u ON pl.user_id = u.id` + postLikesVisibilityJoins + `
 		WHERE pl.post_id = $1 AND ` + pred + `
@@ -480,6 +483,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 	var likers []struct {
 		Username        string  `json:"username"`
 		ID              string  `json:"id"`
+		PublicID        *int64  `json:"public_id,omitempty"`
 		AvatarURL       *string `json:"avatar_url"`
 		NicknameEmojiID *string `json:"nickname_emoji_id"`
 		IsAnonymous     bool    `json:"is_anonymous"`
@@ -489,13 +493,14 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 		var liker struct {
 			Username        string  `json:"username"`
 			ID              string  `json:"id"`
+			PublicID        *int64  `json:"public_id,omitempty"`
 			AvatarURL       *string `json:"avatar_url"`
 			NicknameEmojiID *string `json:"nickname_emoji_id"`
 			IsAnonymous     bool    `json:"is_anonymous"`
 		}
 		var avatarURL, nicknameEmojiID sql.NullString
 
-		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
+		err := rows.Scan(&liker.Username, &liker.ID, &liker.PublicID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
@@ -551,7 +556,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 	viewerID := rpcLikesViewerID(c)
 	pred, predArgs := rpcLikesVisibilityPredicate(viewerID, 3)
 	query := `
-		SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
+		SELECT u.username, u.id, u.public_id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
 		FROM thread_likes tl
 		JOIN users u ON tl.user_id = u.id` + threadLikesVisibilityJoins + `
 		WHERE tl.thread_id = $1 AND ` + pred + `
@@ -571,6 +576,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 	var likers []struct {
 		Username        string  `json:"username"`
 		ID              string  `json:"id"`
+		PublicID        *int64  `json:"public_id,omitempty"`
 		AvatarURL       *string `json:"avatar_url"`
 		NicknameEmojiID *string `json:"nickname_emoji_id"`
 		IsAnonymous     bool    `json:"is_anonymous"`
@@ -580,13 +586,14 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 		var liker struct {
 			Username        string  `json:"username"`
 			ID              string  `json:"id"`
+			PublicID        *int64  `json:"public_id,omitempty"`
 			AvatarURL       *string `json:"avatar_url"`
 			NicknameEmojiID *string `json:"nickname_emoji_id"`
 			IsAnonymous     bool    `json:"is_anonymous"`
 		}
 		var avatarURL, nicknameEmojiID sql.NullString
 
-		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
+		err := rows.Scan(&liker.Username, &liker.ID, &liker.PublicID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return

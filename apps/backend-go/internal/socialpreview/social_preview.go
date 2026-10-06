@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/publicid"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,9 +250,25 @@ func (h *Service) resolve(c *gin.Context) *ogMeta {
 
 // ── Content resolvers ────────────────────────────────────────────────────────
 
+// ogParam resolves a URL parameter that may be a public number or a UUID.
+// Lenient on purpose: this is a read-only renderer that swallows query errors
+// (an unresolvable or malformed value just yields no card), so a non-numeric
+// parameter falls through to the legacy id lookup instead of being rejected.
+func ogParam(raw string) (column string, value any, ok bool) {
+	p := publicid.ParseParam(raw)
+	if !p.OK {
+		return "", nil, false
+	}
+	return p.Column, p.Value, true
+}
+
 // resolveWallPost renders the card for /profile/:userId/wall/:postId.
 func (h *Service) resolveWallPost(c *gin.Context, postID string) *ogMeta {
-	const q = `
+	col, val, ok := ogParam(postID)
+	if !ok {
+		return nil
+	}
+	q := `
 SELECT p.title, p.content, p.image_url, p.attachments,
        u.username, COALESCE(u.display_name, ''), COALESCE(u.avatar_url, ''),
        COALESCE(ps.private_profile, false), COALESCE(ps.private_hide_wall, false),
@@ -260,13 +277,13 @@ FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
 LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
-WHERE p.id = $1`
+WHERE p.` + col + ` = $1`
 
 	var title, content, imageURL, authorAvatar sql.NullString
 	var attachments []byte
 	var username, displayName string
 	var privateProfile, hideWall, hideAuthorAvatar bool
-	err := h.db.QueryRowContext(c.Request.Context(), q, postID).Scan(
+	err := h.db.QueryRowContext(c.Request.Context(), q, val).Scan(
 		&title, &content, &imageURL, &attachments,
 		&username, &displayName, &authorAvatar,
 		&privateProfile, &hideWall, &hideAuthorAvatar,
@@ -327,17 +344,21 @@ WHERE p.id = $1`
 
 // resolveProfile renders the card for /profile/:userId.
 func (h *Service) resolveProfile(c *gin.Context, userID string) *ogMeta {
-	const q = `
+	col, val, ok := ogParam(userID)
+	if !ok {
+		return nil
+	}
+	q := `
 SELECT COALESCE(u.display_name, ''), u.username, COALESCE(u.avatar_url, ''),
        COALESCE(u.bio, ''), COALESCE(u.is_anonymous, false),
        COALESCE(ps.private_profile, false), COALESCE(ps.private_hide_avatar, false)
 FROM users u
 LEFT JOIN privacy_settings ps ON ps.user_id = u.id
-WHERE u.id = $1`
+WHERE u.` + col + ` = $1`
 
 	var displayName, username, avatarURL, bio string
 	var isAnonymous, privateProfile, hideAvatar bool
-	err := h.db.QueryRowContext(c.Request.Context(), q, userID).Scan(
+	err := h.db.QueryRowContext(c.Request.Context(), q, val).Scan(
 		&displayName, &username, &avatarURL, &bio, &isAnonymous,
 		&privateProfile, &hideAvatar,
 	)
@@ -374,20 +395,24 @@ WHERE u.id = $1`
 
 // resolveThread renders the card for /…/thread/:threadId.
 func (h *Service) resolveThread(c *gin.Context, slug, threadID string) *ogMeta {
-	const q = `
+	col, val, ok := ogParam(threadID)
+	if !ok {
+		return nil
+	}
+	q := `
 SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
        COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
        COALESCE(b.visibility, 'public')
 FROM threads t
 LEFT JOIN users u ON u.id = t.user_id
 LEFT JOIN boards b ON t.board_id = b.id
-WHERE t.id = $1 AND b.slug = $2`
+WHERE t.` + col + ` = $1 AND b.slug = $2`
 
 	var title, content, imageURL, authorAvatar sql.NullString
 	var imageURLs, attachments []byte
 	var displayName, username string
 	var boardVisibility string
-	err := h.db.QueryRowContext(c.Request.Context(), q, threadID, slug).Scan(
+	err := h.db.QueryRowContext(c.Request.Context(), q, val, slug).Scan(
 		&title, &content, &imageURL, &imageURLs, &attachments,
 		&displayName, &username, &authorAvatar, &boardVisibility,
 	)

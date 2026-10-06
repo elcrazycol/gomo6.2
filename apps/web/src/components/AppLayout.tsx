@@ -1,26 +1,37 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { motion, useScroll, useMotionValueEvent, useMotionValue, useTransform, animate } from "framer-motion";
+import { transitionEnterClass, isFeedRoute } from "@/lib/viewTransitions";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
+import { TopLoadingBar } from "@/components/TopLoadingBar";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { GuestSignupBanner } from "@/components/GuestSignupBanner";
+import { Gomo6Mark } from "@/components/Gomo6Mark";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
+import { HighlightText } from "@/components/search/HighlightText";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropsShop } from "@/components/DropsShop";
 import { eventManager } from "@/services/eventManager";
 import { useTabTitle } from "@/hooks/useTabTitle";
+import { useProfileRealtimeInvalidation } from "@/hooks/useProfileRealtimeInvalidation";
+import { getHeaderBehavior, HEADER_BEHAVIOR_EVENT, type HeaderBehavior } from "@/lib/headerBehavior";
+import { useFavoritesStore } from "@/stores/favoritesStore";
+import { useSidebarTabsStore } from "@/stores/sidebarTabsStore";
+import { entityParam, profileUrl, wallPostUrl } from "@/utils/entityUrl";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -40,12 +51,40 @@ type NowPlayingState = {
 export const AppLayout = ({ children }: AppLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Page-level enter animation for the CSS transition styles (fade/rise). The
+  // View-Transitions styles are animated by the browser in AppRoutes instead, so
+  // transitionEnterClass returns "" for them (and for "none").
+  const transitionStyle = useTransitionStyle();
+  const [enterClass, setEnterClass] = useState("");
+  const prevPathRef = useRef(location.pathname);
+
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    prevPathRef.current = location.pathname;
+    const cls = transitionEnterClass(transitionStyle);
+    // No animation on the very first render, and none for feed↔раздел hops —
+    // Index animates those itself.
+    if (!cls || prev === location.pathname || (isFeedRoute(prev) && isFeedRoute(location.pathname))) {
+      setEnterClass("");
+      return;
+    }
+    // Clear then re-add on the next frame so the CSS animation restarts on every
+    // navigation — without remounting the page (which would drop its state).
+    setEnterClass("");
+    const id = window.requestAnimationFrame(() => setEnterClass(cls));
+    return () => window.cancelAnimationFrame(id);
+  }, [location.pathname, transitionStyle]);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { user } = useAuth(); // Use cached auth hook instead of local state
   const { loadProfile } = useProfileCache();
   const [isModerator, setIsModerator] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  // "fixed" (default) keeps the header on screen; "auto-hide" lets it slide
+  // away on scroll-down. Read once from localStorage, then kept live by the
+  // HEADER_BEHAVIOR_EVENT subscription below.
+  const [headerBehavior, setHeaderBehaviorState] = useState<HeaderBehavior>(() => getHeaderBehavior());
   const [nowPlaying, setNowPlaying] = useState<NowPlayingState | null>(null);
   const [nowPlayingHidden, setNowPlayingHidden] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
@@ -75,7 +114,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [desktopSearchExpanded, setDesktopSearchExpanded] = useState(false);
-  const [searchResults, setSearchResults] = useState<GlobalSearchResult>({ users: [], boards: [], threads: [], posts: [] });
+  const [searchResults, setSearchResults] = useState<GlobalSearchResult>({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
   const [hideMessengerChrome, setHideMessengerChrome] = useState(false);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const desktopSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -98,6 +137,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [headerHeight, setHeaderHeight] = useState(60);
   const headerRef = useRef<HTMLElement | null>(null);
   const isHeaderVisibleRef = useRef(true);
+  // Read by the scroll handlers (which run outside React's render cycle).
+  const headerBehaviorRef = useRef<HeaderBehavior>(headerBehavior);
   // Profile content switches (profile tabs/albums) change the document height;
   // Chrome clamps the scroll and the synthetic "scrolled up" reads as a user
   // scroll-up, popping the header back in right as the user switches tabs.
@@ -291,6 +332,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useMotionValueEvent(scrollY, "change", (latest) => {
     const previous = scrollY.getPrevious();
     if (previous === undefined) return;
+    // Fixed header: never auto-hide, whatever the scroll direction.
+    if (headerBehaviorRef.current !== "auto-hide") return;
     // Paused during a profile tab/content switch (gomo6:profile-content-switch):
     // the swap shrinks the page, Chrome clamps the scroll, and that synthetic
     // scroll-up must not re-show the header and drop the sticky tab bar.
@@ -332,6 +375,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     let prevScrollTop = 0;
     const onOverlayScroll = (e: Event) => {
+      // Fixed header: the overlay's scroll must not hide it either.
+      if (headerBehaviorRef.current !== "auto-hide") return;
       const { scrollTop, scrollHeight, clientHeight } = (e as CustomEvent).detail as {
         scrollTop: number;
         scrollHeight: number;
@@ -404,6 +449,22 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+
+  // Header behaviour preference (Settings → Appearance): pick up changes made
+  // on another screen without a reload.
+  useEffect(() => {
+    const sync = () => setHeaderBehaviorState(getHeaderBehavior());
+    window.addEventListener(HEADER_BEHAVIOR_EVENT, sync as EventListener);
+    return () => window.removeEventListener(HEADER_BEHAVIOR_EVENT, sync as EventListener);
+  }, []);
+
+  // Keep the ref (read by the scroll handlers) in sync, and bring the header
+  // straight back when the user switches to "fixed" while it was hidden —
+  // there is no scroll event to do it for us.
+  useEffect(() => {
+    headerBehaviorRef.current = headerBehavior;
+    if (headerBehavior === "fixed") setIsHeaderVisible(true);
+  }, [headerBehavior]);
 
   // Restore last audio session on load (paused) and volume from storage
   useEffect(() => {
@@ -903,10 +964,22 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => eventManager.cleanup();
   }, [user?.id]);
 
+  // Favorites: load the viewer's bookmarked ids once per session so every card
+  // can show its bookmark state without a request of its own.
+  useEffect(() => {
+    if (user?.id) {
+      void useFavoritesStore.getState().load();
+      void useSidebarTabsStore.getState().load();
+    } else {
+      useFavoritesStore.getState().reset();
+      useSidebarTabsStore.getState().reset();
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     const term = searchQuery.trim();
     if (term.length < 2) {
-      setSearchResults({ users: [], boards: [], threads: [], posts: [] });
+      setSearchResults({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
       setSearchOpen(false);
       setSearchLoading(false);
       return;
@@ -914,7 +987,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     const timeoutId = window.setTimeout(async () => {
       setSearchLoading(true);
-      const result = await searchGlobal(term, { users: 4, boards: 4, threads: 4 });
+      const result = await searchGlobal(term, { users: 4, boards: 4, threads: 4, posts: 4, wall_posts: 4 });
       setSearchResults(result);
       setSearchOpen(true);
       setSearchLoading(false);
@@ -949,7 +1022,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => window.clearTimeout(id);
   }, [desktopSearchExpanded]);
 
-  const totalSearchHits = searchResults.users.length + searchResults.boards.length + searchResults.threads.length + searchResults.posts.length;
+  const totalSearchHits =
+    searchResults.users.length +
+    searchResults.boards.length +
+    searchResults.threads.length +
+    searchResults.posts.length +
+    searchResults.wall_posts.length;
 
   const submitSearch = (event?: FormEvent) => {
     if (event) event.preventDefault();
@@ -958,6 +1036,103 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     navigate(`/search?q=${encodeURIComponent(term)}`);
     setSearchOpen(false);
   };
+
+  // Shared content for the desktop and mobile quick-search dropdowns: EVERY
+  // category that has hits, so a post or wall-post match is never hidden behind
+  // a panel that only knew about users/boards/threads (and never says "nothing
+  // found" while a category actually matched).
+  const quickResultsContent = (
+    <>
+      {searchResults.users.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.users')}</div>
+          {searchResults.users.slice(0, 4).map((item) => (
+            <NavigationLink
+              key={item.id}
+              to={profileUrl(item)}
+              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+            >
+              @<HighlightText text={item.username} query={searchQuery} />
+            </NavigationLink>
+          ))}
+        </div>
+      )}
+      {searchResults.boards.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.boardsAndSubs')}</div>
+          {searchResults.boards.slice(0, 4).map((item) => (
+            <NavigationLink
+              key={item.id}
+              to={item.is_gomosub ? `/g/${item.slug}` : `/${item.slug}`}
+              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+            >
+              {item.is_gomosub ? "g/" : "/"}{item.slug} — <HighlightText text={item.name} query={searchQuery} />
+            </NavigationLink>
+          ))}
+        </div>
+      )}
+      {searchResults.threads.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.threads')}</div>
+          {searchResults.threads.slice(0, 4).map((item) => {
+            const isGomo = item.board_is_gomosub && item.board_slug;
+            const link = isGomo
+              ? `/g/${item.board_slug}/thread/${entityParam(item)}`
+              : `/thread/${entityParam(item)}`;
+            return (
+              <NavigationLink
+                key={item.id}
+                to={link}
+                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+              >
+                <HighlightText text={item.title} query={searchQuery} />
+              </NavigationLink>
+            );
+          })}
+        </div>
+      )}
+      {searchResults.posts.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.posts')}</div>
+          {searchResults.posts.slice(0, 4).map((item) => {
+            const isGomo = item.board_is_gomosub && item.board_slug;
+            const param = entityParam({ id: item.thread_id, public_id: item.thread_public_id });
+            const link = isGomo ? `/g/${item.board_slug}/thread/${param}` : `/thread/${param}`;
+            return (
+              <NavigationLink
+                key={item.id}
+                to={link}
+                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+              >
+                <span className="text-muted-foreground">{item.thread_title} — </span>
+                <HighlightText text={item.content} query={searchQuery} />
+              </NavigationLink>
+            );
+          })}
+        </div>
+      )}
+      {searchResults.wall_posts.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.wallPosts')}</div>
+          {searchResults.wall_posts.slice(0, 4).map((item) => (
+            <NavigationLink
+              key={item.id}
+              to={wallPostUrl({ id: item.wall_user_id }, { id: item.id, public_id: item.public_id })}
+              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+            >
+              {item.author_username && (
+                <span className="text-muted-foreground">@{item.author_username} — </span>
+              )}
+              <HighlightText text={item.content || item.title || ""} query={searchQuery} />
+            </NavigationLink>
+          ))}
+        </div>
+      )}
+      <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
+        {t('nav.showAllResults')}
+      </Button>
+    </>
+  );
 
   // Global auth:expired handler — redirect to login when refresh token fails
   useEffect(() => {
@@ -983,6 +1158,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     queryClient.invalidateQueries({ queryKey: ['profile'] });
     queryClient.invalidateQueries({ queryKey: ['user-threads'] });
   });
+
+  // Other people edit their profiles too: turn the server's broadcast into the
+  // same local invalidate event, so their new nickname style shows up here
+  // without waiting for a cache entry to expire.
+  useProfileRealtimeInvalidation();
 
   useEffect(() => {
     const syncChrome = () => {
@@ -1075,18 +1255,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <motion.header
         ref={headerRef}
         data-app-layout-header="true"
-        className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border fixed top-0 left-0 right-0 z-50"
+        className="app-header-glass fixed top-0 left-0 right-0 z-50"
         style={{ y: headerY, willChange: "transform" }}
       >
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center justify-between gap-2 sm:gap-3">
-          <Link to="/" className="text-lg sm:text-xl font-bold shrink-0 relative group">
-            gomo6
-            <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            <span className="absolute inset-0 transition-transform duration-200 group-hover:translate-x-0.5"></span>
-          </Link>
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="flex items-center justify-between gap-2 sm:gap-3 min-h-[49px]">
+          <NavigationLink to="/" aria-label="gomo6" className="shrink-0 inline-flex items-center group">
+            <Gomo6Mark className="app-header-logo h-11 w-11 text-primary transition-transform duration-200 ease-out group-hover:scale-105" />
+          </NavigationLink>
           <div className="flex gap-1 sm:gap-2 items-center shrink-0">
-            <div ref={searchRef} className="hidden sm:block relative">
+            <div ref={searchRef} className="hidden lg:block relative">
               <Button
                 variant="ghost"
                 size="sm"
@@ -1133,115 +1311,50 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                   ) : totalSearchHits === 0 ? (
                     <div className="text-sm text-muted-foreground">{t('nav.nothingFound')}</div>
                   ) : (
-                    <>
-                      {searchResults.users.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.users')}</div>
-                          {searchResults.users.map((item) => (
-                            <Link
-                              key={item.id}
-                              to={`/profile/${item.id}`}
-                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                            >
-                              @{item.username}
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                      {searchResults.boards.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.boardsAndSubs')}</div>
-                          {searchResults.boards.map((item) => {
-                            const isGomo = item.is_gomosub;
-                            const link = isGomo ? `/g/${item.slug}` : `/${item.slug}`;
-                            const prefix = isGomo ? "g/" : "/";
-                            return (
-                              <Link
-                                key={item.id}
-                                to={link}
-                                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                              >
-                                {prefix}{item.slug} - {item.name}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {searchResults.threads.length > 0 && (
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.threads')}</div>
-                          {searchResults.threads.map((item) => {
-                            const isGomo = item.board_is_gomosub;
-                            const link = isGomo
-                              ? `/g/${item.board_slug}/thread/${item.id}`
-                              : `/${item.board_slug}/thread/${item.id}`;
-                            return (
-                              <Link
-                                key={item.id}
-                                to={link}
-                                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                              >
-                                {item.title}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
-                        {t('nav.showAllResults')}
-                      </Button>
-                    </>
+                    quickResultsContent
                   )}
                 </div>
               )}
             </div>
             <Button
               variant="ghost"
-              size="sm"
-              className="sm:hidden p-2"
+              className="lg:hidden h-8 w-8 p-0"
               onClick={() => setMobileSearchOpen((prev) => !prev)}
             >
               <Search className="h-4 w-4" />
             </Button>
-            <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="relative p-2 hover:bg-white/20 hover:text-white transition-colors group">
+            <NavigationLink to="/settings">
+              <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group">
                 <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>
-            </Link>
+            </NavigationLink>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
-            {user ? (
-              <>
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                  <HeaderUsername userId={user.id} />
-                </div>
-                <MobileMenu
-                  user={user}
-                  isModerator={isModerator}
-                />
-              </>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
-                {t('auth.login')}
-              </Button>
+            {user && (
+              <div className="hidden lg:flex gap-1 sm:gap-2 items-center ml-2">
+                <HeaderUsername userId={user.id} />
+              </div>
             )}
+            {/* The login CTA lives inside the menu's profile block, so guests
+                get the hamburger instead of a separate header button. */}
+            <MobileMenu user={user} isModerator={isModerator} />
           </div>
         </div>
         {mobileSearchOpen && (
-          <div ref={searchRef} className="sm:hidden mt-2 relative">
+          <div ref={searchRef} className="lg:hidden mt-1.5 relative">
             <form onSubmit={submitSearch}>
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('nav.searchShort')}
-                className="h-10 pl-10 pr-20 rounded-xl border-border/70 bg-background/85 backdrop-blur"
+                className="h-9 pl-10 pr-20 rounded-xl border-border/70 bg-background/85 backdrop-blur"
                 onFocus={() => {
                   if (searchQuery.trim().length >= 2) setSearchOpen(true);
                 }}
               />
-              <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-              <Button type="submit" size="sm" className="absolute right-1 top-1.5 h-7 rounded-lg">{t('nav.find')}</Button>
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
+              <Button type="submit" size="sm" className="absolute right-1 top-1 h-7 rounded-lg">{t('nav.find')}</Button>
             </form>
             {searchOpen && (
               <div className="absolute top-12 left-0 right-0 rounded-2xl border border-border bg-card/95 backdrop-blur shadow-lg p-3 z-50 space-y-3 max-h-[65vh] overflow-auto">
@@ -1250,52 +1363,23 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                 ) : totalSearchHits === 0 ? (
                   <div className="text-sm text-muted-foreground">{t('nav.nothingFound')}</div>
                 ) : (
-                  <>
-                    {searchResults.users.map((item) => (
-                      <Link key={item.id} to={`/profile/${item.id}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                        @{item.username}
-                      </Link>
-                    ))}
-                    {searchResults.boards.map((item) => {
-                      const isGomo = item.is_gomosub;
-                      const link = isGomo ? `/g/${item.slug}` : `/${item.slug}`;
-                      const prefix = isGomo ? "g/" : "/";
-                      return (
-                        <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                          {prefix}{item.slug} - {item.name}
-                        </Link>
-                      );
-                    })}
-                    {searchResults.threads.map((item) => {
-                      const isGomo = item.board_is_gomosub;
-                      const link = isGomo
-                        ? `/g/${item.board_slug}/thread/${item.id}`
-                        : `/${item.board_slug}/thread/${item.id}`;
-                      return (
-                        <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                          {item.title}
-                        </Link>
-                      );
-                    })}
-                    <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
-                      {t('nav.showAllResults')}
-                    </Button>
-                  </>
+                  quickResultsContent
                 )}
               </div>
             )}
           </div>
         )}
         </div>
+        <TopLoadingBar />
       </motion.header>
       ) : null}
 
       {!hideChrome && nowPlaying && !nowPlayingHidden && (
         <motion.div
-          className="fixed left-0 right-0 z-40 px-2 sm:px-4"
+          className="fixed left-0 right-0 z-40 max-w-6xl mx-auto px-4"
           style={{ top: nowPlayingTop }}
         >
-          <div className="max-w-5xl mx-auto bg-card/95 backdrop-blur border border-border shadow-md rounded-md px-3 py-1 flex flex-col gap-1">
+          <div className="bg-card/95 backdrop-blur border border-border shadow-md rounded-md px-3 py-1 flex flex-col gap-1">
             <div className="flex items-center gap-2 text-sm">
               <div className="flex gap-1">
                 <button
@@ -1470,7 +1554,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       <motion.main
         id="main-content"
         tabIndex={-1}
-        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}${hideMessengerChrome && !isMessengerPage ? " is-app-surface" : ""}`}
+        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}${hideMessengerChrome && !isMessengerPage ? " is-app-surface" : ""}${enterClass ? ` ${enterClass}` : ""}`}
         style={{ paddingTop: hideChrome ? 0 : contentPad }}
       >
         {children}

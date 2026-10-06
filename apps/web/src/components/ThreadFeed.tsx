@@ -3,15 +3,21 @@ import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
 import { FeedWallPostCard } from "@/components/FeedWallPostCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
+import { QuietLoading } from "@/components/QuietLoading";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
-import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
+import type { WallPost } from "@/utils/wallNormalizers";
 import { wsService, type WebSocketMessageType } from "@/services/websocket";
+import { useLoadingBarStore } from "@/stores/loadingBarStore";
+import { feedItemToThread, feedItemToWallPost } from "@/utils/threadFeedItem";
 
 /** One unified feed item as returned by GET /api/v1/feed. */
 interface FeedItem {
   item_type: "thread" | "wall_post";
   item_id: string;
+  /** Public number of the item, for /thread/<n> and /profile/<n>/wall/<n>. */
+  public_id?: number | null;
+  /** The wall owner's number (wall posts only). */
+  user_public_id?: number | null;
   score: number;
   created_at: string;
   updated_at?: string | null;
@@ -26,6 +32,7 @@ interface FeedItem {
   author_id?: string | null;
   author?: {
     username: string;
+    public_id?: number | null;
     display_name?: string | null;
     nickname_emoji_id?: string | null;
     is_anonymous: boolean;
@@ -36,6 +43,18 @@ interface FeedItem {
     slug: string;
     name: string;
     is_gomosub: boolean;
+  } | null;
+  section?: {
+    id: string;
+    slug: string;
+    name: string;
+    icon?: string | null;
+    is_nsfw?: boolean;
+  } | null;
+  subsection?: {
+    id: string;
+    slug: string;
+    name: string;
   } | null;
   wall_user_id?: string | null;
   likes_count: number;
@@ -50,6 +69,10 @@ interface ThreadFeedProps {
   currentUsername: string;
   currentUserColor?: string;
   limit?: number;
+  /** Fired once the first page has settled (content or empty). Lets the parent
+   *  keep the previous view on screen until the feed is actually ready, so
+   *  switching to it never flashes a skeleton. */
+  onReady?: () => void;
 }
 
 const PULL_THRESHOLD = 60;
@@ -67,7 +90,8 @@ export const ThreadFeed = ({
   currentUserId,
   currentUsername,
   currentUserColor,
-  limit = 20
+  limit = 20,
+  onReady,
 }: ThreadFeedProps) => {
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +111,9 @@ export const ThreadFeed = ({
   const loadingRef = useRef(true);
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
+  // Kept in a ref so `onReady` is never a loadInitial dependency — a fresh
+  // callback identity each render would re-run the load effect forever.
+  const onReadyRef = useRef(onReady);
 
   const observerRef = useRef<IntersectionObserver>();
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -102,53 +129,41 @@ export const ThreadFeed = ({
   useEffect(() => { loadingRef.current = loading; }, [loading]);
   useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
   useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
   useEffect(() => {
     newestMsRef.current = items.length ? Math.max(...items.map(createdMs)) : null;
   }, [items, createdMs]);
 
-  const feedToThread = (item: FeedItem): FeedThread => ({
-    id: item.item_id,
-    title: item.title || "",
-    content: item.content || "",
-    content_json: item.content_json,
-    image_url: item.image_url ?? null,
-    image_urls: item.image_urls ?? null,
-    attachments: item.attachments,
-    created_at: item.created_at,
-    updated_at: item.updated_at || item.created_at,
-    user_id: item.author_id ?? null,
-    board_id: item.board_id ?? "",
-    post_count: item.post_count ?? 0,
-    tags: item.tags ?? undefined,
-    profiles: item.author ?? null,
-    boards: item.boards ?? { slug: "b", name: "Доска" },
-  });
+  // The newest item the viewer has actually been shown, persisted per user. A
+  // stale (cached) feed page can be older than what they already saw; without
+  // this the "N новых постов" pill keeps re-offering items already seen.
+  const seenKey = `gomo6:feed-last-seen:${currentUserId ?? "anon"}`;
+  const seenRef = useRef(0);
+  useEffect(() => {
+    const raw = Number(localStorage.getItem(seenKey));
+    seenRef.current = Number.isFinite(raw) ? raw : 0;
+  }, [seenKey]);
+  const advanceSeen = useCallback((ms: number) => {
+    if (!Number.isFinite(ms) || ms <= seenRef.current) return;
+    seenRef.current = ms;
+    try {
+      localStorage.setItem(seenKey, String(ms));
+    } catch {
+      // ignore (private mode / quota)
+    }
+  }, [seenKey]);
 
-  const feedToWallPost = (item: FeedItem): WallPost =>
-    normalizeWallPostRecord({
-      id: item.item_id,
-      user_id: item.wall_user_id,
-      author_id: item.author_id,
-      title: item.title,
-      content: item.content,
-      content_json: item.content_json,
-      image_url: item.image_url,
-      attachments: item.attachments,
-      created_at: item.created_at,
-      updated_at: item.updated_at,
-      likes_count: item.likes_count,
-      comments_count: item.comments_count,
-      reposts_count: item.reposts_count,
-      liked_by_viewer: item.liked_by_viewer,
-      views_count: item.views_count,
-      author: item.author,
-    } as unknown as Record<string, unknown>);
+  const feedToThread = (item: FeedItem): FeedThread => feedItemToThread(item);
+
+  const feedToWallPost = (item: FeedItem): WallPost => feedItemToWallPost(item);
 
   const loadInitial = useCallback(async () => {
     setLoading(true);
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    const { begin, end } = useLoadingBarStore.getState();
+    begin();
     try {
       const response = await fetch(`/api/v1/feed?limit=${limit + 1}`, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -162,13 +177,23 @@ export const ThreadFeed = ({
 
       setItems(feedItems);
       setHasMore(hasMoreData);
+      if (feedItems.length > 0) advanceSeen(Math.max(...feedItems.map(createdMs)));
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       console.error("Error loading feed:", error);
     } finally {
-      setLoading(false);
+      end();
+      // Only the LATEST request may end the loading state. A superseded one
+      // (StrictMode's double mount, or the auth session resolving and changing
+      // `loadInitial`'s identity) used to flip loading off while `items` was
+      // still empty — flashing «В ленте пока пусто» for a frame before the real
+      // data landed.
+      if (abortRef.current === controller) {
+        setLoading(false);
+        onReadyRef.current?.();
+      }
     }
-  }, [limit]);
+  }, [limit, advanceSeen, createdMs]);
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
@@ -213,8 +238,9 @@ export const ThreadFeed = ({
   // / focus / websocket "new posts" check). Results are parked in `pendingNew`
   // and shown as an X-style pill instead of jumping the scroll position.
   const checkForNew = useCallback(async () => {
-    const newest = newestMsRef.current;
-    if (newest == null) return;
+    // Never re-offer items already shown to the viewer (see seenRef).
+    const newest = Math.max(newestMsRef.current ?? 0, seenRef.current);
+    if (newest <= 0) return;
     const since = new Date(newest).toISOString();
     try {
       const response = await fetch(`/api/v1/feed?limit=50&since=${encodeURIComponent(since)}`);
@@ -235,13 +261,16 @@ export const ThreadFeed = ({
     const pending = pendingRef.current;
     if (pending.length === 0) return;
 
+    // Mark everything about to be shown as seen so it never re-appears.
+    advanceSeen(Math.max(...pending.map(createdMs)));
+
     setItems(prev => {
       const seen = new Set(prev.map(p => p.item_id));
       const added = pending.filter(p => !seen.has(p.item_id));
       return [...added, ...prev];
     });
     setPendingNew([]);
-  }, []);
+  }, [advanceSeen, createdMs]);
 
   useEffect(() => {
     loadInitial();
@@ -264,6 +293,25 @@ export const ThreadFeed = ({
     const unsubs = events.map(evt => wsService.on(evt, () => { scheduleNewCheck(); }));
     return () => { unsubs.forEach(u => u()); };
   }, [scheduleNewCheck]);
+
+  // A wall post deleted elsewhere (owner's wall, another tab) must leave an
+  // already-mounted feed at once — not on the next refetch. Threads have no
+  // delete broadcast, so this covers the wall-post half of the unified feed.
+  useEffect(() => {
+    const unsubscribe = wsService.on("delete_wall_post", (message) => {
+      if (!message.data) return;
+      try {
+        const payload = typeof message.data === "string" ? JSON.parse(message.data) : message.data;
+        const id = String((payload as { id?: unknown } | null)?.id ?? "");
+        if (!id) return;
+        setItems(prev => prev.filter(it => !(it.item_type === "wall_post" && it.item_id === id)));
+        setPendingNew(prev => prev.filter(it => !(it.item_type === "wall_post" && it.item_id === id)));
+      } catch {
+        // Malformed payload — the next poll reconciles the feed anyway.
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const onFocus = () => { checkForNew(); };
@@ -330,14 +378,19 @@ export const ThreadFeed = ({
     }
   };
 
-  if (loading) {
-    return <ThreadFeedSkeleton count={limit > 5 ? 5 : limit} />;
+  // No skeleton before the first page lands: the header's loading bar is the
+  // progress cue (and for in-page switches Index keeps the previous view on
+  // screen), so the content simply fades in instead of a layout-shifting
+  // skeleton. Once there is content, a background revalidation must not replace
+  // it either.
+  if (loading && items.length === 0) {
+    return <QuietLoading />;
   }
 
   return (
     <>
       <div
-        className="space-y-4"
+        className="space-y-4 view-fade-in"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -365,7 +418,7 @@ export const ThreadFeed = ({
         )}
 
         {items.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 py-12 text-center">
+          <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 py-12 text-center">
             <p className="text-lg font-medium">В ленте пока пусто</p>
             <p className="mt-2 text-sm text-muted-foreground">
               {currentUserId

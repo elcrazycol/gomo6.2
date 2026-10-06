@@ -1,0 +1,107 @@
+# =============================================================================
+# security.yml — CodeQL и Trivy по расписанию, ТОЛЬКО в Security (SARIF).
+# =============================================================================
+# ⚠ ВАЖНО: здесь СОЗНАТЕЛЬНО нет шага, который открывает issue по находкам.
+#
+# В .github(old)/workflows лежали codeql-issues.yml и trivy.yml, которые
+# заводили по issue на каждую находку. За неделю работы они создали 481 issue
+# (455 ботовых), которые пришлось вычищать руками. Сами сканеры полезны, а вот
+# авто-issue — нет: находки должны жить в Security → Code scanning, где их
+# можно триажить, а не спамить трекер.
+#
+# Если будете переносить старые воркфлоу — не тащите шаг с
+# scripts/sarif-to-issues.sh.
+#
+# Почему по расписанию, а не на каждый push: CodeQL для Go реально собирает
+# проект, это минуты. На PR хватает быстрых проверок из ci.yml
+# (gitleaks/hadolint/govulncheck), а семантический анализ — раз в неделю и по
+# требованию.
+#
+# Триггеры: понедельник 03:00 UTC + вручную.
+# Права: security-events: write — иначе SARIF не загрузится.
+# =============================================================================
+
+name: Security scans
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CodeQL: семантический анализ Go и TypeScript.
+  # ---------------------------------------------------------------------------
+  codeql:
+    name: CodeQL · ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Go: autobuild сам вызывает go build по go.mod.
+          - language: go
+            build-mode: autobuild
+          # JS/TS: сборка не нужна, анализ по исходникам.
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-and-quality — тот же набор, что был раньше.
+          queries: security-and-quality
+
+      - name: Autobuild
+        if: matrix.build-mode == 'autobuild'
+        uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+
+  # ---------------------------------------------------------------------------
+  # Trivy: зависимости, секреты и мисконфиги (включая Dockerfile/compose).
+  # ---------------------------------------------------------------------------
+  trivy:
+    name: Trivy · fs scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy → SARIF
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          # Кэш БД уязвимостей: без него каждый прогон тянет её заново.
+          cache: true
+
+      - name: Upload SARIF to Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sarif
+          path: trivy-results.sarif
+          retention-days: 14

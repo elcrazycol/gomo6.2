@@ -25,7 +25,7 @@ const { mockAuth, mockProfileCache, mockSearchGlobal, mockEventManager, mockAnim
       getProfile: vi.fn().mockReturnValue(null),
       clearCache: vi.fn(),
     },
-    mockSearchGlobal: vi.fn().mockResolvedValue({ users: [], boards: [], threads: [], posts: [] }),
+    mockSearchGlobal: vi.fn().mockResolvedValue({ users: [], boards: [], threads: [], posts: [], wall_posts: [] }),
     mockEventManager: {
       init: vi.fn(),
       cleanup: vi.fn(),
@@ -142,7 +142,7 @@ beforeEach(() => {
   mockAuth.user = null;
   mockAuth.isAuthenticated = false;
   mockLocation.pathname = "/";
-  mockSearchGlobal.mockResolvedValue({ users: [], boards: [], threads: [], posts: [] });
+  mockSearchGlobal.mockResolvedValue({ users: [], boards: [], threads: [], posts: [], wall_posts: [] });
   mockProfileCache.loadProfile.mockResolvedValue({
     username: "testuser",
     color: "",
@@ -178,7 +178,9 @@ describe("AppLayout", () => {
 
   it("renders gomo6 logo link", () => {
     renderLayout();
-    expect(screen.getByText("gomo6")).toBeInTheDocument();
+    const logo = screen.getByRole("link", { name: "gomo6" });
+    expect(logo).toBeInTheDocument();
+    expect(logo.querySelector("[data-gomo6-mark]")).toBeInTheDocument();
   });
 
   it("hides header/footer on the auth page", () => {
@@ -190,16 +192,12 @@ describe("AppLayout", () => {
   });
 
   describe("authentication", () => {
-    it("shows 'Войти' button for guests", () => {
+    it("shows the menu (the login entry lives inside it) for guests", () => {
       renderLayout();
-      expect(screen.getByRole("button", { name: "Войти" })).toBeInTheDocument();
+      expect(screen.getByTestId("mobile-menu")).toBeInTheDocument();
       expect(screen.queryByTestId("notification-bell")).not.toBeInTheDocument();
-    });
-
-    it("navigates to /auth when guest clicks login", () => {
-      renderLayout();
-      fireEvent.click(screen.getByRole("button", { name: "Войти" }));
-      expect(mockNavigate).toHaveBeenCalledWith("/auth");
+      // No separate header login button any more.
+      expect(screen.queryByRole("button", { name: "Войти" })).not.toBeInTheDocument();
     });
 
     it("shows user chrome when authenticated", async () => {
@@ -275,6 +273,7 @@ describe("AppLayout", () => {
         boards: [],
         threads: [],
         posts: [],
+        wall_posts: [],
       });
       renderLayout();
 
@@ -288,7 +287,7 @@ describe("AppLayout", () => {
         expect(mockSearchGlobal).toHaveBeenCalledWith("ali", expect.anything());
       });
       await waitFor(() => {
-        expect(screen.getByText("@alice")).toBeInTheDocument();
+        expect(screen.getByText((_, el) => el?.tagName === "A" && el.textContent === "@alice")).toBeInTheDocument();
       });
     });
 
@@ -328,6 +327,7 @@ describe("AppLayout", () => {
         boards: [],
         threads: [],
         posts: [],
+        wall_posts: [],
       });
       const { rerender } = renderLayout();
 
@@ -337,14 +337,14 @@ describe("AppLayout", () => {
         target: { value: "ali" },
       });
       await waitFor(() => {
-        expect(screen.getByText("@alice")).toBeInTheDocument();
+        expect(screen.getByText((_, el) => el?.tagName === "A" && el.textContent === "@alice")).toBeInTheDocument();
       });
 
       // Route change on the SAME instance must close the search panel
       mockLocation.pathname = "/new";
       rerender(<AppLayout><div>content</div></AppLayout>);
 
-      expect(screen.queryByText("@alice")).not.toBeInTheDocument();
+      expect(screen.queryByText((_, el) => el?.tagName === "A" && el.textContent === "@alice")).not.toBeInTheDocument();
       expect(screen.queryByText("Ничего не найдено")).not.toBeInTheDocument();
     });
   });
@@ -430,6 +430,8 @@ describe("AppLayout", () => {
       origInnerHeight = window.innerHeight;
       Object.defineProperty(document.documentElement, "scrollHeight", { value: 3000, configurable: true });
       window.innerHeight = 800;
+      // These tests exercise the auto-hide mode; the default is "fixed".
+      localStorage.setItem("header-behavior", "auto-hide");
       renderLayout();
       mockAnimate.mockClear();
     });
@@ -461,6 +463,44 @@ describe("AppLayout", () => {
     it("does not animate the header near the page bottom", () => {
       scrollTo(2999, 0); // near bottom (maxScroll = 2200)
       expect(mockAnimate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("fixed header behaviour", () => {
+    function scrollTo(latest: number, previous: number) {
+      (globalThis as any).__scrollPrevious = previous;
+      const handler = (globalThis as any).__scrollHandler;
+      act(() => handler(latest));
+    }
+
+    let origInnerHeight = 0;
+
+    beforeEach(() => {
+      origInnerHeight = window.innerHeight;
+      Object.defineProperty(document.documentElement, "scrollHeight", { value: 3000, configurable: true });
+      window.innerHeight = 800;
+      // No stored preference → the default "fixed".
+      renderLayout();
+      mockAnimate.mockClear();
+    });
+
+    afterEach(() => {
+      delete (document.documentElement as any).scrollHeight;
+      window.innerHeight = origInnerHeight;
+    });
+
+    it("never hides the header on scroll-down by default", () => {
+      scrollTo(500, 0);
+      expect(mockAnimate).not.toHaveBeenCalled();
+    });
+
+    it("starts hiding after a live switch to auto-hide", () => {
+      act(() => {
+        localStorage.setItem("header-behavior", "auto-hide");
+        window.dispatchEvent(new CustomEvent("gomo6:header-behavior"));
+      });
+      scrollTo(500, 0);
+      expect(mockAnimate).toHaveBeenCalledWith(expect.anything(), 0, expect.anything());
     });
   });
 

@@ -8,6 +8,12 @@ vi.mock("date-fns", () => ({
   formatDistanceToNow: () => "2 дня назад",
 }));
 
+// The card header shows the compact single-unit time ("2д"), not the verbose
+// date-fns phrasing.
+vi.mock("@/utils/relativeTimeShort", () => ({
+  formatShortRelativeTime: () => "2д",
+}));
+
 const mockFrom = vi.fn();
 const mockNavigateFn = vi.fn();
 const insertFn = vi.fn(() => Promise.resolve({ data: null, error: null }));
@@ -150,7 +156,7 @@ describe("FeedThreadCard", () => {
     });
     expect(screen.getByText("This is the thread content.")).toBeInTheDocument();
     expect(screen.getByTestId("user-badge")).toHaveTextContent("testuser");
-    expect(screen.getByText("2 дня назад")).toBeInTheDocument();
+    expect(screen.getByText("2д")).toBeInTheDocument();
     expect(screen.getByText(/test-board/)).toBeInTheDocument();
   });
 
@@ -250,7 +256,7 @@ describe("FeedThreadCard", () => {
       expect(screen.getByText("Test Thread Title")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("0"));
+    await userEvent.click(screen.getByRole("button", { name: /Нравится/i }));
 
     await waitFor(() => {
       expect(mockFrom).toHaveBeenCalledWith("thread_likes");
@@ -267,12 +273,13 @@ describe("FeedThreadCard", () => {
       expect(screen.getByText("1")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("1"));
+    await userEvent.click(screen.getByRole("button", { name: /Нравится/i }));
 
     await waitFor(() => {
       expect(deleteFn).toHaveBeenCalled();
     });
-    expect(screen.getByText("0")).toBeInTheDocument();
+    // A zero count is hidden by the minimal action button.
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
   });
 
   // ─── Navigation ─────────────────────────────────────────────────────────────

@@ -188,7 +188,7 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
       );
     }
     return (
-      <div className="border border-border bg-card rounded-lg p-3 max-w-xs">
+      <div className="border border-border bg-surface rounded-lg p-3 max-w-xs">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
             {iconFor(att.type)}

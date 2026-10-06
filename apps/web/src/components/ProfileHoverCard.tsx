@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { safeDate } from "@/utils/safeDate";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
+import { profileCacheInvalidateUserId } from "@/utils/profileCacheEvents";
 import { AdminBadge } from "./AdminBadge";
 import { NicknameEmoji } from "./NicknameEmoji";
 import { processProfileBio } from "@/utils/profileBio";
@@ -78,8 +79,14 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
   // so the next hover shows fresh data instantly instead of up to 30s stale.
   const queryClient = useQueryClient();
   useEffect(() => {
-    const handler = () => {
-      queryClient.invalidateQueries({ queryKey: ["profile-hover"] });
+    const handler = (event: Event) => {
+      const changedUserId = profileCacheInvalidateUserId(event);
+      // Scoped event: only this user's card data is stale. Unscoped: drop all.
+      queryClient.invalidateQueries(
+        changedUserId
+          ? { queryKey: ["profile-hover", changedUserId] }
+          : { queryKey: ["profile-hover"] },
+      );
     };
     window.addEventListener("profile-cache:invalidate", handler);
     return () => window.removeEventListener("profile-cache:invalidate", handler);

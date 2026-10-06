@@ -1,0 +1,69 @@
+# Alertmanager routing + Telegram delivery — TEMPLATE.
+#
+# The real file (observability/alertmanager.yml) is gitignored because it holds
+# the Telegram bot token. Create it on the VPS by copying this template and
+# filling in the two values, then:
+#
+#   docker compose up -d --no-build alertmanager
+#
+# Getting the values:
+#   1. Create a bot: talk to @BotFather → /newbot → copy the token.
+#   2. Get the chat id: send a message to your bot, then open
+#      https://api.telegram.org/bot<TOKEN>/getUpdates and copy
+#      result[0].message.chat.id.
+#
+# Alertmanager does NOT expand environment variables in this file, which is
+# exactly why the token is kept out of git instead of templated at runtime.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: telegram
+  group_by: [alertname, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Watchdog heartbeat: delivered once a day, never batched away.
+    - matchers:
+        - 'severity="none"'
+      receiver: telegram
+      repeat_interval: 24h
+    # Critical alerts repeat sooner; warnings are batched more aggressively.
+    - matchers:
+        - 'severity="critical"'
+      receiver: telegram
+      repeat_interval: 1h
+    # Info alerts are dashboard-only: they are evaluated and visible in the
+    # vmalert/Alertmanager UI, but never delivered to Telegram. `RedisCacheHitLow`
+    # is the sole info rule and fires structurally (Redis is multi-purpose here,
+    # so the global keyspace hit ratio is not a cache-health signal) — paging on
+    # it just produced a message every ~4h.
+    - matchers:
+        - 'severity="info"'
+      receiver: "null"
+      repeat_interval: 4h
+
+receivers:
+  - name: "null"
+  - name: telegram
+    telegram_configs:
+      - bot_token: "<TELEGRAM_BOT_TOKEN>"
+        chat_id: <TELEGRAM_CHAT_ID>
+        parse_mode: HTML
+        send_resolved: true
+        message: |
+          {{ if eq .Status "firing" }}🔥 <b>{{ .CommonLabels.alertname }}</b>{{ else }}✅ <b>Решено: {{ .CommonLabels.alertname }}</b>{{ end }}
+          {{ range .Alerts }}
+          • {{ .Annotations.summary }}
+          {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
+          {{ end }}
+
+inhibit_rules:
+  # If the whole site is down, the component-level alerts are noise.
+  - source_matchers:
+      - 'alertname="SiteDown"'
+    target_matchers:
+      - 'severity=~"critical|warning"'
+    equal: []

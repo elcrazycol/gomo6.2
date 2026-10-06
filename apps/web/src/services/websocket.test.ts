@@ -120,6 +120,47 @@ describe("WebSocketService", () => {
       expect(MockWebSocket.instances.length).toBeLessThanOrEqual(2);
     });
 
+    it("ensureConnected repairs a socket the client tore down", () => {
+      // auth:expired calls disconnect(), which closes the socket, drops the room
+      // list and disables reconnection — the client used to stay dead until a
+      // page reload, silently missing every realtime event.
+      apiClient.setToken("test-token");
+      wsService.disconnect();
+      expect(MockWebSocket.instances).toHaveLength(0);
+
+      wsService.ensureConnected();
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it("ensureConnected retries even after the backoff gave up", () => {
+      apiClient.setToken("test-token");
+      (wsService as any).reconnectAttempts = 10; // at the limit: connect() would bail
+      (wsService as any).lastConnectAttempt = Date.now(); // and the debounce is hot
+
+      wsService.ensureConnected();
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it("ensureConnected keeps a live connection as is", () => {
+      apiClient.setToken("test-token");
+      wsService.connect();
+      MockWebSocket.instances[0]!.simulateOpen();
+
+      wsService.ensureConnected();
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it("ensureConnected does nothing without a session", () => {
+      apiClient.clearTokens();
+
+      wsService.ensureConnected();
+
+      expect(MockWebSocket.instances).toHaveLength(0);
+    });
+
     it("handleOpen sets connected and sends auth", () => {
       apiClient.setToken("test-token");
       wsService.connect();

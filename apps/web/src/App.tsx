@@ -1,14 +1,22 @@
-import { useEffect, lazy, type ComponentType } from "react";
-import { Toaster } from "@/components/ui/toaster";
+import { useEffect, useState, lazy, type ComponentType } from "react";
 import { Toaster as Sonner, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, type Location } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "@/integrations/api/queryClient";
+import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, useNavigationType, type Location } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
 import { AuthGuard } from "@/components/AuthGuard";
 import { VideoEditorHost } from "@/components/VideoEditorHost";
-import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
+import { ThemeSync } from "@/components/ThemeSync";
+import { applyTheme, getStoredPrefs, syncSharedAppearanceCookies, watchSystemMode } from "@/theme";
+import { applyCustomFont, getStoredCustomFont } from "@/lib/customFont";
+import { runTransition, setTransitionDirection, isFeedRoute } from "@/lib/viewTransitions";
+import { preloadRoute } from "@/lib/routeData";
+import { loadRouteChunk } from "@/lib/routeChunks";
+import { useTransitionStyle } from "@/hooks/useTransitionStyle";
+// Registers the per-route data preloaders (stale-view retention).
+import "@/routes/data";
 import { wsService } from "./services/websocket";
 import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
@@ -76,8 +84,15 @@ const Board = lazyWithRetry(() => import("./pages/Board"));
 const Thread = lazyWithRetry(() => import("./pages/Thread"));
 const Profile = lazyWithRetry(() => import("./pages/Profile"));
 const WallPost = lazyWithRetry(() => import("./pages/WallPost"));
-const Moderation = lazyWithRetry(() => import("./pages/Moderation"));
+const ModerationDashboard = lazyWithRetry(() => import("./pages/ModerationDashboard"));
 const ModerationPosts = lazyWithRetry(() => import("./pages/ModerationPosts"));
+const ModerationAudit = lazyWithRetry(() => import("./pages/ModerationAudit"));
+const ModerationUser = lazyWithRetry(() => import("./pages/ModerationUser"));
+const ModerationAppeals = lazyWithRetry(() => import("./pages/ModerationAppeals"));
+const ModerationStaff = lazyWithRetry(() => import("./pages/ModerationStaff"));
+const ModerationReport = lazyWithRetry(() => import("./pages/ModerationReport"));
+const ModerationAction = lazyWithRetry(() => import("./pages/ModerationAction"));
+const Appeals = lazyWithRetry(() => import("./pages/Appeals"));
 const EmojiPacks = lazyWithRetry(() => import("./pages/EmojiPacks"));
 const EmojiPackDetail = lazyWithRetry(() => import("./pages/EmojiPackDetail"));
 const EmojiPackCreate = lazyWithRetry(() => import("./pages/EmojiPackCreate"));
@@ -100,39 +115,25 @@ const OAuthConsent = lazyWithRetry(() => import("./pages/OAuthConsent"));
 const Achievements = lazyWithRetry(() => import("./pages/Achievements"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const Translate = lazyWithRetry(() => import("./pages/Translate"));
+// Правовые документы грузим лениво: это тексты, а не критичный путь.
+const Legal = lazyWithRetry(() => import("./pages/Legal"));
 
-// Prefetch critical routes on app start
-const prefetchRoutes = () => {
-  // Prefetch main routes after initial load
-  setTimeout(() => {
-    import("./pages/Auth").catch(() => {});
-    import("./pages/Settings").catch(() => {});
-    import("./pages/Profile").catch(() => {});
-  }, 2000);
+/**
+ * The reworked Settings page lived at /settings-v2 while it was a prototype.
+ * Keep those URLs working (bookmarks, open tabs) by forwarding to the real
+ * route with the same section and query string.
+ */
+const LegacySettingsRedirect = () => {
+  const location = useLocation();
+  const section = location.pathname.replace(/^\/settings-v2/, "");
+  return <Navigate to={`/settings${section}${location.search}`} replace />;
 };
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh
-      gcTime: 10 * 60 * 1000, // 10 minutes - cache retention
-      refetchOnWindowFocus: false, // Don't refetch on window focus
-      refetchOnMount: false, // Don't refetch on component mount if data is fresh
-      retry: 1, // Only retry once on failure
-    },
-  },
-});
 
 const App = () => {
   useEffect(() => {
     // Resolve the active UI language (server profile → local → default) and
     // overlay community translations before the first meaningful paint.
     useLanguageStore.getState().initialize();
-  }, []);
-
-  useEffect(() => {
-    // Prefetch critical routes for instant navigation
-    prefetchRoutes();
   }, []);
 
   // Global network error handler — show toast for unhandled fetch failures
@@ -180,36 +181,35 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    // Apply saved theme immediately to prevent layout flash
-    const { colorTheme, isDarkMode } = getStoredTheme();
-    applyTheme(colorTheme, isDarkMode);
+    // The pre-boot script already painted the theme; this keeps it in sync
+    // across tabs and follows the OS scheme when the preference is "system".
+    const { theme, mode } = getStoredPrefs();
+    applyTheme(theme, mode);
 
     // Apply saved custom font
-    const savedFont = localStorage.getItem('custom_font');
-    if (savedFont) {
-      // Load Google Font
-      const link = document.createElement('link');
-      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(savedFont)}:wght@400;500;600;700&display=swap`;
-      link.rel = 'stylesheet';
-      link.setAttribute('data-google-font', 'true');
-      document.head.appendChild(link);
+    const savedFont = getStoredCustomFont();
+    if (savedFont) applyCustomFont(savedFont);
 
-      // Apply font
-      const fontFamily = `"${savedFont}", system-ui, -apple-system, sans-serif`;
-      document.documentElement.style.setProperty('--font-family', fontFamily);
-      document.body.style.fontFamily = fontFamily;
-    }
-
-    syncSharedAppearanceCookies();
-
-    const handleStorage = () => {
+    const reapply = () => {
+      const prefs = getStoredPrefs();
+      applyTheme(prefs.theme, prefs.mode);
       syncSharedAppearanceCookies();
     };
 
+    syncSharedAppearanceCookies();
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key == null || event.key === "color-theme" || event.key === "theme-mode" || event.key === "dark-mode") {
+        reapply();
+      }
+    };
+
     window.addEventListener("storage", handleStorage);
+    const unwatchSystem = watchSystemMode(reapply);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
+      unwatchSystem();
     };
   }, []);
 
@@ -220,9 +220,9 @@ const App = () => {
           <LikesCacheProvider>
             <EmojiDataProvider>
               <TooltipProvider>
-                <Toaster />
                 <Sonner />
                 <BrowserRouter>
+                  <ThemeSync />
                   <AppRoutes />
                 </BrowserRouter>
                 <VideoEditorHost />
@@ -241,11 +241,48 @@ const App = () => {
 // away over it. A direct link falls back to the plain in-layout page.
 function AppRoutes() {
   const location = useLocation();
+  const navigationType = useNavigationType();
   const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation ?? null;
+
+  // Page-level transitions (Settings → «Анимация переходов»). The router keeps
+  // rendering the previous location until the selected style has had a chance to
+  // animate the swap: View-Transitions styles run through the browser API, the
+  // CSS styles (fade/rise) swap immediately and let AppLayout's enter class play.
+  const transitionStyle = useTransitionStyle();
+  const [displayLocation, setDisplayLocation] = useState(location);
+
+  useEffect(() => {
+    if (location === displayLocation) return;
+    // The wall-post overlay keeps the page underneath; don't animate the swap.
+    if (backgroundLocation) {
+      setDisplayLocation(location);
+      return;
+    }
+    // Feed + раздел routes animate their own views (Index/usePendingView).
+    if (isFeedRoute(displayLocation.pathname) && isFeedRoute(location.pathname)) {
+      setDisplayLocation(location);
+      return;
+    }
+    // Slide is direction-aware: a history pop goes back, a push goes forward.
+    setTransitionDirection(navigationType === "POP" ? "back" : "forward");
+
+    // Stale-view retention: keep the previous page on screen while the target
+    // route's chunk AND data load, then swap through the chosen transition.
+    // Routes with no preloader resolve immediately and behave as before.
+    let cancelled = false;
+    Promise.all([preloadRoute(location), loadRouteChunk(location.pathname)]).then(() => {
+      if (cancelled) return;
+      runTransition(transitionStyle, () => setDisplayLocation(location));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   return (
     <>
-      <Routes location={backgroundLocation ?? location}>
+      <Routes location={backgroundLocation ?? displayLocation}>
         {/* Special pages without layout */}
         <Route path="/auth" element={<LazyPage component={Auth} />} />
         <Route path="/oauth/consent" element={<LazyPage component={OAuthConsent} />} />
@@ -253,12 +290,32 @@ function AppRoutes() {
         {/* Pages with layout */}
         <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
           <Route index element={<LazyPage component={Index} />} />
+          {/* App views and разделы as real paths. «c» = category, the
+              Discourse-style prefix for a category→subcategory hierarchy (our
+              раздел→подраздел). It also keeps раздел slugs out of the reserved
+              top-level namespace (/search, /create, /settings, /thread, …), so
+              no slug can ever shadow a route. */}
+          <Route path="feed" element={<LazyPage component={Index} />} />
+          <Route path="mine" element={<LazyPage component={Index} />} />
+          <Route path="history" element={<LazyPage component={Index} />} />
+          <Route path="favorites" element={<LazyPage component={Index} />} />
+          <Route path="c/:sectionSlug" element={<LazyPage component={Index} />} />
+          <Route path="c/:sectionSlug/:subSlug" element={<LazyPage component={Index} />} />
           <Route path="messages" element={<AuthGuard><LazyPage component={Messages} /></AuthGuard>} />
           <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
           <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
           <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
-          <Route path="moderation" element={<AuthGuard><LazyPage component={Moderation} /></AuthGuard>} />
-          <Route path="moderation/posts" element={<AuthGuard><LazyPage component={ModerationPosts} /></AuthGuard>} />
+          <Route path="moderation" element={<AuthGuard><LazyPage component={ModerationDashboard} /></AuthGuard>} />
+          <Route path="moderation/reports" element={<AuthGuard><LazyPage component={ModerationPosts} /></AuthGuard>} />
+          <Route path="moderation/reports/:reportId" element={<AuthGuard><LazyPage component={ModerationReport} /></AuthGuard>} />
+          <Route path="moderation/audit" element={<AuthGuard><LazyPage component={ModerationAudit} /></AuthGuard>} />
+          <Route path="moderation/actions/:actionId" element={<AuthGuard><LazyPage component={ModerationAction} /></AuthGuard>} />
+          <Route path="moderation/users/:userId" element={<AuthGuard><LazyPage component={ModerationUser} /></AuthGuard>} />
+          <Route path="moderation/appeals" element={<AuthGuard><LazyPage component={ModerationAppeals} /></AuthGuard>} />
+          <Route path="moderation/staff" element={<AuthGuard><LazyPage component={ModerationStaff} /></AuthGuard>} />
+          <Route path="appeals" element={<AuthGuard><LazyPage component={Appeals} /></AuthGuard>} />
+          {/* Legacy URL — the queue lives at /moderation/reports now. */}
+          <Route path="moderation/posts" element={<Navigate to="/moderation/reports" replace />} />
           <Route path="emojis" element={<LazyPage component={EmojiPacks} />} />
           <Route path="emojis/pack/:slug" element={<LazyPage component={EmojiPackDetail} />} />
           <Route path="emojis/create" element={<AuthGuard><LazyPage component={EmojiPackCreate} /></AuthGuard>} />
@@ -268,6 +325,12 @@ function AppRoutes() {
           {/* Legacy URL — the studio replaced /settings/custom */}
           <Route path="settings/custom" element={<AuthGuard><Navigate to="/settings/prof-studio" replace /></AuthGuard>} />
           <Route path="settings/placeholders" element={<AuthGuard><LazyPage component={Placeholders} /></AuthGuard>} />
+          {/* Legacy section names from the old tabbed page */}
+          <Route path="settings/account" element={<AuthGuard><Navigate to="/settings/security" replace /></AuthGuard>} />
+          <Route path="settings/posts" element={<AuthGuard><Navigate to="/settings/profile" replace /></AuthGuard>} />
+          {/* The reworked page (was /settings-v2 during the rewrite) */}
+          <Route path="settings-v2" element={<LegacySettingsRedirect />} />
+          <Route path="settings-v2/:section" element={<LegacySettingsRedirect />} />
           <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
           <Route path="settings" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
           <Route path="stats" element={<AuthGuard><LazyPage component={Stats} /></AuthGuard>} />
@@ -276,6 +339,9 @@ function AppRoutes() {
           <Route path="notify/wall-likes/:notificationId" element={<AuthGuard><LazyPage component={NotificationLikes} /></AuthGuard>} />
           <Route path="translate" element={<AuthGuard><LazyPage component={Translate} /></AuthGuard>} />
           <Route path="search" element={<LazyPage component={SearchResults} />} />
+          {/* Правовые документы: /legal и /legal/:docId */}
+          <Route path="legal" element={<LazyPage component={Legal} />} />
+          <Route path="legal/:docId" element={<LazyPage component={Legal} />} />
           <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
           <Route path="g" element={<LazyPage component={GomoSubs} />} />
           <Route path="g/create" element={<AuthGuard><LazyPage component={GomoSubCreate} /></AuthGuard>} />
@@ -288,8 +354,7 @@ function AppRoutes() {
           <Route path="g/:slug/c/:channelSlug/thread/:threadId" element={<LazyPage component={Thread} />} />
           <Route path="g/:slug/c/:channelSlug" element={<LazyPage component={Board} />} />
           <Route path="g/:slug" element={<LazyPage component={Board} />} />
-          <Route path=":slug" element={<LazyPage component={Board} />} />
-          <Route path=":slug/thread/:threadId" element={<LazyPage component={Thread} />} />
+          <Route path="thread/:threadId" element={<LazyPage component={Thread} />} />
         </Route>
 
         {/* Catch-all */}

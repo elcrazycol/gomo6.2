@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -13,21 +12,26 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/search"
 )
 
 var botUsernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+_bot$`)
 
 type BotsHandler struct {
-	db *sql.DB
+	db            *sql.DB
+	searchIndexer *search.Indexer
 }
 
 func NewBotsHandler(db *sql.DB) *BotsHandler {
 	return &BotsHandler{db: db}
 }
 
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *BotsHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
+
 func generateBotToken() (rawToken string, hash string, err error) {
 	bytes := make([]byte, 32)
-	if _, err = rand.Read(bytes); err != nil {
+	if _, err = randRead(bytes); err != nil {
 		return
 	}
 	rawToken = "gomo6_bot_" + hex.EncodeToString(bytes)
@@ -151,7 +155,7 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 		RETURNING id`, req.Username, botEmail, hex.EncodeToString([]byte(randHex(32)))).Scan(&botUserID)
 	if err != nil {
 		log.Printf("[CreateBot] INSERT users failed: %v", err)
-		if strings.Contains(err.Error(), "duplicate key") {
+		if httpx.UniqueViolationConstraint(err) != "" {
 			c.JSON(http.StatusConflict, models.ErrorResponse("Username already taken"))
 			return
 		}
@@ -174,6 +178,9 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to commit transaction"))
 		return
 	}
+
+	// The bot has a user account of its own — index it.
+	h.searchIndexer.SyncUser(botUserID)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(models.BotWithToken{
 		Bot: models.Bot{
@@ -328,6 +335,9 @@ func (h *BotsHandler) DeleteBot(c *gin.Context) {
 		return
 	}
 
+	// The bot's user account is gone — drop it from the index.
+	h.searchIndexer.SyncUser(botUserID)
+
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
 
@@ -415,7 +425,7 @@ func (h *BotsHandler) RegenerateToken(c *gin.Context) {
 }
 
 func randHex(n int) string {
-	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	// 2n hex characters, matching the previous output length. Fail-closed on a
+	// CSPRNG error: this feeds the bot account password and token material.
+	return mustRandom(secureHex(2 * n))
 }

@@ -86,7 +86,6 @@ const ConversationCard = memo(function ConversationCard({
                   username={conversation.other_username || ""}
                   displayName={conversation.other_display_name}
                   emojiId={conversation.other_nickname_emoji_id}
-                  showOutline={false}
                   disableLink
                   disableHoverCard
                 />

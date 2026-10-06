@@ -294,7 +294,7 @@ end
 ## Технологии
 
 - **Backend**: Go 1.21+, Gin, gopher-lua
-- **Database**: PostgreSQL 15
+- **Database**: PostgreSQL 18
 - **Cache/PubSub**: Redis 7
 - **Frontend**: React 18, TypeScript, Monaco Editor
 - **Container**: Docker, docker-compose

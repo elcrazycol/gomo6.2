@@ -24,15 +24,15 @@ func TestGetPosts_Success_NoFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	).AddRow(
 		"p2", "t1", "u2", "World!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"user2", nil, nil,
+		"user2", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -64,11 +64,11 @@ func TestGetPosts_Success_WithThreadFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "550e8400-e29b-41d4-a716-446655440000", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.thread_id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -100,11 +100,11 @@ func TestGetPosts_Success_WithIDFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -128,11 +128,11 @@ func TestGetPosts_Success_WithInFilter(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id IN \(\$1,\$2\).*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
@@ -173,13 +173,13 @@ func TestGetPosts_PrivateBoard_AnonymousEmpty(t *testing.T) {
 
 	// Anonymous → predicate collapses to `b.visibility != 'private'`, no extra
 	// args beyond the privacy gate ("", "") + limit/offset.
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*b\.visibility != 'private'.*t\.channel_id IS NULL.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*t\.channel_id IS NULL.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
 		WithArgs("t1", "", "", 100, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "thread_id", "user_id", "content", "content_json",
 			"image_url", "image_urls", "attachments", "reply_to",
 			"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-			"username", "nickname_emoji_id", "avatar_url",
+			"username", "public_id", "nickname_emoji_id", "avatar_url",
 		}))
 
 	handler.GetPosts(c)
@@ -214,16 +214,16 @@ func TestGetPosts_PrivateBoard_MemberVisible(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Member-visible post", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	// Authenticated → the predicate references b.owner_id + gomosub_memberships,
 	// with the viewer bound twice (args: thread, privacy x2, visibility x2).
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*b\.visibility != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id AND gm\.user_id::text = \$5.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.thread_id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id AND gm\.user_id::text = \$5.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
 		WithArgs("t1", "member", "member", "member", "member", 100, 0).
 		WillReturnRows(rows)
 
@@ -265,15 +265,15 @@ func TestGetPosts_Latest_Success(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Latest in t1", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	).AddRow(
 		"p2", "t2", "u2", "Latest in t2", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"user2", nil, nil,
+		"user2", 42, nil, nil,
 	)
 
 	// The DISTINCT ON subquery regex must match the generated SQL — including
@@ -311,11 +311,11 @@ func TestGetPost_Success(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "Hello!", nil,
 		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
@@ -403,7 +403,7 @@ func TestGetPost_PrivateBoard_StrangerNotFound(t *testing.T) {
 	// The query must join the thread's board and gate it: for a non-member the
 	// row is filtered out → 404. The regex pins the join + visibility predicate
 	// so the SQL cannot silently drop the gate.
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*b\.visibility != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*gomosub_memberships gm WHERE gm\.board_id = t\.board_id`).
 		WithArgs("p1", "stranger", "stranger").
 		WillReturnError(sql.ErrNoRows)
 
@@ -423,7 +423,7 @@ func TestGetPost_PrivateBoard_AnonymousNotFound(t *testing.T) {
 
 	// Anonymous → the predicate collapses to `b.visibility != 'private'` with
 	// no extra args; a private-board row is filtered out → 404.
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*b\.visibility != 'private'.*t\.channel_id IS NULL`).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*LEFT JOIN threads t ON p\.thread_id = t\.id.*LEFT JOIN boards b ON t\.board_id = b\.id.*WHERE p\.id = \$1.*COALESCE\(b\.visibility, 'public'\) != 'private'.*t\.channel_id IS NULL`).
 		WithArgs("p1", "").
 		WillReturnError(sql.ErrNoRows)
 
@@ -464,11 +464,11 @@ func TestGetPost_PrivatePost_RecipientSuccess(t *testing.T) {
 		"id", "thread_id", "user_id", "content", "content_json",
 		"image_url", "image_urls", "attachments", "reply_to",
 		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
-		"username", "nickname_emoji_id", "avatar_url",
+		"username", "public_id", "nickname_emoji_id", "avatar_url",
 	}).AddRow(
 		"p1", "t1", "u1", "DM content", nil,
 		nil, "[]", "[]", nil, true, "u2", "localhost:8080", time.Now(), false,
-		"testuser", nil, nil,
+		"testuser", 42, nil, nil,
 	)
 
 	// The private recipient sees the DM. The third arg binds the viewer to the
@@ -584,7 +584,7 @@ func TestDeletePost_ForeignAuthor_Forbidden(t *testing.T) {
 		WithArgs("p1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "thread_id"}).AddRow("u1", "t1"))
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -606,7 +606,7 @@ func TestDeletePost_ModeratorAllowed(t *testing.T) {
 		WithArgs("p1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "thread_id"}).AddRow("u1", "t1"))
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 

@@ -68,6 +68,7 @@ MESSENGER_ENCRYPTION_KEY=$(gen_hex 32)
 REDIS_PASSWORD=$(gen_hex 16)
 GARAGE_RPC_SECRET=$(gen_hex 32)
 GARAGE_ADMIN_TOKEN=$(gen_hex 32)
+MEILI_MASTER_KEY=$(gen_hex 32)
 
 # If this is an existing Docker deployment and .env lost the database secret,
 # preserve the password with which the running PostgreSQL container was
@@ -119,6 +120,7 @@ if [ "$QUIET" = false ]; then
     say "  ${GREEN}✓${NC} MESSENGER_ENCRYPTION_KEY (64 hex chars)"
     say "  ${GREEN}✓${NC} REDIS_PASSWORD           (32 hex chars)"
     say "  ${GREEN}✓${NC} POSTGRES_PASSWORD        (64 hex chars)"
+    say "  ${GREEN}✓${NC} MEILI_MASTER_KEY         (64 hex chars)"
     say ""
 fi
 
@@ -160,6 +162,11 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 # ── Garage internal credentials ────────────────────────────────────────────
 GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET}
 GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
+
+# ── Meilisearch ─────────────────────────────────────────────────────────────
+# Master key for the search engine API. Empty/unset MEILISEARCH_URL disables
+# search and the backend falls back to PostgreSQL full-text search.
+MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
 "
 fi
 
@@ -197,6 +204,7 @@ set_or_add "REDIS_PASSWORD" "$REDIS_PASSWORD"
 set_or_add "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"
 set_or_add "GARAGE_RPC_SECRET" "$GARAGE_RPC_SECRET" true
 set_or_add "GARAGE_ADMIN_TOKEN" "$GARAGE_ADMIN_TOKEN" true
+set_or_add "MEILI_MASTER_KEY" "$MEILI_MASTER_KEY"
 set_or_add "DOMAIN" "localhost"
 set_or_add "ENVIRONMENT" "production"
 

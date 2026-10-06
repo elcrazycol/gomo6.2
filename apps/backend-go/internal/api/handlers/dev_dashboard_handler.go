@@ -170,24 +170,38 @@ func SeedDevDashboardApp(db *sql.DB) {
 
 	// Generate a random wallet address for the system user (required NOT NULL).
 	// The system user is never intended to log in, so the password is random.
-	walletAddr := fmt.Sprintf("GM6-%s-%s", randomHex(4), randomHex(4))
+	walletAddr := fmt.Sprintf("GM6-%s-%s", randomBase36(4), randomBase36(4))
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(randomHex(32)), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("SeedDevDashboardApp: failed to hash system user password: %v", err)
 		return
 	}
 
-	// First ensure a system user exists to satisfy the owner_id FK constraint
+	// First ensure a system user exists to satisfy the owner_id FK constraint.
+	//
+	// public_id is set explicitly to -1: infrastructure has no human number.
+	// A service row must not consume an organic number, and it must not squat the
+	// low band either — #1..9 are held for the founder and the first accounts.
+	// Negative values are reserved for service rows: the sequence only allocates
+	// positive numbers (it starts at 10, docs/wiki/PUBLIC_IDS.md) and the public
+	// resolver rejects anything that is not a positive decimal, so this row is
+	// unreachable through /profile/<n>. An explicit value is possible because
+	// public_id is a sequence default rather than an identity column; the DO UPDATE
+	// branch also moves an install that already handed this row an organic number
+	// (or the low band, as an earlier revision did).
+	const systemPublicID = -1
 	_, err = db.Exec(`
-		INSERT INTO users (id, username, email, password_hash, domain, wallet_address)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO users (id, public_id, username, email, password_hash, domain, wallet_address)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO UPDATE SET
 			username = EXCLUDED.username,
 			email = EXCLUDED.email,
 			domain = EXCLUDED.domain,
-			wallet_address = EXCLUDED.wallet_address
+			wallet_address = EXCLUDED.wallet_address,
+			public_id = EXCLUDED.public_id
 	`,
 		systemUserID,
+		systemPublicID,
 		"__system__",
 		"system@gomo6.local",
 		string(hashedPassword),

@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/lib/pq"
 )
 
 // newMock opens a sqlmock DB with the standard cleanup that verifies all
@@ -787,5 +788,206 @@ func TestWallAttachmentAccess_DBErrorFailsClosed(t *testing.T) {
 	found, allowed := WallAttachmentAccess(db, "viewer", "u1", "u1/photo.jpg")
 	if found || allowed {
 		t.Fatalf("expected DB errors to deny access, got found=%v allowed=%v", found, allowed)
+	}
+}
+
+// ─────────────────── ResolveProfileVisibilityBatch ───────────────────
+
+const (
+	batchSettingsRe = `SELECT user_id::text, COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = ANY`
+	batchFriendsRe  = `SELECT user1_id::text, user2_id::text FROM friendships`
+)
+
+// batchSettingsRows builds the 4-column result set of the batched
+// privacy_settings read.
+func batchSettingsRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"})
+}
+
+func TestResolveProfileVisibilityBatch_AnonymousPublic(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows())
+
+	vis, err := ResolveProfileVisibilityBatch(db, "", []string{"a", "b"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Public profiles with no toggles resolve to the zero value, and no
+	// friendships read is issued.
+	if vis["a"] != (ProfileVisibility{}) || vis["b"] != (ProfileVisibility{}) {
+		t.Fatalf("expected public defaults, got %+v", vis)
+	}
+}
+
+func TestResolveProfileVisibilityBatch_PrivateNonFriend(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("target", true, true, false))
+	mock.ExpectQuery(batchFriendsRe).
+		WithArgs("viewer", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}))
+
+	vis, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"target"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !vis["target"].Filter {
+		t.Fatal("expected a private non-friend profile to be filtered")
+	}
+	if !vis["target"].HideAvatar {
+		t.Fatal("expected private_hide_avatar to hide the avatar")
+	}
+}
+
+func TestResolveProfileVisibilityBatch_PrivateFriend(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("target", true, true, true))
+	mock.ExpectQuery(batchFriendsRe).
+		WithArgs("viewer", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}).AddRow("target", "viewer"))
+
+	vis, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"target"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vis["target"] != (ProfileVisibility{}) {
+		t.Fatalf("expected a mutual friend to see a private profile in full, got %+v", vis["target"])
+	}
+}
+
+func TestResolveProfileVisibilityBatch_AnonymousPrivateHidesAvatar(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("target", true, true, false))
+	// An anonymous viewer is never a friend → no friendships read expected.
+
+	vis, err := ResolveProfileVisibilityBatch(db, "", []string{"target"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !vis["target"].Filter || !vis["target"].HideAvatar {
+		t.Fatalf("expected anonymous private profile filtered with avatar hidden, got %+v", vis["target"])
+	}
+}
+
+func TestResolveProfileVisibilityBatch_PublicHideStats(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("t", false, false, true))
+	mock.ExpectQuery(batchFriendsRe).
+		WithArgs("viewer", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}))
+
+	vis, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"t"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vis["t"].Filter {
+		t.Fatal("a public profile must not be fully filtered")
+	}
+	if !vis["t"].HideStats || vis["t"].HideAvatar {
+		t.Fatalf("expected only hide_stats, got %+v", vis["t"])
+	}
+}
+
+func TestResolveProfileVisibilityBatch_PublicToggleExemptsFriend(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("t", false, false, true))
+	mock.ExpectQuery(batchFriendsRe).
+		WithArgs("viewer", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}).AddRow("t", "viewer"))
+
+	vis, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"t"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vis["t"] != (ProfileVisibility{}) {
+		t.Fatalf("expected a mutual friend to bypass the public toggle, got %+v", vis["t"])
+	}
+}
+
+func TestResolveProfileVisibilityBatch_OwnerSkipsFriendQuery(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("u1", true, true, true))
+	// Owner → no friendships read expected.
+
+	vis, err := ResolveProfileVisibilityBatch(db, "u1", []string{"u1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vis["u1"] != (ProfileVisibility{}) {
+		t.Fatalf("expected the owner to see their own private profile in full, got %+v", vis["u1"])
+	}
+}
+
+// TestResolveProfileVisibilityBatch_DedupesAndBatches is the regression guard
+// for the N+1: many targets (with duplicates) must still issue exactly one
+// privacy_settings read, carrying the deduplicated id set.
+func TestResolveProfileVisibilityBatch_DedupesAndBatches(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(pq.Array([]string{"a", "b"})).
+		WillReturnRows(batchSettingsRows())
+
+	vis, err := ResolveProfileVisibilityBatch(db, "", []string{"a", "b", "a", "b", ""})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vis) != 2 {
+		t.Fatalf("expected 2 resolved targets, got %d", len(vis))
+	}
+}
+
+func TestResolveProfileVisibilityBatch_EmptyTargetsIssuesNoQuery(t *testing.T) {
+	db, _ := newMock(t)
+
+	vis, err := ResolveProfileVisibilityBatch(db, "viewer", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vis) != 0 {
+		t.Fatalf("expected no visibility entries, got %+v", vis)
+	}
+}
+
+func TestResolveProfileVisibilityBatch_NilDB(t *testing.T) {
+	if _, err := ResolveProfileVisibilityBatch(nil, "viewer", []string{"t"}); err == nil {
+		t.Fatal("expected an error for a nil db")
+	}
+}
+
+func TestResolveProfileVisibilityBatch_SettingsError(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnError(errors.New("boom"))
+
+	if _, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"t"}); err == nil {
+		t.Fatal("expected the settings read error to propagate")
+	}
+}
+
+func TestResolveProfileVisibilityBatch_FriendsError(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("t", true, false, false))
+	mock.ExpectQuery(batchFriendsRe).
+		WithArgs("viewer", sqlmock.AnyArg()).
+		WillReturnError(errors.New("boom"))
+
+	if _, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"t"}); err == nil {
+		t.Fatal("expected the friendships read error to propagate")
 	}
 }

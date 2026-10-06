@@ -32,6 +32,7 @@ func (j *JSONB) Scan(value interface{}) error {
 // User with federation support
 type User struct {
 	ID                 string          `json:"id" db:"id"`
+	PublicID           *int64          `json:"public_id,omitempty" db:"public_id"`
 	Username           string          `json:"username" db:"username"`
 	DisplayName        *string         `json:"display_name" db:"display_name"`
 	NicknameEmojiID    *string         `json:"nickname_emoji_id,omitempty" db:"nickname_emoji_id"`
@@ -133,6 +134,8 @@ type Thread struct {
 	ID           string          `json:"id" db:"id"`
 	BoardID      string          `json:"board_id" db:"board_id"`
 	ChannelID    *string         `json:"channel_id,omitempty" db:"channel_id"`
+	SectionID    *string         `json:"section_id,omitempty" db:"section_id"`
+	SubsectionID *string         `json:"subsection_id,omitempty" db:"subsection_id"`
 	UserID       *string         `json:"user_id" db:"user_id"`
 	Title        string          `json:"title" db:"title"`
 	Content      string          `json:"content" db:"content"`
@@ -150,8 +153,11 @@ type Thread struct {
 // ThreadWithBoards extends Thread with board information for frontend compatibility
 type ThreadWithBoards struct {
 	ID              string          `json:"id" db:"id"`
+	PublicID        *int64          `json:"public_id,omitempty" db:"public_id"`
 	BoardID         string          `json:"board_id" db:"board_id"`
 	ChannelID       *string         `json:"channel_id,omitempty" db:"channel_id"`
+	SectionID       *string         `json:"section_id,omitempty" db:"section_id"`
+	SubsectionID    *string         `json:"subsection_id,omitempty" db:"subsection_id"`
 	UserID          *string         `json:"user_id" db:"user_id"`
 	Title           string          `json:"title" db:"title"`
 	Content         string          `json:"content" db:"content"`
@@ -166,11 +172,14 @@ type ThreadWithBoards struct {
 	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
 	IsRemote        bool            `json:"is_remote" db:"is_remote"`
 	Username        string          `json:"username"`
+	UserPublicID    *int64          `json:"user_public_id,omitempty"`
 	DisplayName     *string         `json:"display_name"`
 	NicknameEmojiID *string         `json:"nickname_emoji_id"`
 	AvatarURL       *string         `json:"avatar_url"`
 	IsAnonymous     bool            `json:"is_anonymous"`
 	Boards          BoardInfo       `json:"boards"`
+	Section         *SectionInfo    `json:"section,omitempty"`
+	Subsection      *SubsectionInfo `json:"subsection,omitempty"`
 }
 
 type BoardInfo struct {
@@ -178,6 +187,23 @@ type BoardInfo struct {
 	Name         string `json:"name"`
 	IsGomosub    bool   `json:"is_gomosub"`
 	IsRulesBoard bool   `json:"is_rules_board"`
+}
+
+// SectionInfo is a top-level раздел (thread_sections row) as embedded in a
+// thread payload. Empty section_id on the thread means Section is nil.
+type SectionInfo struct {
+	ID     string  `json:"id"`
+	Slug   string  `json:"slug"`
+	Name   string  `json:"name"`
+	Icon   *string `json:"icon,omitempty"`
+	IsNSFW bool    `json:"is_nsfw"`
+}
+
+// SubsectionInfo is a подраздел (thread_subsections row) under a SectionInfo.
+type SubsectionInfo struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
 }
 
 // Post with federation support
@@ -197,8 +223,11 @@ type Post struct {
 	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
 	IsRemote           bool            `json:"is_remote" db:"is_remote"`
 	Username           string          `json:"username"`
-	NicknameEmojiID    *string         `json:"nickname_emoji_id,omitempty"`
-	AvatarURL          *string         `json:"avatar_url"`
+	// Public number of the author (the users line), so a thread comment can link
+	// /profile/<n> even though the posts line itself is not numbered.
+	UserPublicID    *int64  `json:"user_public_id,omitempty"`
+	NicknameEmojiID *string `json:"nickname_emoji_id,omitempty"`
+	AvatarURL       *string `json:"avatar_url"`
 }
 
 // PostLike
@@ -219,22 +248,29 @@ type ThreadLike struct {
 
 // Notification
 type Notification struct {
-	ID                   string          `json:"id" db:"id"`
-	UserID               string          `json:"user_id" db:"user_id"`
-	Type                 string          `json:"type" db:"type"`
-	Title                string          `json:"title" db:"title"`
-	Message              string          `json:"message" db:"message"`
-	RelatedThreadID      *string         `json:"related_thread_id" db:"related_thread_id"`
-	RelatedPostID        *string         `json:"related_post_id" db:"related_post_id"`
-	RelatedUserID        *string         `json:"related_user_id" db:"related_user_id"`
-	RelatedWallPostID    *string         `json:"related_wall_post_id" db:"related_wall_post_id"`
-	RelatedWallCommentID *string         `json:"related_wall_comment_id" db:"related_wall_comment_id"`
-	RelatedWallUserID    *string         `json:"related_wall_user_id" db:"related_wall_user_id"`
-	RelatedWallPostIDs   JSONB           `json:"related_wall_post_ids" db:"related_wall_post_ids"`
-	IsRead               bool            `json:"is_read" db:"is_read"`
-	GroupCount           int             `json:"group_count" db:"group_count"`
-	Params               json.RawMessage `json:"params,omitempty" db:"params"`
-	CreatedAt            *time.Time      `json:"created_at" db:"created_at"`
+	ID                   string  `json:"id" db:"id"`
+	UserID               string  `json:"user_id" db:"user_id"`
+	Type                 string  `json:"type" db:"type"`
+	Title                string  `json:"title" db:"title"`
+	Message              string  `json:"message" db:"message"`
+	RelatedThreadID      *string `json:"related_thread_id" db:"related_thread_id"`
+	RelatedPostID        *string `json:"related_post_id" db:"related_post_id"`
+	RelatedUserID        *string `json:"related_user_id" db:"related_user_id"`
+	RelatedWallPostID    *string `json:"related_wall_post_id" db:"related_wall_post_id"`
+	RelatedWallCommentID *string `json:"related_wall_comment_id" db:"related_wall_comment_id"`
+	RelatedWallUserID    *string `json:"related_wall_user_id" db:"related_wall_user_id"`
+	RelatedWallPostIDs   JSONB   `json:"related_wall_post_ids" db:"related_wall_post_ids"`
+	// Human-readable numbers resolved at read time (see NotificationsHandler):
+	// the client builds /profile/<n> and /thread/<n> links from these instead of
+	// the UUIDs above. Nil when the target row no longer exists.
+	RelatedUserPublicID     *int64          `json:"related_user_public_id,omitempty"`
+	RelatedThreadPublicID   *int64          `json:"related_thread_public_id,omitempty"`
+	RelatedWallPostPublicID *int64          `json:"related_wall_post_public_id,omitempty"`
+	RelatedWallUserPublicID *int64          `json:"related_wall_user_public_id,omitempty"`
+	IsRead                  bool            `json:"is_read" db:"is_read"`
+	GroupCount              int             `json:"group_count" db:"group_count"`
+	Params                  json.RawMessage `json:"params,omitempty" db:"params"`
+	CreatedAt               *time.Time      `json:"created_at" db:"created_at"`
 }
 
 // NotificationParams carries the structured, language-neutral data the frontend
@@ -352,7 +388,11 @@ type PollRequest struct {
 }
 
 type CreateThreadRequest struct {
-	BoardID           string          `json:"board_id"`
+	BoardID string `json:"board_id"`
+	// Global topics carry a section (and, optionally, a subsection) instead of
+	// a board. At least one of board_id / section_id is required.
+	SectionID         string          `json:"section_id,omitempty"`
+	SubsectionID      *string         `json:"subsection_id,omitempty"`
 	ChannelID         *string         `json:"channel_id,omitempty"`
 	Title             string          `json:"title"`
 	Content           string          `json:"content"`
@@ -570,6 +610,7 @@ type FriendRequestResponse struct {
 	Status                string  `json:"status"`
 	CreatedAt             string  `json:"created_at"`
 	SenderID              string  `json:"sender_id"`
+	SenderPublicID        *int64  `json:"sender_public_id,omitempty"`
 	SenderUsername        string  `json:"sender_username"`
 	SenderAvatarURL       *string `json:"sender_avatar_url"`
 	SenderDisplayName     *string `json:"sender_display_name"`
@@ -579,6 +620,7 @@ type FriendRequestResponse struct {
 type FriendResponse struct {
 	FriendshipID    string  `json:"friendship_id"`
 	UserID          string  `json:"user_id"`
+	PublicID        *int64  `json:"public_id,omitempty"`
 	Username        string  `json:"username"`
 	DisplayName     *string `json:"display_name"`
 	NicknameEmojiID *string `json:"nickname_emoji_id"`
@@ -589,6 +631,35 @@ type FriendResponse struct {
 // SendFriendRequest — request body for sending a friend request
 type SendFriendRequest struct {
 	ReceiverID string `json:"receiver_id" binding:"required"`
+}
+
+// Subscription — a one-directional follow relationship: subscriber_id follows
+// target_id. A mutual pair materializes a row in `friendships`.
+type Subscription struct {
+	ID           string    `json:"id" db:"id"`
+	SubscriberID string    `json:"subscriber_id" db:"subscriber_id"`
+	TargetID     string    `json:"target_id" db:"target_id"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+}
+
+// SubscriptionUser — a user in a subscriber/subscription list. IsFriend marks a
+// mutual pair (i.e. an actual friend) so the UI can badge shared rows without a
+// second request.
+type SubscriptionUser struct {
+	UserID          string  `json:"user_id"`
+	PublicID        *int64  `json:"public_id,omitempty"`
+	Username        string  `json:"username"`
+	DisplayName     *string `json:"display_name"`
+	NicknameEmojiID *string `json:"nickname_emoji_id"`
+	AvatarURL       *string `json:"avatar_url"`
+	IsOnline        bool    `json:"is_online"`
+	IsFriend        bool    `json:"is_friend"`
+	SubscribedAt    string  `json:"subscribed_at"`
+}
+
+// SubscribeRequest — request body for subscribing to a user.
+type SubscribeRequest struct {
+	UserID string `json:"user_id" binding:"required"`
 }
 
 // GiftLayer — a visual layer (gift image, background, or symbol) for upgradable gifts

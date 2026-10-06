@@ -113,6 +113,10 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       });
     } catch {
       // Silent
+    } finally {
+      // Cleared even on failure so a page waiting on the first page never keeps
+      // showing a skeleton.
+      set({ isLoading: false });
     }
   },
 
@@ -144,7 +148,9 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   },
 
   resetAndFetch: async (isRead?: string) => {
-    set({ notifications: [], offset: 0, hasMore: true, activeFilter: isRead });
+    // `isLoading` so a page that just cleared the list shows a skeleton rather
+    // than flashing «нет уведомлений» until the first page lands.
+    set({ notifications: [], offset: 0, hasMore: true, activeFilter: isRead, isLoading: true });
     await get().fetchInitial(isRead);
   },
 

@@ -260,15 +260,17 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 	// Stats should be updated only when actual changes occur (new post, like, etc.)
 
 	// Get user from database
+	// public_id is part of the payload so the client can link its own profile
+	// with the human-readable number (/profile/42) instead of the UUID.
 	query := `
-		SELECT id, username, display_name, email, domain, avatar_url, bio, garma, post_count, thread_count, created_at, is_remote
+		SELECT id, public_id, username, display_name, email, domain, avatar_url, bio, garma, post_count, thread_count, created_at, is_remote
 		FROM users
 		WHERE id = $1
 	`
 
 	var user models.User
 	err := h.db.QueryRow(query, userClaims.UserID).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain,
+		&user.ID, &user.PublicID, &user.Username, &user.DisplayName, &user.Email, &user.Domain,
 		&user.AvatarURL, &user.Bio, &user.Garma, &user.PostCount, &user.ThreadCount,
 		&user.CreatedAt, &user.IsRemote,
 	)

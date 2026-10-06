@@ -1,0 +1,549 @@
+[
+  {
+    "kind": "Dashboard",
+    "metadata": {
+      "name": "product",
+      "project": "gomo6"
+    },
+    "spec": {
+      "display": {
+        "name": "gomo6 · Продукт"
+      },
+      "duration": "24h",
+      "panels": {
+        "0_0": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Пользователей всего",
+              "description": "Аккаунты без ботов (из базы, кэш 5 мин)"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#33d17a",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_users_total"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "1_1": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Тредов всего",
+              "description": "Создано тем на форуме"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#3584e4",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_threads_total"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "2_2": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Постов всего",
+              "description": "Сообщений внутри тредов"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#3584e4",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_posts_total"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "3_3": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Записей на стене всего",
+              "description": "Постов на стенах профилей"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#9141ac",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_wall_posts_total"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "4_4": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Онлайн сейчас",
+              "description": "Живые WebSocket-соединения"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#ff7800",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_users_online"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "5_5": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Активны сегодня",
+              "description": "Заходили сегодня (кэш 5 мин)"
+            },
+            "plugin": {
+              "kind": "StatChart",
+              "spec": {
+                "calculation": "last-number",
+                "colorMode": "value",
+                "sparkline": {
+                  "color": "#ff7800",
+                  "width": 1
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "app_users_active_today"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "6_6": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "События в минуту",
+              "description": "Регистрации, треды, посты, записи на стене. Приватные сообщения не измеряются."
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_registrations_total[15m]) * 60"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_threads_created_total[15m]) * 60"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_posts_created_total[15m]) * 60"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "rate(app_wall_posts_created_total[15m]) * 60"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "7_7": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Создано контента за час",
+              "description": "Насколько сообщество живо прямо сейчас"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "max"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "increase(app_threads_created_total[1h])"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "increase(app_posts_created_total[1h])"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "increase(app_wall_posts_created_total[1h])"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "8_8": {
+          "kind": "Panel",
+          "spec": {
+            "display": {
+              "name": "Realtime: рассылки в минуту и средняя длительность, с",
+              "description": "Транспортный уровень (без содержимого): сколько событий рассылается и как быстро"
+            },
+            "plugin": {
+              "kind": "TimeSeriesChart",
+              "spec": {
+                "legend": {
+                  "position": "bottom",
+                  "mode": "table",
+                  "values": [
+                    "last-number",
+                    "mean"
+                  ]
+                }
+              }
+            },
+            "queries": [
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(rate(messenger_ws_broadcasts_total[5m]) * 60, \"series\", \"рассылок/мин\", \"\", \"\")"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "TimeSeriesQuery",
+                "spec": {
+                  "plugin": {
+                    "kind": "PrometheusTimeSeriesQuery",
+                    "spec": {
+                      "datasource": {
+                        "kind": "PrometheusDatasource",
+                        "name": "victoriametrics"
+                      },
+                      "query": "label_replace(messenger_ws_broadcast_duration_seconds, \"series\", \"длительность, с\", \"\", \"\")"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "layouts": [
+        {
+          "kind": "Grid",
+          "spec": {
+            "display": {
+              "title": "Продукт"
+            },
+            "items": [
+              {
+                "x": 0,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/0_0"
+                }
+              },
+              {
+                "x": 6,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/1_1"
+                }
+              },
+              {
+                "x": 12,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/2_2"
+                }
+              },
+              {
+                "x": 18,
+                "y": 0,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/3_3"
+                }
+              },
+              {
+                "x": 0,
+                "y": 6,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/4_4"
+                }
+              },
+              {
+                "x": 6,
+                "y": 6,
+                "width": 6,
+                "height": 6,
+                "content": {
+                  "$ref": "#/spec/panels/5_5"
+                }
+              },
+              {
+                "x": 12,
+                "y": 6,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/6_6"
+                }
+              },
+              {
+                "x": 0,
+                "y": 14,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/7_7"
+                }
+              },
+              {
+                "x": 12,
+                "y": 14,
+                "width": 12,
+                "height": 8,
+                "content": {
+                  "$ref": "#/spec/panels/8_8"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "links": [
+        {
+          "name": "Обзор (RED)",
+          "url": "http://localhost:9080/projects/gomo6/dashboards/overview"
+        },
+        {
+          "name": "vmui",
+          "url": "http://localhost:9428/vmui"
+        }
+      ]
+    }
+  }
+]

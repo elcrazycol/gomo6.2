@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { toast } from "sonner";
 
 import { PostActionsMenu } from "./PostActionsMenu";
-import { resetReportedPosts } from "./moderation/reportState";
+import { resetReportedTargets } from "./moderation/reportState";
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -18,47 +18,44 @@ vi.mock("@/integrations/api/client", () => ({
 describe("PostActionsMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetReportedPosts();
+    resetReportedTargets();
   });
 
   it("renders the three-dots trigger", () => {
-    render(<PostActionsMenu postId="post-1" />);
-    expect(screen.getByTitle("Меню поста")).toBeInTheDocument();
+    render(<PostActionsMenu targetType="wall_post" targetId="post-1" />);
+    expect(screen.getByTitle("Меню")).toBeInTheDocument();
   });
 
-  it("shows the report item and opens the report dialog when a postId is given", async () => {
-    render(<PostActionsMenu postId="post-1" />);
-    await userEvent.click(screen.getByTitle("Меню поста"));
-    await waitFor(() => {
-      expect(screen.getByTitle("Пожаловаться")).toBeInTheDocument();
-    });
-    await userEvent.click(screen.getByTitle("Пожаловаться"));
-    await waitFor(() => {
-      expect(screen.getByText("Пожаловаться на запись")).toBeInTheDocument();
-    });
+  it("shows the report item and opens the report dialog for a target", async () => {
+    render(<PostActionsMenu targetType="wall_post" targetId="post-1" />);
+    await userEvent.click(screen.getByTitle("Меню"));
+    await userEvent.click(await screen.findByTitle("Пожаловаться"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Пожаловаться")).toBeInTheDocument();
   });
 
   it("renders caller-provided items above the report item", async () => {
     render(
-      <PostActionsMenu postId="post-1">
+      <PostActionsMenu targetType="wall_post" targetId="post-1">
         <button type="button" title="Редактировать">
           Edit
         </button>
       </PostActionsMenu>,
     );
-    await userEvent.click(screen.getByTitle("Меню поста"));
+    await userEvent.click(screen.getByTitle("Меню"));
     await waitFor(() => {
       expect(screen.getByTitle("Редактировать")).toBeInTheDocument();
       expect(screen.getByTitle("Пожаловаться")).toBeInTheDocument();
     });
   });
 
-  it("renders no trigger when there is nothing to show (no postId and no items)", () => {
+  it("renders no trigger when there is nothing to show", () => {
     render(<PostActionsMenu />);
-    expect(screen.queryByTitle("Меню поста")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Меню")).not.toBeInTheDocument();
   });
 
-  it("does not render a report item without a postId (caller-provided items only)", async () => {
+  it("does not render a report item without a target", async () => {
     render(
       <PostActionsMenu>
         <button type="button" title="Редактировать">
@@ -66,23 +63,44 @@ describe("PostActionsMenu", () => {
         </button>
       </PostActionsMenu>,
     );
-    await userEvent.click(screen.getByTitle("Меню поста"));
+    await userEvent.click(screen.getByTitle("Меню"));
     await waitFor(() => {
       expect(screen.getByTitle("Редактировать")).toBeInTheDocument();
     });
     expect(screen.queryByTitle("Пожаловаться")).not.toBeInTheDocument();
+  });
+
+  it("uses the caller's report label and dialog title suffix", async () => {
+    render(
+      <PostActionsMenu
+        targetType="user"
+        targetId="u-1"
+        reportLabel="Пожаловаться на пользователя"
+        reportTargetLabel="на пользователя"
+      />,
+    );
+    await userEvent.click(screen.getByTitle("Меню"));
+    await userEvent.click(await screen.findByTitle("Пожаловаться на пользователя"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Пожаловаться на пользователя")).toBeInTheDocument();
   });
 });
 
 describe("ReportDialog (via menu)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetReportedTargets();
   });
 
-  it("keeps the submit button disabled until the reason is long enough", async () => {
-    render(<PostActionsMenu postId="post-1" />);
-    await userEvent.click(screen.getByTitle("Меню поста"));
+  const openDialog = async (targetId: string) => {
+    render(<PostActionsMenu targetType="wall_post" targetId={targetId} />);
+    await userEvent.click(screen.getByTitle("Меню"));
     await userEvent.click(await screen.findByTitle("Пожаловаться"));
+  };
+
+  it("keeps the submit button disabled until the reason is long enough", async () => {
+    await openDialog("post-1");
 
     const submit = await screen.findByRole("button", { name: "Отправить жалобу" });
     expect(submit).toBeDisabled();
@@ -95,11 +113,9 @@ describe("ReportDialog (via menu)", () => {
     expect(submit).toBeEnabled();
   });
 
-  it("submits the report with category and reason", async () => {
+  it("submits the report with the polymorphic target, category and reason", async () => {
     mockRawRequest.mockResolvedValue({ success: true, data: {} });
-    render(<PostActionsMenu postId="post-submit" />);
-    await userEvent.click(screen.getByTitle("Меню поста"));
-    await userEvent.click(await screen.findByTitle("Пожаловаться"));
+    await openDialog("post-submit");
 
     await userEvent.click(screen.getByRole("button", { name: "Мошенничество" }));
     await userEvent.type(
@@ -114,7 +130,8 @@ describe("ReportDialog (via menu)", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            post_id: "post-submit",
+            target_type: "wall_post",
+            target_id: "post-submit",
             category: "fraud",
             reason: "Этот пост выглядит как мошенническая схема с вкладами",
           }),
@@ -124,11 +141,9 @@ describe("ReportDialog (via menu)", () => {
     });
   });
 
-  it("shows a friendly toast when the user already reported this post", async () => {
+  it("shows a friendly toast when the target was already reported", async () => {
     mockRawRequest.mockRejectedValue({ code: "report_already_exists" });
-    render(<PostActionsMenu postId="post-dup" />);
-    await userEvent.click(screen.getByTitle("Меню поста"));
-    await userEvent.click(await screen.findByTitle("Пожаловаться"));
+    await openDialog("post-dup");
 
     await userEvent.type(
       screen.getByPlaceholderText("Опишите проблему подробнее…"),
@@ -137,15 +152,13 @@ describe("ReportDialog (via menu)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Отправить жалобу" }));
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Вы уже пожаловались на эту запись");
+      expect(toast.error).toHaveBeenCalledWith("Вы уже пожаловались на это");
     });
   });
 
-  it("blocks a second report in the same session (menu shows the already-reported state)", async () => {
+  it("blocks a second report in the same session", async () => {
     mockRawRequest.mockResolvedValue({ success: true, data: {} });
-    render(<PostActionsMenu postId="post-session" />);
-    await userEvent.click(screen.getByTitle("Меню поста"));
-    await userEvent.click(await screen.findByTitle("Пожаловаться"));
+    await openDialog("post-session");
 
     await userEvent.type(
       screen.getByPlaceholderText("Опишите проблему подробнее…"),
@@ -156,11 +169,11 @@ describe("ReportDialog (via menu)", () => {
       expect(toast.success).toHaveBeenCalledWith("Жалоба отправлена. Спасибо!");
     });
 
-    // Reopen the menu — the report item must be gone, replaced by the disabled state.
-    await userEvent.click(screen.getByTitle("Меню поста"));
+    // Reopen the menu — the report item is replaced by the disabled state.
+    await userEvent.click(screen.getByTitle("Меню"));
     await waitFor(() => {
       expect(screen.queryByTitle("Пожаловаться")).not.toBeInTheDocument();
-      expect(screen.getByTitle("Вы уже пожаловались на эту запись")).toBeInTheDocument();
+      expect(screen.getByTitle("Вы уже пожаловались")).toBeInTheDocument();
     });
   });
 });

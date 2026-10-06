@@ -1,14 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { formatDistanceToNow } from "date-fns";
-import { useDateLocale } from "@/i18n/dateLocale";
 import { Heart, MessageCircle, Repeat2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/integrations/api/compat";
-import { Card, CardContent } from "@/components/ui/card";
-import { UserBadge } from "@/components/UserBadge";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { MediaAttachmentsProvider } from "@/components/editor/media/mediaViewContext";
@@ -16,9 +12,14 @@ import { docHasMediaNodes, getDocCover } from "@/components/editor/media/mediaSc
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import { ActionButton } from "@/components/WallActionButton";
 import { ShareSheet } from "@/components/share/ShareSheet";
-import { PostViewCount } from "@/components/PostViewCount";
+import { FavoriteButton } from "@/components/FavoriteButton";
+import {
+  PostCardShell,
+  PostCardHeader,
+  PostCardActions,
+  PostSourceChip,
+} from "@/components/post/PostCardChrome";
 
-import { safeDate } from "@/utils/safeDate";
 import { pauseAllInlineMedia } from "@/utils/mediaPlayback";
 import { needsPostTeaser } from "@/utils/postTeaser";
 import { PostTeaser } from "@/components/wall/PostTeaser";
@@ -28,7 +29,6 @@ import {
   type WallPost,
   normalizeAttachments,
   getWallPostPath,
-  isInteractiveTarget,
 } from "@/utils/wallNormalizers";
 import type { LightboxItem } from "@/components/Lightbox";
 
@@ -53,7 +53,6 @@ export const FeedWallPostCard = ({
   currentUserColor,
   onImageClick,
 }: FeedWallPostCardProps) => {
-  const dateLocale = useDateLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
@@ -63,7 +62,7 @@ export const FeedWallPostCard = ({
   const hasContent = Boolean(post.content?.trim()) || hasMediaNodes;
   // Reports the post as viewed once the card becomes visible in the viewport.
   const viewTrackingRef = usePostViewTracking(post.id);
-  const postPath = getWallPostPath(post.user_id, post.id);
+  const postPath = getWallPostPath({ id: post.user_id, public_id: post.user_public_id }, post);
   const coverId = useMemo(() => getDocCover(post.content_json), [post.content_json]);
   const hiddenMediaIds = useMemo(
     () => (coverId && !coverId.placements.includes("inline") ? new Set([coverId.id]) : undefined),
@@ -119,125 +118,99 @@ export const FeedWallPostCard = ({
 
   return (
     <>
-    <Card
+    <PostCardShell
       ref={viewTrackingRef}
-      className="overflow-clip border-border/70 shadow-none bg-background"
-      onClick={(e) => {
-        if (!isInteractiveTarget(e.target, e.currentTarget)) {
-          handleOpenPost();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleOpenPost();
-        }
-      }}
+      onOpen={handleOpenPost}
+      cornerAction={currentUserId ? <FavoriteButton itemType="wall_post" itemId={post.id} /> : undefined}
     >
-      <CardContent className="space-y-4 p-3 sm:p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <UserBadge
-                  userId={post.author_id}
-                  username={post.author.username}
-                  displayName={post.author.display_name}
-                  emojiId={post.author.nickname_emoji_id}
-                  isAnonymous={post.author.is_anonymous}
-                  disableLink={false}
-                  stopPropagationOnClick
-                />
-                <span className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(safeDate(post.created_at), {
-                    locale: dateLocale,
-                    addSuffix: true,
-                  })}
-                </span>
-                <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
-                  Запись со стены
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+      <PostCardHeader
+        userPublicId={post.author.public_id}
+        userId={post.author_id}
+        username={post.author.username}
+        displayName={post.author.display_name}
+        emojiId={post.author.nickname_emoji_id}
+        isAnonymous={post.author.is_anonymous}
+        avatarUrl={post.author.avatar_url}
+        createdAt={post.created_at}
+        chips={<PostSourceChip label="Стена" />}
+      />
 
-        <MediaAttachmentsProvider
-          value={{
-            attachments,
-            inlineMedia,
-            galleryKey: `feed-${post.id}`,
-            hiddenMediaIds,
-            onImageClick,
-          }}
-        >
-        {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
-        {teaserMode ? (
-          <PostTeaser contentJson={post.content_json} onOpenPost={handleOpenPost} />
-        ) : (
-          <>
-            {hasContent && (
-              <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-                <ProcessedContent
-                  content={(post.content as string) || ""}
-                  contentJson={post.content_json}
-                  currentUserId={currentUserId}
-                  isAdmin={false}
-                  currentUsername={currentUsername}
-                  currentUserColor={currentUserColor}
-                  postAuthorId={post.author_id}
-                  authorUsername={post.author.username}
-                  showHiddenIndicators={false}
-                />
-              </div>
-            )}
-
-            {attachments.length > 0 && !inlineMedia && (
-              <WallAttachments
-                attachments={attachments}
-                galleryKey={`feed-${post.id}`}
-                onImageClick={onImageClick}
+      <MediaAttachmentsProvider
+        value={{
+          attachments,
+          inlineMedia,
+          galleryKey: `feed-${post.id}`,
+          hiddenMediaIds,
+          onImageClick,
+        }}
+      >
+      {coverId?.placements.includes("top") && <PostCover attachmentId={coverId.id} />}
+      {teaserMode ? (
+        <PostTeaser contentJson={post.content_json} onOpenPost={handleOpenPost} />
+      ) : (
+        <>
+          {hasContent && (
+            <div className="break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+              <ProcessedContent
+                content={(post.content as string) || ""}
+                contentJson={post.content_json}
+                currentUserId={currentUserId}
+                isAdmin={false}
+                currentUsername={currentUsername}
+                currentUserColor={currentUserColor}
+                postAuthorId={post.author_id}
+                postAuthorPublicId={post.author.public_id}
+                authorUsername={post.author.username}
+                showHiddenIndicators={false}
               />
-            )}
-          </>
-        )}
-        </MediaAttachmentsProvider>
+            </div>
+          )}
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
-          <ActionButton
-            icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />}
-            label="Нравится"
-            count={likesCount}
-            active={isLiked}
-            disabled={!currentUserId}
-            loading={isLiking}
-            onClick={handleLikeToggle}
-          />
-          <ActionButton
-            icon={<MessageCircle className="h-4 w-4" />}
-            label="Комментарии"
-            count={post.comments_count ?? 0}
-            onClick={handleOpenPost}
-          />
-          <ActionButton
-            icon={<Repeat2 className="h-4 w-4" />}
-            label="Репосты"
-            count={post.reposts_count ?? 0}
-            onClick={handleOpenPost}
-          />
-          <ActionButton
-            icon={<Share2 className="h-4 w-4" />}
-            label={t("share.title")}
-            showLabel={false}
-            disabled={!currentUserId}
-            onClick={() => setShareOpen(true)}
-          />
-          <PostViewCount count={post.views_count ?? 0} />
-        </div>
-      </CardContent>
-    </Card>
+          {attachments.length > 0 && !inlineMedia && (
+            <WallAttachments
+              attachments={attachments}
+              galleryKey={`feed-${post.id}`}
+              onImageClick={onImageClick}
+            />
+          )}
+        </>
+      )}
+      </MediaAttachmentsProvider>
+
+      <PostCardActions>
+        <ActionButton
+          minimal
+          icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />}
+          label="Нравится"
+          count={likesCount}
+          active={isLiked}
+          disabled={!currentUserId}
+          loading={isLiking}
+          onClick={handleLikeToggle}
+        />
+        <ActionButton
+          minimal
+          icon={<MessageCircle className="h-4 w-4" />}
+          label="Комментарии"
+          count={post.comments_count ?? 0}
+          onClick={handleOpenPost}
+        />
+        <ActionButton
+          minimal
+          icon={<Repeat2 className="h-4 w-4" />}
+          label="Репосты"
+          count={post.reposts_count ?? 0}
+          onClick={handleOpenPost}
+        />
+        <ActionButton
+          minimal
+          icon={<Share2 className="h-4 w-4" />}
+          label={t("share.title")}
+          disabled={!currentUserId}
+          onClick={() => setShareOpen(true)}
+        />
+      </PostCardActions>
+    </PostCardShell>
     {/* Rendered outside the Card so clicks inside the sheet can never bubble
         into the card's navigate-on-click handler. */}
     <ShareSheet

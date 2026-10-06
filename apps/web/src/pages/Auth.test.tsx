@@ -121,7 +121,7 @@ describe("Auth Page", () => {
     expect(screen.getByLabelText("Юзернейм")).toBeInTheDocument();
     expect(screen.getByLabelText("Пароль")).toBeInTheDocument();
     // Terms checkbox should NOT be visible in login mode
-    expect(screen.queryByText(/пользовательским соглашением/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/условия использования/)).not.toBeInTheDocument();
   });
 
   it("switches to register form and shows terms checkbox", async () => {
@@ -131,7 +131,7 @@ describe("Auth Page", () => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    const toggleBtn = screen.getByText("Нет аккаунта? Регистрация");
+    const toggleBtn = screen.getByRole("button", { name: "Регистрация" });
     await userEvent.click(toggleBtn);
 
     await waitFor(() => {
@@ -139,7 +139,7 @@ describe("Auth Page", () => {
     });
     expect(screen.getByText("Зарегистрироваться")).toBeInTheDocument();
     // Terms checkbox should now be visible
-    expect(screen.getByText(/пользовательским соглашением GOMO6/)).toBeInTheDocument();
+    expect(screen.getByText(/условия использования/)).toBeInTheDocument();
   });
 
   it("can switch back to login from register", async () => {
@@ -150,13 +150,13 @@ describe("Auth Page", () => {
     });
 
     // Switch to register
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
     await waitFor(() => {
       expect(screen.getByText("Регистрация")).toBeInTheDocument();
     });
 
     // Switch back to login
-    await userEvent.click(screen.getByText("Уже есть аккаунт? Вход"));
+    await userEvent.click(screen.getByRole("button", { name: "Вход" }));
     expect(screen.getByText("Вход")).toBeInTheDocument();
   });
 
@@ -272,7 +272,7 @@ describe("Auth Page", () => {
     });
 
     // Switch to register
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
     await waitFor(() => {
       expect(screen.getByText("Регистрация")).toBeInTheDocument();
@@ -310,14 +310,14 @@ describe("Auth Page", () => {
     });
 
     // Switch to register
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
     // Fill form
     await userEvent.type(screen.getByLabelText("Юзернейм"), "newuser");
     await userEvent.type(screen.getByLabelText("Пароль"), "secret123");
 
     // Agree to terms
-    const termsCheckbox = screen.getByRole("checkbox", { name: /Вы согласны/ });
+    const termsCheckbox = screen.getByRole("checkbox", { name: /Я принимаю/ });
     await userEvent.click(termsCheckbox);
 
     // Submit
@@ -353,10 +353,10 @@ describe("Auth Page", () => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
     await userEvent.type(screen.getByLabelText("Юзернейм"), "existing");
     await userEvent.type(screen.getByLabelText("Пароль"), "secret123");
-    await userEvent.click(screen.getByRole("checkbox", { name: /Вы согласны/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /Я принимаю/ }));
     await userEvent.click(screen.getByText("Зарегистрироваться"));
 
     await waitFor(() => {
@@ -386,11 +386,9 @@ describe("Auth Page", () => {
     await userEvent.click(screen.getByText("Войти"));
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Двухфакторная аутентификация"),
-      ).toBeInTheDocument();
       expect(screen.getByText("Подтверждение входа")).toBeInTheDocument();
     });
+    expect(screen.getByLabelText("Код из аутентификатора")).toBeInTheDocument();
   });
 
   it("submits 2FA code and navigates to / on success", async () => {
@@ -510,70 +508,43 @@ describe("Auth Page", () => {
     expect(screen.getByText("Войти")).toBeInTheDocument();
   });
 
-  // ─── Terms of Service dialog ────────────────────────────────────────────────
+  // ─── Legal documents ────────────────────────────────────────────────────────
 
-  it("opens TermsOfService dialog and accepts terms", async () => {
+  it("links the registration consent to the legal documents", async () => {
     renderComponent();
 
     await waitFor(() => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    // Switch to register
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
-    // Click terms link
-    await userEvent.click(screen.getByText("пользовательским соглашением GOMO6"));
-
-    // Dialog should open
-    await waitFor(() => {
-      expect(
-        screen.getByText("Пользовательское соглашение GOMO6"),
-      ).toBeInTheDocument();
-    });
-
-    // Accept terms
-    await userEvent.click(screen.getByText("Согласен"));
-
-    // Dialog should close and checkbox should be checked
-    await waitFor(() => {
-      expect(
-        screen.queryByText("Пользовательское соглашение GOMO6"),
-      ).not.toBeInTheDocument();
-    });
-
-    // Submit button should be enabled now
-    expect(screen.getByText("Зарегистрироваться")).not.toBeDisabled();
+    expect(screen.getByRole("link", { name: "условия использования" })).toHaveAttribute(
+      "href",
+      "/legal/terms",
+    );
+    expect(screen.getByRole("link", { name: "политику конфиденциальности" })).toHaveAttribute(
+      "href",
+      "/legal/privacy",
+    );
   });
 
-  it("declines terms and closes TermsOfService dialog", async () => {
+  it("keeps registration disabled until the consent checkbox is ticked", async () => {
     renderComponent();
 
     await waitFor(() => {
       expect(screen.getByText("Вход")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Нет аккаунта? Регистрация"));
-    await userEvent.click(screen.getByText("пользовательским соглашением GOMO6"));
+    await userEvent.click(screen.getByRole("button", { name: "Регистрация" }));
 
-    await waitFor(() => {
-      expect(
-        screen.getByText("Пользовательское соглашение GOMO6"),
-      ).toBeInTheDocument();
-    });
-
-    // Decline
-    await userEvent.click(screen.getByText("Покинуть сайт"));
-
-    // Dialog should close
-    await waitFor(() => {
-      expect(
-        screen.queryByText("Пользовательское соглашение GOMO6"),
-      ).not.toBeInTheDocument();
-    });
-
-    // Checkbox should NOT be checked (declined)
     expect(screen.getByText("Зарегистрироваться")).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("checkbox"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Зарегистрироваться")).not.toBeDisabled();
+    });
   });
 
   // ─── Submit button states ───────────────────────────────────────────────────

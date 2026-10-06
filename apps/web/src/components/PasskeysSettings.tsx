@@ -19,7 +19,12 @@ interface PasskeyInfo {
   last_used_at?: string;
 }
 
-export function PasskeysSettings() {
+interface PasskeysSettingsProps {
+  /** Hide the component's own title/description when the section provides them. */
+  withHeader?: boolean;
+}
+
+export function PasskeysSettings({ withHeader = true }: PasskeysSettingsProps = {}) {
   const { t } = useTranslation();
   const [passkeys, setPasskeys] = useState<PasskeyInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,29 +107,42 @@ export function PasskeysSettings() {
     }
   };
 
+  const addButton = (
+    <Button
+      onClick={handleAddPasskey}
+      disabled={adding || !supportsWebAuthn()}
+      variant="outline"
+      size="sm"
+      className="gap-1"
+    >
+      <Plus className="h-4 w-4" />
+      {adding ? t("settings.passkeyAdding") : t("settings.addPasskey")}
+    </Button>
+  );
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5" />
-          <div>
-            <h3 className="text-lg font-semibold">Passkeys</h3>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.passkeysDescription")}
-            </p>
+      {withHeader ? (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            <div>
+              <h3 className="text-lg font-semibold">Passkeys</h3>
+              <p className="text-sm text-muted-foreground">
+                {t("settings.passkeysDescription")}
+              </p>
+            </div>
           </div>
+          {addButton}
         </div>
-        <Button
-          onClick={handleAddPasskey}
-          disabled={adding || !supportsWebAuthn()}
-          variant="outline"
-          size="sm"
-          className="gap-1"
-        >
-          <Plus className="h-4 w-4" />
-          {adding ? t("settings.passkeyAdding") : t("settings.addPasskey")}
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {passkeys.length > 0 ? t("settings2.passkeysCount", { count: passkeys.length }) : ""}
+          </p>
+          {addButton}
+        </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>

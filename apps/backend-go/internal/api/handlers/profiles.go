@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,18 +17,32 @@ import (
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	profilepkg "github.com/gomo6/backend/internal/profiles"
+	"github.com/gomo6/backend/internal/publicid"
+	"github.com/gomo6/backend/internal/search"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type ProfilesHandler struct {
-	db        *sql.DB
-	redis     *redis.Client
-	achEngine *achievements.Engine
+	db            *sql.DB
+	redis         *redis.Client
+	achEngine     *achievements.Engine
+	hub           *websocket.Hub
+	searchIndexer *search.Indexer
 }
 
 func NewProfilesHandler(db *sql.DB) *ProfilesHandler {
 	return &ProfilesHandler{db: db}
+}
+
+// SetSearchIndexer injects the best-effort search indexer (nil disables sync).
+func (h *ProfilesHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = idx }
+
+// SetHub wires the realtime hub so profile edits can be broadcast to every
+// connected client (see PublishProfileUpdated).
+func (h *ProfilesHandler) SetHub(hub *websocket.Hub) {
+	h.hub = hub
 }
 
 func (h *ProfilesHandler) SetAchievementEngine(e *achievements.Engine) {
@@ -138,7 +153,7 @@ func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID st
 // @Router       /profiles [get]
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
-		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
+		SELECT u.id, u.public_id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
 		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,
 		       COALESCE(pc.background_url, '') AS background_url,
@@ -177,6 +192,37 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		}
 	}
 
+	// Handle public_id filter (eq.42 or in.(42,43)) — the human-readable number.
+	// An unparseable value is a 404, not a 500: numbers are user-visible, so
+	// typos must not reach PostgreSQL as a bigint cast error.
+	if pid := c.Query("public_id"); pid != "" {
+		if strings.HasPrefix(pid, "in.(") && strings.HasSuffix(pid, ")") {
+			raw := strings.TrimSuffix(strings.TrimPrefix(pid, "in.("), ")")
+			ids := strings.Split(raw, ",")
+			placeholders := make([]string, 0, len(ids))
+			for _, candidate := range ids {
+				n, ok := publicid.Parse(strings.TrimSpace(candidate))
+				if !ok {
+					c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
+					return
+				}
+				placeholders = append(placeholders, "$"+strconv.Itoa(len(args)+1))
+				args = append(args, n)
+			}
+			if len(placeholders) > 0 {
+				conditions = append(conditions, "u.public_id IN ("+strings.Join(placeholders, ",")+")")
+			}
+		} else {
+			n, ok := publicid.Parse(strings.TrimPrefix(pid, "eq."))
+			if !ok {
+				c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
+				return
+			}
+			conditions = append(conditions, "u.public_id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, n)
+		}
+	}
+
 	// Handle username filter
 	if username := c.Query("username"); username != "" {
 		username = strings.TrimPrefix(username, "eq.")
@@ -195,20 +241,6 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		query += " WHERE " + conditions[0]
 		for i := 1; i < len(conditions); i++ {
 			query += " AND " + conditions[i]
-		}
-	}
-
-	if idq := c.Query("id"); idq != "" {
-		singleID := ""
-		if strings.HasPrefix(idq, "eq.") {
-			singleID = strings.TrimPrefix(idq, "eq.")
-		} else if !strings.HasPrefix(idq, "in.(") {
-			singleID = idq
-		}
-		if singleID != "" {
-			if _, err := uuid.Parse(singleID); err == nil {
-				profilepkg.RecomputeUserProfileStats(h.db, singleID)
-			}
 		}
 	}
 
@@ -248,7 +280,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		var backgroundURL sql.NullString
 		var themeTokensJSON sql.NullString
 		err := rows.Scan(
-			&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
+			&profile.ID, &profile.PublicID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 			&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 			&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 			&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
@@ -290,68 +322,75 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		profiles = append(profiles, profile)
 	}
 
-	// Private profile: strip sensitive fields for non-friends
+	// Private profile: strip sensitive fields for non-friends.
+	//
+	// The visibility of the whole page is resolved with one privacy_settings
+	// read (+ at most one friendships read) instead of the two per-row queries
+	// this loop used to issue — that per-row GetSettings/IsMutualFriend pair was
+	// an N+1 costing up to 200 round trips for a 100-profile page and dominated
+	// the endpoint's p95 on cache misses. Fail closed: if the visibility load
+	// itself fails, nothing may be served unfiltered.
 	var viewerID string
 	if claims, exists := c.Get("claims"); exists {
 		if uc, ok := claims.(*auth.Claims); ok {
 			viewerID = uc.UserID
 		}
 	}
+	targetIDs := make([]string, len(profiles))
 	for i := range profiles {
+		targetIDs[i] = profiles[i].ID
+	}
+	visibility, err := privacy.ResolveProfileVisibilityBatch(h.db, viewerID, targetIDs)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+
+	for i := range profiles {
+		p := &profiles[i]
 		// Email is private PII — only the profile owner may ever see it.
 		// Public profiles must not leak it to anonymous visitors or other users.
-		if viewerID != profiles[i].ID {
-			profiles[i].Email = nil
+		if viewerID != p.ID {
+			p.Email = nil
 		}
-		shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, profiles[i].ID)
-		if err != nil {
-			continue
-		}
-		if shouldFilter {
-			if ps.PrivateHideAvatar {
-				profiles[i].AvatarURL = nil
-				profiles[i].BackgroundURL = nil
+		vis := visibility[p.ID]
+		if vis.Filter {
+			if vis.HideAvatar {
+				p.AvatarURL = nil
+				p.BackgroundURL = nil
 			}
-			profiles[i].Bio = nil
-			profiles[i].BioJSON = nil
-			profiles[i].Garma = nil
-			profiles[i].PostCount = nil
-			profiles[i].ThreadCount = nil
-			profiles[i].WallPostCount = nil
-			profiles[i].CommentCount = nil
-			profiles[i].LikesReceivedCount = nil
-			profiles[i].LikesGivenCount = nil
-			profiles[i].ViewsReceivedCount = nil
-			profiles[i].IsOnline = false
-			profiles[i].LastSeen = nil
+			p.Bio = nil
+			p.BioJSON = nil
+			p.Garma = nil
+			p.PostCount = nil
+			p.ThreadCount = nil
+			p.WallPostCount = nil
+			p.CommentCount = nil
+			p.LikesReceivedCount = nil
+			p.LikesGivenCount = nil
+			p.ViewsReceivedCount = nil
+			p.IsOnline = false
+			p.LastSeen = nil
 			continue
 		}
 		// H3 (security audit): the avatar/stats toggles must also apply to
 		// PUBLIC profiles — otherwise "hide avatar"/"hide stats" is a no-op
 		// for the majority of users. Owner and mutual friends always see them.
-		if !ps.PrivateProfile && viewerID != profiles[i].ID {
-			if ps.PrivateHideAvatar || ps.PrivateHideStats {
-				isFriend := false
-				if viewerID != "" {
-					isFriend, _ = privacy.IsMutualFriend(h.db, viewerID, profiles[i].ID)
-				}
-				if ps.PrivateHideAvatar && !isFriend {
-					profiles[i].AvatarURL = nil
-					profiles[i].BackgroundURL = nil
-				}
-				if ps.PrivateHideStats && !isFriend {
-					profiles[i].Garma = nil
-					profiles[i].PostCount = nil
-					profiles[i].ThreadCount = nil
-					profiles[i].WallPostCount = nil
-					profiles[i].CommentCount = nil
-					profiles[i].LikesReceivedCount = nil
-					profiles[i].LikesGivenCount = nil
-					profiles[i].ViewsReceivedCount = nil
-					profiles[i].IsOnline = false
-					profiles[i].LastSeen = nil
-				}
-			}
+		if vis.HideAvatar {
+			p.AvatarURL = nil
+			p.BackgroundURL = nil
+		}
+		if vis.HideStats {
+			p.Garma = nil
+			p.PostCount = nil
+			p.ThreadCount = nil
+			p.WallPostCount = nil
+			p.CommentCount = nil
+			p.LikesReceivedCount = nil
+			p.LikesGivenCount = nil
+			p.ViewsReceivedCount = nil
+			p.IsOnline = false
+			p.LastSeen = nil
 		}
 	}
 
@@ -369,13 +408,16 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 // @Failure      404 {object} models.APIResponse
 // @Router       /profiles/{id} [get]
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {
-	id := c.Param("id")
-	if _, err := uuid.Parse(id); err == nil {
-		profilepkg.RecomputeUserProfileStats(h.db, id)
+	// Strict: a parameter that is neither a public number nor a UUID is a 404,
+	// not a 500 from the uuid cast (bots and truncated links hit this path).
+	param := publicid.ParseParamStrict(c.Param("id"))
+	if !param.OK {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
+		return
 	}
 
 	query := `
-		SELECT u.id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
+		SELECT u.id, u.public_id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
 		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,	       COALESCE(pc.background_url, '') AS background_url,
 	       COALESCE(pc.background_variant, 'banner') AS background_variant,
@@ -383,15 +425,15 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	       COALESCE(pc.theme_tokens, '{}') AS theme_tokens
 		FROM users u
 		LEFT JOIN profile_customization pc ON pc.user_id = u.id
-		WHERE u.id = $1
+		WHERE u.` + param.Column + ` = $1
 	`
 
 	var profile models.User
 	var bioJSON sql.NullString
 	var backgroundURL sql.NullString
 	var themeTokensJSON sql.NullString
-	err := h.db.QueryRow(query, id).Scan(
-		&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
+	err := h.db.QueryRow(query, param.Value).Scan(
+		&profile.ID, &profile.PublicID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 		&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 		&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 		&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
@@ -437,20 +479,31 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		}
 	}
 
-	// Private profile: strip sensitive fields for non-friends
+	// Private profile: strip sensitive fields for non-friends. Resolved through
+	// the same batched helper GetProfiles uses (a single target here), so the
+	// owner/private/public rules can never drift between the two endpoints.
+	// Fail closed: if the visibility load fails, nothing may be served
+	// unfiltered.
 	var viewerID string
 	if claims, exists := c.Get("claims"); exists {
 		if uc, ok := claims.(*auth.Claims); ok {
 			viewerID = uc.UserID
 		}
 	}
-	// Email is private PII — only the profile owner may ever see it.
-	if viewerID != id {
+	// Email is private PII — only the profile owner may ever see it. Compared
+	// against the row's canonical UUID (not the raw route parameter) so that
+	// resolving the same profile by UUID or by public number behaves identically.
+	if viewerID != profile.ID {
 		profile.Email = nil
 	}
-	shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, viewerID, id)
-	if err == nil && shouldFilter {
-		if ps.PrivateHideAvatar {
+	visibility, err := privacy.ResolveProfileVisibilityBatch(h.db, viewerID, []string{profile.ID})
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	vis := visibility[profile.ID]
+	if vis.Filter {
+		if vis.HideAvatar {
 			profile.AvatarURL = nil
 			profile.BackgroundURL = nil
 		}
@@ -466,30 +519,24 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		profile.ViewsReceivedCount = nil
 		profile.IsOnline = false
 		profile.LastSeen = nil
-	} else if err == nil && !ps.PrivateProfile && viewerID != id {
+	} else {
 		// H3 (security audit): public-profile avatar/stats toggles must not be
 		// no-ops. Owner and mutual friends always see them.
-		if ps.PrivateHideAvatar || ps.PrivateHideStats {
-			isFriend := false
-			if viewerID != "" {
-				isFriend, _ = privacy.IsMutualFriend(h.db, viewerID, id)
-			}
-			if ps.PrivateHideAvatar && !isFriend {
-				profile.AvatarURL = nil
-				profile.BackgroundURL = nil
-			}
-			if ps.PrivateHideStats && !isFriend {
-				profile.Garma = nil
-				profile.PostCount = nil
-				profile.ThreadCount = nil
-				profile.WallPostCount = nil
-				profile.CommentCount = nil
-				profile.LikesReceivedCount = nil
-				profile.LikesGivenCount = nil
-				profile.ViewsReceivedCount = nil
-				profile.IsOnline = false
-				profile.LastSeen = nil
-			}
+		if vis.HideAvatar {
+			profile.AvatarURL = nil
+			profile.BackgroundURL = nil
+		}
+		if vis.HideStats {
+			profile.Garma = nil
+			profile.PostCount = nil
+			profile.ThreadCount = nil
+			profile.WallPostCount = nil
+			profile.CommentCount = nil
+			profile.LikesReceivedCount = nil
+			profile.LikesGivenCount = nil
+			profile.ViewsReceivedCount = nil
+			profile.IsOnline = false
+			profile.LastSeen = nil
 		}
 	}
 
@@ -663,6 +710,9 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
+	// Username / display_name / avatar changed — refresh the search document.
+	h.searchIndexer.SyncUser(id)
+
 	// Invalidate cache for this profile (and its profile wall, whose posts
 	// embed the author's nickname emoji in the cached JSON).
 	if h.redis != nil {
@@ -681,6 +731,15 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	}
 	if updates.Bio != nil && *updates.Bio != "" {
 		achievements.EmitAchievement(h.achEngine, id, achievements.EventBioUpdated)
+	}
+
+	// Tell every connected client to drop its cached copy of this profile.
+	// Without the fan-out a name or avatar change only reached the editor's own
+	// browser (the "profile-cache:invalidate" event is local to that tab).
+	if h.hub != nil {
+		if err := h.hub.PublishProfileUpdated(id); err != nil {
+			log.Printf("[profiles] failed to publish profile_updated for %s: %v", id, err)
+		}
 	}
 
 	// Return updated profile

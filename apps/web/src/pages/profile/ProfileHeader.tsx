@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AdminBadge } from "@/components/AdminBadge";
 import { FriendButton } from "@/components/FriendButton";
+import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { AvatarUploadProgress } from "@/components/AvatarUploadProgress";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { UserAvatar } from "@/components/UserAvatar";
 import { parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
-import type { ProfileBackgroundVariant } from "@/utils/profileBackground";
 import type { AvatarDragHandlers, Profile } from "./types";
 
 // Heavy interaction-only component — split into a separate chunk so the
@@ -33,8 +33,6 @@ export interface ProfileHeaderProps {
   /** Display-name editing field (shown next to the emoji picker in edit mode). */
   newDisplayName: string;
   onNewDisplayNameChange: (value: string) => void;
-  bgUrl: string | null;
-  bgVariant: ProfileBackgroundVariant;
   customization: ProfileCustomization | null;
   nicknameEmojiId: string | null;
   showOnlineStatus: boolean;
@@ -47,6 +45,8 @@ export interface ProfileHeaderProps {
   onEditClick: () => void;
   onUsernameClick: () => void;
   onOpenMessages: () => void;
+  /** Forum layout: the avatar and the write/subscribe actions live in the side panel. */
+  forumMode?: boolean;
 }
 
 /** Header row (avatar + identity + actions) — rendered inside the active
@@ -63,8 +63,6 @@ export function ProfileHeader({
   avatarDragHandlers,
   newDisplayName,
   onNewDisplayNameChange,
-  bgUrl,
-  bgVariant,
   customization,
   nicknameEmojiId,
   showOnlineStatus,
@@ -76,15 +74,16 @@ export function ProfileHeader({
   onEditClick,
   onUsernameClick,
   onOpenMessages,
+  forumMode = false,
 }: ProfileHeaderProps) {
   const { t } = useTranslation();
   const nicknameEmojiButtonRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3 sm:gap-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         {/* Avatar */}
-        {avatarVisible && (
+        {avatarVisible && !forumMode && (
           <div className="relative">
             <div
               {...(isOwnProfile && isEditing ? avatarDragHandlers : {})}
@@ -113,7 +112,7 @@ export function ProfileHeader({
         )}
 
         {/* User Info */}
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1">
             {isEditing && isOwnProfile ? (
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -157,12 +156,7 @@ export function ProfileHeader({
               <div className="flex items-center gap-2 flex-wrap">
                 <h1
                   className="text-xl sm:text-2xl font-bold"
-                  style={{
-                    ...(customization?.username_css ? parseCssToStyle(customization.username_css) : {}),
-                    // Over the banner strip the name may kiss the image edge —
-                    // a light halo keeps it readable on busy backgrounds.
-                    ...(bgUrl && bgVariant === 'banner' ? { textShadow: '0 1px 3px rgba(255,255,255,0.75)' } : {}),
-                  }}
+                  style={customization?.username_css ? parseCssToStyle(customization.username_css) : undefined}
                 >
                   {profile.display_name?.trim() || profile.username}
                 </h1>
@@ -182,7 +176,7 @@ export function ProfileHeader({
           <div className="flex items-center gap-2 gap-y-0.5 flex-wrap">
             <button
               type="button"
-              className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''} ${bgUrl && bgVariant === 'banner' ? '[text-shadow:0_1px_2px_rgba(255,255,255,0.7)]' : ''}`}
+              className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''}`}
               onClick={isOwnProfile ? onUsernameClick : undefined}
               disabled={!isOwnProfile}
             >
@@ -202,35 +196,45 @@ export function ProfileHeader({
         </div>
       </div>
 
-      {/* Edit Button */}
-      {isOwnProfile && (
+      {/* Edit Button (own profile). In forum mode editing lives in the side panel. */}
+      {isOwnProfile && !forumMode && (
         <Button
           variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8 hover:bg-primary/10 hover:text-primary transition-colors"
+          size="icon"
+          className="h-9 w-9 shrink-0 self-end rounded-xl text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary sm:self-auto"
           onClick={onEditClick}
         >
           {isEditing ? (
-            <span className="text-green-500 text-lg">✓</span>
+            <span className="text-lg leading-none text-green-500">✓</span>
           ) : (
-            <Edit2 className="w-4 h-4" />
+            <Edit2 className="h-4 w-4" />
           )}
         </Button>
       )}
 
-      {/* Write Button and Friend Button for other users */}
-      {!isOwnProfile && currentUser && (
-        <div className="flex gap-2">
-          <FriendButton userId={profile.id} isOwnProfile={isOwnProfile} />
+      {/* Message + subscribe + actions (other profiles). In forum mode the whole
+          cluster moves to the side panel. */}
+      {!isOwnProfile && currentUser && !forumMode && (
+        <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
           <Button
             variant="default"
             size="sm"
             onClick={onOpenMessages}
-            className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
+            className="h-9 gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            title={t("profile.write")}
           >
-            <MessageSquare className="w-4 h-4" />
-            <span className="hidden sm:inline">{t("profile.write")}</span>
+            <MessageSquare className="h-4 w-4" />
+            <span>{t("profile.write")}</span>
           </Button>
+          <FriendButton userId={profile.id} isOwnProfile={isOwnProfile} />
+          <PostActionsMenu
+            targetType="user"
+            targetId={profile.id}
+            reportLabel="Пожаловаться на пользователя"
+            reportTargetLabel="на пользователя"
+            triggerTitle="Действия"
+            triggerClassName="rounded-xl border border-border/60 bg-background/85 backdrop-blur-md hover:bg-background"
+          />
         </div>
       )}
     </div>

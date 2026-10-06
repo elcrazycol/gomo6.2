@@ -25,12 +25,18 @@ type LikesHandler struct {
 	hub       *websocket.Hub
 	achEngine *achievements.Engine
 	notif     *notifications.Service
+	// recomputeStatsFn refreshes the unified profile stats. It is a field (not a
+	// direct call to profiles.RecomputeUserProfileStats) so tests can inject a
+	// synchronous fake — the real implementation enqueues to background workers
+	// and would race a sqlmock DB. Mirrors RPCHandler.recomputeStatsFn.
+	recomputeStatsFn func(*sql.DB, string)
 }
 
 func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
 	return &LikesHandler{
-		db:    db,
-		redis: redis,
+		db:               db,
+		redis:            redis,
+		recomputeStatsFn: profiles.RecomputeUserProfileStats,
 	}
 }
 
@@ -116,7 +122,14 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 
 	var threadOwner string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
-	profiles.RecomputeUserProfileStats(h.db, threadOwner)
+	// Unified stats: a like changes BOTH sides — the owner's
+	// likes_received_count and the liker's likes_given_count. This used to
+	// recompute only the owner, so the liker's own counter stayed stale until
+	// they viewed a profile; the wall like path already refreshes both
+	// (wall/write.go recomputeStatsForPostLike). The queue coalesces, so a
+	// self-like costs one recompute.
+	h.recomputeStatsFn(h.db, threadOwner)
+	h.recomputeStatsFn(h.db, userClaims.UserID)
 
 	// Create notification for thread author (if not self-like)
 	if threadOwner != "" && threadOwner != userClaims.UserID && h.notif != nil {
@@ -131,9 +144,9 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	}
 
 	// Achievements: the liker gave a like; the thread author received one.
-	achievements.EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	achievements.EmitAchievementTarget(h.achEngine, userClaims.UserID, achievements.EventLikeGiven, "thread", threadID)
 	if threadOwner != "" && threadOwner != userClaims.UserID {
-		achievements.EmitAchievement(h.achEngine, threadOwner, achievements.EventLikeReceived)
+		achievements.EmitAchievementTarget(h.achEngine, threadOwner, achievements.EventLikeReceived, "thread", threadID)
 	}
 
 	// Invalidate cache for thread and its posts
@@ -189,7 +202,14 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 
 	var threadOwner string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
-	profiles.RecomputeUserProfileStats(h.db, threadOwner)
+	// Unified stats: a like changes BOTH sides — the owner's
+	// likes_received_count and the liker's likes_given_count. This used to
+	// recompute only the owner, so the liker's own counter stayed stale until
+	// they viewed a profile; the wall like path already refreshes both
+	// (wall/write.go recomputeStatsForPostLike). The queue coalesces, so a
+	// self-like costs one recompute.
+	h.recomputeStatsFn(h.db, threadOwner)
+	h.recomputeStatsFn(h.db, userClaims.UserID)
 
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
@@ -269,7 +289,10 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 
 	var postAuthor, threadID string
 	_ = h.db.QueryRow("SELECT user_id, thread_id FROM posts WHERE id = $1", postID).Scan(&postAuthor, &threadID)
-	profiles.RecomputeUserProfileStats(h.db, postAuthor)
+	// Unified stats: refresh the post author (likes_received) AND the liker
+	// (likes_given) — see the thread-like path above.
+	h.recomputeStatsFn(h.db, postAuthor)
+	h.recomputeStatsFn(h.db, userClaims.UserID)
 
 	// Create notification for post author (if not self-like)
 	if postAuthor != "" && postAuthor != userClaims.UserID && h.notif != nil {
@@ -286,9 +309,9 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	}
 
 	// Achievements: the liker gave a like; the post author received one.
-	achievements.EmitAchievement(h.achEngine, userClaims.UserID, achievements.EventLikeGiven)
+	achievements.EmitAchievementTarget(h.achEngine, userClaims.UserID, achievements.EventLikeGiven, "post", postID)
 	if postAuthor != "" && postAuthor != userClaims.UserID {
-		achievements.EmitAchievement(h.achEngine, postAuthor, achievements.EventLikeReceived)
+		achievements.EmitAchievementTarget(h.achEngine, postAuthor, achievements.EventLikeReceived, "post", postID)
 	}
 
 	// Invalidate cache for post and its thread
@@ -344,7 +367,10 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 
 	var postAuthor, threadID string
 	_ = h.db.QueryRow("SELECT user_id, thread_id FROM posts WHERE id = $1", postID).Scan(&postAuthor, &threadID)
-	profiles.RecomputeUserProfileStats(h.db, postAuthor)
+	// Unified stats: refresh the post author (likes_received) AND the liker
+	// (likes_given) — see the thread-like path above.
+	h.recomputeStatsFn(h.db, postAuthor)
+	h.recomputeStatsFn(h.db, userClaims.UserID)
 
 	// Invalidate cache for post and its thread
 	if h.redis != nil {
@@ -395,7 +421,7 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 
 	query := `
 		SELECT tl.id, tl.thread_id, tl.user_id, tl.created_at,
-		       u.username, u.avatar_url
+		       u.username, u.public_id, u.avatar_url
 		FROM thread_likes tl
 		LEFT JOIN users u ON tl.user_id = u.id
 		WHERE tl.thread_id = $1
@@ -413,14 +439,16 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 	var likes []struct {
 		models.ThreadLike
 		Username  string  `json:"username"`
+		PublicID  *int64  `json:"public_id,omitempty"`
 		AvatarURL *string `json:"avatar_url"`
 	}
 
 	for rows.Next() {
 		var like models.ThreadLike
 		var username, avatarURL sql.NullString
+		var publicID *int64
 
-		err := rows.Scan(&like.ID, &like.ThreadID, &like.UserID, &like.CreatedAt, &username, &avatarURL)
+		err := rows.Scan(&like.ID, &like.ThreadID, &like.UserID, &like.CreatedAt, &username, &publicID, &avatarURL)
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
@@ -429,10 +457,12 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 		likes = append(likes, struct {
 			models.ThreadLike
 			Username  string  `json:"username"`
+			PublicID  *int64  `json:"public_id,omitempty"`
 			AvatarURL *string `json:"avatar_url"`
 		}{
 			ThreadLike: like,
 			Username:   username.String,
+			PublicID:   publicID,
 			AvatarURL: func() *string {
 				if avatarURL.Valid {
 					return &avatarURL.String

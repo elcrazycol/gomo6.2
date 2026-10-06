@@ -105,6 +105,21 @@ describe("useProfile", () => {
     expect(mockChain.single).toHaveBeenCalled();
   });
 
+  it("resolves a numeric route parameter through public_id", async () => {
+    // /profile/42 is a public number, not a UUID — the hook must pick the
+    // public_id column or the backend would reject the uuid comparison.
+    const profile = { id: "u1", public_id: 42, username: "alice", created_at: "2025-01-01T00:00:00Z" };
+    mockResolve(profile);
+
+    const { result } = renderHook(() => useProfile("42"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(result.current.data).toEqual(profile);
+    expect(mockChain.eq).toHaveBeenCalledWith("public_id", "42");
+  });
+
   it("surfaces API errors", async () => {
     mockResolve(null, { message: "boom" });
 

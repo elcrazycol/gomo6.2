@@ -159,7 +159,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		if h.hub == nil {
 			return
 		}
-		go func() {
+		publishPool.Go(func() {
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "read_receipt",
 				Payload: map[string]interface{}{
@@ -171,7 +171,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}
-		}()
+		})
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))

@@ -2,6 +2,7 @@ package crudengine
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/wall"
 )
 
@@ -25,6 +26,10 @@ func (h *Engine) handleProfileAlbumPostsGet(c *gin.Context)       { h.wall.Handl
 // AfterWrite hooks (notifications, WebSocket, stats, dependent caches).
 func afterWallPostWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
 	h.wall.AfterPostWrite(c, method, result)
+	// Mirror the wall post into the search index (best-effort). POST, PUT and
+	// DELETE all return the row via RETURNING *, so the same call covers create,
+	// edit and delete: the indexer re-reads the row and upserts or removes it.
+	h.searchIndexer.SyncWallPost(crud.WallResultString(result["id"]))
 }
 
 func afterWallCommentWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {

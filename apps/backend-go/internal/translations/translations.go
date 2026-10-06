@@ -17,6 +17,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/httpx"
 
 	"github.com/gin-gonic/gin"
@@ -320,11 +321,9 @@ func userIsPlatformModerator(c *gin.Context, db *sql.DB) bool {
 	if userID == "" {
 		return false
 	}
-	var role string
-	if err := db.QueryRowContext(c.Request.Context(),
-		`SELECT role FROM user_roles WHERE user_id = $1 AND role IN ('admin','moderator') LIMIT 1`,
-		userID).Scan(&role); err != nil {
+	ok, err := authz.IsModerator(c.Request.Context(), db, userID)
+	if err != nil {
 		return false
 	}
-	return true
+	return ok
 }

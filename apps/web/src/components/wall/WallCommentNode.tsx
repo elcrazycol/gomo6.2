@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { ChevronDown, Edit3, Ellipsis, Ghost, Heart, Loader2, Reply, Trash2 } from "lucide-react";
+import { ReportTrigger } from "@/components/moderation/ReportTrigger";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ import { api } from "@/integrations/api/compat";
 import type { WallComment } from "@/utils/wallNormalizers";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
+import { profileUrl } from "@/utils/entityUrl";
 
 interface WallCommentNodeProps {
   comment: WallComment;
@@ -86,6 +88,9 @@ export const WallCommentNode = ({
   // underneath them keep their place. Everything about the original author is
   // hidden: no avatar, no name, no profile link — just "Комментарий удалён".
   const isDeleted = Boolean(comment.is_deleted);
+  // Reporting requires an authenticated user and applies to other people's
+  // comments (one report per user per comment, enforced server-side).
+  const canReport = Boolean(currentUserId) && currentUserId !== comment.user_id && !isDeleted;
   const avatarUrl = storageUrl("post-images", comment.author.avatar_url);
   const authorLabel = comment.author.display_name || comment.author.username;
 
@@ -171,7 +176,7 @@ export const WallCommentNode = ({
               </div>
             ) : (
               <Link
-                to={`/profile/${comment.user_id}`}
+                to={profileUrl({ id: comment.user_id, public_id: comment.author?.public_id })}
                 data-wall-avatar="current"
                 className="relative z-10 mt-0.5 shrink-0"
                 onClick={(e) => e.stopPropagation()}
@@ -201,7 +206,7 @@ export const WallCommentNode = ({
               ) : (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <Link
-                    to={`/profile/${comment.user_id}`}
+                    to={profileUrl({ id: comment.user_id, public_id: comment.author?.public_id })}
                     className="text-sm font-semibold text-foreground hover:underline"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -302,7 +307,7 @@ export const WallCommentNode = ({
                     </Button>
                   )}
 
-                  {!isDeleted && (canEdit || canDelete) && (                      <>
+                  {!isDeleted && (canEdit || canDelete || canReport) && (                      <>
                         <div className="hidden items-center gap-1 sm:flex">
                         {canEdit && (
                           <Button
@@ -329,6 +334,7 @@ export const WallCommentNode = ({
                             {isSubmitting[`delete:${comment.id}`] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                           </Button>
                         )}
+                        {canReport && <ReportTrigger targetType="wall_comment" targetId={comment.id} />}
                       </div>
                       <>
                         <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-muted-foreground sm:hidden" aria-label="Действия с комментарием" onClick={() => setMobileActionsOpen(true)}>
@@ -356,6 +362,14 @@ export const WallCommentNode = ({
                                 }}>
                                   <Trash2 className="mr-2 h-4 w-4" />Удалить
                                 </Button>
+                              )}
+                              {canReport && (
+                                <ReportTrigger
+                                  variant="sheet"
+                                  targetType="wall_comment"
+                                  targetId={comment.id}
+                                  onBeforeOpen={() => setMobileActionsOpen(false)}
+                                />
                               )}
                             </div>
                           </SheetContent>

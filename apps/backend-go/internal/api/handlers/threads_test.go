@@ -21,21 +21,25 @@ func TestGetThreads_Success_NoFilter(t *testing.T) {
 	c, w := newGETContext("/api/v1/threads", nil)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+		"id", "public_id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 		"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
-		"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+		"created_at", "updated_at", "is_remote", "username", "user_public_id", "avatar_url", "is_anonymous",
 		"display_name", "nickname_emoji_id",
 		"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
+		"section_slug", "section_name", "section_icon", "section_is_nsfw",
+		"subsection_slug", "subsection_name",
 	}).AddRow(
-		"t1", "b1", nil, "u1", "Thread Title", "Thread content", nil,
+		"t1", 315, "b1", nil, nil, nil, "u1", "Thread Title", "Thread content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "testuser", nil, false, nil, nil,
+		time.Now(), time.Now(), false, "testuser", 42, nil, false, nil, nil,
 		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
 	).AddRow(
-		"t2", "b2", nil, "u2", "Another Thread", "More content", nil,
+		"t2", 316, "b2", nil, nil, nil, "u2", "Another Thread", "More content", nil,
 		nil, "[]", "[]", "[]", 3, "localhost:8080",
-		time.Now(), time.Now(), false, "user2", nil, false, nil, nil,
+		time.Now(), time.Now(), false, "user2", 43, nil, false, nil, nil,
 		"random", "Random", true, false,
+		nil, nil, nil, false, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*ORDER BY t\.updated_at DESC.*LIMIT \$1 OFFSET \$2`).
@@ -64,16 +68,19 @@ func TestGetThreads_Success_WithBoardFilter(t *testing.T) {
 	})
 
 	rows := sqlmock.NewRows([]string{
-		"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+		"id", "public_id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 		"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
-		"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+		"created_at", "updated_at", "is_remote", "username", "user_public_id", "avatar_url", "is_anonymous",
 		"display_name", "nickname_emoji_id",
 		"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
+		"section_slug", "section_name", "section_icon", "section_is_nsfw",
+		"subsection_slug", "subsection_name",
 	}).AddRow(
-		"t1", "b1", nil, "u1", "Thread Title", "Thread content", nil,
+		"t1", 315, "b1", nil, nil, nil, "u1", "Thread Title", "Thread content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "testuser", nil, false, nil, nil,
+		time.Now(), time.Now(), false, "testuser", 42, nil, false, nil, nil,
 		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.board_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$2 OFFSET \$3`).
@@ -106,11 +113,13 @@ func TestGetThreads_DBError(t *testing.T) {
 
 // threadRowColumns lists the SELECT columns of the GetThreads query in order.
 var threadRowColumns = []string{
-	"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+	"id", "public_id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 	"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
-	"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+	"created_at", "updated_at", "is_remote", "username", "user_public_id", "avatar_url", "is_anonymous",
 	"display_name", "nickname_emoji_id",
 	"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
+	"section_slug", "section_name", "section_icon", "section_is_nsfw",
+	"subsection_slug", "subsection_name",
 }
 
 func privacySettingsRow(privateProfile bool) *sqlmock.Rows {
@@ -174,10 +183,11 @@ func TestGetThreads_PrivateProfile_MutualFriend_SeesThreads(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	rows := sqlmock.NewRows(threadRowColumns).AddRow(
-		"t1", "b1", nil, "privateUser", "Thread Title", "Thread content", nil,
+		"t1", 315, "b1", nil, nil, nil, "privateUser", "Thread Title", "Thread content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "privateuser", nil, false, nil, nil,
+		time.Now(), time.Now(), false, "privateuser", 42, nil, false, nil, nil,
 		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
 	)
 
 	// user_id filter ($1) + private-board filter ($2, $3) + LIMIT/OFFSET ($4, $5).
@@ -214,10 +224,11 @@ func TestGetThreads_PublicProfile_AnyViewerSeesThreads(t *testing.T) {
 		WillReturnRows(privacySettingsRow(false))
 
 	rows := sqlmock.NewRows(threadRowColumns).AddRow(
-		"t1", "b1", nil, "publicUser", "Thread Title", "Thread content", nil,
+		"t1", 315, "b1", nil, nil, nil, "publicUser", "Thread Title", "Thread content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "publicuser", nil, false, nil, nil,
+		time.Now(), time.Now(), false, "publicuser", 42, nil, false, nil, nil,
 		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.user_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$4 OFFSET \$5`).
@@ -248,16 +259,19 @@ func TestGetThread_Success(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "550e8400-e29b-41d4-a716-446655440000"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+		"id", "public_id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
 		"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
-		"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+		"created_at", "updated_at", "is_remote", "username", "user_public_id", "avatar_url", "is_anonymous",
 		"display_name", "nickname_emoji_id",
 		"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
+		"section_slug", "section_name", "section_icon", "section_is_nsfw",
+		"subsection_slug", "subsection_name",
 	}).AddRow(
-		"550e8400-e29b-41d4-a716-446655440000", "b1", nil, "u1", "Thread Title", "Content", nil,
+		"550e8400-e29b-41d4-a716-446655440000", 315, "b1", nil, nil, nil, "u1", "Thread Title", "Content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "testuser", nil, false, nil, nil,
+		time.Now(), time.Now(), false, "testuser", 42, nil, false, nil, nil,
 		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.id = \$1`).
@@ -389,7 +403,7 @@ func TestDeleteThread_ForeignAuthor_Forbidden(t *testing.T) {
 		WithArgs("t1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "board_id"}).AddRow("u1", "b1"))
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -412,7 +426,7 @@ func TestDeleteThread_ModeratorAllowed(t *testing.T) {
 		WithArgs("t1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "board_id"}).AddRow("u1", "b1"))
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM user_roles WHERE user_id = \$1 AND role IN \('moderator', 'admin'\)\)`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -546,5 +560,89 @@ func TestUpdateThread_InvalidID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// ── public_id resolution (numeric URL parameters) ───────────────────────────
+
+// TestGetThread_ByPublicID proves /threads/315 resolves against threads.public_id
+// and that the payload carries both numbers the frontend needs for links: the
+// thread's own public_id and the author's user_public_id.
+func TestGetThread_ByPublicID(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	c, w := newGETContext("/api/v1/threads/315", nil)
+	c.Params = []gin.Param{{Key: "id", Value: "315"}}
+
+	row := sqlmock.NewRows(threadRowColumns).AddRow(
+		"550e8400-e29b-41d4-a716-446655440000", 315, "b1", nil, nil, nil, "u1", "Thread Title", "Content", nil,
+		nil, "[]", "[]", "[]", 5, "localhost:8080",
+		time.Now(), time.Now(), false, "testuser", 42, nil, false, nil, nil,
+		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
+	)
+
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.public_id = \$1`).
+		WithArgs(int64(315)).
+		WillReturnRows(row)
+
+	handler.GetThread(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data models.ThreadWithBoards `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if resp.Data.PublicID == nil || *resp.Data.PublicID != 315 {
+		t.Errorf("thread public_id must round-trip, got %v", resp.Data.PublicID)
+	}
+	if resp.Data.UserPublicID == nil || *resp.Data.UserPublicID != 42 {
+		t.Errorf("author user_public_id must round-trip so the client can link the author, got %v", resp.Data.UserPublicID)
+	}
+}
+
+// TestGetThreads_PublicIDFilter proves the list endpoint accepts
+// ?public_id=eq.315 — the form the frontend uses to resolve a numeric thread URL.
+func TestGetThreads_PublicIDFilter(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	c, w := newGETContext("/api/v1/threads", map[string]string{
+		"public_id": "eq.315",
+	})
+
+	rows := sqlmock.NewRows(threadRowColumns).AddRow(
+		"550e8400-e29b-41d4-a716-446655440000", 315, "b1", nil, nil, nil, "u1", "Thread Title", "Thread content", nil,
+		nil, "[]", "[]", "[]", 5, "localhost:8080",
+		time.Now(), time.Now(), false, "testuser", 42, nil, false, nil, nil,
+		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
+	)
+
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.public_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$2 OFFSET \$3`).
+		WithArgs(int64(315), 50, 0).
+		WillReturnRows(rows)
+
+	handler.GetThreads(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetThreads_PublicIDFilterInvalid mirrors the profile filter: a malformed
+// number is a 400, never a bigint cast error surfacing as a 500.
+func TestGetThreads_PublicIDFilterInvalid(t *testing.T) {
+	handler, _ := setupThreadsHandler(t)
+	c, w := newGETContext("/api/v1/threads", map[string]string{
+		"public_id": "eq.abc",
+	})
+
+	handler.GetThreads(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
