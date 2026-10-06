@@ -51,7 +51,7 @@ export const CookieBanner = () => {
   if (decided || !visible) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[70] p-3 sm:p-4">
+    <div className="fixed inset-x-0 bottom-0 z-[70] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
       <div className="mx-auto w-full max-w-3xl animate-in slide-in-from-bottom-4 fade-in rounded-2xl border border-border/70 bg-card/95 p-4 shadow-2xl shadow-black/25 backdrop-blur-md duration-300 sm:p-5 motion-reduce:animate-none">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">

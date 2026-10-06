@@ -55,7 +55,7 @@ describe("GuestSignupBanner", () => {
     render(<GuestSignupBanner />);
     // With the cookie strip still visible the CTA must be raised above it
     // (bottom-24 on mobile / bottom-20 on larger screens instead of the
-    // bottom-3/bottom-4 rest position).
+    // safe-area-aware rest position).
     expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-24");
     expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("z-[60]");
   });
@@ -66,7 +66,7 @@ describe("GuestSignupBanner", () => {
       JSON.stringify({ version: 1, necessary: true, analytics: false, ts: 1 }),
     );
     render(<GuestSignupBanner />);
-    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-3");
+    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("safe-area-inset-bottom");
   });
 
   it("moves down when the cookie consent changes", () => {
@@ -80,6 +80,6 @@ describe("GuestSignupBanner", () => {
       );
       window.dispatchEvent(new Event("gomo6:cookie-consent-changed"));
     });
-    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("bottom-3");
+    expect(screen.getByText(/Зарегистрируйся/).closest(".fixed")?.className).toContain("safe-area-inset-bottom");
   });
 });

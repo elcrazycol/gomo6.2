@@ -41,7 +41,9 @@ export const GuestSignupBanner = () => {
   // bottom edge.
   return (
     <div className={`fixed left-1/2 -translate-x-1/2 z-[60] w-[min(94vw,560px)] transition-all duration-300 ${
-      cookiesDone ? "bottom-3 sm:bottom-4" : "bottom-24 sm:bottom-20"
+      cookiesDone
+        ? "bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] sm:bottom-[max(1rem,env(safe-area-inset-bottom,0px))]"
+        : "bottom-24 sm:bottom-20"
     }`}>
       <div className="flex items-center gap-2 sm:gap-3 rounded-2xl border border-primary/25 bg-card/95 backdrop-blur-md shadow-lg shadow-black/10 pl-3 pr-1.5 py-1.5 sm:py-2 animate-in slide-in-from-bottom-4 fade-in duration-300">
         <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-primary" />
