@@ -7,6 +7,7 @@ import {
   Dices,
   Globe,
   Languages,
+  LayoutGrid,
   Monitor,
   Moon,
   Palette,
@@ -160,9 +161,9 @@ export const AppearanceSection = ({ appearance }: AppearanceSectionProps) => {
   const navigate = useNavigate();
   const {
     colorTheme, modePref, timeAuto, customFont, publishStyle, headerBehavior,
-    transitionStyle, mrRandomCount, autoplayMode, language,
+    transitionStyle, mrRandomCount, profileViewMode, autoplayMode, language,
     setColorTheme, setModePref, setTimeAuto, randomTheme, setFont, setPublishStyle,
-    setHeaderBehavior, setTransitionStyle, setMrRandomCount, setAutoplayMode, setLanguage, resetAppearance,
+    setHeaderBehavior, setTransitionStyle, setMrRandomCount, setProfileViewMode, setAutoplayMode, setLanguage, resetAppearance,
   } = appearance;
 
   const { favorites, toggleFavorite: onToggleFavorite } = useThemeFavorites();
@@ -381,6 +382,25 @@ export const AppearanceSection = ({ appearance }: AppearanceSectionProps) => {
 
       {/* ── Интерфейс ──────────────────────────────────────────────────── */}
       <SettingGroup divided={false}>
+        {/* Вид профилей по умолчанию */}
+        <SettingRow
+          className={rowClass}
+          id="set-profile-view"
+          icon={LayoutGrid}
+          title={t("settings2.profileDefaultView")}
+          description={t("settings2.profileDefaultViewDesc")}
+        >
+          <Segmented
+            aria-label={t("settings2.profileDefaultView")}
+            value={profileViewMode}
+            onChange={setProfileViewMode}
+            options={[
+              { value: "social", label: t("settings2.profileViewSocial") },
+              { value: "forum", label: t("settings2.profileViewForum") },
+            ]}
+          />
+        </SettingRow>
+
         {/* Хедер */}
         <SettingBlock id="set-header" title={t("settings2.headerBehavior")} description={t("settings2.headerBehaviorDesc")} icon={PanelTop}>
           <div className="grid gap-3 sm:grid-cols-2" onKeyDown={handleNavArrowKeys}>

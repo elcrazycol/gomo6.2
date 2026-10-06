@@ -30,6 +30,13 @@ import { profileLookupUrl } from "@/utils/entityUrl";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ForumProfilePanel } from "./profile/ForumProfilePanel";
 import { ForumProfileEdgeToggle, type ForumSide } from "./profile/ForumProfileEdgeToggle";
+import { DEFAULT_FORUM_SIDE, PROFILE_VIEW_MODE_EVENT, getProfileViewMode } from "@/lib/profileViewMode";
+
+/** Whether the viewport is wide enough for the desktop-only forum layout. */
+const isDesktopViewport = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(min-width: 1024px)").matches;
 
 /**
  * Profile page — orchestration shell. The loaded row + privacy flags and the
@@ -354,10 +361,11 @@ const Profile = () => {
   const canPostOnWall = !!currentUser && (currentUser.id === resolvedUserId || allowWallPostsFromOthers) && showProfileWall && !wallHiddenFromViewer && !editing.isEditing;
 
   // ── Forum layout ─────────────────────────────────────────────────────────
-  // A per-visit alternate profile layout: the avatar, write/subscribe actions
-  // and the social graph move into a side column on the side whose edge button
-  // was pressed, while the rest of the profile reflows around it. Session-only
-  // (see forumSide) — reset on navigation, closed while editing.
+  // An alternate profile layout: the avatar, write/subscribe actions and the
+  // social graph move into a side column on the side whose edge strip was
+  // pressed, while the rest of the profile reflows around it. The viewer's
+  // default (Settings → Appearance: social or forum) decides how a profile
+  // opens; manual toggling is per-visit and the layout closes while editing.
   const forumMode = forumLayout;
   const showForumToggle = !!profile && !!currentUser && !editing.isEditing;
   const panelVisibleRef = useRef(false);
@@ -372,13 +380,46 @@ const Profile = () => {
     setForumSide(null);
   }, []);
 
+  const openForum = useCallback((side: ForumSide = DEFAULT_FORUM_SIDE) => {
+    setForumSide(side);
+    setPanelVisible(true);
+    setForumLayout(true);
+  }, []);
+
+  // Apply the default profile view — on profile open and live if the choice
+  // changes from Settings. Guests and narrow viewports fall back to the social
+  // layout: the forum layout is desktop-only and needs a signed-in viewer for
+  // its actions to mean anything.
+  const applyForumPreference = useCallback(() => {
+    if (!currentUser || editing.isEditing) {
+      resetForum();
+      return;
+    }
+    if (getProfileViewMode() === "forum" && isDesktopViewport()) {
+      openForum();
+    } else {
+      resetForum();
+    }
+  }, [currentUser, editing.isEditing, resetForum, openForum]);
+
+  // Re-apply once per profile (the route param changes), as soon as the viewer
+  // is known; a ref stops unrelated re-renders from reopening a manual close.
+  const appliedViewForRef = useRef<string | null>(null);
   useEffect(() => {
-    resetForum();
-  }, [userId, resetForum]);
+    if (!currentUser || editing.isEditing) {
+      resetForum();
+      return;
+    }
+    if (appliedViewForRef.current === userId) return;
+    appliedViewForRef.current = userId ?? null;
+    applyForumPreference();
+  }, [userId, currentUser, editing.isEditing, applyForumPreference, resetForum]);
 
   useEffect(() => {
-    if (editing.isEditing) resetForum();
-  }, [editing.isEditing, resetForum]);
+    const sync = () => applyForumPreference();
+    window.addEventListener(PROFILE_VIEW_MODE_EVENT, sync);
+    return () => window.removeEventListener(PROFILE_VIEW_MODE_EVENT, sync);
+  }, [applyForumPreference]);
 
   const toggleForumSide = useCallback((side: ForumSide) => {
     if (panelVisible && forumSide === side) {
@@ -410,10 +451,10 @@ const Profile = () => {
       : "max(1rem, calc(50vw - 304px))";
 
   // Edge controls live in the gutters beside the content column. The whole
-  // gutter (up to a cap) is a hover target; the chevron sits a fixed gap from
-  // the content. The column is wider (max-w-5xl) when the forum panel is open.
+  // gutter (up to a cap) is a hover target; the arrow sits a fixed gap from the
+  // content. The column is wider (max-w-5xl) when the forum panel is open.
   const forumToggleGutter = `clamp(0px, calc(50vw - ${forumMode ? "512px" : "336px"}), 40rem)`;
-  const forumToggleGap = "64px";
+  const forumToggleGap = "48px";
 
   // Set default tab based on wall visibility. The wall tab is available to
   // every viewer while showProfileWall is on (for non-friends on a private
@@ -554,7 +595,11 @@ const Profile = () => {
 
   return (
     <main
-      className={`mx-auto p-4 isolate overflow-x-clip transition-[max-width] duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${panelVisible ? "max-w-5xl" : "max-w-2xl"}`}
+      className={`mx-auto p-4 isolate overflow-x-clip transition-[max-width] ${
+        panelVisible
+          ? "duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+          : "duration-[260ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
+      } ${panelVisible ? "max-w-5xl" : "max-w-2xl"}`}
     >
         {/* Full-page profile background. In forum mode the owner's background
             is a soft, blurred backdrop behind the whole layout; otherwise the
@@ -597,7 +642,12 @@ const Profile = () => {
                   transition={
                     prefersReducedMotion
                       ? { duration: 0.15, ease: "easeOut" }
-                      : { duration: 0.4, ease: [0.22, 1, 0.36, 1] }
+                      : panelVisible
+                        // Expand — soft, decelerating tail.
+                        ? { duration: 0.4, ease: [0.22, 1, 0.36, 1] }
+                        // Collapse — shorter and with a livelier tail so the
+                        // panel does not crawl into place.
+                        : { duration: 0.24, ease: [0.4, 0, 0.2, 1] }
                   }
                   className={`hidden shrink-0 self-stretch overflow-clip lg:block ${
                     forumSide === "left" ? "order-1" : "order-2"
@@ -641,8 +691,14 @@ const Profile = () => {
             key={forumMode ? "forum" : "social"}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: "easeInOut" }}
+            exit={{ opacity: 0, transition: { duration: prefersReducedMotion ? 0 : 0.14, ease: "easeOut" } }}
+            transition={{
+              // Entering the social layout (forum → profile) is the tail of the
+              // collapse — keep it quick; expanding back into the forum stays
+              // soft.
+              duration: prefersReducedMotion ? 0 : forumMode ? 0.2 : 0.12,
+              ease: forumMode ? "easeInOut" : "easeOut",
+            }}
             className={forumMode ? "space-y-3" : "space-y-6"}
           >
           {forumMode ? (

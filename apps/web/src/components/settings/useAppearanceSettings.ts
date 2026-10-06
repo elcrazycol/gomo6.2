@@ -26,6 +26,7 @@ import {
 } from "@/lib/publishButtonStyle";
 import { getTransitionStyle, setTransitionStyle as persistTransitionStyle, type TransitionStyle } from "@/lib/viewTransitions";
 import { getMrRandomCount, setMrRandomCount as persistMrRandomCount } from "@/lib/mrRandom";
+import { getProfileViewMode, setProfileViewMode as persistProfileViewMode, type ProfileViewMode } from "@/lib/profileViewMode";
 import { applyCustomFont, getStoredCustomFont, storeCustomFont } from "@/lib/customFont";
 
 /**
@@ -43,6 +44,7 @@ export const useAppearanceSettings = (userId?: string | null) => {
   const [headerBehavior, setHeaderBehaviorState] = useState<HeaderBehavior>(getHeaderBehavior);
   const [transitionStyle, setTransitionStyleState] = useState<TransitionStyle>(getTransitionStyle);
   const [mrRandomCount, setMrRandomCountState] = useState<number>(getMrRandomCount);
+  const [profileViewMode, setProfileViewModeState] = useState<ProfileViewMode>(getProfileViewMode);
 
   const autoplayMode = useAnimatedVideoStore((state) => state.autoplayMode);
   const setAutoplayMode = useAnimatedVideoStore((state) => state.setAutoplayMode);
@@ -131,6 +133,11 @@ export const useAppearanceSettings = (userId?: string | null) => {
     persistMrRandomCount(next);
   }, []);
 
+  const setProfileViewMode = useCallback((next: ProfileViewMode) => {
+    setProfileViewModeState(next);
+    persistProfileViewMode(next);
+  }, []);
+
   const setLanguage = useCallback((code: string) => {
     void changeLanguage(code, userId).catch((error) => {
       console.error("Failed to change language", error);
@@ -146,9 +153,10 @@ export const useAppearanceSettings = (userId?: string | null) => {
     setHeaderBehavior("fixed");
     setTransitionStyle("fade");
     setMrRandomCount(1);
+    setProfileViewMode("social");
     setAutoplayMode("always");
     toast.success("Внешний вид сброшен к значениям по умолчанию");
-  }, [setColorTheme, setModePref, setTimeAuto, setFont, setPublishStyle, setHeaderBehavior, setTransitionStyle, setMrRandomCount, setAutoplayMode]);
+  }, [setColorTheme, setModePref, setTimeAuto, setFont, setPublishStyle, setHeaderBehavior, setTransitionStyle, setMrRandomCount, setProfileViewMode, setAutoplayMode]);
 
   return {
     colorTheme,
@@ -160,6 +168,7 @@ export const useAppearanceSettings = (userId?: string | null) => {
     headerBehavior,
     transitionStyle,
     mrRandomCount,
+    profileViewMode,
     autoplayMode,
     language,
     setColorTheme,
@@ -171,6 +180,7 @@ export const useAppearanceSettings = (userId?: string | null) => {
     setHeaderBehavior,
     setTransitionStyle,
     setMrRandomCount,
+    setProfileViewMode,
     setAutoplayMode,
     setLanguage,
     resetAppearance,

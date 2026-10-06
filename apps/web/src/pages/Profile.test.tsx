@@ -85,6 +85,7 @@ describe("Profile", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockProfileWallProps.length = 0;
+    localStorage.removeItem("profile-view-mode");
   });
 
   afterEach(() => {
@@ -453,5 +454,35 @@ describe("Profile", () => {
     // The moved side is now the active one; the left control reverts to expand.
     expect(screen.getAllByRole("button", { name: "Развернуть в форумный режим" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+  });
+
+  it("opens already unfolded when the default profile view is forum (desktop)", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: /min-width:\s*1024px/.test(query),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    localStorage.setItem("profile-view-mode", "forum");
+
+    try {
+      setupOwnProfile();
+      renderWithProviders(<ProfileComponent />);
+
+      await waitFor(() => {
+        expect(screen.getByText("testuser")).toBeInTheDocument();
+      });
+
+      // The side panel is already there — no edge control was pressed.
+      expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 });
