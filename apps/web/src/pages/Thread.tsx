@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
@@ -312,7 +313,7 @@ const Thread = () => {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen flex-col gap-4">
         <p className="text-muted-foreground text-lg">{t("thread.threadNotFound")}</p>
-        <Link to="/" className="text-primary hover:underline text-sm">{t("thread.goHome")}</Link>
+        <NavigationLink to="/" className="text-primary hover:underline text-sm">{t("thread.goHome")}</NavigationLink>
       </div>
     );
   }
@@ -398,13 +399,13 @@ const Thread = () => {
                       })}
                     </span>
                     {channelSlug && (
-                      <Link
+                      <NavigationLink
                         to={threadPath}
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
                       >
                         # {channelSlug}
-                      </Link>
+                      </NavigationLink>
                     )}
                     {tx.section ? (
                       <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -413,13 +414,13 @@ const Thread = () => {
                         {tx.subsection ? ` · ${tx.subsection.name}` : ""}
                       </span>
                     ) : slug ? (
-                      <Link
+                      <NavigationLink
                         to={threadPath}
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-primary"
                       >
                         в {isGomoRoute ? "g/" : ""}{slug}/
-                      </Link>
+                      </NavigationLink>
                     ) : null}
                   </div>
                 </div>

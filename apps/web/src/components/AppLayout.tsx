@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { motion, useScroll, useMotionValueEvent, useMotionValue, useTransform, animate } from "framer-motion";
 import { transitionEnterClass, isFeedRoute } from "@/lib/viewTransitions";
 import { useTransitionStyle } from "@/hooks/useTransitionStyle";
@@ -1046,13 +1047,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         <div className="space-y-1">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.users')}</div>
           {searchResults.users.slice(0, 4).map((item) => (
-            <Link
+            <NavigationLink
               key={item.id}
               to={profileUrl(item)}
               className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
             >
               @<HighlightText text={item.username} query={searchQuery} />
-            </Link>
+            </NavigationLink>
           ))}
         </div>
       )}
@@ -1060,13 +1061,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         <div className="space-y-1">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.boardsAndSubs')}</div>
           {searchResults.boards.slice(0, 4).map((item) => (
-            <Link
+            <NavigationLink
               key={item.id}
               to={item.is_gomosub ? `/g/${item.slug}` : `/${item.slug}`}
               className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
             >
               {item.is_gomosub ? "g/" : "/"}{item.slug} — <HighlightText text={item.name} query={searchQuery} />
-            </Link>
+            </NavigationLink>
           ))}
         </div>
       )}
@@ -1079,13 +1080,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               ? `/g/${item.board_slug}/thread/${entityParam(item)}`
               : `/thread/${entityParam(item)}`;
             return (
-              <Link
+              <NavigationLink
                 key={item.id}
                 to={link}
                 className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
               >
                 <HighlightText text={item.title} query={searchQuery} />
-              </Link>
+              </NavigationLink>
             );
           })}
         </div>
@@ -1098,14 +1099,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             const param = entityParam({ id: item.thread_id, public_id: item.thread_public_id });
             const link = isGomo ? `/g/${item.board_slug}/thread/${param}` : `/thread/${param}`;
             return (
-              <Link
+              <NavigationLink
                 key={item.id}
                 to={link}
                 className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
               >
                 <span className="text-muted-foreground">{item.thread_title} — </span>
                 <HighlightText text={item.content} query={searchQuery} />
-              </Link>
+              </NavigationLink>
             );
           })}
         </div>
@@ -1114,7 +1115,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         <div className="space-y-1">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('nav.wallPosts')}</div>
           {searchResults.wall_posts.slice(0, 4).map((item) => (
-            <Link
+            <NavigationLink
               key={item.id}
               to={wallPostUrl({ id: item.wall_user_id }, { id: item.id, public_id: item.public_id })}
               className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
@@ -1123,7 +1124,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                 <span className="text-muted-foreground">@{item.author_username} — </span>
               )}
               <HighlightText text={item.content || item.title || ""} query={searchQuery} />
-            </Link>
+            </NavigationLink>
           ))}
         </div>
       )}
@@ -1259,9 +1260,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       >
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex items-center justify-between gap-2 sm:gap-3 min-h-[49px]">
-          <Link to="/" aria-label="gomo6" className="shrink-0 inline-flex items-center group">
+          <NavigationLink to="/" aria-label="gomo6" className="shrink-0 inline-flex items-center group">
             <Gomo6Mark className="app-header-logo h-11 w-11 text-primary transition-transform duration-200 ease-out group-hover:scale-105" />
-          </Link>
+          </NavigationLink>
           <div className="flex gap-1 sm:gap-2 items-center shrink-0">
             <div ref={searchRef} className="hidden lg:block relative">
               <Button
@@ -1322,12 +1323,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             >
               <Search className="h-4 w-4" />
             </Button>
-            <Link to="/settings">
+            <NavigationLink to="/settings">
               <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group">
                 <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>
-            </Link>
+            </NavigationLink>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
             {user && (

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 
 import { openCookieSettings } from "@/lib/cookieConsent";
 import { BRAND } from "@/lib/legal/config";
@@ -30,15 +30,15 @@ export const Footer = () => {
             © {new Date().getFullYear()} {BRAND.name}
           </p>
           {versionLabel && <span className="text-xs text-muted-foreground/70 font-medium">{versionLabel}</span>}
-          <Link to="/legal/terms" className={linkClass}>
+          <NavigationLink to="/legal/terms" className={linkClass}>
             Соглашение
-          </Link>
-          <Link to="/legal/privacy" className={linkClass}>
+          </NavigationLink>
+          <NavigationLink to="/legal/privacy" className={linkClass}>
             Конфиденциальность
-          </Link>
-          <Link to="/legal/rules" className={linkClass}>
+          </NavigationLink>
+          <NavigationLink to="/legal/rules" className={linkClass}>
             Правила
-          </Link>
+          </NavigationLink>
           <button
             type="button"
             onClick={openCookieSettings}

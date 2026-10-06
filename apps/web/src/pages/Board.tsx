@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
-import { invalidateByPrefix } from "@/integrations/api/queryCache";
+import { invalidateByPrefix, peekCached } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { Card } from "@/components/ui/card";
@@ -32,39 +33,21 @@ import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { ChannelChat } from "@/components/ChannelChat";
 import { wsService } from "@/services/websocket";
 import { entityParam } from "@/utils/entityUrl";
+import {
+  boardBySlugUrl,
+  loadBoardBySlug,
+  loadBoardChannels,
+  type BoardRow as Board,
+  type ChannelRow as Channel,
+} from "@/routes/data/boardData";
 
 // Mobile channel sheet grab zone: bottom-left corner of the screen.
 // Used both for the swipe-up-to-open and swipe-down-to-close.
 const EDGE_ZONE_HEIGHT = 100;
 const EDGE_ZONE_WIDTH = 0.3;
 
-interface Board {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  is_rules_board: boolean;
-  is_gomosub?: boolean | null;
-  visibility?: string | null;
-  cover_image_url?: string | null;
-  gomosub_avatar_url?: string | null;
-  owner_id?: string | null;
-  rules_markdown?: string | null;
-  rules_updated_at?: string | null;
-  gomosub_tags?: string[] | null;
-}
-
-interface Channel {
-  id: string;
-  board_id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  category: string | null;
-  sort_order: number;
-  is_private: boolean;
-  kind?: "forum" | "text";
-}
+// Board/Channel shapes now live in `@/routes/data/boardData` (imported above),
+// so the page and the route preloader cannot drift.
 
 interface Thread {
   id: string;
@@ -117,7 +100,11 @@ const Board = () => {
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
-  const [board, setBoard] = useState<Board | null>(null);
+  // Paint a warm board row on the very first render (the route preloader
+  // usually warmed it) instead of flashing a full-screen loader.
+  const [board, setBoard] = useState<Board | null>(
+    () => (slug ? peekCached<Board>(boardBySlugUrl(slug)) ?? null : null),
+  );
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
   const [hasMoreThreads, setHasMoreThreads] = useState(true);
@@ -197,9 +184,7 @@ const Board = () => {
   // Load channels for gomosub boards
   const loadChannels = useCallback(async (boardId: string, ownerId: string | null): Promise<string | null> => {
     try {
-      const channelsResponse = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`);
-      const channelsResult = await channelsResponse.json();
-      let channelsData = (channelsResult.data || []) as Channel[];
+      let channelsData = await loadBoardChannels(boardId);
 
       // Filter private channels based on user permissions
       const isOwner = user?.id && ownerId && user.id === ownerId;
@@ -425,7 +410,8 @@ const Board = () => {
       }
 
       setPageLoading(true);
-      setBoard(null);
+      // Show a warm row for this slug if we have one (SWR), otherwise clear.
+      setBoard(slug ? peekCached<Board>(boardBySlugUrl(slug)) ?? null : null);
       setThreads([]);
       setThreadsCursor(null);
       setHasMoreThreads(true);
@@ -436,9 +422,7 @@ const Board = () => {
       setChannels([]);
       setActiveChannelId(null);
 
-      const boardResponse = await fetch(`/api/v1/boards/${slug}`);
-      const boardResult = await boardResponse.json();
-      const boardData = boardResult.data;
+      const boardData = await loadBoardBySlug(slug);
 
       if (boardData) {
         setRulesConfirmed(false);
@@ -802,7 +786,7 @@ const Board = () => {
   // The channel drawer (mobile) and the desktop sidebar share this list markup.
   const renderChannelList = (onSelect: () => void) => (
     <>
-      <Link
+      <NavigationLink
         to={`/g/${slug}`}
         onClick={() => { setActiveChannelId(null); onSelect(); }}
         className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
@@ -813,7 +797,7 @@ const Board = () => {
       >
         <Hash className="w-4 h-4 shrink-0" />
         <span className="truncate">{t("board.general")}</span>
-      </Link>
+      </NavigationLink>
       {channelCategories.map((group) => (
         <div key={group.category || "__uncategorized"} className="mt-1.5">
           {group.category && (
@@ -822,7 +806,7 @@ const Board = () => {
             </div>
           )}
           {group.channels.map((ch) => (
-            <Link
+            <NavigationLink
               key={ch.id}
               to={`/g/${slug}/c/${ch.slug}`}
               onClick={onSelect}
@@ -840,7 +824,7 @@ const Board = () => {
                 <Hash className="w-4 h-4 shrink-0" />
               )}
               <span className="truncate">{ch.name}</span>
-            </Link>
+            </NavigationLink>
           ))}
         </div>
       ))}
@@ -990,7 +974,10 @@ const Board = () => {
     invalidateByPrefix('/api/v1/boards');
   };
 
-  if (!board || checkingRules) {
+  // Full-screen loader only on a genuinely cold board (no cached row). When the
+  // route preloader warmed it, the page paints immediately; the rules check
+  // (checkingRules) resolves behind the modal instead of blocking the page.
+  if (!board) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
@@ -1490,13 +1477,13 @@ const Board = () => {
                     </button>
                   )}
                   {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
-                    <Link
+                    <NavigationLink
                       to={`/g/${slug}/settings`}
                       className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                     >
                       <Settings className="w-3.5 h-3.5 shrink-0" />
                       <span>{t("board.settings")}</span>
-                    </Link>
+                    </NavigationLink>
                   )}
                 </div>
                 </div>
@@ -1551,9 +1538,9 @@ const Board = () => {
                     <h1 className="text-[15px] font-bold truncate">{activeChannelName || activeChannelSlug}</h1>
                     {activeChannelPrivate && <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
                     <div className="w-px h-5 bg-border/70 mx-1" />
-                    <Link to={`/g/${board.slug}`} className="text-sm text-muted-foreground hover:text-foreground truncate">
+                    <NavigationLink to={`/g/${board.slug}`} className="text-sm text-muted-foreground hover:text-foreground truncate">
                       g/{board.slug}
-                    </Link>
+                    </NavigationLink>
                   </div>
                   {/* Compact actions: share + join */}
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -1840,14 +1827,14 @@ const Board = () => {
                   </button>
                 )}
                 {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
-                  <Link
+                  <NavigationLink
                     to={`/g/${slug}/settings`}
                     onClick={() => setMobileChannelsOpen(false)}
                     className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                   >
                     <Settings className="w-4 h-4 shrink-0" />
                     <span>{t("board.settings")}</span>
-                  </Link>
+                  </NavigationLink>
                 )}
               </div>
             </DrawerContent>
@@ -1962,14 +1949,14 @@ const Board = () => {
                       </div>
                       <div className="h-px bg-border/35" />
 
-                      <Link
+                      <NavigationLink
                         to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`}
                         className="block group/title"
                       >
                         <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
                           {thread.title}
                         </h3>
-                      </Link>
+                      </NavigationLink>
 
                       {Array.isArray(thread.tags?.gomosub_tags) && thread.tags.gomosub_tags.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -1993,24 +1980,24 @@ const Board = () => {
                             : renderContent(thread.content)}
                         </div>
                         {thread.content.length > 900 && (
-                          <Link
+                          <NavigationLink
                             to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`}
                             className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
                           >
                             Читать полностью
                             <ArrowUpRight className="w-4 h-4" />
-                          </Link>
+                          </NavigationLink>
                         )}
                       </div>
 
                       {thread.image_url && (
-                        <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`} className="block pt-1">
+                        <NavigationLink to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${entityParam(thread)}`} className="block pt-1">
                           <img
                             src={storageUrl("content", thread.image_url) || thread.image_url}
                             alt="Thread"
                             className="max-w-[220px] sm:max-w-[280px] max-h-40 sm:max-h-48 object-cover rounded-md"
                           />
-                        </Link>
+                        </NavigationLink>
                       )}
 
                       <div className="h-px bg-border/35 mt-1" />
@@ -2043,7 +2030,7 @@ const Board = () => {
                   </div>
                 </Card>
               ) : (
-                <Link
+                <NavigationLink
                   key={thread.id}
                   to={`${pathPrefix}/${slug}/thread/${entityParam(thread)}`}
                   className="block border border-border bg-surface p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
@@ -2179,7 +2166,7 @@ const Board = () => {
                       </div>
                     </div>
                   </div>
-                </Link>
+                </NavigationLink>
               )
             ))}
             </>

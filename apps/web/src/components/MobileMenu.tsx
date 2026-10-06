@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -195,7 +196,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             {/* Profile panel: the account for a logged-in user, the login CTA
                 for a guest (the header has no separate «Войти» button). */}
             {user ? (
-              <Link
+              <NavigationLink
                 to={profileUrl(user)}
                 onClick={() => setOpen(false)}
                 className="block"
@@ -219,7 +220,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     </div>
                   </div>
                 </div>
-              </Link>
+              </NavigationLink>
             ) : (
               <button
                 type="button"
@@ -400,7 +401,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 <div className="text-xs text-muted-foreground">{t('nav.noSubscriptions')}</div>
               ) : (
                 joinedSubs.map((sub) => (
-                  <Link
+                  <NavigationLink
                     key={sub.id}
                     to={`/g/${sub.slug}`}
                     onClick={() => setOpen(false)}
@@ -408,30 +409,30 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   >
                     <div className="font-medium text-primary">g/{sub.slug}</div>
                     <div className="text-xs text-muted-foreground line-clamp-1">{sub.name}</div>
-                  </Link>
+                  </NavigationLink>
                 ))
               )}
             </div>
 
             {/* Drops */}
             {dropsData && (
-              <Link to="/wallet" onClick={() => setOpen(false)} className="block">
+              <NavigationLink to="/wallet" onClick={() => setOpen(false)} className="block">
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
                   <Droplets className="w-4 h-4 mr-2" />
                   {t('nav.drops')}
                   <span className="ml-auto text-sm text-muted-foreground">{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
                 </Button>
-              </Link>
+              </NavigationLink>
             )}
 
             {/* Moderation */}
             {isModerator && (
-              <Link to="/moderation" onClick={() => setOpen(false)} className="block">
+              <NavigationLink to="/moderation" onClick={() => setOpen(false)} className="block">
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
                   <Hammer className="w-4 h-4 mr-2" />
                   {t('nav.moderation')}
                 </Button>
-              </Link>
+              </NavigationLink>
             )}
           </div>
 

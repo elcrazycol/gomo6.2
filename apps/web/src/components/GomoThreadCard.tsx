@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { useTranslation } from "react-i18next";
 import { ArrowUpRight, Heart, MessageCircle, Share2 } from "lucide-react";
 import { toast } from "sonner";
@@ -178,11 +179,11 @@ export const GomoThreadCard = ({
             }
           />
 
-          <Link to={threadPath} className="block group/title" onClick={(e) => e.stopPropagation()}>
+          <NavigationLink to={threadPath} className="block group/title" onClick={(e) => e.stopPropagation()}>
             <h3 className="break-words text-base font-semibold leading-6 transition-colors group-hover/title:text-primary sm:text-[17px] sm:leading-7">
               {thread.title}
             </h3>
-          </Link>
+          </NavigationLink>
 
           {/* Sub tags */}
           {gomosubTags.length > 0 && (
@@ -240,14 +241,14 @@ export const GomoThreadCard = ({
                 </div>
               )}
               {thread.content.length > 900 && (
-                <Link
+                <NavigationLink
                   to={threadPath}
                   onClick={(e) => e.stopPropagation()}
                   className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80"
                 >
                   Читать полностью
                   <ArrowUpRight className="h-4 w-4" />
-                </Link>
+                </NavigationLink>
               )}
             </div>
           )}

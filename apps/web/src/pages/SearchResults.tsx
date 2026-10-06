@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
+import { NavigationLink } from "@/components/NavigationLink";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -233,13 +234,13 @@ const SearchResults = () => {
                   <p className="text-sm text-muted-foreground">Ничего не найдено</p>
                 ) : (
                   results.users.map((user) => (
-                    <Link
+                    <NavigationLink
                       key={user.id}
                       to={profileUrl(user)}
                       className="block p-2 rounded-md border border-border hover:bg-muted/50 transition-colors"
                     >
                       @<HighlightText text={user.username} query={currentQuery} />
-                    </Link>
+                    </NavigationLink>
                   ))
                 )}
               </CardContent>
@@ -259,7 +260,7 @@ const SearchResults = () => {
                     const link = isGomo ? `/g/${b.slug}` : `/${b.slug}`;
                     const prefix = isGomo ? "g/" : "/";
                     return (
-                      <Link
+                      <NavigationLink
                         key={b.id}
                         to={link}
                         className="block p-2 rounded-md border border-border hover:bg-muted/50 transition-colors"
@@ -268,7 +269,7 @@ const SearchResults = () => {
                         <div className="text-sm text-muted-foreground">
                           <HighlightText text={b.name} query={currentQuery} />
                         </div>
-                      </Link>
+                      </NavigationLink>
                     );
                   })
                 )}
@@ -291,7 +292,7 @@ const SearchResults = () => {
                     ? `/g/${thread.board_slug}/thread/${entityParam(thread)}`
                     : `/thread/${entityParam(thread)}`;
                   return (
-                    <Link
+                    <NavigationLink
                       key={thread.id}
                       to={link}
                       className="block p-3 rounded-md border border-border hover:bg-muted/50 transition-colors"
@@ -307,7 +308,7 @@ const SearchResults = () => {
                       <div className="text-sm text-muted-foreground line-clamp-2 mt-1">
                         <HighlightText text={thread.content} query={currentQuery} />
                       </div>
-                    </Link>
+                    </NavigationLink>
                   );
                 })
               )}
@@ -329,7 +330,7 @@ const SearchResults = () => {
                     ? `/g/${post.board_slug}/thread/${entityParam({ id: post.thread_id, public_id: post.thread_public_id })}`
                     : `/thread/${entityParam({ id: post.thread_id, public_id: post.thread_public_id })}`;
                   return (
-                    <Link
+                    <NavigationLink
                       key={post.id}
                       to={link}
                       className="block p-3 rounded-md border border-border hover:bg-muted/50 transition-colors"
@@ -342,7 +343,7 @@ const SearchResults = () => {
                       <div className="text-sm line-clamp-3">
                         <HighlightText text={post.content} query={currentQuery} />
                       </div>
-                    </Link>
+                    </NavigationLink>
                   );
                 })
               )}
@@ -364,7 +365,7 @@ const SearchResults = () => {
                     { id: post.id, public_id: post.public_id }
                   );
                   return (
-                    <Link
+                    <NavigationLink
                       key={post.id}
                       to={link}
                       className="block p-3 rounded-md border border-border hover:bg-muted/50 transition-colors"
@@ -385,7 +386,7 @@ const SearchResults = () => {
                       <div className="text-sm line-clamp-3">
                         <HighlightText text={post.content} query={currentQuery} />
                       </div>
-                    </Link>
+                    </NavigationLink>
                   );
                 })
               )}
