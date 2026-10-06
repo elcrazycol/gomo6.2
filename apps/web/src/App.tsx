@@ -1,7 +1,8 @@
 import { useEffect, useState, lazy, type ComponentType } from "react";
 import { Toaster as Sonner, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "@/integrations/api/queryClient";
 import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, useNavigationType, type Location } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
@@ -11,10 +12,11 @@ import { ThemeSync } from "@/components/ThemeSync";
 import { applyTheme, getStoredPrefs, syncSharedAppearanceCookies, watchSystemMode } from "@/theme";
 import { applyCustomFont, getStoredCustomFont } from "@/lib/customFont";
 import { runTransition, setTransitionDirection, isFeedRoute } from "@/lib/viewTransitions";
-import { preloadRoute } from "@/lib/routePreload";
+import { preloadRoute } from "@/lib/routeData";
+import { loadRouteChunk } from "@/lib/routeChunks";
 import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 // Registers the per-route data preloaders (stale-view retention).
-import "@/pages/profile/profilePreload";
+import "@/routes/data";
 import { wsService } from "./services/websocket";
 import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
@@ -127,37 +129,11 @@ const LegacySettingsRedirect = () => {
   return <Navigate to={`/settings${section}${location.search}`} replace />;
 };
 
-// Prefetch critical routes on app start
-const prefetchRoutes = () => {  // Prefetch main routes after initial load
-  setTimeout(() => {
-    import("./pages/Auth").catch(() => {});
-    import("./pages/Settings").catch(() => {});
-    import("./pages/Profile").catch(() => {});
-  }, 2000);
-};
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh
-      gcTime: 10 * 60 * 1000, // 10 minutes - cache retention
-      refetchOnWindowFocus: false, // Don't refetch on window focus
-      refetchOnMount: false, // Don't refetch on component mount if data is fresh
-      retry: 1, // Only retry once on failure
-    },
-  },
-});
-
 const App = () => {
   useEffect(() => {
     // Resolve the active UI language (server profile → local → default) and
     // overlay community translations before the first meaningful paint.
     useLanguageStore.getState().initialize();
-  }, []);
-
-  useEffect(() => {
-    // Prefetch critical routes for instant navigation
-    prefetchRoutes();
   }, []);
 
   // Global network error handler — show toast for unhandled fetch failures
@@ -291,10 +267,10 @@ function AppRoutes() {
     setTransitionDirection(navigationType === "POP" ? "back" : "forward");
 
     // Stale-view retention: keep the previous page on screen while the target
-    // route's data loads, then swap through the chosen transition. Routes with
-    // no preloader resolve immediately and behave as before.
+    // route's chunk AND data load, then swap through the chosen transition.
+    // Routes with no preloader resolve immediately and behave as before.
     let cancelled = false;
-    preloadRoute(location).then(() => {
+    Promise.all([preloadRoute(location), loadRouteChunk(location.pathname)]).then(() => {
       if (cancelled) return;
       runTransition(transitionStyle, () => setDisplayLocation(location));
     });

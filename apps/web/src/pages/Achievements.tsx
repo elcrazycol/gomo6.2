@@ -2,28 +2,19 @@ import { useCallback, useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
-import { getCached, invalidateByPrefix } from "@/integrations/api/queryCache";
+import { AchievementCard, type AchievementData } from "@/components/AchievementCard";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
+import {
+  loadAchievementsCatalog,
+  loadAchievementsProfile,
+  loadAchievementsUser,
+  type AchievementRow,
+} from "@/routes/data/achievementsData";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/integrations/api/compat";
 import { Trophy, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isPublicId, profileLookupUrl, profileUrl } from "@/utils/entityUrl";
-
-interface AchievementRow {
-  id: string;
-  group_key?: string;
-  title?: string;
-  name: string;
-  description: string;
-  icon?: string;
-  category: string;
-  rarity?: string;
-  achievement_type?: string;
-  hidden?: boolean;
-  sort_order?: number;
-  levels?: AchievementLevel[];
-}
+import { isPublicId, profileUrl } from "@/utils/entityUrl";
 
 export default function Achievements() {
   const { t } = useTranslation();
@@ -50,52 +41,13 @@ export default function Achievements() {
     try {
       // The profile row is resolved first: the route parameter may be a public
       // number, and user_achievements.user_id is a UUID column.
-      const profileData = await getCached<{ username: string; avatar_url?: string | null; id: string } | null>(
-        `achievements-page:profile:${userId}`,
-        async () => {
-          const res = await fetch(
-            profileLookupUrl(userId),
-          );
-          const json = await res.json();
-          return json.data?.[0] ?? null;
-        },
-        { ttlMs: 60_000 }
-      );
+      const profileData = await loadAchievementsProfile(userId ?? "");
       // A numeric parameter is only resolvable through the profile row above.
       const uid = profileData?.id ?? (isPublicId(userId) ? "" : (userId ?? ""));
 
       const [unlockedRows, catalogRows] = await Promise.all([
-        uid
-          ? getCached<Record<string, unknown>[]>(
-              `achievements-page:user:${uid}`,
-              async () => {
-                const res = await fetch(`/api/v1/user_achievements?user_id=eq.${uid}`);
-                const json = await res.json();
-                return json.data || [];
-              },
-              // Short TTL: unlocks arrive via WS, which dispatches
-              // profile-cache:invalidate → clearQueryCache, so the page refreshes
-              // immediately on unlock even with a longer TTL.
-              { ttlMs: 30_000 }
-            )
-          : Promise.resolve([] as Record<string, unknown>[]),
-        getCached<AchievementRow[]>(
-          "achievements-page:catalog",
-          async () => {
-            const res = await fetch(`/api/v1/achievements?order=sort_order.asc`);
-            const text = await res.text();
-            try {
-              const json = JSON.parse(text);
-              return json.data || [];
-            } catch {
-              console.error("Failed to parse achievements catalog:", text.slice(0, 200));
-              return [];
-            }
-          },
-          // The catalog only changes on deploy (Sync mirrors it at startup),
-          // so a long TTL is safe and saves requests.
-          { ttlMs: 5 * 60_000 }
-        ),
+        uid ? loadAchievementsUser(uid) : Promise.resolve([] as Record<string, unknown>[]),
+        loadAchievementsCatalog(),
       ]);
 
       setProfile(profileData);

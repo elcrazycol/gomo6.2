@@ -3,7 +3,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ImagePlus, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/integrations/api/compat";
-import { getCached } from "@/integrations/api/queryCache";
 import { storageUrl } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -18,7 +17,7 @@ import { normalizeProfileBackgroundVariant, type ProfileBackgroundVariant } from
 import { isValidThemeTokens, applyProfileThemeTokens } from "@/utils/profileTheme";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { useProfileData } from "./profile/useProfileData";
-import { profilePageCacheKey } from "./profile/profilePreload";
+import { warmProfilePageRow } from "@/routes/data/profileData";
 import { useProfileEditing } from "./profile/useProfileEditing";
 import { ProfileHeader } from "./profile/ProfileHeader";
 import { ProfileStats } from "./profile/ProfileStats";
@@ -26,7 +25,6 @@ import { ProfileEditPanel } from "./profile/ProfileEditPanel";
 import { ProfileTabs, type ProfileTab } from "./profile/ProfileTabs";
 import { UsernameDialog, AvatarGalleryDialog } from "./profile/ProfileDialogs";
 import type { Profile, ProfilePrivacyData } from "./profile/types";
-import { profileLookupUrl } from "@/utils/entityUrl";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ForumProfilePanel } from "./profile/ForumProfilePanel";
 import { ForumProfileEdgeToggle, type ForumSide } from "./profile/ForumProfileEdgeToggle";
@@ -160,20 +158,11 @@ const Profile = () => {
     // The route parameter is a public number on new links and a UUID on old
     // ones, so the profile row is resolved FIRST: the privacy, friendship,
     // customization and realtime reads below all need the canonical UUID, and
-    // the owner check can only be made once the row is known. The row is served
-    // through the TTL cache (viewer-scoped key) so back-navigation within the
-    // TTL renders the header instantly instead of re-fetching.
-    const profileData = await getCached<Profile | null>(
-      profilePageCacheKey(localSessionUser?.id, userId ?? ""),
-      async () => {
-        // The parameter is a public number on new links and a UUID on old ones;
-        // the helper picks the matching column.
-        const res = await fetch(profileLookupUrl(userId));
-        const json = await res.json();
-        return (json.data?.[0] as Profile | undefined) ?? null;
-      },
-      { ttlMs: 60_000 }
-    );
+    // the owner check can only be made once the row is known. Shared with the
+    // route preloader (viewer-scoped key + SWR window), so back-navigation
+    // within the stale window paints the header instantly and revalidates in
+    // the background.
+    const profileData = await warmProfilePageRow(localSessionUser?.id, userId ?? "");
 
     const data = profileData;
 
