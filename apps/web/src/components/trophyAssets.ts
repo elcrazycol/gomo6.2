@@ -15,10 +15,17 @@ const TROPHY_ART: Record<string, Record<number, string>> = {
   entries: {
     1: "/trophies/entries-1.png",
     2: "/trophies/entries-2.png",
+    3: "/trophies/entries-3.png",
   },
   likes_received: {
     1: "/trophies/likes_received-1.png",
     2: "/trophies/likes_received-2.png",
+    3: "/trophies/likes_received-3.png",
+  },
+  resonance: {
+    1: "/trophies/resonance-1.png",
+    2: "/trophies/resonance-2.png",
+    3: "/trophies/resonance-3.png",
   },
 };
 
