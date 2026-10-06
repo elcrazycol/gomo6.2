@@ -50,7 +50,7 @@ interface AwardRow {
   level_images?: Record<string, string>;
   achievement_type?: string;
   sort_order?: number;
-  rarity?: Record<string, number>;
+  owner_share?: Record<string, number>;
   levels?: Level[];
 }
 
@@ -98,9 +98,9 @@ function awardName(a: AwardRow): string {
   return a.title || a.name || a.group_key;
 }
 
-/** Owner share for one level, from the computed rarity map. */
+/** Owner share for one level, from the computed owner-share map. */
 function rarityOf(a: AwardRow, level: number): number | null {
-  const v = a.rarity?.[String(level)];
+  const v = a.owner_share?.[String(level)];
   return typeof v === "number" ? v : null;
 }
 
