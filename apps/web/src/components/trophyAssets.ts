@@ -13,19 +13,19 @@
  */
 const TROPHY_ART: Record<string, Record<number, string>> = {
   entries: {
-    1: "/trophies/entries-1.png",
-    2: "/trophies/entries-2.png",
-    3: "/trophies/entries-3.png",
+    1: "/trophies/entries-1.webp",
+    2: "/trophies/entries-2.webp",
+    3: "/trophies/entries-3.webp",
   },
   likes_received: {
-    1: "/trophies/likes_received-1.png",
-    2: "/trophies/likes_received-2.png",
-    3: "/trophies/likes_received-3.png",
+    1: "/trophies/likes_received-1.webp",
+    2: "/trophies/likes_received-2.webp",
+    3: "/trophies/likes_received-3.webp",
   },
   resonance: {
-    1: "/trophies/resonance-1.png",
-    2: "/trophies/resonance-2.png",
-    3: "/trophies/resonance-3.png",
+    1: "/trophies/resonance-1.webp",
+    2: "/trophies/resonance-2.webp",
+    3: "/trophies/resonance-3.webp",
   },
 };
 

@@ -129,7 +129,7 @@ describe("trophyArt", () => {
   });
 
   it("falls back to the bundled registry", () => {
-    expect(trophyArt("likes_received", 1)).toBe("/trophies/likes_received-1.png");
+    expect(trophyArt("likes_received", 1)).toBe("/trophies/likes_received-1.webp");
   });
 
   it("returns null when nothing has artwork", () => {

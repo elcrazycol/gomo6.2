@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Droplets, Loader2, Minus, Plus } from "lucide-react";
+import { Droplets, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 
@@ -16,7 +16,6 @@ interface DropsShopProps {
 
 export function DropsShop({ open, onOpenChange }: DropsShopProps) {
   const [dropsAmount, setDropsAmount] = useState(50);
-  const [purchasing, setPurchasing] = useState(false);
   const [drops, setDrops] = useState<number | null>(null);
 
   const fetchBalance = useCallback(async () => {
@@ -45,36 +44,15 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
 
   const priceUSD = (dropsAmount * PRICE_PER_DROP).toFixed(2);
 
-  const handlePurchase = async () => {
+  // Crypto checkout (DePay) is disabled for now — the integration is pulled
+  // out of the bundle entirely. Keeping the shop UI so it can be re-wired when
+  // payments come back.
+  const handlePurchase = () => {
     if (dropsAmount < 1 || dropsAmount > 100000) {
       toast.error("Количество дропсов должно быть от 1 до 100000");
       return;
     }
-
-    const { data: { user } } = await api.auth.getUser();
-    if (!user) {
-      toast.error("Нужно войти в аккаунт");
-      return;
-    }
-
-    setPurchasing(true);
-    try {
-      const DePayWidgets = (await import("@depay/widgets")).default;
-
-      DePayWidgets.Payment({
-        integration: import.meta.env.VITE_DEPAY_INTEGRATION_ID || "",
-        payload: {
-          drops_amount: dropsAmount,
-          user_id: user.id,
-        },
-      });
-
-      onOpenChange(false);
-    } catch {
-      toast.error("Ошибка при открытии виджета оплаты");
-    } finally {
-      setPurchasing(false);
-    }
+    toast.error("Оплата временно недоступна");
   };
 
   const quickAmounts = [10, 50, 100, 500];
@@ -153,26 +131,17 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
 
           <Button
             onClick={handlePurchase}
-            disabled={purchasing || dropsAmount < 1}
+            disabled={dropsAmount < 1}
             className="w-full"
             size="lg"
           >
-            {purchasing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Открытие виджета...
-              </>
-            ) : (
-              <>
-                <Droplets className="w-4 h-4 mr-2" />
-                Купить за ${priceUSD}
-              </>
-            )}
+            <Droplets className="w-4 h-4 mr-2" />
+            Купить за ${priceUSD}
           </Button>
         </div>
 
         <p className="text-xs text-muted-foreground text-center pt-2">
-          Оплата: ETH, Polygon, Base, Solana
+          Оплата временно недоступна
         </p>
       </DialogContent>
     </Dialog>

@@ -7,7 +7,6 @@
     "packages/*"
   ],
   "dependencies": {
-    "@depay/widgets": "^13.0.45",
     "@radix-ui/react-switch": "^1.2.6",
     "react": "18.3.1",
     "react-dom": "18.3.1"
