@@ -30,7 +30,7 @@ export const Footer = () => {
 
   return (
     <footer className="bg-card border-t border-border">
-      <div className="max-w-6xl mx-auto px-4 py-3">
+      <div className="max-w-6xl mx-auto px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
           <p className="text-xs sm:text-sm text-muted-foreground">
             © {new Date().getFullYear()} {BRAND.name}

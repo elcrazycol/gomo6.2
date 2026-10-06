@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
+import { precacheAndRoute, cleanupOutdatedCaches, matchPrecache } from "workbox-precaching";
 import { registerRoute, NavigationRoute } from "workbox-routing";
 import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
@@ -19,8 +19,8 @@ cleanupOutdatedCaches();
 // SW as soon as its precache finishes; clients.claim() takes control of
 // already-open pages, which fires controllerchange in the app and triggers
 // the reload toast in main.tsx.
-self.addEventListener("install", () => {
-  self.skipWaiting();
+self.addEventListener("install", (event) => {
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
@@ -45,8 +45,11 @@ registerRoute(
     } catch {
       // offline — fall through to the cached shell
     }
-    const cache = await caches.open("workbox-precache-v2");
-    const cached = await cache.match("index.html");
+    // `matchPrecache` resolves the revisioned precache entry; a raw
+    // `cache.match("index.html")` misses it (the stored URL carries
+    // `?__WB_REVISION__`), which left the app with a blank screen offline.
+    const cached =
+      (await matchPrecache("/index.html")) ?? (await matchPrecache("index.html"));
     if (cached) return cached;
     return Response.error();
   }, {

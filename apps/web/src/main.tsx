@@ -88,6 +88,37 @@ const setupServiceWorkerReload = (): (() => void) => {
 };
 const disposeServiceWorkerReload = setupServiceWorkerReload();
 
+// A dynamic `import()` (a lazy route/feature chunk) fails when the freshly
+// activated service worker has already purged the previous build's chunks —
+// the classic "Importing a module script failed." on iOS right after a deploy.
+// Vite dispatches `vite:preloadError` on window in that case; reload once so
+// the tab picks up the new build instead of dying on a blank screen. The retry
+// is rate-limited to one per 10s so a genuinely broken deploy can't trap the
+// user in a reload loop.
+const setupPreloadErrorReload = (): (() => void) => {
+  const RETRY_KEY = "gomo6:preload-retry-at";
+  const onPreloadError = (event: Event) => {
+    event.preventDefault();
+    let lastRetry = 0;
+    try {
+      lastRetry = Number(sessionStorage.getItem(RETRY_KEY) || 0);
+    } catch {
+      /* storage blocked */
+    }
+    if (Date.now() - lastRetry < 10_000) return;
+    try {
+      sessionStorage.setItem(RETRY_KEY, String(Date.now()));
+    } catch {
+      /* storage blocked */
+    }
+    console.warn("[pwa] chunk load failed; reloading for the latest build");
+    window.location.reload();
+  };
+  window.addEventListener("vite:preloadError", onPreloadError);
+  return () => window.removeEventListener("vite:preloadError", onPreloadError);
+};
+const disposePreloadErrorReload = setupPreloadErrorReload();
+
 // Expose for debugging and for other entry points.
 export { logClientError } from "@/lib/logging";
 
@@ -102,6 +133,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     disposeGlobalErrorHandlers();
     disposeServiceWorkerReload();
+    disposePreloadErrorReload();
     disposeMobileKeyboard();
   });
 }
