@@ -27,8 +27,7 @@ import { UsernameDialog, AvatarGalleryDialog } from "./profile/ProfileDialogs";
 import type { Profile, ProfilePrivacyData } from "./profile/types";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ForumProfilePanel } from "./profile/ForumProfilePanel";
-import { ForumProfileEdgeToggle, type ForumSide } from "./profile/ForumProfileEdgeToggle";
-import { DEFAULT_FORUM_SIDE, PROFILE_VIEW_MODE_EVENT, getProfileViewMode } from "@/lib/profileViewMode";
+import { DEFAULT_FORUM_SIDE, PROFILE_VIEW_MODE_EVENT, getProfileViewMode, type ForumSide } from "@/lib/profileViewMode";
 
 /** Whether the viewport is wide enough for the desktop-only forum layout. */
 const isDesktopViewport = () =>
@@ -352,14 +351,11 @@ const Profile = () => {
   // ── Forum layout ─────────────────────────────────────────────────────────
   // An alternate profile layout: the avatar, write/subscribe actions and the
   // social graph move into a side column, while the rest of the profile reflows
-  // around it. The side is picked in the social layout — both edge strips are
-  // offered there and the pressed one becomes the panel's side; in the forum
-  // layout the side is fixed (only the active edge keeps a collapse control).
-  // The viewer's default (Settings → Appearance: social or forum) decides how a
-  // profile opens; manual toggling is per-visit and the layout closes while
-  // editing.
+  // around it. There are no in-page controls — the viewer's «Вид профилей по
+  // умолчанию» (Settings → Appearance: social or forum) is the only switch, and
+  // the profile follows it live. The panel always opens on the left; the layout
+  // closes while editing.
   const forumMode = forumLayout;
-  const showForumToggle = !!profile && !!currentUser && !editing.isEditing;
   const panelVisibleRef = useRef(false);
 
   useEffect(() => {
@@ -372,8 +368,8 @@ const Profile = () => {
     setForumSide(null);
   }, []);
 
-  const openForum = useCallback((side: ForumSide = DEFAULT_FORUM_SIDE) => {
-    setForumSide(side);
+  const openForum = useCallback(() => {
+    setForumSide(DEFAULT_FORUM_SIDE);
     setPanelVisible(true);
     setForumLayout(true);
   }, []);
@@ -413,33 +409,6 @@ const Profile = () => {
     return () => window.removeEventListener(PROFILE_VIEW_MODE_EVENT, sync);
   }, [applyForumPreference]);
 
-  const toggleForumSide = useCallback((side: ForumSide) => {
-    if (panelVisible && forumSide === side) {
-      // Close: hide the panel to start the exit animation. The wide layout is
-      // kept until it completes (handleForumExitComplete), so nothing snaps.
-      setPanelVisible(false);
-      return;
-    }
-    // Unfold on this side — either from the social layout (where both edges are
-    // offered, that is where the side is picked) or by cancelling an exit.
-    setForumSide(side);
-    setPanelVisible(true);
-    setForumLayout(true);
-  }, [panelVisible, forumSide]);
-
-  // The side is chosen in the social layout: while no panel is on screen both
-  // edges offer themselves, and pressing one unfolds the profile there. Once a
-  // side is active the opposite strip is dropped — in the forum layout the side
-  // is fixed and only the active edge remains, as a collapse control.
-  //
-  // Locked on `forumLayout` rather than `panelVisible`: the wide layout outlives
-  // the presence (it is kept until the exit animation finishes), so this also
-  // covers the collapse — otherwise both edges would reappear mid-exit and the
-  // panel's side could flip while it animates away.
-  const sideLocked = panelVisible || forumLayout;
-  const leftEdgeVisible = !sideLocked || forumSide === "left";
-  const rightEdgeVisible = !sideLocked || forumSide === "right";
-
   const handleForumExitComplete = useCallback(() => {
     // Reopening during the exit cancels it; only collapse the layout when the
     // panel really stayed hidden.
@@ -456,13 +425,6 @@ const Profile = () => {
     : forumSide === "left"
       ? "max(1rem, calc(50vw - 512px))"
       : "max(1rem, calc(50vw - 304px))";
-
-  // Edge controls live in the gutters beside the content column. The gutter (up
-  // to a cap) is only the hover surface that reveals the chevron and the
-  // positioning context for it — the small button inside sits a fixed gap from
-  // the content. The column is wider (max-w-5xl) when the forum panel is open.
-  const forumToggleGutter = `clamp(0px, calc(50vw - ${forumMode ? "512px" : "336px"}), 40rem)`;
-  const forumToggleGap = "48px";
 
   // Set default tab based on wall visibility. The wall tab is available to
   // every viewer while showProfileWall is on (for non-friends on a private
@@ -887,34 +849,6 @@ const Profile = () => {
           >
             <Plus className={`h-5 w-5 transition-transform duration-300 ease-out ${wallCreateOpen ? "rotate-45" : "rotate-0"}`} />
           </Button>
-        )}
-
-        {/* Edge controls that unfold the profile into the forum layout. Desktop
-            only — hidden under `lg`, where there is no hover and no room for a
-            second column. Both edges are offered while no side is active (that
-            is where the side is chosen); once the panel is open only the active
-            edge remains, and it collapses the layout again. */}
-        {showForumToggle && (
-          <>
-            {leftEdgeVisible && (
-              <ForumProfileEdgeToggle
-                side="left"
-                active={forumSide === "left"}
-                onToggle={toggleForumSide}
-                gutterWidth={forumToggleGutter}
-                gap={forumToggleGap}
-              />
-            )}
-            {rightEdgeVisible && (
-              <ForumProfileEdgeToggle
-                side="right"
-                active={forumSide === "right"}
-                onToggle={toggleForumSide}
-                gutterWidth={forumToggleGutter}
-                gap={forumToggleGap}
-              />
-            )}
-          </>
         )}
       </main>
   );

@@ -15,8 +15,14 @@ export const PROFILE_VIEW_MODE_KEY = "profile-view-mode";
 
 export const DEFAULT_PROFILE_VIEW_MODE: ProfileViewMode = "social";
 
-/** Side the forum panel opens on when profiles default to the forum layout. */
-export const DEFAULT_FORUM_SIDE: "left" | "right" = "left";
+/** The edge the forum layout's side column occupies. */
+export type ForumSide = "left" | "right";
+
+/**
+ * Side the forum panel opens on. There is no in-page control to move it — the
+ * side is fixed, so this is the only value in play.
+ */
+export const DEFAULT_FORUM_SIDE: ForumSide = "left";
 
 /** Broadcast so an already-open profile picks up the choice without a reload. */
 export const PROFILE_VIEW_MODE_EVENT = "gomo6:profile-view-mode";

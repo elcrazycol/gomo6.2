@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
+import { setProfileViewMode } from "@/lib/profileViewMode";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -409,9 +410,9 @@ describe("Profile", () => {
     });
   });
 
-  // ─── Forum layout toggle ────────────────────────────────────────────────────
+  // ─── Forum layout (Settings-driven) ─────────────────────────────────────────
 
-  it("unfolds the profile from an edge into the forum layout and collapses with the same button", async () => {
+  it("renders no in-page mode controls — the mode comes from Settings only", async () => {
     setupOwnProfile();
     renderWithProviders(<ProfileComponent />);
 
@@ -419,85 +420,52 @@ describe("Profile", () => {
       expect(screen.getByText("testuser")).toBeInTheDocument();
     });
 
-    // Both edge controls share the expand label while neither side is active.
-    const expandButtons = await screen.findAllByRole("button", { name: "Развернуть в форумный режим" });
-    expect(expandButtons).toHaveLength(2);
-
-    // The left control unfolds the panel on the left.
-    fireEvent.click(expandButtons[0]);
-    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
-
-    // The same-side button collapses the layout again.
-    fireEvent.click(screen.getByRole("button", { name: "Свернуть в режим соцсети" }));
-    await waitFor(() => {
-      expect(screen.queryByTestId("forum-profile-panel")).not.toBeInTheDocument();
-    });
+    // No edge strips and no expand/collapse controls anywhere on the profile:
+    // «Вид профилей по умолчанию» in Settings is the single way to switch.
+    expect(document.querySelectorAll("[data-forum-edge]")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Развернуть в форумный режим" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Свернуть в режим соцсети" })).toBeNull();
   });
 
-  it("drops the opposite edge control while the forum panel is open (side is chosen in social mode)", async () => {
-    setupOwnProfile();
-    renderWithProviders(<ProfileComponent />);
+  it("opens the forum layout from the Settings preference and follows a change live", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: /min-width:\s*1024px/.test(query),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
 
-    await waitFor(() => {
-      expect(screen.getByText("testuser")).toBeInTheDocument();
-    });
+    try {
+      setupOwnProfile();
+      renderWithProviders(<ProfileComponent />);
 
-    fireEvent.click(document.querySelector('[data-forum-edge="left"]') as HTMLElement);
-    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("testuser")).toBeInTheDocument();
+      });
 
-    // In forum mode the side is fixed: the opposite strip is gone, so the panel
-    // cannot be pulled across to the other edge. Only the active side keeps a
-    // (collapse) control.
-    expect(document.querySelector('[data-forum-edge="right"]')).toBeNull();
-    expect(document.querySelector('[data-forum-edge="left"]')).not.toBeNull();
-  });
+      // Settings applied while the profile is open (the header switch writes the
+      // preference and broadcasts) — the profile follows without a reload.
+      act(() => {
+        setProfileViewMode("forum");
+      });
+      expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+      // Still no in-page controls in the forum layout.
+      expect(document.querySelectorAll("[data-forum-edge]")).toHaveLength(0);
 
-  it("keeps only the right edge control when the panel was unfolded on the right", async () => {
-    setupOwnProfile();
-    renderWithProviders(<ProfileComponent />);
-
-    await waitFor(() => {
-      expect(screen.getByText("testuser")).toBeInTheDocument();
-    });
-
-    fireEvent.click(document.querySelector('[data-forum-edge="right"]') as HTMLElement);
-    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
-
-    // The surviving control is the right one — it collapses back into the
-    // social layout. The left strip is gone, so the panel cannot be pulled
-    // across to the other edge.
-    expect(document.querySelector('[data-forum-edge="left"]')).toBeNull();
-    expect(document.querySelector('[data-forum-edge="right"]')).not.toBeNull();
-    const collapseButton = screen.getByRole("button", { name: "Свернуть в режим соцсети" });
-    expect(collapseButton).toBeInTheDocument();
-
-    fireEvent.click(collapseButton);
-    await waitFor(() => {
-      expect(screen.queryByTestId("forum-profile-panel")).not.toBeInTheDocument();
-    });
-    // Back in social mode both sides are offered again — the side choice is
-    // available there.
-    expect(document.querySelector('[data-forum-edge="left"]')).not.toBeNull();
-    expect(document.querySelector('[data-forum-edge="right"]')).not.toBeNull();
-  });
-
-  it("does not offer the opposite edge while the panel is collapsing", async () => {
-    setupOwnProfile();
-    renderWithProviders(<ProfileComponent />);
-
-    await waitFor(() => {
-      expect(screen.getByText("testuser")).toBeInTheDocument();
-    });
-
-    fireEvent.click(document.querySelector('[data-forum-edge="left"]') as HTMLElement);
-    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
-
-    // Collapse. The wide layout and the side survive the exit animation, so the
-    // opposite edge must not reappear in that window — otherwise the panel's
-    // side could be flipped while it animates away.
-    fireEvent.click(screen.getByRole("button", { name: "Свернуть в режим соцсети" }));
-    expect(document.querySelector('[data-forum-edge="right"]')).toBeNull();
+      act(() => {
+        setProfileViewMode("social");
+      });
+      await waitFor(() => {
+        expect(screen.queryByTestId("forum-profile-panel")).not.toBeInTheDocument();
+      });
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 
   it("opens already unfolded when the default profile view is forum (desktop)", async () => {
@@ -522,9 +490,8 @@ describe("Profile", () => {
         expect(screen.getByText("testuser")).toBeInTheDocument();
       });
 
-      // The side panel is already there — no edge control was pressed.
+      // The side panel is already there — the preference alone decides it.
       expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
     } finally {
       window.matchMedia = originalMatchMedia;
     }
