@@ -323,4 +323,18 @@ describe("FeedThreadCard", () => {
 
     expect(mockNavigateFn).toHaveBeenCalledWith("/test-board/thread/thread-1");
   });
+
+  it("has no dedicated «Открыть запись» action — the card itself opens the thread", async () => {
+    renderCard();
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Thread Title")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: /Открыть запись/i })).not.toBeInTheDocument();
+    // The remaining actions stay.
+    expect(screen.getByRole("button", { name: /Нравится/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ответы/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Поделиться/i })).toBeInTheDocument();
+  });
 });

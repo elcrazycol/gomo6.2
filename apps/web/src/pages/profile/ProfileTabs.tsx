@@ -2,7 +2,7 @@ import { lazy, Suspense, useLayoutEffect, useRef, useEffect, useState } from "re
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ChevronDown, Gift, LayoutGrid, MessageSquareText, Plus, Trophy, Users, type LucideIcon } from "lucide-react";
+import { ChevronDown, Gift, Layers, LayoutGrid, MessageSquareText, Plus, Trophy, Users, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -23,8 +23,9 @@ import type { Profile } from "./types";
 const GiftsTab = lazy(() => import("@/components/GiftsTab").then((m) => ({ default: m.GiftsTab })));
 const SubscriptionsPanel = lazy(() => import("@/components/SubscriptionsPanel").then((m) => ({ default: m.SubscriptionsPanel })));
 const ProfileThreadsTab = lazy(() => import("./ProfileThreadsTab").then((m) => ({ default: m.ProfileThreadsTab })));
+const ProfileAllTab = lazy(() => import("./ProfileAllTab").then((m) => ({ default: m.ProfileAllTab })));
 
-export type ProfileTab = "wall" | "achievements" | "threads" | "gifts" | "subscribers";
+export type ProfileTab = "all" | "wall" | "achievements" | "threads" | "gifts" | "subscribers";
 
 export interface ProfileTabsProps {
   activeTab: ProfileTab;
@@ -43,6 +44,7 @@ export interface ProfileTabsProps {
   currentUsername: string;
   currentUserColor: string;
   // Section visibility — derived by the page from the owner's privacy flags.
+  allTabVisible: boolean;
   wallTabVisible: boolean;
   showThreadsTab: boolean;
   canViewAchievements: boolean;
@@ -226,6 +228,7 @@ export function ProfileTabs({
   currentUser,
   currentUsername,
   currentUserColor,
+  allTabVisible,
   wallTabVisible,
   showThreadsTab,
   canViewAchievements,
@@ -254,6 +257,7 @@ export function ProfileTabs({
   // after the (already-loaded) list.
   useEffect(() => {
     void import("./ProfileThreadsTab");
+    void import("./ProfileAllTab");
     void import("@/components/GiftsTab");
     void import("@/components/SubscriptionsPanel");
   }, []);
@@ -440,6 +444,13 @@ export function ProfileTabs({
         <span className="profile-tabbar__bg" aria-hidden="true" />
         <div className="relative z-10 overflow-x-auto">
         <div className="flex gap-1 min-w-max px-1.5 py-1">
+          {allTabVisible && (
+            <TabButton
+              tab={{ key: "all", icon: Layers, label: t("profile.allContent") }}
+              active={activeTab === 'all'}
+              onClick={() => switchTab('all')}
+            />
+          )}
           {wallTabVisible && (
             <WallTabButton
               active={activeTab === 'wall'}
@@ -589,6 +600,21 @@ export function ProfileTabs({
         ref={tabBodyWrapRef}
         className={`min-h-[100dvh]${contentPanel ? " surface-panel mt-3 rounded-xl border border-border/60 p-3 shadow-sm" : ""}`}
       >
+        {activeTab === 'all' && allTabVisible && (
+          <Suspense fallback={null}>
+            <ProfileAllTab
+              key={userId}
+              profileUserId={userId}
+              profileUsername={profile.username}
+              includeThreads={showThreadsTab && canViewThreads}
+              includeWall={wallTabVisible && !wallHiddenFromViewer}
+              currentUserId={currentUser?.id || null}
+              currentUsername={currentUsername}
+              currentUserColor={currentUserColor}
+            />
+          </Suspense>
+        )}
+
         {activeTab === 'wall' && wallTabVisible && (
           <div>
           {selectedAlbum ? (

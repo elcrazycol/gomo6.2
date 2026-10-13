@@ -147,6 +147,7 @@ describe("Profile", () => {
         eq: () => ({
           order: () => ({
             maybeSingle: () => Promise.resolve({ data: {}, error: null }),
+            limit: () => Promise.resolve({ data: [], error: null }),
           }),
         }),
       }),
@@ -197,6 +198,25 @@ describe("Profile", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Записи" })).toBeInTheDocument();
+    });
+  });
+
+  it("offers «Всё» as the default landing tab that combines the owner's content", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    // The combined tab is offered and is the landing tab, so the wall body is
+    // not mounted until the viewer explicitly asks for it.
+    expect(screen.getByRole("button", { name: "Всё" })).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-wall")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Стена" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("profile-wall")).toBeInTheDocument();
     });
   });
 
@@ -283,6 +303,7 @@ describe("Profile", () => {
         eq: () => ({
           order: () => ({
             maybeSingle: () => Promise.resolve({ data: {}, error: null }),
+            limit: () => Promise.resolve({ data: [], error: null }),
           }),
         }),
       }),
@@ -336,6 +357,9 @@ describe("Profile", () => {
     expect(screen.queryByRole("button", { name: "Записи" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Подписчики/)).not.toBeInTheDocument();
+    // Neither threads nor wall content are visible, so «Всё» must not offer an
+    // empty stream.
+    expect(screen.queryByRole("button", { name: "Всё" })).not.toBeInTheDocument();
   });
 
   it("opens the album row from the wall tab chevron and shows album chips", async () => {
@@ -365,6 +389,10 @@ describe("Profile", () => {
     await waitFor(() => {
       expect(screen.getByText("testuser")).toBeInTheDocument();
     });
+
+    // «Всё» is the default landing tab now, so open the wall tab first — its
+    // chevron reveals the album row.
+    fireEvent.click(screen.getByRole("button", { name: "Стена" }));
 
     // The chevron next to «Стена» (own profile, wall tab open) reveals the row.
     const chevron = await screen.findByTitle("Альбомы");

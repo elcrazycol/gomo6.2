@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ExternalLink, Heart, MessageCircle, Share2 } from "lucide-react";
+import { Heart, MessageCircle, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/integrations/api/compat";
@@ -258,12 +258,6 @@ export const FeedThreadCard = ({
           icon={<MessageCircle className="h-4 w-4" />}
           label="Ответы"
           count={thread.post_count ?? 0}
-          onClick={handleOpenThread}
-        />
-        <ActionButton
-          minimal
-          icon={<ExternalLink className="h-4 w-4" />}
-          label="Открыть запись"
           onClick={handleOpenThread}
         />
         <ActionButton

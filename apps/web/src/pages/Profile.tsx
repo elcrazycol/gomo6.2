@@ -338,10 +338,20 @@ const Profile = () => {
     return !hidden;
   };
 
+  const canViewThreads = canViewSection(privateHideThreads);
+  const threadsVisible = showThreadsTab && canViewThreads;
+
   // The wall tab is available to every viewer while the wall is enabled: for
   // non-friends on a private profile it renders the "wall is hidden" notice
   // instead of content.
   const wallTabVisible = showProfileWall && (isNonFriendOnPrivate || canViewSection(privateHideWall));
+
+  // «Всё» combines the owner's threads and their wall, so it is offered (and is
+  // the landing tab) only when at least one of those surfaces actually carries
+  // content for this viewer. A wall that is visible merely as a "hidden" notice
+  // must not open an empty stream, so it does not count here.
+  const wallContentVisible = wallTabVisible && !wallHiddenFromViewer;
+  const allTabVisible = threadsVisible || wallContentVisible;
 
   // The floating "Написать на стене" button is shown when this viewer may
   // actually leave a post: logged in, allowed on this wall, and the wall is
@@ -426,13 +436,12 @@ const Profile = () => {
       ? "max(1rem, calc(50vw - 512px))"
       : "max(1rem, calc(50vw - 304px))";
 
-  // Set default tab based on wall visibility. The wall tab is available to
-  // every viewer while showProfileWall is on (for non-friends on a private
-  // profile it shows the "wall is hidden" notice instead of content), so it
-  // is the natural landing tab.
+  // Set default tab. «Всё» is the natural landing surface when it is visible
+  // (it is the owner's whole stream); otherwise fall back to the wall, then to
+  // achievements for a profile that exposes neither threads nor a wall.
   useEffect(() => {
-    setActiveTab(showProfileWall ? 'wall' : 'achievements');
-  }, [showProfileWall]);
+    setActiveTab(allTabVisible ? 'all' : showProfileWall ? 'wall' : 'achievements');
+  }, [allTabVisible, showProfileWall]);
 
   useEffect(() => {
     if (userId) {
@@ -535,10 +544,11 @@ const Profile = () => {
       currentUser={currentUser}
       currentUsername={currentUserUsername}
       currentUserColor={currentUserColor}
+      allTabVisible={allTabVisible}
       wallTabVisible={wallTabVisible}
       showThreadsTab={showThreadsTab}
       canViewAchievements={canViewSection(privateHideAchievements)}
-      canViewThreads={canViewSection(privateHideThreads)}
+      canViewThreads={canViewThreads}
       canViewGifts={canViewSection(privateHideGifts)}
       canViewSubscriptions={canViewSection(privateHideFriends)}
       showProfileWall={showProfileWall}
