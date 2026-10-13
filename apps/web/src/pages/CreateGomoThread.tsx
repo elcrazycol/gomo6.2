@@ -125,8 +125,13 @@ const CreateGomoThread = () => {
   const handlePublish = useCallback(
     async ({ json, text, attachments }: RichComposerPayload) => {
       if (!board) return;
-      if (!title.trim() || !text.trim()) {
-        toast.error("Заполните заголовок и текст");
+      if (!title.trim()) {
+        toast.error("Введите заголовок записи");
+        return;
+      }
+      // The body may be media-only — only the title is mandatory.
+      if (!text.trim() && attachments.length === 0) {
+        toast.error("Добавьте текст или медиафайл");
         return;
       }
 

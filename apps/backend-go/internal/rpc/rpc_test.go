@@ -1316,6 +1316,53 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 	}
 }
 
+// A thread body may be media-only (no text) as long as an attachment is sent;
+// only the title stays mandatory. Regression for issue #503.
+func TestCreateThreadRPC_MediaOnlyNoContent(t *testing.T) {
+	h, mock := setupRPCHandlerWithSyncStats(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
+		WithArgs(boardID, nil, nil, nil, "u1", "Media Only", "",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
+			"image_url", "image_urls", "attachments", "post_count", "server_domain",
+			"created_at", "updated_at", "is_remote",
+		}).AddRow(
+			"thread-media", boardID, nil, nil, nil, "u1", "Media Only", "", nil,
+			nil, nil, nil, 0, "localhost:8080",
+			now, now, false,
+		))
+	mock.ExpectCommit()
+
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"board_id": boardID,
+		"title":    "Media Only",
+		"content":  "",
+		"attachments": []map[string]interface{}{
+			{"url": "https://cdn.example/pic.png", "type": "image"},
+		},
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for media-only thread, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
