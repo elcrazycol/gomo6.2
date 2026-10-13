@@ -435,7 +435,7 @@ describe("Profile", () => {
     });
   });
 
-  it("moves the forum panel to the opposite edge when the other button is pressed", async () => {
+  it("drops the opposite edge control while the forum panel is open (side is chosen in social mode)", async () => {
     setupOwnProfile();
     renderWithProviders(<ProfileComponent />);
 
@@ -443,17 +443,61 @@ describe("Profile", () => {
       expect(screen.getByText("testuser")).toBeInTheDocument();
     });
 
-    const [leftToggle, rightToggle] = await screen.findAllByRole("button", { name: "Развернуть в форумный режим" });
-
-    fireEvent.click(leftToggle);
+    fireEvent.click(document.querySelector('[data-forum-edge="left"]') as HTMLElement);
     expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
 
-    // Pressing the opposite control keeps the panel open but relocates it.
-    fireEvent.click(rightToggle);
-    expect(screen.getByTestId("forum-profile-panel")).toBeInTheDocument();
-    // The moved side is now the active one; the left control reverts to expand.
-    expect(screen.getAllByRole("button", { name: "Развернуть в форумный режим" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Свернуть в режим соцсети" })).toBeInTheDocument();
+    // In forum mode the side is fixed: the opposite strip is gone, so the panel
+    // cannot be pulled across to the other edge. Only the active side keeps a
+    // (collapse) control.
+    expect(document.querySelector('[data-forum-edge="right"]')).toBeNull();
+    expect(document.querySelector('[data-forum-edge="left"]')).not.toBeNull();
+  });
+
+  it("keeps only the right edge control when the panel was unfolded on the right", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    fireEvent.click(document.querySelector('[data-forum-edge="right"]') as HTMLElement);
+    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+
+    // The surviving control is the right one — it collapses back into the
+    // social layout. The left strip is gone, so the panel cannot be pulled
+    // across to the other edge.
+    expect(document.querySelector('[data-forum-edge="left"]')).toBeNull();
+    expect(document.querySelector('[data-forum-edge="right"]')).not.toBeNull();
+    const collapseButton = screen.getByRole("button", { name: "Свернуть в режим соцсети" });
+    expect(collapseButton).toBeInTheDocument();
+
+    fireEvent.click(collapseButton);
+    await waitFor(() => {
+      expect(screen.queryByTestId("forum-profile-panel")).not.toBeInTheDocument();
+    });
+    // Back in social mode both sides are offered again — the side choice is
+    // available there.
+    expect(document.querySelector('[data-forum-edge="left"]')).not.toBeNull();
+    expect(document.querySelector('[data-forum-edge="right"]')).not.toBeNull();
+  });
+
+  it("does not offer the opposite edge while the panel is collapsing", async () => {
+    setupOwnProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("testuser")).toBeInTheDocument();
+    });
+
+    fireEvent.click(document.querySelector('[data-forum-edge="left"]') as HTMLElement);
+    expect(await screen.findByTestId("forum-profile-panel")).toBeInTheDocument();
+
+    // Collapse. The wide layout and the side survive the exit animation, so the
+    // opposite edge must not reappear in that window — otherwise the panel's
+    // side could be flipped while it animates away.
+    fireEvent.click(screen.getByRole("button", { name: "Свернуть в режим соцсети" }));
+    expect(document.querySelector('[data-forum-edge="right"]')).toBeNull();
   });
 
   it("opens already unfolded when the default profile view is forum (desktop)", async () => {
