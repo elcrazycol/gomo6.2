@@ -8,6 +8,15 @@ import type { NotesMeta } from "@/utils/notesCrypto";
 import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
 import { appendMessages, mergeMessages, prependOlder } from "@/components/messenger/core/messageModel";
 
+/**
+ * The starting index for react-virtuoso's `firstItemIndex`. It only ever
+ * DECREASES (by the number of older messages prepended) so the indices of the
+ * already-rendered messages stay stable across a prepend — that is what makes
+ * loading history seamless. It is large enough that a conversation would need
+ * 100 000 prepends before it could reach 0.
+ */
+export const INITIAL_FIRST_ITEM_INDEX = 100000;
+
 let messageLoadGeneration = 0;
 let loadMoreRequestGeneration = 0;
 let conversationLoadGeneration = 0;
@@ -311,6 +320,8 @@ type MessengerStore = {
   selectedConversationId: string | null;
   openingUnreadCount: number;
   messages: MessageView[];
+  /** react-virtuoso `firstItemIndex` — decremented on every history prepend. */
+  firstItemIndex: number;
   receipts: Map<string, ReceiptRow[]>; // conversation_id → receipts
   typingUsers: Record<string, TypingUser>; // user_id → typing info
   onlineUsers: Set<string>;
@@ -380,6 +391,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   selectedConversationId: null,
   openingUnreadCount: 0,
   messages: [],
+  firstItemIndex: INITIAL_FIRST_ITEM_INDEX,
   receipts: new Map(),
   typingUsers: {},
   onlineUsers: new Set(),
@@ -492,7 +504,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       if (cachedView && cachedView.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
         hasCachedMessages = true;
         rememberLatestEventId(conversationId, cachedView);
-        set({ messages: cachedView, hasMoreMessages: cachedView.length >= 50 });
+        set({ messages: cachedView, firstItemIndex: INITIAL_FIRST_ITEM_INDEX, hasMoreMessages: cachedView.length >= 50 });
       }
     } catch {
       // IndexedDB is an optional optimization; never block the network path.
@@ -521,6 +533,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
       set({
         messages: msgs,
+        firstItemIndex: INITIAL_FIRST_ITEM_INDEX,
         isMessagesLoading: false,
         hasMoreMessages: !notesConversationExists(conversationId) && msgs.length >= 50,
       });
@@ -590,10 +603,14 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         // model dedupes by identity and keeps the copy already on screen (it
         // may carry a local edit/status the re-fetched page lacks).
         const messages = prependOlder(s.messages, older);
+        // Keep react-virtuoso's indices stable: the newly prepended messages
+        // take the indices just below the previous first one.
+        const added = messages.length - s.messages.length;
         rememberLatestEventId(conversationId, messages);
         cacheCurrentMessages(ownerId, conversationId, messages);
         return {
           messages,
+          firstItemIndex: s.firstItemIndex - added,
           hasMoreMessages: older.length >= 50,
           isLoadingMore: false,
         };
@@ -1007,6 +1024,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       selectedConversationId: id,
       openingUnreadCount,
       messages: [],
+      firstItemIndex: INITIAL_FIRST_ITEM_INDEX,
       hasMoreMessages: true,
       isLoadingMore: false,
       isMessagesLoading: !!id,

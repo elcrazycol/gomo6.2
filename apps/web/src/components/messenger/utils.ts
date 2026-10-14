@@ -2,9 +2,24 @@ import i18n from "@/i18n";
 import { getDateLocale, getIntlLanguage } from "@/i18n/dateLocale";
 import { formatDistanceToNow } from "date-fns";
 
+// `Intl.DateTimeFormat` construction is expensive (locale-data lookup) and
+// `formatTime` runs for every message on every render — the CPU profile of a
+// scroll showed it as the single hottest function (1307ms in a 4s scroll).
+// Build each formatter once per locale instead.
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+function cachedFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale}|${options.hour ? "t" : ""}${options.day ? "d" : ""}`;
+  let formatter = formatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    formatterCache.set(key, formatter);
+  }
+  return formatter;
+}
+
 export const formatTime = (dateStr: string | null): string => {
   if (!dateStr) return "";
-  return new Intl.DateTimeFormat(getIntlLanguage(), { hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
+  return cachedFormatter(getIntlLanguage(), { hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
 };
 
 /**
@@ -21,7 +36,7 @@ export const formatReadAt = (dateStr: string | null): string => {
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   if (d.toDateString() === yesterday.toDateString()) return i18n.t("time.yesterdayAt", { time });
-  const date = new Intl.DateTimeFormat(getIntlLanguage(), { day: "2-digit", month: "2-digit" }).format(d);
+  const date = cachedFormatter(getIntlLanguage(), { day: "2-digit", month: "2-digit" }).format(d);
   return i18n.t("time.dateAt", { date, time });
 };
 
@@ -35,7 +50,7 @@ export const formatConversationDate = (dateStr: string | null): string => {
   if (diffDays === 0) return formatTime(dateStr);
   if (diffDays === 1) return i18n.t("time.yesterdayTitle");
   if (diffDays < 7) return i18n.t("time.daysShortNoSuffix", { count: diffDays });
-  return new Intl.DateTimeFormat(getIntlLanguage(), { day: "2-digit", month: "2-digit" }).format(d);
+  return cachedFormatter(getIntlLanguage(), { day: "2-digit", month: "2-digit" }).format(d);
 };
 
 // A user who went offline within the last minute reads as «был(а) только что»

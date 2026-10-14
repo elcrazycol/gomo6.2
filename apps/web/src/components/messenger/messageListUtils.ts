@@ -2,6 +2,19 @@ import i18n from "@/i18n";
 import { getIntlLanguage } from "@/i18n/dateLocale";
 import type { MessageView } from "./types";
 
+// Built once per locale — `Intl.DateTimeFormat` construction is expensive and
+// this runs for the first message of every day.
+let dayMonthFormatter: Intl.DateTimeFormat | null = null;
+let dayMonthLocale = "";
+function dayMonth(): Intl.DateTimeFormat {
+  const locale = getIntlLanguage();
+  if (!dayMonthFormatter || dayMonthLocale !== locale) {
+    dayMonthFormatter = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long" });
+    dayMonthLocale = locale;
+  }
+  return dayMonthFormatter;
+}
+
 /**
  * True when two messages from the same sender belong to the same visual group
  * (the second message arrives within 2 minutes of the first).
@@ -35,5 +48,5 @@ export function getDateSeparator(
 
   if (currDate === today) return i18n.t("time.today");
   if (currDate === yesterday) return i18n.t("time.yesterday");
-  return new Intl.DateTimeFormat(getIntlLanguage(), { day: "numeric", month: "long" }).format(new Date(curr.sent_at));
+  return dayMonth().format(new Date(curr.sent_at));
 }

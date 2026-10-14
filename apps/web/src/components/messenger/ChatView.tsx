@@ -372,7 +372,7 @@ export const ChatView = memo(function ChatView({
         <div data-message-id={msg.id}>
           {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}
           {conversation.is_group && !isGrouped && msg.sender_user_id !== me.id && msg.sender_username && (
-            <div className={`msg-sender-name ${getUserColorClass(msg.sender_user_id)}`} style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, marginLeft: 4, paddingLeft: 4 }}>
+            <div className={`msg-sender-name ${getUserColorClass(msg.sender_user_id)}`} style={{ fontSize: 12, fontWeight: 600, paddingBottom: 2, paddingLeft: 4 }}>
               {msg.sender_username}
             </div>
           )}

@@ -30,6 +30,16 @@ const SWIPE_MAX_ANGLE_TAN = Math.tan((40 * Math.PI) / 180);
  *  large enough to ignore idle finger wiggles. */
 const SWIPE_LOCK_SLOP = 5;
 
+/**
+ * Measured single-line/multiline result, per message and viewport width. A
+ * bubble that is re-mounted while scrolling reuses it instead of forcing a
+ * layout again (the measurement was the hottest function in the scroll CPU
+ * profile). Keyed by width so a resize re-measures; capped so it cannot grow
+ * without bound.
+ */
+const compactLineCache = new Map<string, boolean>();
+const COMPACT_CACHE_MAX = 2000;
+
 interface Props {
   message: MessageView;
   isMine: boolean;
@@ -425,9 +435,19 @@ export const MessageBubble = memo(function MessageBubble({
     }
 
     const measureLines = () => {
+      // Reuse a previous measurement for the same message at the same width —
+      // a bubble re-mounted while scrolling was measured again, and the forced
+      // layout here was the hottest function in the scroll CPU profile (204ms
+      // in a 4s scroll). Keyed by viewport width, so a resize re-measures.
+      const cacheKey = `${window.innerWidth}:${message.id}:${message.content.length}:${message.is_edited ? 1 : 0}`;
+      const cached = compactLineCache.get(cacheKey);
+      if (cached !== undefined) {
+        setIsCompact(cached);
+        setHasMeasuredLines(true);
+        return;
+      }
       // Measure the text without the metadata/spacer affecting its wrapping.
       bubble.classList.add("is-measuring");
-      void bubble.offsetWidth;
       const range = document.createRange();
 
       try {
@@ -442,6 +462,8 @@ export const MessageBubble = memo(function MessageBubble({
         const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
         const lineTops = new Set(rects.map((rect) => Math.round(rect.top)));
         const nextIsCompact = rects.length > 0 && lineTops.size <= 1;
+        if (compactLineCache.size > COMPACT_CACHE_MAX) compactLineCache.clear();
+        compactLineCache.set(cacheKey, nextIsCompact);
         setIsCompact((previous) => previous === nextIsCompact ? previous : nextIsCompact);
         setHasMeasuredLines((previous) => previous ? previous : true);
       } finally {
