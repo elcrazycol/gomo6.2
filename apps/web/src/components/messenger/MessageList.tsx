@@ -15,15 +15,23 @@ import { useMessengerStore, queueMarkRead } from "@/stores/messengerStore";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
 import { getAttachmentAspectRatio } from "./attachmentMedia";
-import { HISTORY_HEADER_HEIGHT, virtualContentHeight } from "./core/scrollEngine";
-import { useStickToBottom } from "./core/useStickToBottom";
+import { HISTORY_HEADER_HEIGHT, captureAnchor, virtualContentHeight } from "./core/scrollEngine";
+import {
+  clearScrollPosition,
+  getScrollPosition,
+  saveScrollPosition,
+  type SavedScrollPosition,
+} from "./scrollPosition";
 
 // ── List-local constants ──────────────────────────────────────────────────
-// Layout geometry (header/footer/slack/realign) lives in ./core/scrollEngine;
-// the scroll position engine lives in ./core/useStickToBottom.
+// Layout geometry lives in ./core/scrollEngine; the scroll physics (bottom pin,
+// live anchor, prepend stability) live in @tanstack/react-virtual's chat mode.
 const TOP_LOAD_ZONE = 300;        // px from the top that arms the history loader
 const OVERSCAN = 12;              // items rendered beyond the viewport (ТЗ: 8–15)
 const NEW_MESSAGE_ANIMATION_MS = 1200; // how long an incoming message may play its entrance
+// How close to the bottom still counts as "at the bottom" for the pin and the
+// "N new messages" pill (Telegram-ish: a message or two of slack).
+const SCROLL_END_THRESHOLD = 80;
 
 // Extra heights (kept in sync with messenger.css) that sit INSIDE a virtual
 // item but are invisible to a content-only estimate. Without them every
@@ -179,20 +187,40 @@ export const MessageList = memo(
     //    no visual-viewport heuristics, no platform sniffing.
     const scrollerRef = useRef<HTMLDivElement | null>(null);
 
+    const [isAtBottom, setIsAtBottom] = useState(true);
     const [newMessageCount, setNewMessageCount] = useState(0);
     const [newMessageIds, setNewMessageIds] = useState<Set<string>>(() => new Set());
 
+    const isAtBottomRef = useRef(true);
     const loadingMoreRef = useRef(false);
     const lastLoadAtRef = useRef(0);
     const prevLastIdRef = useRef<string | null>(null);
     // Handles for the pending entrance-animation clear timers, so unmount
     // cancels them (a late setState after React is gone would throw).
     const entranceTimersRef = useRef<Set<number>>(new Set());
+    // Session restore: the position saved when the user last left this chat.
+    // MessageList is keyed per conversation, so it is captured once at mount.
+    const restoreAnchorRef = useRef<SavedScrollPosition | null>(
+      conversationId ? getScrollPosition(conversationId) ?? null : null,
+    );
+    // Whether a restore was pending when the chat opened — the restore effect
+    // clears restoreAnchorRef, so the open-at-bottom effect needs its own flag.
+    const hadRestoreAtMountRef = useRef(restoreAnchorRef.current !== null);
 
     // Identity key matches the store's dedup key (client_id || id), so a temp
     // message later replaced by its server twin keeps its virtual slot.
     const messageKey = useCallback((m: MessageView) => m.client_id ?? m.id, []);
 
+    // Chat scroll, delegated to @tanstack/react-virtual's chat mode:
+    //   anchorTo: 'end'      — the bottom is the stable edge, so prepending
+    //                          older history keeps the visible message put and
+    //                          late measurements grow the bottom, not the top;
+    //   followOnAppend: true — new messages pin to the bottom only while the
+    //                          user is already there;
+    //   scrollEndThreshold   — how close to the bottom counts as "there";
+    //   scrollMargin         — the fixed history header above the rows, so the
+    //                          virtualizer's offsets match the DOM (rows are
+    //                          positioned at `row.start`).
     const virtualizer = useVirtualizer({
       count: messages.length,
       getScrollElement: () => scrollerRef.current,
@@ -200,27 +228,11 @@ export const MessageList = memo(
         estimateMessageHeight(messages[index], messages[index - 1] ?? null, isGroupConversation),
       overscan: OVERSCAN,
       getItemKey: (index) => messageKey(messages[index]),
+      anchorTo: "end",
+      followOnAppend: true,
+      scrollEndThreshold: SCROLL_END_THRESHOLD,
+      scrollMargin: HISTORY_HEADER_HEIGHT,
     });
-
-    // Scroll position engine — the bottom pin, the live anchor, session restore
-    // and the issue-#508 settle loop all live in ./core/useStickToBottom.
-    const stick = useStickToBottom({
-      scrollerRef,
-      messages,
-      virtualizer,
-      conversationId,
-      // A return to the bottom clears the "N new messages" pill.
-      onAtBottomChange: () => setNewMessageCount(0),
-    });
-    const {
-      isAtBottom,
-      isAtBottomRef,
-      restoreAnchorRef,
-      handleScroll: handleStickScroll,
-      handlePointerDown,
-      handlePointerUp,
-      scrollToBottom,
-    } = stick;
 
     // ── Read receipts: the "read line" (Telegram-style) ────────────────
     // The UI reports exactly ONE message per pass: the newest message fully
@@ -240,8 +252,8 @@ export const MessageList = memo(
         const message = messages[item.index];
         if (!message) continue;
         if (message.sender_user_id === meId || message.is_deleted) continue;
-        const itemBottom = HISTORY_HEADER_HEIGHT + item.end;
-        if (itemBottom <= viewportBottom) {
+        // `item.end` is already in scroll-element coordinates (scrollMargin).
+        if (item.end <= viewportBottom) {
           readLine = message;
         } else {
           // Everything newer is even lower — stop scanning.
@@ -251,15 +263,34 @@ export const MessageList = memo(
       if (readLine) queueMarkRead(conversationId, readLine.id, readLine.sent_at);
     }, [conversationId, meId, messages, virtualizer]);
 
-    // ── Scroll: the stick engine + the two list concerns that ride on it ──
-    // useStickToBottom owns the at-bottom tracking, the anchor and the settle
-    // loop; here we add the read line and the history loader.
+    // ── Scroll: at-bottom tracking + read line + history loader ──────────
+    // The scroll physics are the virtualizer's job now; here we keep only the
+    // list concerns that ride on a scroll event.
     const handleScroll = useCallback(() => {
-      handleStickScroll();
-      reportVisibleReads();
-
       const el = scrollerRef.current;
       if (!el) return;
+
+      // The virtualizer reads the real DOM scroll metrics, so `isAtEnd()` is
+      // the honest "the user is at the bottom" (with a little slack).
+      const atBottom = virtualizer.isAtEnd();
+      if (atBottom !== isAtBottomRef.current) {
+        isAtBottomRef.current = atBottom;
+        setIsAtBottom(atBottom);
+        if (atBottom) setNewMessageCount(0);
+      }
+
+      // Persist / clear the session anchor for a later return to this chat.
+      if (conversationId) {
+        if (atBottom) {
+          clearScrollPosition(conversationId);
+        } else {
+          const anchor = captureAnchor(virtualizer.getVirtualItems(), el.scrollTop, (index) => messages[index]?.id);
+          if (anchor) saveScrollPosition(conversationId, anchor);
+        }
+      }
+
+      reportVisibleReads();
+
       const now = Date.now();
       if (
         el.scrollTop <= TOP_LOAD_ZONE &&
@@ -276,33 +307,43 @@ export const MessageList = memo(
         });
       }
     }, [
-      handleStickScroll,
+      virtualizer,
+      conversationId,
+      messages,
       reportVisibleReads,
       scrollerRef,
       hasMoreMessages,
       isLoadingMore,
-      conversationId,
       loadMoreMessages,
     ]);
 
     const totalSize = virtualizer.getTotalSize();
 
     // ── Report read receipts after the scroll position has settled ───────
-    // Runs after the pin/anchor effect above so the viewport is final when the
-    // visible items are computed. handleScroll also reports on scroll events.
+    // handleScroll also reports on scroll events.
     useLayoutEffect(() => {
       reportVisibleReads();
     }, [totalSize, messages, virtualizer.scrollRect?.height, reportVisibleReads]);
 
-    // ── Auto-load history until the saved anchor message is present ──────
-    // Returning to a chat deep in history: keep prepending older pages until
-    // the anchor arrives, then the layout effect above jumps to it. Capped to
-    // avoid hammering.
-    useEffect(() => {
+    // ── Session restore ──────────────────────────────────────────────────
+    // Returning to a chat deep in history: jump to the saved anchor once the
+    // message is loaded; meanwhile keep prepending older pages (capped by
+    // hasMoreMessages). Runs before the open-at-bottom effect below.
+    useLayoutEffect(() => {
       const anchor = restoreAnchorRef.current;
-      if (!anchor || !conversationId) return;
-      if (messages.some((m) => m.id === anchor.messageId)) return;
-      if (!hasMoreMessages || loadingMoreRef.current) {
+      if (!anchor) return;
+      const index = messages.findIndex((m) => m.id === anchor.messageId);
+      if (index >= 0) {
+        virtualizer.scrollToIndex(index, { align: "start" });
+        if (anchor.offset) virtualizer.scrollBy(anchor.offset);
+        restoreAnchorRef.current = null;
+        isAtBottomRef.current = false;
+        setIsAtBottom(false);
+        return;
+      }
+      // Not loaded yet — behave like a normal open while older history loads.
+      virtualizer.scrollToEnd();
+      if (!conversationId || !hasMoreMessages || loadingMoreRef.current) {
         // The anchor is unreachable (deleted / too deep) — fall back to the
         // default bottom-open behavior.
         restoreAnchorRef.current = null;
@@ -312,7 +353,15 @@ export const MessageList = memo(
       loadMoreMessages(conversationId).finally(() => {
         loadingMoreRef.current = false;
       });
-    }, [messages, hasMoreMessages, conversationId, loadMoreMessages, restoreAnchorRef]);
+    }, [messages, hasMoreMessages, conversationId, loadMoreMessages, virtualizer]);
+
+    // ── Open at the bottom ───────────────────────────────────────────────
+    // MessageList is keyed per conversation, so this runs once per open. A
+    // pending session restore takes over instead (its effect runs first).
+    useLayoutEffect(() => {
+      if (hadRestoreAtMountRef.current) return;
+      virtualizer.scrollToEnd();
+    }, [virtualizer]);
 
     // ── Realtime appends → "N new messages" pill + entrance animation ───
     // Messages that arrive while the user is at the bottom are visible, so
@@ -372,7 +421,16 @@ export const MessageList = memo(
     }, []);
 
     // ── Imperative API (send-scroll, pinned-message jump) ───────────────
-    // `scrollToBottom` comes from useStickToBottom (it owns the anchor state).
+    const scrollToBottom = useCallback(() => {
+      // Explicitly returning to the bottom cancels any saved position.
+      restoreAnchorRef.current = null;
+      if (conversationId) clearScrollPosition(conversationId);
+      virtualizer.scrollToEnd();
+      isAtBottomRef.current = true;
+      setIsAtBottom(true);
+      setNewMessageCount(0);
+    }, [conversationId, virtualizer]);
+
     const scrollToMessage = useCallback(
       (messageId: string) => {
         const index = messages.findIndex((m) => m.id === messageId);
@@ -399,9 +457,6 @@ export const MessageList = memo(
             aria-label="Сообщения"
             aria-live="polite"
             onScroll={handleScroll}
-            onPointerDown={handlePointerDown}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
           >
             <div className="message-virtual-list" style={{ height: contentHeight }}>
               {/* Fixed-height box in all states (loading / idle / end) so the
@@ -430,7 +485,8 @@ export const MessageList = memo(
                     data-message-id={message.id}
                     ref={virtualizer.measureElement}
                     className="message-virtual-item"
-                    style={{ position: "absolute", top: HISTORY_HEADER_HEIGHT + row.start, left: 0, right: 0 }}
+                    // `row.start` already includes the history header (scrollMargin).
+                    style={{ position: "absolute", top: row.start, left: 0, right: 0 }}
                   >
                     {renderMessage(message, prev, {
                       dateLabel: getDateSeparator(prev, message),

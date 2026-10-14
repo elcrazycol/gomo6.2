@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 COMPOSE := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: help dev attach dev-stop install env infra backend web stop tools \
+.PHONY: help dev attach dev-stop install env infra backend web mobile stop tools \
         seed reset-db psql redis-cli logs test lint typecheck doctor reindex reindex-docker
 
 help: ## Show this help
@@ -52,6 +52,9 @@ backend: ## Run the Go backend (localhost:8080) — needs `make env` + `make inf
 
 web: ## Run frontend dev servers (web :8081, docs :3001, dev-dashboard :3002)
 	npm run dev
+
+mobile: ## Print the LAN URL to open the running dev site on a phone (same Wi-Fi)
+	@bash scripts/mobile-url.sh
 
 seed: ## Populate the local DB with demo data (idempotent; backend must be running)
 	@bash scripts/seed.sh

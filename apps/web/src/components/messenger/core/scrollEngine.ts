@@ -1,31 +1,20 @@
 /**
- * Pure scroll math for the message list.
+ * Layout geometry shared by the message list.
  *
- * Extracted from MessageList so the geometry can be reasoned about and unit
- * tested without a DOM or a virtualizer. Everything here is a pure function of
- * numbers (and virtual rows); the React glue stays in the component.
+ * The scroll *physics* — the bottom pin, the live anchor, prepend stability and
+ * the late-measurement settle — now live in `@tanstack/react-virtual`'s chat
+ * mode (`anchorTo: 'end'` + `followOnAppend`), so this module only keeps the
+ * fixed layout constants and the two tiny helpers the list still needs.
  *
- * Layout constants live here too and are the single source of truth — the css
- * values they mirror are noted inline.
+ * Rows are in scroll-element coordinates: the virtualizer is configured with
+ * `scrollMargin: HISTORY_HEADER_HEIGHT`, so a row's `start` already includes the
+ * fixed history header above the messages.
  */
 
 /** `.msg-history-header` — fixed in every state (messenger.css). */
 export const HISTORY_HEADER_HEIGHT = 34;
-/** `.message-list-footer` — the gap under the last message (messenger.css). */
+/** Gap under the last message (mirrors `.message-list-footer`). */
 export const BOTTOM_GAP_HEIGHT = 12;
-/** Distance from the real bottom that still counts as "at the bottom". */
-export const AT_BOTTOM_SLACK = 12;
-/** px of anchor drift considered "already aligned". */
-export const ANCHOR_REALIGN_EPSILON = 2;
-/**
- * Issue #508: after the pass that clamps to the bottom, the virtualizer may
- * still land a late `measureElement` correction (or an image decode) a frame
- * or two later. While the user is at the bottom the settle loop keeps
- * re-clamping for this bounded window, stopping as soon as the target stops
- * moving.
- */
-export const PIN_SETTLE_MAX_MS = 700; // upper bound on the settle window
-export const PIN_SETTLE_EPSILON = 1;  // px of drift the settle loop still corrects
 
 /** The minimal virtual-row shape (a `@tanstack/react-virtual` item satisfies it). */
 export interface VirtualRow {
@@ -48,33 +37,9 @@ export function virtualContentHeight(virtualTotal: number): number {
 }
 
 /**
- * The scrollTop that pins the view to the real bottom, or 0 when the viewport
- * has no height yet (not laid out — writing scrollTop then is meaningless).
- *
- * Two sources of truth, whichever is larger: the laid-out DOM (`scrollHeight`
- * — catches an image growing past its reserved box) and the virtualizer's own
- * content height (catches a `measureElement` correction that has not reached
- * the DOM yet). Reading only one of them used to leave a small un-scrolled gap
- * at the bottom (issue #508).
- */
-export function bottomTarget(
-  scrollHeight: number,
-  clientHeight: number,
-  virtualTotal: number,
-): number {
-  if (clientHeight <= 0) return 0;
-  return Math.max(0, Math.max(scrollHeight, virtualContentHeight(virtualTotal)) - clientHeight);
-}
-
-/** Whether the current scroll position is within {@link AT_BOTTOM_SLACK} of the bottom. */
-export function isAtBottom(scrollHeight: number, scrollTop: number, clientHeight: number): boolean {
-  return scrollHeight - scrollTop - clientHeight <= AT_BOTTOM_SLACK;
-}
-
-/**
  * The top-most visible message and how far its top is above the viewport top.
  * Derived from the virtualizer's measured/estimated offsets, not DOM rects —
- * exact for both rendered and not-yet-rendered items.
+ * exact for both rendered and not-yet-rendered rows.
  */
 export function captureAnchor(
   rows: readonly VirtualRow[],
@@ -82,19 +47,12 @@ export function captureAnchor(
   messageIdAt: (index: number) => string | undefined,
 ): ScrollAnchor | null {
   for (const row of rows) {
-    const itemTop = HISTORY_HEADER_HEIGHT + row.start;
-    const itemBottom = HISTORY_HEADER_HEIGHT + row.end;
-    // Rows above the viewport are skipped; the first row whose bottom is at or
-    // below the top edge is the top-most visible one.
-    if (itemBottom <= scrollTop) continue;
+    // Rows fully above the viewport are skipped; the first row whose bottom is
+    // at or below the top edge is the top-most visible one.
+    if (row.end <= scrollTop) continue;
     const messageId = messageIdAt(row.index);
     if (!messageId) continue;
-    return { messageId, offset: scrollTop - itemTop };
+    return { messageId, offset: scrollTop - row.start };
   }
   return null;
-}
-
-/** The scrollTop that places an anchor back where it was captured. */
-export function anchorScrollTop(rowStart: number, offset: number): number {
-  return HISTORY_HEADER_HEIGHT + rowStart + offset;
 }

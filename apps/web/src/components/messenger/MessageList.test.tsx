@@ -9,7 +9,13 @@ import type { MessageView } from "./types";
 const h = vi.hoisted(() => ({
   virtualizerOpts: {} as Record<string, unknown>,
   scrollToIndexSpy: vi.fn(),
+  scrollToEndSpy: vi.fn(),
+  scrollBySpy: vi.fn(),
   queueMarkReadMock: vi.fn(),
+  // The scroller of the CURRENT test — the mock's isAtEnd reads it instead of
+  // a cached instance's `getScrollElement` (which points at an unmounted
+  // component once the per-count instance is reused across tests).
+  scrollerEl: null as HTMLElement | null,
   isScrolling: false,
   // Simulates the virtualizer's ResizeObserver output: the real one updates
   // `scrollRect` (and re-renders) whenever the scroller is resized — e.g. when
@@ -62,6 +68,15 @@ vi.mock("@tanstack/react-virtual", () => {
           getOffsetForIndex: (index: number) => [index * 72, "start"] as const,
           measureElement: () => undefined,
           scrollToIndex: h.scrollToIndexSpy,
+          scrollToEnd: h.scrollToEndSpy,
+          scrollBy: h.scrollBySpy,
+          // Mirrors the real (DOM-based) getDistanceFromEnd: how far the
+          // stubbed scroller is from the bottom, versus the configured slack.
+          isAtEnd: (threshold: number = (opts.scrollEndThreshold as number) ?? 80) => {
+            const el = h.scrollerEl;
+            if (!el) return true;
+            return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+          },
           get isScrolling() {
             return h.isScrolling;
           },
@@ -113,6 +128,7 @@ const mountList = () => {
   const utils = render(<MessageList ref={ref} renderMessage={renderMessage} />);
   const scroller = utils.container.querySelector(".message-scroll") as HTMLDivElement | null;
   if (!scroller) throw new Error("scroller not rendered");
+  h.scrollerEl = scroller;
   return { ...utils, scroller, ref };
 };
 
@@ -167,7 +183,10 @@ afterEach(() => {
   h.storeState.loadMoreMessages.mockClear();
   h.storeState.me = null;
   h.scrollToIndexSpy.mockClear();
+  h.scrollToEndSpy.mockClear();
+  h.scrollBySpy.mockClear();
   h.queueMarkReadMock.mockClear();
+  h.scrollerEl = null;
   h.virtualizerOpts = {};
   h.isScrolling = false;
   h.mockScrollRectHeight = 400;
@@ -193,6 +212,13 @@ describe("MessageList virtualization", () => {
     // getScrollElement returns the scroller element.
     const getScrollElement = h.virtualizerOpts.getScrollElement as () => HTMLElement | null;
     expect(getScrollElement()?.classList.contains("message-scroll")).toBe(true);
+    // Chat mode (the scroll physics are the library's job now): the bottom is
+    // the stable edge, appends follow only from the bottom, and the fixed
+    // history header is the scroll margin so row offsets match the DOM.
+    expect(h.virtualizerOpts.anchorTo).toBe("end");
+    expect(h.virtualizerOpts.followOnAppend).toBe(true);
+    expect(h.virtualizerOpts.scrollMargin).toBe(34);
+    expect(h.virtualizerOpts.scrollEndThreshold).toBe(80);
   });
 
   it("renders every virtual item with its message content", () => {
@@ -261,39 +287,10 @@ describe("MessageList virtualization", () => {
     resolveLoad?.();
   });
 
-  it("does not fight an active scroll gesture — no scrollTop writes while isScrolling", () => {
-    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
-    h.storeState.messages = base;
-    const { scroller, rerender } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
-    // The user is mid-gesture (touch/momentum) when a message arrives.
-    h.isScrolling = true;
-    h.storeState.messages = [...base, makeMessage("new")];
-    metrics.scrollHeight = 766 + 72;
-    rerender(<MessageList renderMessage={renderMessage} />);
-    // No clamp mid-gesture — the JS must not race the browser's scrolling.
-    expect(metrics.scrollTop).toBe(366);
-    // The gesture settles; the pin re-applies and clamps to the new bottom.
-    // A fresh renderMessage reference forces the re-render (like the real
-    // store re-render on isScrolling change) — the instance survives, so
-    // isAtBottomRef is preserved.
-    h.isScrolling = false;
-    rerender(<MessageList renderMessage={(m) => renderMessage(m)} />);
-    expect(metrics.scrollTop).toBe(766 + 72 - 400);
-  });
-
-  it("yields the bottom pin to a pointerdown before the first scroll event", () => {
-    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
-    h.storeState.messages = base;
-    const { scroller, rerender } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
-    // Finger lands on the list, then a message arrives before any scroll event.
-    fireEvent.pointerDown(scroller);
-    h.storeState.messages = [...base, makeMessage("new")];
-    metrics.scrollHeight = 766 + 72;
-    rerender(<MessageList renderMessage={renderMessage} />);
-    expect(metrics.scrollTop).toBe(366);
-    fireEvent.pointerUp(scroller);
+  it("opens at the bottom (scrollToEnd) when there is no saved position", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    mountList();
+    expect(h.scrollToEndSpy).toHaveBeenCalled();
   });
 
   it("estimates date separators and quoted replies in item heights", () => {
@@ -323,82 +320,19 @@ describe("MessageList virtualization", () => {
     expect(estimateSize(0)).toBe(198);
   });
 
-  it("pins the view to the bottom while at the bottom when content grows", () => {
-    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
-    h.storeState.messages = base;
-    const { scroller, rerender } = mountList();
-    // 34 (header) + 10*72 + 12 (gap) = 766 content; viewport 400 → bottom = 366.
-    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
-    // A message arrives while the user is at the bottom (isAtBottomRef starts true).
-    h.storeState.messages = [...base, makeMessage("new")];
-    metrics.scrollHeight = 766 + 72; // the browser content grew
-    rerender(<MessageList renderMessage={renderMessage} />);
-    expect(metrics.scrollTop).toBe(766 + 72 - 400);
-  });
+  // The bottom pin, prepend stability and the late-measurement settle used to
+  // be hand-rolled here and tested by writing scrollTop through a mock. They
+  // are now the virtualizer's chat mode (`anchorTo: 'end'` + `followOnAppend`,
+  // asserted in "configures the virtualizer per the spec") — testing the
+  // library's own scroll physics is its job, not ours.
 
-  it("settles to the exact bottom when content grows after the pin pass (issue #508)", async () => {
-    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
-    h.storeState.messages = base;
-    const { scroller, rerender } = mountList();
-    // 34 (header) + 10*72 + 12 (gap) = 766 content; viewport 400 → bottom = 366.
-    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
-    // A message arrives while at the bottom: the pin lands exactly on the
-    // bottom and starts the bounded settle window.
-    h.storeState.messages = [...base, makeMessage("new")];
-    metrics.scrollHeight = 766 + 72;
-    rerender(<MessageList renderMessage={renderMessage} />);
-    expect(metrics.scrollTop).toBe(766 + 72 - 400);
-
-    // A late layout change (measurement correction / image decode) grows the
-    // content AFTER that pass, with no React update in between. Without the
-    // settle loop a small un-scrolled gap would remain here.
-    metrics.scrollHeight = 766 + 72 + 40;
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    });
-    expect(metrics.scrollTop).toBe(766 + 72 + 40 - 400);
-  });
-
-  it("keeps the view anchored when older messages are prepended while scrolled up", () => {
-    const base = Array.from({ length: 20 }, (_, i) => makeMessage(`m${i}`));
-    h.storeState.messages = base;
-    const { scroller, rerender } = mountList();
-    // 34 (header) + 20*72 + 12 (gap) = 1486 content; scrollTop 500 is scrolled up.
-    const metrics = stubScroller(scroller, { scrollHeight: 1486, scrollTop: 500, clientHeight: 400 });
-    // The user scrolled away from the bottom — this captures the anchor.
-    scrollScroller(scroller);
-    expect(h.storeState.loadMoreMessages).not.toHaveBeenCalled();
-
-    // History is prepended; the anchor (top-most visible message) stays frozen,
-    // so scrollTop grows by exactly the prepended height (2 * 72).
-    h.storeState.messages = [makeMessage("x"), makeMessage("y"), ...base];
-    metrics.scrollHeight = 1486 + 144;
-    rerender(<MessageList renderMessage={renderMessage} />);
-    expect(metrics.scrollTop).toBe(500 + 144);
-  });
-
-  it("does not shift the view when a message is updated in place (same first key)", () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { scroller, rerender } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 2000, scrollTop: 700, clientHeight: 400 });
-    scrollScroller(scroller);
-    h.storeState.messages = [
-      { ...makeMessage("a"), content: "edited" },
-      makeMessage("b"),
-    ];
-    rerender(<MessageList renderMessage={renderMessage} />);
-    expect(metrics.scrollTop).toBe(700);
-  });
-
-  it("scrollToBottom jumps to the true bottom (smooth)", () => {
+  it("scrollToBottom goes to the end via the virtualizer", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
-    const { ref, scroller } = mountList();
-    const scrollToSpy = vi.fn();
-    scroller.scrollTo = scrollToSpy;
+    const { ref } = mountList();
     act(() => {
       ref.current?.scrollToBottom();
     });
-    expect(scrollToSpy).toHaveBeenCalledWith({ top: expect.any(Number), behavior: "smooth" });
+    expect(h.scrollToEndSpy).toHaveBeenCalled();
   });
 
   it("scrollToMessage centers the requested message", () => {
@@ -410,96 +344,56 @@ describe("MessageList virtualization", () => {
     expect(h.scrollToIndexSpy).toHaveBeenCalledWith(1, { align: "center" });
   });
 
-  it("restores the saved scroll position when returning to the chat", () => {
-    // The user left this conversation with message "b" 20px below the top of
-    // the viewport (top of the list is HISTORY_HEADER_HEIGHT 34 + row.start).
+  it("restores the saved position via scrollToIndex when returning to the chat", () => {
+    // The user left with message "b" 20px below the top of the viewport.
     saveScrollPosition("c1", { messageId: "b", offset: 20 });
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
-    const { container, scroller } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 216, clientHeight: 400 });
-    // 34 (header) + 72 (row b) + 20 (offset) = 126.
-    expect(metrics.scrollTop).toBe(126);
-    // The user is not at the bottom, so the FAB is visible.
+    const { container } = mountList();
+    // Jumped to "b" (index 1) and applied the sub-message offset.
+    expect(h.scrollToIndexSpy).toHaveBeenCalledWith(1, { align: "start" });
+    expect(h.scrollBySpy).toHaveBeenCalledWith(20);
+    // A restore must not also open at the bottom.
+    expect(h.scrollToEndSpy).not.toHaveBeenCalled();
+    // Not at the bottom → the FAB is visible.
     expect(container.querySelector(".scroll-to-bottom-btn")).not.toBeNull();
   });
 
-  it("auto-loads history until the saved anchor message is present", () => {
+  it("auto-loads history until the saved anchor message is present, then jumps to it", () => {
     saveScrollPosition("c1", { messageId: "z", offset: 0 });
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
     h.storeState.hasMoreMessages = true;
-    const { scroller, rerender } = mountList();
-    // The anchor is not in the first batch — history must be requested.
+    const { rerender } = mountList();
+    // The anchor is not in the first batch — history must be requested, and the
+    // view behaves like a normal open meanwhile.
     expect(h.storeState.loadMoreMessages).toHaveBeenCalledWith("c1");
-    const metrics = stubScroller(scroller, { scrollHeight: 288, clientHeight: 400 });
+    expect(h.scrollToEndSpy).toHaveBeenCalled();
 
     // The older page arrives with the anchor prepended.
     h.storeState.messages = [makeMessage("z"), makeMessage("a"), makeMessage("b"), makeMessage("c")];
     rerender(<MessageList renderMessage={renderMessage} />);
-    // Jumps to message "z" at the top: 34 (header) + 0 + 0 = 34.
-    expect(metrics.scrollTop).toBe(34);
+    // Jumps to message "z" (index 0).
+    expect(h.scrollToIndexSpy).toHaveBeenCalledWith(0, { align: "start" });
   });
 
   it("gives up hunting the anchor and opens at the bottom when history ends", () => {
     saveScrollPosition("c1", { messageId: "z", offset: 0 });
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     h.storeState.hasMoreMessages = false;
-    const { scroller } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 144, scrollTop: 144, clientHeight: 400 });
+    mountList();
     expect(h.storeState.loadMoreMessages).not.toHaveBeenCalled();
-    // Falls back to the bottom (isAtBottomRef starts true).
-    expect(metrics.scrollTop).toBe(144);
+    // Falls back to the bottom.
+    expect(h.scrollToEndSpy).toHaveBeenCalled();
   });
 
-  it("scrollToBottom cancels the saved position", () => {
+  it("scrollToBottom cancels the saved position and goes to the end", () => {
     saveScrollPosition("c1", { messageId: "b", offset: 20 });
     h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
-    const { ref, scroller } = mountList();
-    const scrollToSpy = vi.fn();
-    scroller.scrollTo = scrollToSpy;
+    const { ref } = mountList();
     act(() => {
       ref.current?.scrollToBottom();
     });
     expect(getScrollPosition("c1")).toBeUndefined();
-  });
-});
-
-describe("MessageList keyboard viewport resizes", () => {
-  it("re-pins to the bottom when the keyboard shrinks the scroller (Firefox on iOS / Android)", () => {
-    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
-    h.storeState.messages = base;
-    const { scroller, rerender } = mountList();
-    // 34 (header) + 10*72 + 12 (gap) = 766 content; viewport 400 → bottom = 366.
-    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
-    h.mockScrollRectHeight = 400;
-
-    // Browsers that RESIZE the layout viewport with the keyboard (Firefox on
-    // iOS, Chrome/Firefox Android with interactive-widget=resizes-content):
-    // the fixed panel rises natively (no --kb-inset translate — the delta
-    // channel stays 0) and the scroller's clientHeight drops while the browser
-    // leaves scrollTop untouched (the scroll range grew, so there is no clamp).
-    // The virtualizer's ResizeObserver reports the new size as `scrollRect`,
-    // which is the dep that re-runs the pin.
-    metrics.clientHeight = 100;
-    h.mockScrollRectHeight = 100;
-    rerender(<MessageList renderMessage={renderMessage} />);
-
-    // The bottom pin re-applies and clamps to the new bottom: 766 - 100.
-    expect(metrics.scrollTop).toBe(666);
-  });
-
-  it("does not move the pin when the keyboard lifts via translate (iOS, no layout change)", () => {
-    const base = Array.from({ length: 10 }, (_, i) => makeMessage(`m${i}`));
-    h.storeState.messages = base;
-    const { scroller, rerender } = mountList();
-    const metrics = stubScroller(scroller, { scrollHeight: 766, scrollTop: 366, clientHeight: 400 });
-    h.mockScrollRectHeight = 400;
-
-    // iOS: the layout never resizes — the composer-only `translate` (--kb-inset)
-    // lifts the list, so the scroller stays 400 tall. A re-render with no
-    // `scrollRect` change must not retrigger the pin and move the view.
-    rerender(<MessageList renderMessage={renderMessage} />);
-
-    expect(metrics.scrollTop).toBe(366);
+    expect(h.scrollToEndSpy).toHaveBeenCalled();
   });
 });
 
