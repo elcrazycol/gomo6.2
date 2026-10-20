@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useDrag } from "@use-gesture/react";
-import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck } from "lucide-react";
+import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck, Clock } from "lucide-react";
 import { formatTime, formatReadAt } from "./utils";
 import { MessageContent } from "./MessageContent";
 import { messengerPlainPreview } from "./messengerRichTextUtils";
@@ -401,8 +401,13 @@ export const MessageBubble = memo(function MessageBubble({
   }, [menuOpen, dismissMenu]);
 
   const getStatusIcon = () => {
-    if (message.localStatus === "sending") return <span className="status-dot status-pending" />;
-    if (message.localStatus === "failed") return null;
+    // Telegram's clock while the outbox still owns the message.
+    if (message.localStatus === "sending") {
+      return <Clock size={11} className="status-clock" aria-label="Отправляется" />;
+    }
+    if (message.localStatus === "failed") {
+      return <span className="status-failed" aria-label="Не отправлено">!</span>;
+    }
     if (peerReadAt) return <span className="status-double-check is-read">✓✓</span>;
     if (peerDeliveredAt) return <span className="status-double-check">✓✓</span>;
     return <span className="status-check">✓</span>;

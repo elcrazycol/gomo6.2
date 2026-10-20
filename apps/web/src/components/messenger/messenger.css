@@ -1713,6 +1713,29 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   color: oklch(var(--primary));
 }
 
+/* The outbox owns a message until the server acknowledges it: Telegram shows a
+   clock, then a red mark when it gives up. */
+.status-clock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: oklch(var(--muted-foreground));
+}
+
+.status-failed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: oklch(var(--destructive));
+  color: oklch(var(--destructive-foreground));
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .status-dot {
   display: inline-block;
   width: 6px;

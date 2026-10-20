@@ -373,6 +373,15 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
   input must be added to `renderVersion` in `ChatView.tsx`, otherwise mounted rows
   will not re-render. GomoSub `ChannelChat` still runs the previous mechanics.
   See [docs/wiki/MESSENGER_CHAT_SCROLL.md](docs/wiki/MESSENGER_CHAT_SCROLL.md).
+- **Messenger outbox**: a sent message is queued in its own IndexedDB
+  (`core/outbox.ts`, key `owner:chat:clientId`) before the request, shown at once
+  with a clock, retried by itself (`online` / visibility / `init` / backoff timer,
+  6 attempts) and re-attached to the chat by `loadMessages` after a reload. `s.messages`
+  is the OPEN chat only — never `cacheCurrentMessages`/`rememberLatestEventId` for a
+  different `conversationId` (it overwrites that chat's cache). Retry goes through
+  `sendMessage(content, client_id)` so the bubble is replaced, not duplicated; deleting
+  a queued message must drop its outbox entry.
+  See [docs/wiki/MESSENGER_OUTBOX.md](docs/wiki/MESSENGER_OUTBOX.md).
 - **Channel switching**: `channelSlug` must be in the `loadBoard` effect deps in
   `apps/web/src/pages/Board.tsx`. Missing it = stale threads on channel nav.
 - **Releases**: do NOT bump `VERSION`, edit `CHANGELOG.md` or tag by hand — release-please
@@ -389,6 +398,7 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 [MESSENGER_SECURITY](docs/wiki/MESSENGER_SECURITY.md) · [OAUTH_API](docs/wiki/OAUTH_API.md) ·
 [PUBLIC_IDS](docs/wiki/PUBLIC_IDS.md) · [BOT_SYSTEM_ARCHITECTURE](docs/wiki/BOT_SYSTEM_ARCHITECTURE.md) ·
 [MESSENGER_CHAT_SCROLL](docs/wiki/MESSENGER_CHAT_SCROLL.md) ·
+[MESSENGER_OUTBOX](docs/wiki/MESSENGER_OUTBOX.md) ·
 [REALTIME_WEBSOCKET_PATTERN](docs/wiki/REALTIME_WEBSOCKET_PATTERN.md) ·
 [PRESENCE_SYSTEM_DESIGN](docs/wiki/PRESENCE_SYSTEM_DESIGN.md) ·
 [THREAD_ATTACHMENTS_GUIDE](docs/wiki/THREAD_ATTACHMENTS_GUIDE.md).

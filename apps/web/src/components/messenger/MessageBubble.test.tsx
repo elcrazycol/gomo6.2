@@ -324,7 +324,7 @@ describe("MessageBubble", () => {
     expect(screen.getByText(/\d{2}:\d{2}/)).toBeInTheDocument();
   });
 
-  it("shows pending dot for sending messages", () => {
+  it("shows the outbox clock while a message is sending", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage({ localStatus: "sending" })}
@@ -332,8 +332,9 @@ describe("MessageBubble", () => {
         isMine={true}
       />,
     );
-    const dot = container.querySelector(".status-pending");
-    expect(dot).toBeInTheDocument();
+    // Telegram's clock, not a dot: the outbox still owns the message.
+    expect(container.querySelector(".status-clock")).toBeInTheDocument();
+    expect(container.querySelector(".status-pending")).toBeNull();
   });
 
   it("shows double check when delivered", () => {

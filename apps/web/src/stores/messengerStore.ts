@@ -15,7 +15,18 @@ import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { decryptNote, decryptNotesMeta, encryptNote, encryptNotesMeta, NOTES_LOCKED } from "@/utils/notesCrypto";
 import type { NotesMeta } from "@/utils/notesCrypto";
 import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
-import { appendMessages, mergeMessages, prependOlder } from "@/components/messenger/core/messageModel";
+import { appendMessages, mergeMessages, prependOlder, sortBySentAt } from "@/components/messenger/core/messageModel";
+import {
+  deleteOutbox,
+  isPermanentSendError,
+  listOutbox,
+  outboxKey,
+  outboxRetryDelay,
+  putOutbox,
+  clearOutbox,
+  OUTBOX_MAX_ATTEMPTS,
+  type OutboxEntry,
+} from "@/components/messenger/core/outbox";
 
 /** The realtime delta a peer's reaction arrives as. */
 export type ReactionEvent = {
@@ -31,6 +42,10 @@ let messageLoadGeneration = 0;
 let loadMoreRequestGeneration = 0;
 let conversationLoadGeneration = 0;
 let initInFlight: Promise<void> | null = null;
+/** The outbox retry loop (one timer, one in-flight flush). */
+let outboxTimer: ReturnType<typeof setTimeout> | null = null;
+let outboxFlushing = false;
+let outboxListenersAttached = false;
 const latestEventIds = new Map<string, string>();
 
 // ── Buffered older pages ─────────────────────────────────────────────────────
@@ -143,6 +158,41 @@ function canApplyMessageLoad(ownerId: string | null, conversationId: string, gen
     && (selected === null || selected === conversationId);
 }
 
+/**
+ * Pending mail belongs in its chat the moment the reader wrote it — including
+ * after a reload, when the message only exists in the outbox and not yet on the
+ * server. Merge those bubbles back in (a `gaveUp` entry renders as failed, so
+ * the tap-to-retry row survives a restart too).
+ */
+function withOutboxEntries(
+  messages: MessageView[],
+  entries: OutboxEntry[],
+  conversationId: string,
+  ownerId: string,
+): MessageView[] {
+  const queued = entries.filter((entry) => entry.conversationId === conversationId);
+  if (queued.length === 0) return messages;
+  const present = new Set(messages.map((m) => m.client_id || m.id));
+  const missing: MessageView[] = queued
+    .filter((entry) => !present.has(entry.clientId))
+    .map((entry) => ({
+      id: `temp_${entry.clientId}`,
+      conversation_id: conversationId,
+      sender_user_id: ownerId,
+      parent_message_id: entry.parentMessageId ?? null,
+      content: entry.content,
+      is_edited: false,
+      is_deleted: false,
+      edited_at: null,
+      sent_at: new Date(entry.createdAt).toISOString(),
+      client_id: entry.clientId,
+      localStatus: entry.gaveUp ? "failed" : "sending",
+      ...(entry.attachments.length > 0 ? { attachments: entry.attachments } : {}),
+    }));
+  if (missing.length === 0) return messages;
+  return mergeMessages(messages, missing);
+}
+
 function cacheCurrentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
   // Notes content is encrypted with a device-local key; never persist it to
   // the IndexedDB cache (the store already holds the readable plaintext).
@@ -235,7 +285,46 @@ function flushPending(): void {
   }
 }
 
+/** Sleep until the earliest queued message is due; no queue, no timer. */
+function scheduleOutboxFlush(delayMs: number): void {
+  if (outboxTimer !== null) clearTimeout(outboxTimer);
+  outboxTimer = setTimeout(() => {
+    outboxTimer = null;
+    void useMessengerStore.getState().flushOutbox();
+  }, Math.max(250, delayMs));
+}
+
+async function armOutbox(): Promise<void> {
+  if (outboxTimer !== null) {
+    clearTimeout(outboxTimer);
+    outboxTimer = null;
+  }
+  const owner = useMessengerStore.getState().me?.id;
+  if (!owner) return;
+  const pending = await listOutbox(owner);
+  const active = pending.filter((entry) => !entry.gaveUp);
+  if (active.length === 0) return;
+  // The queue is persisted, so earliest-due is the only clock we need.
+  scheduleOutboxFlush(Math.min(...active.map((entry) => entry.nextAttemptAt)) - Date.now());
+}
+
+/** Flush on the signals that mean "the network is back" (once per session). */
+function attachOutboxListeners(): void {
+  if (outboxListenersAttached || typeof window === "undefined") return;
+  outboxListenersAttached = true;
+  const flush = () => {
+    void useMessengerStore.getState().flushOutbox();
+  };
+  window.addEventListener("online", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") flush();
+  });
+}
+
 export function  destroyMessenger(): void {
+  if (outboxTimer !== null) { clearTimeout(outboxTimer); outboxTimer = null; }
+  outboxFlushing = false;
+  void clearOutbox(useMessengerStore.getState().me?.id);
   if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
   if (readFlushTimer) { clearTimeout(readFlushTimer); readFlushTimer = null; }
   pendingDelivered.clear();
@@ -382,6 +471,8 @@ type MessengerStore = {
    *  conversation is used; the explicit override lets the share sheet send
    *  into a chat without opening the messenger. */
   sendMessage: (content: string, clientId: string, parentMessageId?: string, attachments?: Attachment[], conversationId?: string) => Promise<string>;
+  /** Retries every queued message of the signed-in account, oldest first. */
+  flushOutbox: () => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   markRead: (messageId: string) => Promise<void>;
@@ -459,6 +550,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const profile = await messengerApi.getMyProfile();
       set({ me: { id: profile.id, username: profile.username } });
       await get().loadConversations();
+      // Pending messages from the previous session go out as soon as we can,
+      // and the triggers for "the network is back" are armed once.
+      attachOutboxListeners();
+      void get().flushOutbox();
 
       // Register callback for EventManager conversation updates (reconnection recovery)
       eventManager.setMessengerCallbacks({
@@ -545,8 +640,12 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const cachedView = cached ? await decryptNotesMessages(conversationId, cached) : null;
       if (cachedView && cachedView.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
         hasCachedMessages = true;
-        rememberLatestEventId(conversationId, cachedView);
-        set({ messages: cachedView, hasMoreMessages: cachedView.length >= 50 });
+        const queued = ownerId ? await listOutbox(ownerId) : [];
+        const view = ownerId
+          ? withOutboxEntries(cachedView, queued, conversationId, ownerId)
+          : cachedView;
+        rememberLatestEventId(conversationId, view);
+        set({ messages: view, hasMoreMessages: cachedView.length >= 50 });
       }
     } catch {
       // IndexedDB is an optional optimization; never block the network path.
@@ -571,17 +670,32 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       } else {
         raw = await messengerApi.getMessages(conversationId);
       }
-      const msgs = await decryptNotesMessages(conversationId, raw);
+      const rawMsgs = await decryptNotesMessages(conversationId, raw);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
+      const queued = ownerId ? await listOutbox(ownerId) : [];
+      const msgs = ownerId
+        ? withOutboxEntries(rawMsgs, queued, conversationId, ownerId)
+        : rawMsgs;
+      if (ownerId) {
+        // A message whose send response was lost is on the server already: the
+        // page proves it, so the stale queue entry must not linger forever.
+        const confirmed = new Set(rawMsgs.map((m) => m.client_id).filter(Boolean));
+        queued
+          .filter((entry) => confirmed.has(entry.clientId))
+          .forEach((entry) => void deleteOutbox(entry.key));
+      }
       set({
         messages: msgs,
         isMessagesLoading: false,
-        hasMoreMessages: !notesConversationExists(conversationId) && msgs.length >= 50,
+        // Pagination is a property of the server page, not of pending bubbles.
+        hasMoreMessages: !notesConversationExists(conversationId) && rawMsgs.length >= 50,
       });
       rememberLatestEventId(conversationId, msgs);
       // Notes content is device-encrypted: never persist it to the IndexedDB
       // cache (the store already holds the readable plaintext).
-      if (!notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, msgs);
+      // Cache only what the server confirmed: pending bubbles are re-attached
+      // from the outbox on the next load.
+      if (!notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, rawMsgs);
       // Read marking is owned by MessageList's visibility tracking: only the
       // messages actually on screen get a read receipt (each with its own real
       // read_at). Loading a conversation must not auto-read its whole history.
@@ -713,23 +827,76 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       }
     }
 
-    // Optimistic insert
+    // Optimistic insert. A retry of the same message must replace its bubble,
+    // not stack a second one with the same identity (and the same row key).
     const tempId = `temp_${clientId}`;
+    const previous = get().messages.find((m) => m.client_id === clientId);
     const optimistic: MessageView = {
-      id: tempId,
+      id: previous?.id ?? tempId,
       conversation_id: convId,
       sender_user_id: get().me!.id,
-      parent_message_id: parentMessageId ?? null,
+      parent_message_id: parentMessageId ?? previous?.parent_message_id ?? null,
       content,
       is_edited: false,
       is_deleted: false,
       edited_at: null,
-      sent_at: new Date().toISOString(),
+      // Keep the original timestamp so a retried message stays where the reader
+      // wrote it instead of jumping under newer replies.
+      sent_at: previous?.sent_at ?? new Date().toISOString(),
       client_id: clientId,
       localStatus: "sending",
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      ...(((attachments && attachments.length > 0 ? attachments : previous?.attachments) ?? []) as Attachment[]).length > 0
+        ? { attachments: (attachments && attachments.length > 0 ? attachments : previous?.attachments)! }
+        : {},
     };
-    set((s) => ({ messages: [...s.messages, optimistic], isSending: true }));
+    set((s) => {
+      // The chat list reflects the message immediately: Telegram shows the
+      // pending text there, not the previous one until the server answers.
+      const target = s.conversations.find((c) => c.id === convId);
+      const previewText = content.trim()
+        ? messengerPlainPreview(content, 80)
+        : attachments && attachments.length > 0
+          ? `📎 ${attachments.length > 1 ? `${attachments.length} файлов` : attachments[0].name}`
+          : "";
+      const conversations = target
+        ? [
+            {
+              ...target,
+              last_message_at: optimistic.sent_at,
+              last_message_preview: previewText,
+              last_message_sender_id: optimistic.sender_user_id,
+              unread_count: 0,
+            },
+            ...s.conversations.filter((c) => c.id !== convId),
+          ]
+        : s.conversations;
+      // `messages` belongs to the open chat: a background send leaves it alone
+      // and lets the realtime echo place the message.
+      const isOpen = s.selectedConversationId === convId;
+      const messages = !isOpen
+        ? s.messages
+        : previous
+          ? sortBySentAt(s.messages.map((m) => (m.client_id === clientId ? optimistic : m)))
+          : mergeMessages(s.messages, [optimistic]);
+      return { messages, isSending: true, conversations };
+    });
+
+    // Outbox first: the message is the reader's from the moment they pressed
+    // send. If the tab dies here, the next launch retries it (Telegram's clock,
+    // not a lost message and not a toast).
+    const outboxEntry: OutboxEntry = {
+      key: outboxKey(get().me?.id ?? "", convId, clientId),
+      ownerId: get().me?.id ?? "",
+      conversationId: convId,
+      content,
+      clientId,
+      parentMessageId,
+      attachments: attachments ?? [],
+      createdAt: Date.now(),
+      attempts: 0,
+      nextAttemptAt: Date.now(),
+    };
+    await putOutbox(outboxEntry);
 
     try {
       const msg: MessageView = await messengerApi.sendMessage(
@@ -772,20 +939,166 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           };
           conversations = [updated, ...s.conversations.filter((c) => c.id !== convId)];
         }
-        rememberLatestEventId(convId, messages);
-        cacheCurrentMessages(s.me?.id ?? null, convId, messages);
+        if (s.selectedConversationId === convId) {
+          rememberLatestEventId(convId, messages);
+          cacheCurrentMessages(s.me?.id ?? null, convId, messages);
+        }
         return { messages, conversations, isSending: false };
       });
+      void deleteOutbox(outboxEntry.key);
       return msg.id;
     } catch (e) {
+      const status = (e as { status?: number }).status;
+      if (isPermanentSendError(status) || OUTBOX_MAX_ATTEMPTS <= 0) {
+        // A 400/403/404 will never succeed: the bubble becomes "failed" with a
+        // retry button, and the queue forgets it.
+        void deleteOutbox(outboxEntry.key);
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.client_id === clientId ? { ...m, localStatus: "failed" as const } : m,
+          ),
+          isSending: false,
+          error: "Не удалось отправить сообщение",
+        }));
+        return "";
+      }
+
+      // Network / 5xx / rate limit: stay "sending" (the clock), retry by itself.
+      const attempts = outboxEntry.attempts + 1;
       set((s) => ({
         messages: s.messages.map((m) =>
-          m.client_id === clientId ? { ...m, localStatus: "failed" as const } : m,
+          m.client_id === clientId ? { ...m, localStatus: "sending" as const } : m,
         ),
         isSending: false,
-        error: "Не удалось отправить сообщение",
       }));
+      await putOutbox({
+        ...outboxEntry,
+        attempts,
+        nextAttemptAt: Date.now() + outboxRetryDelay(attempts),
+        lastError: e instanceof Error ? e.message : "network",
+      });
+      scheduleOutboxFlush(outboxRetryDelay(attempts));
       return "";
+    }
+  },
+
+  flushOutbox: async () => {
+    const { me } = get();
+    if (!me || outboxFlushing) return;
+    outboxFlushing = true;
+    try {
+      const pending = (await listOutbox(me.id)).filter((entry) => !entry.gaveUp);
+      const now = Date.now();
+      // An entry that failed blocks the rest of ITS chat (order is per chat, not
+      // global): other conversations must not wait for a dead one.
+      const blocked = new Set<string>();
+
+      for (const entry of pending) {
+        if (blocked.has(entry.conversationId)) continue;
+        if (entry.nextAttemptAt > now) {
+          blocked.add(entry.conversationId);
+          continue;
+        }
+
+        const isNotes = notesConversationExists(entry.conversationId);
+        let wireContent = entry.content;
+        if (isNotes && entry.content.trim()) {
+          try {
+            wireContent = await encryptNote(entry.content, entry.conversationId);
+          } catch {
+            // Cannot encrypt on this device (notes key gone): keep it queued.
+            blocked.add(entry.conversationId);
+            continue;
+          }
+        }
+
+        try {
+          const msg = await messengerApi.sendMessage(
+            entry.conversationId,
+            wireContent,
+            entry.clientId,
+            entry.parentMessageId,
+            entry.attachments.length > 0 ? entry.attachments : undefined,
+          );
+          const displayContent = isNotes
+            ? (await decryptNote(msg.content, entry.conversationId)) ?? entry.content
+            : msg.content;
+          const delivered: MessageView = {
+            ...msg,
+            content: displayContent,
+            attachments: msg.attachments && msg.attachments.length > 0 ? msg.attachments : entry.attachments,
+            localStatus: "sent",
+          };
+
+          set((s) => {
+            const isOpen = s.selectedConversationId === entry.conversationId;
+            // The bubble may be missing (the app restarted while the message was
+            // queued and the chat was never opened): materialize it on arrival.
+            const messages = isOpen
+              ? mergeMessages(s.messages, [delivered])
+              : s.messages;
+            const target = s.conversations.find((c) => c.id === entry.conversationId);
+            let conversations = s.conversations;
+            if (target) {
+              const previewText = entry.content.trim()
+                ? messengerPlainPreview(entry.content, 80)
+                : entry.attachments.length > 0
+                  ? `📎 ${entry.attachments.length > 1 ? `${entry.attachments.length} файлов` : entry.attachments[0].name}`
+                  : "";
+              conversations = [
+                {
+                  ...target,
+                  last_message_at: msg.sent_at,
+                  last_message_preview: previewText,
+                  last_message_sender_id: s.me!.id,
+                  unread_count: 0,
+                },
+                ...s.conversations.filter((c) => c.id !== entry.conversationId),
+              ];
+            }
+            // `s.messages` holds the OPEN chat only: caching it under another
+            // conversation id would overwrite that chat's history.
+            if (isOpen) {
+              rememberLatestEventId(entry.conversationId, messages);
+              cacheCurrentMessages(s.me?.id ?? null, entry.conversationId, messages);
+            }
+            return { messages, conversations };
+          });
+          await deleteOutbox(entry.key);
+        } catch (e) {
+          const status = (e as { status?: number }).status;
+          const attempts = entry.attempts + 1;
+          const refused = isPermanentSendError(status);
+          if (refused || attempts >= OUTBOX_MAX_ATTEMPTS) {
+            // Telegram keeps a refused message in the chat until the reader
+            // deletes or resends it — so the entry stays, flagged as given up.
+            await putOutbox({
+              ...entry,
+              attempts,
+              gaveUp: true,
+              lastError: e instanceof Error ? e.message : "network",
+            });
+            set((s) => ({
+              messages: s.messages.map((m) =>
+                m.client_id === entry.clientId && m.conversation_id === entry.conversationId
+                  ? { ...m, localStatus: "failed" as const }
+                  : m,
+              ),
+            }));
+            continue;
+          }
+          await putOutbox({
+            ...entry,
+            attempts,
+            nextAttemptAt: Date.now() + outboxRetryDelay(attempts),
+            lastError: e instanceof Error ? e.message : "network",
+          });
+          blocked.add(entry.conversationId);
+        }
+      }
+    } finally {
+      outboxFlushing = false;
+      void armOutbox();
     }
   },
 
@@ -829,8 +1142,20 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   // ── Delete message ────────────────────────────────────────────────────
   deleteMessage: async (messageId: string) => {
-    const { selectedConversationId } = get();
+    const { selectedConversationId, me } = get();
     if (!selectedConversationId) return;
+
+    // A queued message has no server row yet: deleting it must drop it from the
+    // outbox, otherwise the retry would resurrect it after the bubble is gone.
+    const local = get().messages.find(
+      (m) => m.id === messageId && (m.localStatus === "sending" || m.localStatus === "failed"),
+    );
+    if (local?.client_id) {
+      if (me) void deleteOutbox(outboxKey(me.id, local.conversation_id, local.client_id));
+      set((s) => ({ messages: s.messages.filter((m) => m.id !== messageId) }));
+      return;
+    }
+
     try {
       await messengerApi.deleteMessage(selectedConversationId, messageId);
       set((s) => ({

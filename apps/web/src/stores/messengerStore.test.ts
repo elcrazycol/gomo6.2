@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { destroyMessenger, queueMarkRead, useMessengerStore } from "./messengerStore";
 import { messengerApi } from "@/services/messengerApi";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
+import { listOutbox, outboxKey, putOutbox, __resetOutboxForTests } from "@/components/messenger/core/outbox";
 import { encryptNote, encryptNotesMeta } from "@/utils/notesCrypto";
 import type { ConversationView, MessageView } from "@/components/messenger/types";
 
@@ -178,6 +179,56 @@ describe("messengerStore", () => {
       expect(messengerApi.markRead).not.toHaveBeenCalled();
     });
 
+    it("keeps a queued message visible after a reload, before the server has it", async () => {
+      // The socket died mid-send: the message lives only in the outbox, so the
+      // fresh server page does not contain it — it must still open in the chat.
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "server-1", content: "старое" }),
+      ]);
+      await putOutbox({
+        key: outboxKey("u1", "conv-1", "client-queued"),
+        ownerId: "u1",
+        conversationId: "conv-1",
+        content: "висит в очереди",
+        clientId: "client-queued",
+        attachments: [],
+        createdAt: Date.parse("2025-06-01T12:05:00Z"),
+        attempts: 2,
+        nextAttemptAt: Date.now() + 5000,
+      });
+
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      await useMessengerStore.getState().loadMessages("conv-1");
+
+      const queued = useMessengerStore.getState().messages.find((m) => m.client_id === "client-queued");
+      expect(queued?.content).toBe("висит в очереди");
+      expect(queued?.localStatus).toBe("sending");
+      // The server page is what gets cached; pending mail is re-attached from
+      // the outbox instead of being mistaken for history.
+      expect(saveCachedMessages).toHaveBeenCalledWith("u1", "conv-1", [expect.objectContaining({ id: "server-1" })]);
+    });
+
+    it("renders a given-up message as failed so it can be retried", async () => {
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([]);
+      await putOutbox({
+        key: outboxKey("u1", "conv-1", "client-dead"),
+        ownerId: "u1",
+        conversationId: "conv-1",
+        content: "не ушло",
+        clientId: "client-dead",
+        attachments: [],
+        createdAt: Date.now(),
+        attempts: 6,
+        nextAttemptAt: 0,
+        gaveUp: true,
+      });
+
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      await useMessengerStore.getState().loadMessages("conv-1");
+
+      expect(useMessengerStore.getState().messages[0].localStatus).toBe("failed");
+    });
+
     it("sets error on failure", async () => {
       vi.mocked(messengerApi.getMessages).mockRejectedValue(new Error("fail"));
 
@@ -310,16 +361,62 @@ describe("messengerStore", () => {
       expect(state.messages[0].localStatus).toBe("sent");
     });
 
-    it("marks optimistic message as failed on error", async () => {
+    it("keeps a network failure queued and shows the clock", async () => {
       useMessengerStore.setState({ me: { id: "u1", username: "test" }, selectedConversationId: "conv-1" });
-      vi.mocked(messengerApi.sendMessage).mockRejectedValue(new Error("fail"));
+      vi.mocked(messengerApi.sendMessage).mockRejectedValue(new Error("network down"));
 
-      const msgId = await useMessengerStore.getState().sendMessage("Hello!", "client-fail");
+      const msgId = await useMessengerStore.getState().sendMessage("Hello!", "client-net");
+
+      expect(msgId).toBe("");
+      const state = useMessengerStore.getState();
+      // Still the reader's message, still on its way: the outbox retries it.
+      expect(state.messages[0].localStatus).toBe("sending");
+      expect(state.error).toBeNull();
+      const queued = await listOutbox("u1");
+      expect(queued.map((entry) => entry.clientId)).toContain("client-net");
+    });
+
+    it("marks a permanently refused message as failed and drops it from the queue", async () => {
+      useMessengerStore.setState({ me: { id: "u1", username: "test" }, selectedConversationId: "conv-1" });
+      const refused = Object.assign(new Error("bad request"), { status: 400 });
+      vi.mocked(messengerApi.sendMessage).mockRejectedValue(refused);
+
+      const msgId = await useMessengerStore.getState().sendMessage("Hello!", "client-bad");
 
       expect(msgId).toBe("");
       const state = useMessengerStore.getState();
       expect(state.messages[0].localStatus).toBe("failed");
       expect(state.error).toBe("Не удалось отправить сообщение");
+      expect(await listOutbox("u1")).toHaveLength(0);
+    });
+
+    it("flushes a queued message when the network is back", async () => {
+      const optimistic = mockMsg({ id: "temp_client-1", client_id: "client-1", localStatus: "sending" });
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+        messages: [optimistic],
+      });
+      await putOutbox({
+        key: outboxKey("u1", "conv-1", "client-1"),
+        ownerId: "u1",
+        conversationId: "conv-1",
+        content: "Hello",
+        clientId: "client-1",
+        attachments: [],
+        createdAt: Date.now() - 5000,
+        attempts: 0,
+        nextAttemptAt: 0,
+      });
+      vi.mocked(messengerApi.sendMessage).mockResolvedValue(
+        mockMsg({ id: "msg-real", client_id: "client-1", content: "Hello" }),
+      );
+
+      await useMessengerStore.getState().flushOutbox();
+
+      expect(messengerApi.sendMessage).toHaveBeenCalledTimes(1);
+      expect(await listOutbox("u1")).toHaveLength(0);
+      expect(useMessengerStore.getState().messages[0].localStatus).toBe("sent");
     });
 
     it("returns empty if no conversation selected", async () => {
@@ -351,6 +448,33 @@ describe("messengerStore", () => {
 
       expect(useMessengerStore.getState().error).toBe("Не удалось отредактировать сообщение");
     });
+  });
+
+  it("drops a queued message from the outbox when the reader deletes it", async () => {
+    useMessengerStore.setState({
+      me: { id: "u1", username: "test" },
+      selectedConversationId: "conv-1",
+      messages: [mockMsg({ id: "temp_client-1", client_id: "client-1", localStatus: "sending" })],
+    });
+    await putOutbox({
+      key: outboxKey("u1", "conv-1", "client-1"),
+      ownerId: "u1",
+      conversationId: "conv-1",
+      content: "не хочу",
+      clientId: "client-1",
+      attachments: [],
+      createdAt: Date.now(),
+      attempts: 1,
+      nextAttemptAt: Date.now(),
+    });
+
+    await useMessengerStore.getState().deleteMessage("temp_client-1");
+    await Promise.resolve();
+
+    // No server row exists, and the retry must not resurrect the bubble.
+    expect(messengerApi.deleteMessage).not.toHaveBeenCalled();
+    expect(useMessengerStore.getState().messages).toHaveLength(0);
+    expect(await listOutbox("u1")).toHaveLength(0);
   });
 
   describe("deleteMessage", () => {
