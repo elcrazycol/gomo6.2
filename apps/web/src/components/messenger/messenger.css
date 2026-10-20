@@ -4328,13 +4328,17 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
      A full-width strip glued to the screen edge reads as "cut off" on a
      phone, especially where the home indicator sits. The bar becomes part of
      the chat surface instead: no top border, no own background, the input
-     pill and the round buttons float a few pixels above the edge. The 10px
-     under the pill is deliberate — env() is 0 in a normal mobile browser tab
-     (not standalone), and the bar still needs air there. This rule also owns
+     pill and the round buttons float a few pixels above the edge.
+
+     The bottom gap: 8px on a phone without a home indicator, plus only ~40%
+     of the safe-area inset where there is one. The inset is a 34px *zone* for
+     the indicator, not a margin — taking it whole (34 + 10) pushed the bar
+     ~44px up the screen, which on an iPhone reads as a hole under the chat.
+     The pill only has to clear the indicator line itself. This rule also owns
      the phone padding: the old `padding: 8px 10px` override at ≤640px reset
      the safe-area bottom, which is what put the bar on the home indicator. */
   .composer {
-    padding: 6px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px) * 0.4);
     border-top: 0;
     background: transparent;
     box-shadow: none;
