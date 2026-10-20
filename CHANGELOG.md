@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.0](https://github.com/elcrazycol/gomo6.2/compare/v2.26.0...v2.27.0) (2026-10-20)
+
+
+### Features
+
+* **messenger:** outbox — сообщение уходит даже без сети ([#557](https://github.com/elcrazycol/gomo6.2/issues/557)) ([7de7cab](https://github.com/elcrazycol/gomo6.2/commit/7de7cabd6ac542512634d4107e1b28d6b2bdb398))
+
 ## [2.26.0] — 2026-10-20
 
 ### Added
