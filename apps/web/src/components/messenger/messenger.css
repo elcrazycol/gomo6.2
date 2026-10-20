@@ -4324,6 +4324,37 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
     will-change: translate;
   }
 
+  /* ── Floating composer (Telegram's phone layout) ──────────────────────────
+     A full-width strip glued to the screen edge reads as "cut off" on a
+     phone, especially where the home indicator sits. The bar becomes part of
+     the chat surface instead: no top border, no own background, the input
+     pill and the round buttons float a few pixels above the edge. The 10px
+     under the pill is deliberate — env() is 0 in a normal mobile browser tab
+     (not standalone), and the bar still needs air there. This rule also owns
+     the phone padding: the old `padding: 8px 10px` override at ≤640px reset
+     the safe-area bottom, which is what put the bar on the home indicator. */
+  .composer {
+    padding: 6px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .composer-row {
+    gap: 6px;
+  }
+
+  .composer-input-pill {
+    border-color: transparent;
+    background: oklch(var(--card));
+    box-shadow: 0 2px 10px -4px oklch(0 0 0 / 0.35);
+  }
+
+  .composer-input-pill:focus-within,
+  .composer.is-sheet-open .composer-input-pill {
+    border-color: oklch(var(--primary));
+  }
+
   /* Browsers without the standalone `translate` property (Safari < 14.1) fall
      back to the previous bottom-offset approach so the composer still clears
      the keyboard. */
@@ -4478,9 +4509,9 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
     font-size: 12px;
   }
 
-  .composer {
-    padding: 8px 10px;
-  }
+  /* No padding override here: the ≤980px floating rule already sets the
+     mobile padding, and a plain `8px 10px` would reset the safe-area bottom —
+     the composer then sat on the home indicator. */
 
   .send-button {
     width: 38px;
