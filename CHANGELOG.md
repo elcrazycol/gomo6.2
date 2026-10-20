@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.26.0](https://github.com/elcrazycol/gomo6.2/compare/v2.25.3...v2.26.0) (2026-10-20)
+
+
+### Features
+
+* **messenger:** voice notes — pause/preview/rate, listened state, emoji toggle ([#549](https://github.com/elcrazycol/gomo6.2/issues/549)) ([b49531f](https://github.com/elcrazycol/gomo6.2/commit/b49531f90a238d1084d30064d71e1813485f8da5))
+
+
+### Bug Fixes
+
+* **ci:** выдать pull-requests: read гейту деплоя ([7bf93c6](https://github.com/elcrazycol/gomo6.2/commit/7bf93c60a4bd18df526bbc8ea42a1eca404f519c))
+* **ci:** выдать pull-requests: read гейту деплоя — reusable ci.yml требует это право ([735e737](https://github.com/elcrazycol/gomo6.2/commit/735e7371dd373e3d90000b0c616e5845a1303f89))
+
 ## [2.25.3] — 2026-10-20
 
 ### Fixed
