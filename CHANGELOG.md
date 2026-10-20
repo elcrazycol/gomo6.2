@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.0](https://github.com/elcrazycol/gomo6.2/compare/v2.27.0...v2.28.0) (2026-10-20)
+
+
+### Features
+
+* **messenger:** пачка сообщений — отправка больше не ждёт предыдущего ([#560](https://github.com/elcrazycol/gomo6.2/issues/560)) ([93c903b](https://github.com/elcrazycol/gomo6.2/commit/93c903b80837ecb2adbd02bf1d9938e596af1fff))
+
+
+### Bug Fixes
+
+* **messenger:** композер на iPhone — вдвое меньше отступа под home indicator ([#563](https://github.com/elcrazycol/gomo6.2/issues/563)) ([be05351](https://github.com/elcrazycol/gomo6.2/commit/be05351d63953908c2bb6f044b4d9a1340e20400))
+* **messenger:** композер на телефоне — плавающая панель, живой safe-area ([#562](https://github.com/elcrazycol/gomo6.2/issues/562)) ([40d6775](https://github.com/elcrazycol/gomo6.2/commit/40d67750e74f88a5b57cc9845f9b7ffadacbea49))
+
 ## [2.27.0] — 2026-10-20
 
 Отправка больше не живёт одним запросом: сообщение принадлежит тебе с момента нажатия и уходит, как только появляется сеть.
