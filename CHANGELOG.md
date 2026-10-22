@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.29.0](https://github.com/elcrazycol/gomo6.2/compare/v2.28.0...v2.29.0) (2026-10-22)
+
+
+### Features
+
+* **stories:** истории — бэкенд, публикация, плеер и GomoSub ([#564](https://github.com/elcrazycol/gomo6.2/issues/564)) ([aa81652](https://github.com/elcrazycol/gomo6.2/commit/aa81652eab2b5c41df9903d3b8a17b972a386f2d))
+* **web:** add telegram-grade motion to profile, overlays and composer ([#567](https://github.com/elcrazycol/gomo6.2/issues/567)) ([cdd97c2](https://github.com/elcrazycol/gomo6.2/commit/cdd97c225410d9a10ff153e5fce0a3f764310a02))
+
+
+### Bug Fixes
+
+* **stories:** медиа историй через авторизованный прокси ([#566](https://github.com/elcrazycol/gomo6.2/issues/566)) ([e82557f](https://github.com/elcrazycol/gomo6.2/commit/e82557fb6b612961be4c7d4d7c6c43ba9e2585dc))
+* **stories:** медиа историй через авторизованный прокси, а не Garage напрямую ([e82557f](https://github.com/elcrazycol/gomo6.2/commit/e82557fb6b612961be4c7d4d7c6c43ba9e2585dc))
+
 ## [2.28.0](https://github.com/elcrazycol/gomo6.2/compare/v2.27.0...v2.28.0) (2026-10-20)
 
 
