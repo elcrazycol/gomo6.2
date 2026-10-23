@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.0](https://github.com/elcrazycol/gomo6.2/compare/v2.29.0...v2.30.0) (2026-10-23)
+
+
+### Features
+
+* **gomosub:** каталог сообществ — один RPC вместо N+1, карточки, поиск и сортировка ([#569](https://github.com/elcrazycol/gomo6.2/issues/569)) ([e1b4061](https://github.com/elcrazycol/gomo6.2/commit/e1b4061f82ec05295641c06b3c1f5e4d8805b07e))
+* **gomosub:** редизайн каталога и входа в саб + страницы уведомлений ([#571](https://github.com/elcrazycol/gomo6.2/issues/571)) ([ef99851](https://github.com/elcrazycol/gomo6.2/commit/ef9985175a63d1ea8ed8c62f354f0e405f821d10))
+* **motion,mobile:** переходы профиля и мессенджера, нижняя навигация и плавные входы ([#568](https://github.com/elcrazycol/gomo6.2/issues/568)) ([807aa46](https://github.com/elcrazycol/gomo6.2/commit/807aa4622bff561aac28aa705bec712cc7646b11))
+
 ## [2.29.0](https://github.com/elcrazycol/gomo6.2/compare/v2.28.0...v2.29.0) (2026-10-22)
 
 
