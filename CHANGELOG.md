@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.2](https://github.com/elcrazycol/gomo6.2/compare/v2.31.1...v2.31.2) (2026-10-23)
+
+
+### Performance
+
+* wall counters, frontend duplicates, catalog, board membership, likers cache ([#576](https://github.com/elcrazycol/gomo6.2/issues/576)) ([ec2a540](https://github.com/elcrazycol/gomo6.2/commit/ec2a5409af02b29baba156b3095a98b78e8fb850))
+
 ## [2.31.1](https://github.com/elcrazycol/gomo6.2/compare/v2.31.0...v2.31.1) (2026-10-23)
 
 
