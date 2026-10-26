@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.35.0](https://github.com/elcrazycol/gomo6.2/compare/v2.34.0...v2.35.0) (2026-10-26)
+
+
+### Features
+
+* **web:** composer-over-content create flow with floating glass section picker ([#584](https://github.com/elcrazycol/gomo6.2/issues/584)) ([4156711](https://github.com/elcrazycol/gomo6.2/commit/4156711021a64f88bbf71b960673dbd49c82afcc))
+* **web:** slash menu key in composer toolbar replaces link button ([#587](https://github.com/elcrazycol/gomo6.2/issues/587)) ([c46872f](https://github.com/elcrazycol/gomo6.2/commit/c46872f1b492147b7f33b65c829411987e4c6da2))
+
+
+### Bug Fixes
+
+* **web:** respect iOS safe areas in composer sheets and toolbars ([#586](https://github.com/elcrazycol/gomo6.2/issues/586)) ([36948d8](https://github.com/elcrazycol/gomo6.2/commit/36948d8222ff774f6d67dbe7d3d5f80528f60b62))
+
 ## [2.34.0](https://github.com/elcrazycol/gomo6.2/compare/v2.33.0...v2.34.0) (2026-10-26)
 
 
