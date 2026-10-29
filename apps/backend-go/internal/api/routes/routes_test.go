@@ -499,6 +499,7 @@ var expectedRoutes = []string{
 	"POST /api/rpc/gomosub_timeout",
 	"POST /api/rpc/gomosub_untimeout",
 	"GET /api/rpc/gomosub_bans",
+	"GET /api/rpc/gomosub_members",
 	"POST /api/rpc/create_thread",
 	"POST /api/rpc/create_post",
 

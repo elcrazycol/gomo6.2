@@ -942,6 +942,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/gomosub_timeout", rpcHandler.TimeoutMember)
 			protected.POST("/gomosub_untimeout", rpcHandler.UntimeoutMember)
 			protected.GET("/gomosub_bans", rpcHandler.ListBans)
+			protected.GET("/gomosub_members", rpcHandler.ListGomoSubMembers)
 
 			// Thread/Post RPC functions
 			protected.POST("/create_thread", rpcHandler.CreateThreadRPC)

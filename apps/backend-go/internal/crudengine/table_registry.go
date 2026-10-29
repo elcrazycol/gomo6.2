@@ -255,7 +255,7 @@ var genericTables = []TableMeta{
 	},
 	{
 		Name:              "channel_categories",
-		ReadAccess:        ProtectedRead,
+		ReadAccess:        GuestRead,
 		ReadWildcard:      true,
 		Writes:            fullWrites(),
 		WriteGroup:        GenericWrite,

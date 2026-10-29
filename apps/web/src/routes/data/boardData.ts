@@ -24,6 +24,7 @@ export interface ChannelRow {
   name: string;
   description: string | null;
   category: string | null;
+  category_id?: string | null;
   sort_order: number;
   is_private: boolean;
   kind?: "forum" | "text";
