@@ -160,6 +160,13 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		INSERT INTO gomosub_memberships (board_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
 	`, board.ID, claims.UserID)
 
+	// Every board gets its @everyone base role (idempotent).
+	_, _ = h.db.Exec(`
+		INSERT INTO gomosub_roles (board_id, name, color, position, permissions, is_everyone)
+		VALUES ($1, '@everyone', '#99aab5', 0, '{}'::jsonb, TRUE)
+		ON CONFLICT (board_id, name) DO NOTHING
+	`, board.ID)
+
 	// Index the new gomosub (best-effort; private ones are excluded by query).
 	h.searchIndexer.SyncBoard(board.ID)
 

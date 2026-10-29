@@ -14,9 +14,20 @@ func TestCanAccessRoom_ChannelRoom(t *testing.T) {
 
 	t.Run("allowed member", func(t *testing.T) {
 		hub, mock := setupHubWithDB(t)
-		mock.ExpectQuery(`SELECT EXISTS\(\s*SELECT 1 FROM channels ch`).
-			WithArgs(chanID, "user-1").
-			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		boardID := "30000000-0000-0000-0000-0000000000cc"
+		mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
+			WithArgs(chanID).
+			WillReturnRows(sqlmock.NewRows([]string{"board_id", "is_private", "owner_id", "visibility"}).
+				AddRow(boardID, false, "owner-1", "public"))
+		mock.ExpectQuery(`FROM gomosub_bans`).
+			WithArgs(boardID, "user-1").
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		mock.ExpectQuery(`timed_out_until FROM gomosub_memberships`).
+			WithArgs(boardID, "user-1").
+			WillReturnRows(sqlmock.NewRows([]string{"timed_out_until"}).AddRow(nil))
+		mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+			WithArgs(boardID, "user-1").
+			WillReturnRows(sqlmock.NewRows([]string{"permissions", "is_everyone"}))
 
 		if !hub.canAccessRoom("user-1", "channel_"+chanID) {
 			t.Error("expected channel room access")
@@ -25,9 +36,23 @@ func TestCanAccessRoom_ChannelRoom(t *testing.T) {
 
 	t.Run("denied stranger", func(t *testing.T) {
 		hub, mock := setupHubWithDB(t)
-		mock.ExpectQuery(`SELECT EXISTS\(\s*SELECT 1 FROM channels ch`).
-			WithArgs(chanID, "user-2").
+		boardID := "30000000-0000-0000-0000-0000000000cc"
+		mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
+			WithArgs(chanID).
+			WillReturnRows(sqlmock.NewRows([]string{"board_id", "is_private", "owner_id", "visibility"}).
+				AddRow(boardID, true, "owner-1", "public"))
+		mock.ExpectQuery(`FROM gomosub_bans`).
+			WithArgs(boardID, "user-2").
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		mock.ExpectQuery(`timed_out_until FROM gomosub_memberships`).
+			WithArgs(boardID, "user-2").
+			WillReturnRows(sqlmock.NewRows([]string{"timed_out_until"}))
+		mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+			WithArgs(boardID, "user-2").
+			WillReturnRows(sqlmock.NewRows([]string{"permissions", "is_everyone"}))
+		mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+			WithArgs(chanID, boardID, "user-2").
+			WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}))
 
 		if hub.canAccessRoom("user-2", "channel_"+chanID) {
 			t.Error("stranger must not subscribe to the channel room")

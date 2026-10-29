@@ -97,8 +97,18 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 	err = h.db.QueryRow(`
 		SELECT EXISTS(
 			SELECT 1 FROM channel_permissions cp
-			JOIN gomosub_memberships gm ON gm.role_id = cp.role_id AND gm.user_id = $2 AND gm.board_id = (SELECT board_id FROM channels WHERE id = $1)
-			WHERE cp.channel_id = $1 AND cp.can_write = true
+			JOIN gomosub_roles gr ON gr.id = cp.role_id
+			WHERE cp.channel_id = $1 AND gr.board_id = (SELECT board_id FROM channels WHERE id = $1)
+			AND (
+				(COALESCE(gr.is_everyone, false) = TRUE
+					AND EXISTS(SELECT 1 FROM gomosub_memberships gm0 WHERE gm0.board_id = (SELECT board_id FROM channels WHERE id = $1) AND gm0.user_id = $2))
+				OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
+					WHERE mr.role_id = cp.role_id AND mr.user_id = $2 AND mr.board_id = (SELECT board_id FROM channels WHERE id = $1))
+				OR EXISTS(SELECT 1 FROM gomosub_memberships gm
+					WHERE gm.role_id = cp.role_id AND gm.user_id = $2 AND gm.board_id = (SELECT board_id FROM channels WHERE id = $1))
+			)
+			AND (cp.allow @> '{"send_messages": true}'::jsonb OR (cp.allow = '{}'::jsonb AND cp.deny = '{}'::jsonb AND cp.can_write = true))
+			AND NOT (cp.deny @> '{"send_messages": true}'::jsonb)
 		)
 	`, channelID, userID).Scan(&hasAccess)
 	if err != nil {
@@ -781,46 +791,75 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 		c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
 			"is_owner": true,
 			"permissions": map[string]bool{
+				"administrator":       true,
 				"can_manage_roles":    true,
 				"can_manage_channels": true,
 				"can_manage_members":  true,
+				"kick_members":        true,
+				"ban_members":         true,
+				"timeout_members":     true,
 				"can_delete_threads":  true,
 				"can_pin_threads":     true,
 				// Stories: the owner may always publish community stories and
 				// the settings UI shows the switch as granted.
 				"can_post_stories": true,
+				"view_channel":     true,
+				"send_messages":    true,
 			},
+			"roles": []interface{}{},
 		}))
 		return
 	}
 
-	// Get user's role permissions from membership
-	var permissions json.RawMessage
-	err = h.db.QueryRow(`
-		SELECT gr.permissions
-		FROM gomosub_memberships gm
-		JOIN gomosub_roles gr ON gm.role_id = gr.id
-		WHERE gm.board_id = $1 AND gm.user_id = $2
-	`, boardID, claims.UserID).Scan(&permissions)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
-			"is_owner":    false,
-			"permissions": map[string]bool{},
-		}))
-		return
-	}
+	// Union of @everyone (members only) + all assigned roles — the multi-role
+	// join plus the legacy single role_id.
+	var memberExists bool
+	_ = h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)`,
+		boardID, claims.UserID).Scan(&memberExists)
+	rows, err := h.db.Query(`
+		SELECT gr.id, gr.name, gr.permissions, COALESCE(gr.is_everyone, false)
+		FROM gomosub_roles gr
+		WHERE gr.board_id = $1 AND (
+			(COALESCE(gr.is_everyone, false) = TRUE)
+			OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
+				WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $1)
+			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
+				WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $1)
+		)
+		ORDER BY gr.position DESC
+	`, boardID, claims.UserID)
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-
-	var perms map[string]bool
-	if err := json.Unmarshal(permissions, &perms); err != nil {
-		perms = map[string]bool{}
+	defer rows.Close()
+	perms := map[string]bool{}
+	roles := []interface{}{}
+	for rows.Next() {
+		var id, name string
+		var raw json.RawMessage
+		var everyone bool
+		if err := rows.Scan(&id, &name, &raw, &everyone); err != nil {
+			continue
+		}
+		if everyone && !memberExists {
+			continue
+		}
+		m := map[string]bool{}
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &m)
+		}
+		for k, v := range m {
+			if v {
+				perms[k] = true
+			}
+		}
+		roles = append(roles, map[string]interface{}{"id": id, "name": name})
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
 		"is_owner":    false,
 		"permissions": perms,
+		"roles":       roles,
 	}))
 }

@@ -26,13 +26,40 @@ func TestGetGomoSubChannelActivity_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "last_activity_at"}).
 			AddRow(channelID, time.Now()).
 			AddRow("660e8400-e29b-41d4-a716-446655442222", time.Now()))
-	// channelaccess.CanReadChannel per channel: first readable, second denied.
-	mock.ExpectQuery(`(?s)SELECT EXISTS\(.*`).
-		WithArgs(channelID, viewer).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`(?s)SELECT EXISTS\(.*`).
-		WithArgs("660e8400-e29b-41d4-a716-446655442222", viewer).
+	// channelaccess.CanReadChannel per channel (v2 multi-query chain):
+	// scope → bans → membership → role maps → (overwrites for private).
+	// First channel: public channel of a public board → readable by anyone.
+	// Second: private channel, viewer is not a member and holds no overwrite.
+	ownerID := "880e8400-e29b-41d4-a716-446655440000"
+	mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
+		WithArgs(channelID).
+		WillReturnRows(sqlmock.NewRows([]string{"board_id", "is_private", "owner_id", "visibility"}).
+			AddRow(boardID, false, ownerID, "public"))
+	mock.ExpectQuery(`FROM gomosub_bans`).
+		WithArgs(boardID, viewer).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`timed_out_until FROM gomosub_memberships`).
+		WithArgs(boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"timed_out_until"}))
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"permissions", "is_everyone"}))
+	mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
+		WithArgs("660e8400-e29b-41d4-a716-446655442222").
+		WillReturnRows(sqlmock.NewRows([]string{"board_id", "is_private", "owner_id", "visibility"}).
+			AddRow(boardID, true, ownerID, "public"))
+	mock.ExpectQuery(`FROM gomosub_bans`).
+		WithArgs(boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`timed_out_until FROM gomosub_memberships`).
+		WithArgs(boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"timed_out_until"}))
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"permissions", "is_everyone"}))
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs("660e8400-e29b-41d4-a716-446655442222", boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}))
 
 	c, w := testutil.NewRPCGETContext(map[string]string{"_board_id": boardID})
 	c.Set("claims", &auth.Claims{UserID: viewer})

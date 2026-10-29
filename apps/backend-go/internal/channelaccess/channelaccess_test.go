@@ -9,6 +9,8 @@ import (
 
 const testChannel = "10000000-0000-0000-0000-0000000000aa"
 const testUser = "20000000-0000-0000-0000-0000000000bb"
+const testBoard = "30000000-0000-0000-0000-0000000000cc"
+const testOwner = "40000000-0000-0000-0000-0000000000dd"
 
 func newAccessDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	t.Helper()
@@ -20,16 +22,54 @@ func newAccessDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	return db, mock
 }
 
-func expectExists(t *testing.T, mock sqlmock.Sqlmock, queryPattern string, allowed bool) {
-	t.Helper()
-	mock.ExpectQuery(queryPattern).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(allowed))
+func expectScope(mock sqlmock.Sqlmock, isPrivate bool, visibility string) {
+	mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
+		WithArgs(testChannel).
+		WillReturnRows(sqlmock.NewRows([]string{"board_id", "is_private", "owner_id", "visibility"}).
+			AddRow(testBoard, isPrivate, testOwner, visibility))
+}
+
+func expectNotBanned(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`FROM gomosub_bans`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+}
+
+func expectMembership(mock sqlmock.Sqlmock, isMember bool) {
+	rows := sqlmock.NewRows([]string{"timed_out_until"})
+	if isMember {
+		rows.AddRow(nil)
+	}
+	mock.ExpectQuery(`timed_out_until FROM gomosub_memberships`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(rows)
+}
+
+func expectRoles(mock sqlmock.Sqlmock, perms ...string) {
+	rows := sqlmock.NewRows([]string{"permissions", "is_everyone"})
+	for _, p := range perms {
+		// []byte mirrors what pgx returns for JSONB in production (sqlmock
+		// strings do not scan into json.RawMessage).
+		rows.AddRow([]byte(`{"`+p+`": true}`), false)
+	}
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(rows)
+}
+
+func expectNoOverwrites(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}))
 }
 
 func TestCanReadChannel_Allowed(t *testing.T) {
 	db, mock := newAccessDB(t)
-	expectExists(t, mock, `SELECT EXISTS\(\s*SELECT 1 FROM channels ch`, true)
+	// Public channel of a public board: readable without membership.
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, false)
+	expectRoles(mock)
 
 	ok, err := CanReadChannel(db, testUser, testChannel)
 	if err != nil {
@@ -42,7 +82,12 @@ func TestCanReadChannel_Allowed(t *testing.T) {
 
 func TestCanReadChannel_Denied(t *testing.T) {
 	db, mock := newAccessDB(t)
-	expectExists(t, mock, `SELECT EXISTS\(\s*SELECT 1 FROM channels ch`, false)
+	// Private channel, viewer is not a member and holds no overwrite.
+	expectScope(mock, true, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, false)
+	expectRoles(mock)
+	expectNoOverwrites(mock)
 
 	ok, err := CanReadChannel(db, testUser, testChannel)
 	if err != nil {
@@ -55,7 +100,7 @@ func TestCanReadChannel_Denied(t *testing.T) {
 
 func TestCanReadChannel_DBErrorFailsClosed(t *testing.T) {
 	db, mock := newAccessDB(t)
-	mock.ExpectQuery(`SELECT EXISTS\(\s*SELECT 1 FROM channels ch`).
+	mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
 		WithArgs(testChannel, testUser).
 		WillReturnError(sql.ErrConnDone)
 
@@ -70,9 +115,11 @@ func TestCanReadChannel_DBErrorFailsClosed(t *testing.T) {
 
 func TestCanWriteChannel_Allowed(t *testing.T) {
 	db, mock := newAccessDB(t)
-	mock.ExpectQuery(`SELECT b\.owner_id::text = \$2\s*OR\s*\(\s*EXISTS\(`).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(true))
+	// Member writing to a public channel.
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectRoles(mock)
 
 	ok, err := CanWriteChannel(db, testUser, testChannel)
 	if err != nil {
@@ -86,9 +133,9 @@ func TestCanWriteChannel_Allowed(t *testing.T) {
 // A channel that vanished between route and check must deny — never panic.
 func TestCanWriteChannel_MissingChannelDenies(t *testing.T) {
 	db, mock := newAccessDB(t)
-	mock.ExpectQuery(`SELECT b\.owner_id::text = \$2\s*OR\s*\(\s*EXISTS\(`).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"?column?"})) // zero rows → ErrNoRows
+	mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
+		WithArgs(testChannel).
+		WillReturnRows(sqlmock.NewRows([]string{"board_id", "is_private", "owner_id", "visibility"})) // zero rows → ErrNoRows
 
 	ok, err := CanWriteChannel(db, testUser, testChannel)
 	if err != nil {
@@ -101,7 +148,10 @@ func TestCanWriteChannel_MissingChannelDenies(t *testing.T) {
 
 func TestCanModerateChannel_RoleGranted(t *testing.T) {
 	db, mock := newAccessDB(t)
-	expectExists(t, mock, `SELECT EXISTS\(\s*SELECT 1 FROM channels ch`, true)
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectRoles(mock, "can_delete_threads")
 
 	ok, err := CanModerateChannel(db, testUser, testChannel)
 	if err != nil {
@@ -114,7 +164,10 @@ func TestCanModerateChannel_RoleGranted(t *testing.T) {
 
 func TestCanModerateChannel_Denied(t *testing.T) {
 	db, mock := newAccessDB(t)
-	expectExists(t, mock, `SELECT EXISTS\(\s*SELECT 1 FROM channels ch`, false)
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectRoles(mock) // no grants
 
 	ok, err := CanModerateChannel(db, testUser, testChannel)
 	if err != nil {

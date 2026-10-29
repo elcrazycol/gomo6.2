@@ -222,7 +222,7 @@ func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (s
 	var args []interface{}
 
 	switch tableName {
-	case "channels", "gomosub_roles":
+	case "channels", "gomosub_roles", "channel_categories":
 		clause = "board_id IN (SELECT b.id FROM boards b WHERE b.visibility IS DISTINCT FROM 'private'"
 	case "channel_permissions":
 		clause = "channel_id IN (SELECT ch.id FROM channels ch JOIN boards b ON b.id = ch.board_id WHERE b.visibility IS DISTINCT FROM 'private'"
@@ -424,30 +424,61 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 		return true
 	}
 
-	// Get user's role permissions
-	var permissionsRaw json.RawMessage
-	err = h.db.QueryRow(`
-		SELECT gr.permissions
-		FROM gomosub_memberships gm
-		JOIN gomosub_roles gr ON gm.role_id = gr.id
-		WHERE gm.board_id = $1 AND gm.user_id = $2
-	`, boardID, claims.UserID).Scan(&permissionsRaw)
+	// Resolve membership first: @everyone counts only for actual members, and
+	// non-members (outside self-join/self-leave, handled by the caller) are
+	// denied here.
+	var memberExists bool
+	_ = h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)`,
+		boardID, claims.UserID).Scan(&memberExists)
+
+	// Get user's role permissions: union of @everyone (members only) + all
+	// assigned roles (multi-role join plus the legacy single role_id).
+	rows, err := h.db.Query(`
+		SELECT gr.permissions, COALESCE(gr.is_everyone, false)
+		FROM gomosub_roles gr
+		WHERE gr.board_id = $1 AND (
+			(COALESCE(gr.is_everyone, false) = TRUE)
+			OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
+				WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $1)
+			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
+				WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $1)
+		)
+	`, boardID, claims.UserID)
 	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		c.Abort()
+		return false
+	}
+	defer rows.Close()
+	perms := map[string]bool{}
+	for rows.Next() {
+		var raw json.RawMessage
+		var everyone bool
+		if err := rows.Scan(&raw, &everyone); err != nil {
+			continue
+		}
+		if everyone && !memberExists {
+			continue
+		}
+		m := map[string]bool{}
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &m)
+		}
+		for k, v := range m {
+			if v {
+				perms[k] = true
+			}
+		}
+	}
+	if len(perms) == 0 && !memberExists {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
 		c.Abort()
 		return false
 	}
 
-	var perms map[string]bool
-	if err := json.Unmarshal(permissionsRaw, &perms); err != nil {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
-		c.Abort()
-		return false
-	}
-
-	// Check table-specific permissions
+	// Check table-specific permissions (administrator bypasses everything).
 	needed := gomosubTablePermission(tableName)
-	if needed == "" || perms[needed] {
+	if needed == "" || perms[needed] || perms["administrator"] {
 		return true
 	}
 
@@ -459,11 +490,11 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 // gomosubTablePermission returns the permission key needed to write to a gomosub table.
 func gomosubTablePermission(table string) string {
 	switch table {
-	case "channels", "channel_permissions":
+	case "channels", "channel_permissions", "channel_categories":
 		return "can_manage_channels"
-	case "gomosub_roles":
+	case "gomosub_roles", "gomosub_member_roles":
 		return "can_manage_roles"
-	case "gomosub_memberships":
+	case "gomosub_memberships", "gomosub_bans":
 		return "can_manage_members"
 	default:
 		return ""
