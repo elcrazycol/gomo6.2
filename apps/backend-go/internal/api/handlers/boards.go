@@ -792,6 +792,13 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
+	// Banned users cannot rejoin through invites either.
+	var banned bool
+	if err := h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_bans WHERE board_id = $1 AND user_id = $2 AND (expires_at IS NULL OR expires_at > NOW()))`, inv.BoardID, userClaims.UserID).Scan(&banned); err == nil && banned {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You are banned from this gomosub"))
+		return
+	}
+
 	// Atomically increment usage counter (prevents race conditions).
 	// Only succeeds if limit not reached (or unlimited when max_uses=0).
 	var ok bool

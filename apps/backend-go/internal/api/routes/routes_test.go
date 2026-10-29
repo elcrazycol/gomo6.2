@@ -493,6 +493,12 @@ var expectedRoutes = []string{
 	"POST /api/rpc/create_gomosub",
 	"GET /api/rpc/get_gomosub_channel_activity",
 	"GET /api/rpc/get_board_user_permissions",
+	"POST /api/rpc/gomosub_kick",
+	"POST /api/rpc/gomosub_ban",
+	"POST /api/rpc/gomosub_unban",
+	"POST /api/rpc/gomosub_timeout",
+	"POST /api/rpc/gomosub_untimeout",
+	"GET /api/rpc/gomosub_bans",
 	"POST /api/rpc/create_thread",
 	"POST /api/rpc/create_post",
 

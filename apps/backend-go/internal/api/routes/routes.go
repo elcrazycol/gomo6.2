@@ -935,6 +935,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// required — private channels are filtered by read access)
 			protected.GET("/get_gomosub_channel_activity", rpcHandler.GetGomoSubChannelActivity)
 
+			// GomoSub moderation (Discord-like kick/ban/timeout + ban list)
+			protected.POST("/gomosub_kick", rpcHandler.KickMember)
+			protected.POST("/gomosub_ban", rpcHandler.BanMember)
+			protected.POST("/gomosub_unban", rpcHandler.UnbanMember)
+			protected.POST("/gomosub_timeout", rpcHandler.TimeoutMember)
+			protected.POST("/gomosub_untimeout", rpcHandler.UntimeoutMember)
+			protected.GET("/gomosub_bans", rpcHandler.ListBans)
+
 			// Thread/Post RPC functions
 			protected.POST("/create_thread", rpcHandler.CreateThreadRPC)
 			protected.POST("/create_post", rpcHandler.CreatePostRPC)
