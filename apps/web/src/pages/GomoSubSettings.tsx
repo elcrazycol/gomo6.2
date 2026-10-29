@@ -1,22 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
-import { apiClient } from "@/integrations/api/client";
-import { storageUrl, uploadFile } from "@/utils/storage";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Loader2, Save, Plus, Trash2, GripVertical, Hash, MessageSquare, Shield, Lock, Eye, EyeOff, Users, Link, Copy, Calendar, Infinity as InfinityIcon, Clock, Download, PenLine, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Loader2, Hash, Shield, Users, Link, Gavel, PenLine, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
-import { renderPreviewContent } from "@/utils/emojiUtils";
+import { cn } from "@/lib/utils";
+import GeneralPanel, { type GeneralForm } from "@/components/gomosub/settings/GeneralPanel";
+import RolesPanel, { normalizeRoles } from "@/components/gomosub/settings/RolesPanel";
+import MembersPanel from "@/components/gomosub/settings/MembersPanel";
+import ChannelsPanel from "@/components/gomosub/settings/ChannelsPanel";
+import BansPanel from "@/components/gomosub/settings/BansPanel";
+import InvitesPanel, { type Invite } from "@/components/gomosub/settings/InvitesPanel";
+import { memberTop } from "@/components/gomosub/settings/permissions";
+import { parsePerms, type BanItem, type ChannelOverwrite, type Member, type MemberRoleGrant, type Role, type SettingsCategory, type SettingsChannel } from "@/components/gomosub/settings/types";
 
-type TabValue = "general" | "channels" | "roles" | "invites";
+type TabValue = "general" | "roles" | "members" | "channels" | "bans" | "invites";
 
 const parseRulesMarkdown = (rules: string | null) => {
   const raw = (rules || "").trim();
@@ -43,19 +41,15 @@ const buildRulesMarkdown = (s: string, a: string[], f: string[]) => {
   return blocks.join("\n\n").trim() || null;
 };
 
-const PERMISSION_LABELS: Record<string, string> = { can_manage_roles: "Управление ролями", can_manage_channels: "Управление каналами", can_manage_members: "Управление участниками", can_delete_threads: "Удаление записей", can_pin_threads: "Закрепление записей", can_post_stories: "Публикация историй" };
-
-// Settings sections: pills on mobile, sticky rail on desktop. `invites` is
-// only meaningful for private subs (public ones have no invite links).
-const buildTabItems = (visibility: string): { value: TabValue; label: string; icon: LucideIcon }[] => {
-  const items: { value: TabValue; label: string; icon: LucideIcon }[] = [
+const buildTabItems = (visibility: string, bans: number): { value: TabValue; label: string; icon: LucideIcon; badge?: number }[] => {
+  const items: { value: TabValue; label: string; icon: LucideIcon; badge?: number }[] = [
     { value: "general", label: "Основное", icon: PenLine },
-    { value: "channels", label: "Каналы", icon: Hash },
     { value: "roles", label: "Роли", icon: Shield },
+    { value: "members", label: "Участники", icon: Users },
+    { value: "channels", label: "Каналы", icon: Hash },
+    { value: "bans", label: "Баны", icon: Gavel, badge: bans || undefined },
   ];
-  if (visibility === "private") {
-    items.push({ value: "invites", label: "Приглашения", icon: Link });
-  }
+  if (visibility === "private") items.push({ value: "invites", label: "Приглашения", icon: Link });
   return items;
 };
 
@@ -64,218 +58,257 @@ const GomoSubSettings = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [uploadingCover, setUploadingCover] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
+  const [myId, setMyId] = useState("");
+  const [ownerId, setOwnerId] = useState("");
+  const [myPerms, setMyPerms] = useState<Record<string, boolean>>({});
   const [tagInput, setTagInput] = useState("");
   const [activeTab, setActiveTab] = useState<TabValue>("general");
 
-  const [channels, setChannels] = useState<{ id: string; slug: string; name: string; category: string; sort_order: number; is_private: boolean; kind?: "forum" | "text" }[]>([]);
+  const [channels, setChannels] = useState<SettingsChannel[]>([]);
   const [channelsLoading, setChannelsLoading] = useState(false);
-  const [newChannelName, setNewChannelName] = useState("");
-  const [newChannelSlug, setNewChannelSlug] = useState("");
-  const [newChannelCategory, setNewChannelCategory] = useState("");
-  const [newChannelIsPrivate, setNewChannelIsPrivate] = useState(false);
-  const [newChannelKind, setNewChannelKind] = useState<"forum" | "text">("forum");
-  const [addingChannel, setAddingChannel] = useState(false);
-  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [reordering, setReordering] = useState(false);
+  const [categories, setCategories] = useState<SettingsCategory[]>([]);
+  const [openChannelId, setOpenChannelId] = useState<string | null>(null);
+  const [overwrites, setOverwrites] = useState<ChannelOverwrite[]>([]);
 
-  const [roles, setRoles] = useState<{ id: string; board_id: string; name: string; color: string; position: number; permissions: Record<string, boolean> }[]>([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
-  const [newRoleName, setNewRoleName] = useState("");
-  const [newRoleColor, setNewRoleColor] = useState("#99aab5");
-  const [newRolePermissions, setNewRolePermissions] = useState<Record<string, boolean>>({});
-  const [addingRole, setAddingRole] = useState(false);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [grants, setGrants] = useState<MemberRoleGrant[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
 
-  const [members, setMembers] = useState<{ user_id: string; role_id: string | null; profiles?: { username: string } }[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
-  const [managingPermsChannelId, setManagingPermsChannelId] = useState<string | null>(null);
-  const [channelPerms, setChannelPerms] = useState<{ id?: string; channel_id: string; role_id: string; can_read: boolean; can_write: boolean }[]>([]);
-  const [channelPermsLoading, setChannelPermsLoading] = useState(false);
-
+  const [bans, setBans] = useState<BanItem[]>([]);
   const [boardVisibility, setBoardVisibility] = useState("public");
-  const [invites, setInvites] = useState<{ id: string; code: string; max_uses: number; current_uses: number; expires_at: string | null; created_at: string; is_active: boolean }[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
-  const [newInviteMaxUses, setNewInviteMaxUses] = useState(0);
-  const [newInviteExpiresDays, setNewInviteExpiresDays] = useState(0);
-  const [creatingInvite, setCreatingInvite] = useState(false);
 
-  const avatarInputRef = useRef<HTMLInputElement | null>(null);
-  const coverInputRef = useRef<HTMLInputElement | null>(null);
-
-  const [form, setForm] = useState({ id: "", name: "", description: "", gomosub_avatar_url: "", cover_image_url: "", gomosub_tags: [] as string[] });
+  const [form, setForm] = useState<GeneralForm>({ id: "", name: "", description: "", gomosub_avatar_url: "", cover_image_url: "", gomosub_tags: [] });
   const [standardRules, setStandardRules] = useState("");
   const [allowedRules, setAllowedRules] = useState<string[]>([""]);
   const [forbiddenRules, setForbiddenRules] = useState<string[]>([""]);
   const [originalRulesMarkdown, setOriginalRulesMarkdown] = useState<string | null>(null);
   const rulesPreview = useMemo(() => buildRulesMarkdown(standardRules, allowedRules, forbiddenRules) || "", [standardRules, allowedRules, forbiddenRules]);
   const rulesChanged = useMemo(() => {
-    // Normalize: treat null and empty string as equivalent (both mean "no rules")
     const current = rulesPreview?.trim() || null;
     const original = originalRulesMarkdown?.trim() || null;
     return current !== original;
   }, [rulesPreview, originalRulesMarkdown]);
 
-  // Raw fetches to the universal CRUD surface authenticate via HttpOnly
-  // cookies — every write must echo the CSRF cookie in the X-CSRF-Token header
-  // (double-submit CSRF), otherwise the backend rejects it with 403.
-  const authHeaders = (withJson = false): Record<string, string> => {
-    const csrf = apiClient.getCSRFToken();
-    const h: Record<string, string> = {};
-    if (csrf) h["X-CSRF-Token"] = csrf;
-    if (withJson) h["Content-Type"] = "application/json";
-    return h;
+  const loadChannels = async (boardId: string) => {
+    setChannelsLoading(true);
+    try {
+      const r = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`);
+      const d = await r.json();
+      setChannels((d.data || []) as SettingsChannel[]);
+    } catch { /* ignore */ }
+    setChannelsLoading(false);
   };
 
-  const loadChannels = async (boardId: string) => { setChannelsLoading(true); const r = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`); const d = await r.json(); setChannels((d.data || []) as typeof channels); setChannelsLoading(false); };
-  const loadRoles = async (boardId: string) => { setRolesLoading(true); const r = await fetch(`/api/v1/gomosub_roles?board_id=eq.${boardId}&order=position.desc`); const d = await r.json(); const data = (d.data || []) as { id: string; board_id: string; name: string; color: string; position: number; permissions: unknown }[]; setRoles(data.map((x) => ({ ...x, permissions: typeof x.permissions === "string" ? JSON.parse(x.permissions as string) : (x.permissions as Record<string, boolean> || {}) }))); setRolesLoading(false); };
-  const loadMembers = async (boardId: string) => { setMembersLoading(true); const r = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${boardId}`); const d = await r.json(); const data = (d.data || []) as { user_id: string; role_id: string | null }[]; if (data.length > 0) { const userIds = [...new Set(data.map((m) => m.user_id))].join(","); const pr = await fetch(`/api/v1/profiles?id=in.(${userIds})`); const pd = await pr.json(); const profiles = (pd.data || []) as { id: string; username: string }[]; const pm = new Map(profiles.map((p) => [p.id, p])); setMembers(data.map((m) => ({ ...m, profiles: pm.get(m.user_id) }))); } else setMembers([]); setMembersLoading(false); };
-  const loadChannelPerms = async (channelId: string) => { setChannelPermsLoading(true); const r = await fetch(`/api/v1/channel_permissions?channel_id=eq.${channelId}`); const d = await r.json(); setChannelPerms((d.data || []) as typeof channelPerms); setChannelPermsLoading(false); };
+  const loadCategories = async (boardId: string) => {
+    try {
+      const r = await fetch(`/api/v1/channel_categories?board_id=eq.${boardId}&order=sort_order.asc`);
+      const d = await r.json();
+      setCategories((d.data || []) as SettingsCategory[]);
+    } catch { /* ignore */ }
+  };
 
-  const loadInvites = async (boardId: string) => {
+  const loadRoles = async (boardId: string) => {
+    const r = await fetch(`/api/v1/gomosub_roles?board_id=eq.${boardId}&order=position.desc`);
+    const d = await r.json();
+    setRoles(normalizeRoles(d.data));
+  };
+
+  const loadMembers = async (boardId: string) => {
+    const r = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${boardId}`);
+    const d = await r.json();
+    const data = (d.data || []) as (Member & { user_id: string })[];
+    if (data.length > 0) {
+      const userIds = [...new Set(data.map((m) => m.user_id))].join(",");
+      const pr = await fetch(`/api/v1/profiles?id=in.(${userIds})`);
+      const pd = await pr.json();
+      const profiles = (pd.data || []) as { id: string; username: string }[];
+      const pm = new Map(profiles.map((p) => [p.id, p]));
+      setMembers(data.map((m) => ({ ...m, profiles: pm.get(m.user_id) })));
+    } else setMembers([]);
+  };
+
+  const loadGrants = async (boardId: string) => {
+    try {
+      const r = await fetch(`/api/v1/gomosub_member_roles?board_id=eq.${boardId}`);
+      const d = await r.json();
+      setGrants((d.data || []) as MemberRoleGrant[]);
+    } catch { /* ignore */ }
+  };
+
+  const loadOverwrites = async (channelId: string) => {
+    try {
+      const r = await fetch(`/api/v1/channel_permissions?channel_id=eq.${channelId}`);
+      const d = await r.json();
+      const rows = (d.data || []) as ChannelOverwrite[];
+      setOverwrites((prev) => {
+        const others = prev.filter((o) => o.channel_id !== channelId);
+        return [...others, ...rows.map((x) => ({
+          ...x,
+          allow: parsePerms(x.allow),
+          deny: parsePerms(x.deny),
+        }))];
+      });
+    } catch { /* ignore */ }
+  };
+
+  const loadBans = async (boardId: string, token: string | undefined) => {
+    try {
+      const r = await fetch(`/api/rpc/gomosub_bans?_board_id=${boardId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const d = await r.json();
+      if (r.ok && d?.success) setBans((d.data || []) as BanItem[]);
+    } catch { /* ignore */ }
+  };
+
+  const loadInvites = async (boardId: string, token: string | undefined) => {
     setInvitesLoading(true);
     try {
-      const { data: { session } } = await api.auth.getSession();
-      if (!session?.access_token) { setInvitesLoading(false); return; }
-      const r = await fetch(`/api/v1/boards/${boardId}/invites`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      if (!token) { setInvitesLoading(false); return; }
+      const r = await fetch(`/api/v1/boards/${boardId}/invites`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
-      setInvites((d.data || []) as typeof invites);
+      setInvites((d.data || []) as Invite[]);
     } catch { /* ignore */ }
     setInvitesLoading(false);
   };
-  const handleCreateInvite = async () => {
+
+  const reloadAll = async () => {
     if (!form.id) return;
-    setCreatingInvite(true);
-    try {
-      const { data: { session } } = await api.auth.getSession();
-      if (!session?.access_token) { toast.error("Нужно войти"); return; }
-      const body: Record<string, unknown> = { max_uses: newInviteMaxUses || 0 };
-      if (newInviteExpiresDays > 0) {
-        const d = new Date();
-        d.setDate(d.getDate() + newInviteExpiresDays);
-        body.expires_at = d.toISOString();
+    setDataLoading(true);
+    await Promise.all([loadChannels(form.id), loadCategories(form.id), loadRoles(form.id), loadMembers(form.id), loadGrants(form.id)]);
+    if (openChannelId) await loadOverwrites(openChannelId);
+    setDataLoading(false);
+  };
+
+  const reloadBans = async () => {
+    if (!form.id) return;
+    const { data: { session } } = await api.auth.getSession();
+    await loadBans(form.id, session?.access_token);
+  };
+
+  const reloadInvites = async () => {
+    if (!form.id) return;
+    const { data: { session } } = await api.auth.getSession();
+    await loadInvites(form.id, session?.access_token);
+  };
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      const { data: { user } } = await api.auth.getUser();
+      if (!user) { navigate("/auth"); return; }
+      const { data: board } = await api.from("boards").select("id,name,description,rules_markdown,gomosub_avatar_url,cover_image_url,owner_id,gomosub_tags,is_gomosub,visibility").eq("slug", slug).eq("is_gomosub", true).maybeSingle();
+      if (!board) { toast.error("G-саб не найден"); navigate("/g"); return; }
+      const isOwnerUser = board.owner_id === user.id;
+      let perms: Record<string, boolean> = {};
+      if (!isOwnerUser) {
+        try {
+          const { data: { session } } = await api.auth.getSession();
+          if (!session?.access_token) { toast.error("Нужно войти"); navigate(`/g/${slug}`); return; }
+          const permRes = await fetch(`/api/rpc/get_board_user_permissions?_board_id=${board.id}`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          const permData = await permRes.json();
+          perms = permData.data?.permissions || {};
+          if (!perms.can_manage_channels && !perms.can_manage_roles && !perms.can_manage_members && !perms.administrator) {
+            toast.error("Нет прав для управления настройками"); navigate(`/g/${slug}`); return;
+          }
+        } catch {
+          toast.error("Не удалось проверить права доступа"); navigate(`/g/${slug}`); return;
+        }
       }
-      const r = await fetch(`/api/v1/boards/${form.id}/invites`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(body) });
-      const d = await r.json();
-      if (!r.ok || !d.success) { toast.error(d.error || "Не удалось создать приглашение"); return; }
-      toast.success("Приглашение создано");
-      setNewInviteMaxUses(0);
-      setNewInviteExpiresDays(0);
-      await loadInvites(form.id);
-    } catch { toast.error("Ошибка"); }
-    setCreatingInvite(false);
-  };
-  const handleDeleteInvite = async (inviteId: string) => {
-    try {
+      const tags = Array.isArray(board.gomosub_tags) ? board.gomosub_tags.filter((t: unknown): t is string => typeof t === "string") : [];
+      const parsedRules = parseRulesMarkdown(board.rules_markdown);
+      setStandardRules(parsedRules.standardRules);
+      setAllowedRules(parsedRules.allowedRules);
+      setForbiddenRules(parsedRules.forbiddenRules);
+      setOriginalRulesMarkdown(board.rules_markdown ?? null);
+      setIsOwner(isOwnerUser);
+      setMyId(user.id);
+      setOwnerId(board.owner_id);
+      setMyPerms(perms);
+      setBoardVisibility(board.visibility || "public");
+      setForm({ id: board.id, name: board.name || "", description: board.description || "", gomosub_avatar_url: board.gomosub_avatar_url || "", cover_image_url: board.cover_image_url || "", gomosub_tags: tags });
+      setLoading(false);
+      setDataLoading(true);
       const { data: { session } } = await api.auth.getSession();
-      if (!session?.access_token) return;
-      const r = await fetch(`/api/v1/boards/${form.id}/invites/${inviteId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.access_token}` } });
-      const d = await r.json();
-      if (!r.ok || !d.success) { toast.error(d.error || "Не удалось удалить"); return; }
-      toast.success("Приглашение удалено");
-      await loadInvites(form.id);
-    } catch { toast.error("Ошибка"); }
-  };
-  const copyInviteLink = (code: string) => {
-    const url = `${window.location.origin}/g/${slug}/join/${code}`;
-    navigator.clipboard.writeText(url).then(() => toast.success("Ссылка скопирована")).catch(() => toast.error("Не удалось скопировать"));
-  };
+      await Promise.all([
+        loadChannels(board.id), loadCategories(board.id), loadRoles(board.id),
+        loadMembers(board.id), loadGrants(board.id), loadBans(board.id, session?.access_token),
+      ]);
+      if (board.visibility === "private") await loadInvites(board.id, session?.access_token);
+      setDataLoading(false);
+    };
+    load();
+  }, [navigate, slug]);
 
-  useEffect(() => { const load = async () => { setLoading(true); const { data: { user } } = await api.auth.getUser(); if (!user) { navigate("/auth"); return; } const { data: board } = await api.from("boards").select("id,name,description,rules_markdown,gomosub_avatar_url,cover_image_url,owner_id,gomosub_tags,is_gomosub,visibility").eq("slug", slug).eq("is_gomosub", true).maybeSingle(); if (!board) { toast.error("G-саб не найден"); navigate("/g"); return; } const isOwnerUser = board.owner_id === user.id; if (!isOwnerUser) { try { const { data: { session } } = await api.auth.getSession(); if (session?.access_token) { const permRes = await fetch(`/api/rpc/get_board_user_permissions?_board_id=${board.id}`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const permData = await permRes.json();               const perms = permData.data?.permissions || {};
-              if (!perms.can_manage_channels && !perms.can_manage_roles && !perms.can_manage_members) { toast.error("У вас нет прав для управления настройками"); navigate(`/g/${slug}`); return; } } else { toast.error("Только создатель или администратор может менять настройки"); navigate(`/g/${slug}`); return; } } catch { toast.error("Не удалось проверить права доступа"); navigate(`/g/${slug}`); return; } } const tags = Array.isArray(board.gomosub_tags) ? board.gomosub_tags.filter((t: unknown): t is string => typeof t === "string") : []; const parsedRules = parseRulesMarkdown(board.rules_markdown); setStandardRules(parsedRules.standardRules); setAllowedRules(parsedRules.allowedRules); setForbiddenRules(parsedRules.forbiddenRules); setOriginalRulesMarkdown(board.rules_markdown ?? null); setIsOwner(isOwnerUser); setBoardVisibility(board.visibility || "public"); setForm({ id: board.id, name: board.name || "", description: board.description || "", gomosub_avatar_url: board.gomosub_avatar_url || "", cover_image_url: board.cover_image_url || "", gomosub_tags: tags }); setLoading(false); const promises = [loadChannels(board.id), loadRoles(board.id), loadMembers(board.id)]; if (board.visibility === "private") promises.push(loadInvites(board.id)); await Promise.all(promises); }; load(); }, [navigate, slug]);
-
-  const addTag = () => { const t = tagInput.trim(); if (!t) return; if (form.gomosub_tags.includes(t)) { toast.error("Такой тег уже добавлен"); return; } if (form.gomosub_tags.length >= 20) { toast.error("Максимум 20 кастомных тегов"); return; } setForm((p) => ({ ...p, gomosub_tags: [...p.gomosub_tags, t] })); setTagInput(""); };
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (!t) return;
+    if (form.gomosub_tags.includes(t)) { toast.error("Такой тег уже добавлен"); return; }
+    if (form.gomosub_tags.length >= 20) { toast.error("Максимум 20 кастомных тегов"); return; }
+    setForm((p) => ({ ...p, gomosub_tags: [...p.gomosub_tags, t] }));
+    setTagInput("");
+  };
   const removeTag = (tag: string) => setForm((p) => ({ ...p, gomosub_tags: p.gomosub_tags.filter((t) => t !== tag) }));
-  const updateRuleItem = (kind: "allowed" | "forbidden", i: number, v: string) => { const s = kind === "allowed" ? setAllowedRules : setForbiddenRules; s((p) => p.map((item, idx) => idx === i ? v : item)); };
-  const addRuleItem = (k: "allowed" | "forbidden") => { const s = k === "allowed" ? setAllowedRules : setForbiddenRules; s((p) => [...p, ""]); };
-  const removeRuleItem = (k: "allowed" | "forbidden", i: number) => { const s = k === "allowed" ? setAllowedRules : setForbiddenRules; s((p) => { const n = p.filter((_, idx) => idx !== i); return n.length ? n : [""]; }); };
-
-  const uploadSingleImage = async (file: File, kind: "avatar" | "cover") => { if (!["image/jpeg","image/jpg","image/png","image/webp","image/gif"].includes(file.type)) { toast.error("Неподдерживаемый формат"); return; } if (file.size > 10*1024*1024) { toast.error("Файл слишком большой. Максимум 10MB"); return; } if (kind === "avatar") setUploadingAvatar(true); else setUploadingCover(true); try { const { data: { user } } = await api.auth.getUser(); if (!user) { toast.error("Нужно войти"); return; }      const ext = file.name.split(".").pop() || "jpg";
-      const fn = `${user.id}/${Date.now()}_${kind}.${ext}`;
-      // The upload pipeline may re-encode the image (JPEG → WebP) and store it
-      // under a renamed key — always persist the actual stored path returned by
-      // the server, never the pre-computed key (a stale extension 404s later).
-      const uploaded = await uploadFile("post-images", fn, file);
-      const storedPath = uploaded.path;
-      if (kind === "avatar") setForm((p) => ({ ...p, gomosub_avatar_url: storedPath }));
-      else setForm((p) => ({ ...p, cover_image_url: storedPath }));
-      toast.success(kind === "avatar" ? "Аватар обновлен" : "Фон обновлен"); } catch (e) { toast.error((e instanceof Error ? e.message : String(e)) || "Не удалось загрузить"); } finally { if (kind === "avatar") setUploadingAvatar(false); else setUploadingCover(false); } };
-
-  const handleAddChannel = async () => { const name = newChannelName.trim(); const cs = newChannelSlug.trim().toLowerCase().replace(/\s+/g, "-") || name.toLowerCase().replace(/\s+/g, "-"); if (!name) { toast.error("Название канала обязательно"); return; } setAddingChannel(true); const r = await fetch('/api/v1/channels', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ board_id: form.id, slug: cs, name, category: newChannelCategory.trim() || null, sort_order: channels.length, is_private: newChannelIsPrivate, kind: newChannelKind }) }); const d = await r.json(); setAddingChannel(false); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось создать канал"); return; } setNewChannelName(""); setNewChannelSlug(""); setNewChannelCategory(""); setNewChannelIsPrivate(false); setNewChannelKind("forum"); await loadChannels(form.id); toast.success("Канал создан"); };
-  const handleDeleteChannel = async (chId: string) => { const r = await fetch(`/api/v1/channels?id=eq.${chId}&board_id=eq.${form.id}`, { method: 'DELETE', headers: authHeaders() }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось удалить канал"); return; } await loadChannels(form.id); toast.success("Канал удалён"); };
-  const handleUpdateChannel = async (chId: string, updates: Record<string, unknown>) => { const r = await fetch(`/api/v1/channels?id=eq.${chId}&board_id=eq.${form.id}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify(updates) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось обновить канал"); return; } setEditingChannelId(null); await loadChannels(form.id); };
-  const handleAddRole = async () => { const name = newRoleName.trim(); if (!name) { toast.error("Название роли обязательно"); return; } setAddingRole(true); const r = await fetch('/api/v1/gomosub_roles', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ board_id: form.id, name, color: newRoleColor, position: roles.length, permissions: newRolePermissions }) }); const d = await r.json(); setAddingRole(false); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось создать роль"); return; } setNewRoleName(""); setNewRoleColor("#99aab5"); setNewRolePermissions({}); await loadRoles(form.id); toast.success("Роль создана"); };
-  const handleDeleteRole = async (rId: string) => { const r = await fetch(`/api/v1/gomosub_roles?id=eq.${rId}&board_id=eq.${form.id}`, { method: 'DELETE', headers: authHeaders() }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось удалить роль"); return; } await Promise.all([loadRoles(form.id), loadMembers(form.id)]); toast.success("Роль удалена"); };
-  const handleAssignRole = async (userId: string, roleId: string | null) => { const r = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${form.id}&user_id=eq.${userId}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify({ role_id: roleId }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error(d.error || "Не удалось назначить роль"); return; } await loadMembers(form.id); toast.success(roleId ? "Роль назначена" : "Роль снята"); };
-  const handleOpenChannelPerms = async (chId: string) => { setManagingPermsChannelId(chId); await loadChannelPerms(chId); };
-  const handleTogglePermRole = async (chId: string, roleId: string, cr: boolean, cw: boolean) => { const ex = channelPerms.find((p) => p.role_id === roleId); if (ex?.id) { const r = await fetch(`/api/v1/channel_permissions?id=eq.${ex.id}&board_id=eq.${form.id}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify({ can_read: cr, can_write: cw }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error("Не удалось обновить права"); return; } } else if (cr || cw) { const r = await fetch('/api/v1/channel_permissions', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ board_id: form.id, channel_id: chId, role_id: roleId, can_read: cr, can_write: cw }) }); const d = await r.json(); if (!r.ok || !d.success) { toast.error("Не удалось добавить права"); return; } } await loadChannelPerms(chId); };
-  const handleToggleChannelPrivacy = async (chId: string, isPrivate: boolean) => { await handleUpdateChannel(chId, { is_private: isPrivate }); };
-
-  const handleReorderChannels = async (fromIdx: number, toIdx: number) => {
-    if (fromIdx === toIdx) return;
-    setReordering(true);
-    const reordered = [...channels];
-    const [moved] = reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, moved);
-    setChannels(reordered);
-    const results = await Promise.all(reordered.map((ch, i) => fetch(`/api/v1/channels?id=eq.${ch.id}&board_id=eq.${form.id}`, { method: 'PUT', headers: authHeaders(true), body: JSON.stringify({ sort_order: i }) }).catch(() => null)));
-    const anyFailed = results.some((r) => !r || !r.ok);
-    if (anyFailed) {
-      toast.error("Не удалось сохранить порядок каналов");
-      await loadChannels(form.id);
-    } else {
-      toast.success("Порядок каналов обновлён");
-    }
-    setReordering(false);
+  const updateRuleItem = (kind: "allowed" | "forbidden", i: number, v: string) => {
+    const s = kind === "allowed" ? setAllowedRules : setForbiddenRules;
+    s((p) => p.map((item, idx) => (idx === i ? v : item)));
+  };
+  const addRuleItem = (k: "allowed" | "forbidden") => {
+    const s = k === "allowed" ? setAllowedRules : setForbiddenRules;
+    s((p) => [...p, ""]);
+  };
+  const removeRuleItem = (k: "allowed" | "forbidden", i: number) => {
+    const s = k === "allowed" ? setAllowedRules : setForbiddenRules;
+    s((p) => { const n = p.filter((_, idx) => idx !== i); return n.length ? n : [""]; });
   };
 
-  const handleDragStart = (e: React.DragEvent, idx: number) => { e.dataTransfer.setData("text/plain", ""); e.dataTransfer.effectAllowed = "move"; setDragIndex(idx); };
-  const handleDragOver = (e: React.DragEvent, idx: number) => { e.preventDefault(); if (dragIndex !== null && dragIndex !== idx) { e.dataTransfer.dropEffect = "move"; } };
-  const handleDrop = async (toIdx: number) => { if (dragIndex !== null && dragIndex !== toIdx) { await handleReorderChannels(dragIndex, toIdx); } setDragIndex(null); };
-
-  const handleSave = async () => { if (!isOwner) return; if (!form.name.trim()) { toast.error("Название обязательно"); return; } if (!form.description.trim()) { toast.error("Описание обязательно"); return; } setSaving(true); const updateData: Record<string, unknown> = { name: form.name.trim(), description: form.description.trim(), gomosub_avatar_url: form.gomosub_avatar_url || null, cover_image_url: form.cover_image_url || null, gomosub_tags: form.gomosub_tags }; if (rulesChanged) { updateData.rules_markdown = rulesPreview || null; } const { error } = await api.from("boards").update(updateData).eq("id", form.id); setSaving(false); if (error) { toast.error((error as { message?: string }).message || "Не удалось сохранить"); return; } if (rulesChanged) { setOriginalRulesMarkdown(rulesPreview || null); } toast.success("Настройки g-саба сохранены"); };
-
-  const [exporting, setExporting] = useState(false);
-  const handleExport = async () => {
-    if (!form.id) return;
-    setExporting(true);
-    try {
-      const { data: { session } } = await api.auth.getSession();
-      const token = session?.access_token;
-      const res = await fetch(`/api/v1/boards/${form.id}/backup/export`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.error || `HTTP ${res.status}`);
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `gomosub-${slug}-${new Date().toISOString().slice(0, 10)}.tar.gz`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success("Архив скачан");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Ошибка экспорта");
-    } finally {
-      setExporting(false);
-    }
+  const handleSave = async () => {
+    if (!isOwner) return;
+    if (!form.name.trim()) { toast.error("Название обязательно"); return; }
+    if (!form.description.trim()) { toast.error("Описание обязательно"); return; }
+    setSaving(true);
+    const updateData: Record<string, unknown> = {
+      name: form.name.trim(), description: form.description.trim(),
+      gomosub_avatar_url: form.gomosub_avatar_url || null,
+      cover_image_url: form.cover_image_url || null, gomosub_tags: form.gomosub_tags,
+    };
+    if (rulesChanged) updateData.rules_markdown = rulesPreview || null;
+    const { error } = await api.from("boards").update(updateData).eq("id", form.id);
+    setSaving(false);
+    if (error) { toast.error((error as { message?: string }).message || "Не удалось сохранить"); return; }
+    if (rulesChanged) setOriginalRulesMarkdown(rulesPreview || null);
+    toast.success("Настройки g-саба сохранены");
   };
+
+  const can = (key: string) => isOwner || !!myPerms.administrator || !!myPerms[key];
+  const canManageRoles = can("can_manage_roles");
+  const canManageChannels = can("can_manage_channels");
+  const canManageMembers = can("can_manage_members");
+
+  const actor = useMemo(() => {
+    const me = members.find((m) => m.user_id === myId);
+    return {
+      id: myId,
+      isOwner,
+      isAdmin: !!myPerms.administrator,
+      top: me ? memberTop(me, roles, grants) : isOwner ? Number.MAX_SAFE_INTEGER : 0,
+    };
+  }, [members, roles, grants, myId, isOwner, myPerms]);
 
   if (loading) return <div className="max-w-4xl mx-auto p-6 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
-  const tabItems = buildTabItems(boardVisibility);
+  const tabItems = buildTabItems(boardVisibility, bans.length);
 
   return (
     <div className="max-w-5xl mx-auto w-full px-3 sm:px-5 pb-32 md:pb-10">
       <header className="pt-1 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight">Настройки</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Настройки сообщества</h1>
           <p className="text-sm text-muted-foreground truncate">g/{slug}</p>
         </div>
         <Button variant="outline" size="sm" className="h-9 rounded-full shrink-0" onClick={() => navigate(`/g/${slug}`)}>
@@ -284,8 +317,7 @@ const GomoSubSettings = () => {
       </header>
 
       <div className="mt-4 flex flex-col md:flex-row md:gap-7">
-        {/* Settings nav — pills row on mobile, sticky rail on desktop */}
-        <nav className="md:w-48 md:shrink-0 md:sticky md:top-24 md:self-start" aria-label={`Настройки g/${slug}`}>
+        <nav className="md:w-52 md:shrink-0 md:sticky md:top-24 md:self-start" aria-label={`Настройки g/${slug}`}>
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide md:hidden -mx-3 px-3 pb-1">
             {tabItems.map((item) => (
               <button
@@ -298,7 +330,7 @@ const GomoSubSettings = () => {
                     : "border-border/60 bg-surface text-muted-foreground hover:text-foreground",
                 )}
               >
-                {item.label}
+                {item.label}{item.badge ? ` · ${item.badge}` : ""}
               </button>
             ))}
           </div>
@@ -316,102 +348,63 @@ const GomoSubSettings = () => {
                 )}
               >
                 <item.icon className="w-4 h-4 shrink-0" />
-                {item.label}
+                <span className="flex-1 text-left">{item.label}</span>
+                {item.badge ? <span className="text-xs bg-destructive/15 text-destructive rounded-full px-1.5">{item.badge}</span> : null}
               </button>
             ))}
           </div>
         </nav>
 
-        <div className="min-w-0 flex-1 mt-4 md:mt-0 space-y-4">
-        {/* Cover + avatar editing — «Основное» section identity card */}
-        {activeTab === "general" && (
-        <Card className="overflow-hidden rounded-2xl border-border/70">
-          <div className="h-24 sm:h-32 bg-muted/30 border-b border-border relative">
-            <input ref={coverInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadSingleImage(file, "cover"); e.target.value = ""; }} />
-            <button type="button" onClick={() => coverInputRef.current?.click()} className="group relative w-full h-full text-left">{form.cover_image_url ? <img src={storageUrl("post-images", form.cover_image_url) || form.cover_image_url} alt="cover" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">{uploadingCover ? "Загрузка..." : "Нажми на область, чтобы загрузить обложку"}</div>}<div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors" /></button>
-            <div className="absolute -bottom-8 left-4 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl border-[3px] border-background bg-surface shadow-md overflow-hidden flex items-center justify-center text-xl font-bold text-muted-foreground">
-              <input ref={avatarInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadSingleImage(file, "avatar"); e.target.value = ""; }} />
-              <button type="button" onClick={() => avatarInputRef.current?.click()} className="group relative w-full h-full">{form.gomosub_avatar_url ? <img src={storageUrl("post-images", form.gomosub_avatar_url) || form.gomosub_avatar_url} alt="avatar" className="w-full h-full object-cover" /> : <span>{uploadingAvatar ? "..." : (form.name.trim()[0] || "g").toUpperCase()}</span>}<div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors" /></button>
-            </div>
-          </div>
-          <div className="px-4 pt-10 pb-3">
-            <div className="text-[13px] text-muted-foreground">Для смены фото нажми прямо на аватар или обложку в шапке.</div>
-          </div>
-        </Card>
-        )}
-        <div className="space-y-5">
-          {activeTab === "general" && (<><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><label className="text-sm font-medium">Название</label><Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} maxLength={80} /></div><div className="space-y-2"><label className="text-sm font-medium">Описание</label><Input value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} maxLength={240} /></div></div>{boardVisibility === "public" && <><div className="space-y-2"><label className="text-sm font-medium">Базовые правила</label><Textarea value={standardRules} onChange={(e) => setStandardRules(e.target.value)} rows={3} /></div><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><div className="flex items-center justify-between"><label className="text-sm font-medium">Можно</label><Button size="sm" variant="outline" onClick={() => addRuleItem("allowed")}><Plus className="w-4 h-4" /></Button></div>{allowedRules.map((r, i) => (<div key={`a${i}`} className="flex gap-2"><Input value={r} onChange={(e) => updateRuleItem("allowed", i, e.target.value)} placeholder="Добавить разрешение" /><Button size="sm" variant="outline" onClick={() => removeRuleItem("allowed", i)}>x</Button></div>))}</div><div className="space-y-2"><div className="flex items-center justify-between"><label className="text-sm font-medium">Нельзя</label><Button size="sm" variant="outline" onClick={() => addRuleItem("forbidden")}><Plus className="w-4 h-4" /></Button></div>{forbiddenRules.map((r, i) => (<div key={`f${i}`} className="flex gap-2"><Input value={r} onChange={(e) => updateRuleItem("forbidden", i, e.target.value)} placeholder="Добавить ограничение" /><Button size="sm" variant="outline" onClick={() => removeRuleItem("forbidden", i)}>x</Button></div>))}</div></div></>}{boardVisibility === "private" && <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"><p className="text-sm text-muted-foreground">Приватный g-саб — доступ только по приглашениям. Управляй приглашениями во вкладке «Приглашения».</p></div>}<div className="space-y-2"><label className="text-sm font-medium">Кастомные теги</label><div className="flex flex-col sm:flex-row gap-2"><Input value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder="новости, гайды, драмa..." maxLength={24} /><Button type="button" variant="outline" onClick={addTag} className="w-full sm:w-auto">Добавить</Button></div><div className="flex flex-wrap gap-2">{form.gomosub_tags.map((tag) => (<Badge key={tag} variant="secondary" className="cursor-pointer" onClick={() => removeTag(tag)} title="Нажми, чтобы удалить">#{tag}</Badge>))}</div></div></>)}
-          {activeTab === "channels" && (
-            <div className="space-y-4">
-              <div className="text-sm text-muted-foreground">Каналы — как в Discord. Перетаскивай за <GripVertical className="w-3.5 h-3.5 inline text-muted-foreground" /> чтобы менять порядок.</div>
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3"><div className="text-sm font-medium">Новый канал</div><div className="grid gap-3 sm:grid-cols-3"><Input placeholder="Название" value={newChannelName} onChange={(e) => setNewChannelName(e.target.value)} maxLength={50} /><Input placeholder="Слаг" value={newChannelSlug} onChange={(e) => setNewChannelSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))} maxLength={30} /><Input placeholder="Категория" value={newChannelCategory} onChange={(e) => setNewChannelCategory(e.target.value)} maxLength={40} /></div><div className="flex items-center gap-3"><div className="flex items-center gap-1"><Button type="button" size="sm" variant={newChannelKind === "forum" ? "secondary" : "ghost"} onClick={() => setNewChannelKind("forum")} className="h-7 text-xs" title="Записи с обсуждениями"># Форум</Button><Button type="button" size="sm" variant={newChannelKind === "text" ? "secondary" : "ghost"} onClick={() => setNewChannelKind("text")} className="h-7 text-xs" title="Живой чат как в Discord"><MessageSquare className="w-3.5 h-3.5 mr-1 text-sky-400" />Чат</Button></div><div className="flex items-center gap-2"><Switch id="ncpr" checked={newChannelIsPrivate} onCheckedChange={setNewChannelIsPrivate} /><Label htmlFor="ncpr" className="text-sm cursor-pointer">{newChannelIsPrivate ? <Lock className="w-3.5 h-3.5 inline mr-1" /> : <Eye className="w-3.5 h-3.5 inline mr-1" />}Приватный</Label></div>{newChannelIsPrivate && roles.length === 0 && <span className="text-xs text-muted-foreground">Создай роли во вкладке «Роли»</span>}</div><Button onClick={handleAddChannel} disabled={addingChannel || !newChannelName.trim()} size="sm">{addingChannel && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}<Plus className="w-4 h-4 mr-1" />Добавить</Button></div>
-              {channelsLoading ? <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div> : channels.length === 0 ? <div className="text-sm text-muted-foreground text-center py-4">Каналов пока нет. Создай первый!</div> : <div className="space-y-2">{channels.map((ch, idx) => (<div key={ch.id}><div className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${dragIndex === idx ? "border-primary/50 bg-primary/5" : "border-border/60 bg-surface"} ${dragIndex !== null && dragIndex !== idx ? "opacity-60" : ""}`}
-                  draggable={!reordering} onDragStart={(e) => handleDragStart(e, idx)} onDragOver={(e) => handleDragOver(e, idx)} onDrop={() => handleDrop(idx)} onDragEnd={() => setDragIndex(null)}>
-                  <div className="cursor-grab active:cursor-grabbing" title="Перетащить"><GripVertical className="w-4 h-4 text-muted-foreground shrink-0 hover:text-primary transition-colors" /></div>
-                  {ch.kind === "text" ? <MessageSquare className="w-4 h-4 text-sky-400 shrink-0" /> : ch.is_private ? <Lock className="w-4 h-4 text-amber-500 shrink-0" /> : <Hash className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  {editingChannelId === ch.id ? (<div className="flex-1 flex items-center gap-2"><Input defaultValue={ch.name} className="h-7 text-sm" maxLength={50} onKeyDown={(e) => { if (e.key === "Enter") handleUpdateChannel(ch.id, { name: (e.target as HTMLInputElement).value }); }} autoFocus /><Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingChannelId(null)}>Отмена</Button></div>) : (<div className="flex-1 min-w-0"><div className="text-sm font-medium truncate">{ch.name}</div><div className="text-xs text-muted-foreground">/c/{ch.slug}{ch.category && <span className="ml-2">· {ch.category}</span>}{ch.kind === "text" && <span className="ml-2 text-sky-400">· чат</span>}{ch.is_private && <span className="ml-2 text-amber-500">· приватный</span>}</div></div>)}
-                  <div className="flex items-center gap-1"><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingChannelId(ch.id)} title="Переименовать">✎</Button><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={async () => { await handleToggleChannelPrivacy(ch.id, !ch.is_private); }} title={ch.is_private ? "Сделать публичным" : "Сделать приватным"}>{ch.is_private ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}</Button><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleOpenChannelPerms(ch.id)} title="Права доступа"><Shield className="w-3.5 h-3.5" /></Button><Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDeleteChannel(ch.id)} title="Удалить канал"><Trash2 className="w-4 h-4" /></Button></div></div>
-                  {managingPermsChannelId === ch.id && (<div className="mt-2 ml-8 rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2"><div className="flex items-center justify-between"><span className="text-sm font-medium">Права доступа: {ch.name}</span><Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setManagingPermsChannelId(null)}>✕</Button></div>{!ch.is_private ? <p className="text-xs text-muted-foreground">Канал публичный — права ролей не применяются.</p> : ch.is_private && channelPermsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : ch.is_private && roles.length === 0 ? <p className="text-xs text-muted-foreground">Создай роли во вкладке «Роли»</p> : ch.is_private ? <div className="space-y-1.5">{roles.map((role) => { const perm = channelPerms.find((p) => p.role_id === role.id); const cr = perm?.can_read ?? false; const cw = perm?.can_write ?? false; return (<div key={role.id} className="flex items-center gap-3 py-1"><div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: role.color }} /><span className="text-sm flex-1 min-w-0 truncate">{role.name}</span><Label className="text-xs flex items-center gap-1 cursor-pointer"><Switch checked={cr} onCheckedChange={(v) => handleTogglePermRole(ch.id, role.id, v, cw)} />Чтение</Label><Label className="text-xs flex items-center gap-1 cursor-pointer"><Switch checked={cw} onCheckedChange={(v) => handleTogglePermRole(ch.id, role.id, cr, v)} />Запись</Label></div>); })}</div> : null}</div>)}</div>))}</div>}
-            </div>
+        <div className="min-w-0 flex-1 mt-4 md:mt-0">
+          {dataLoading && activeTab !== "general" && (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
           )}
-          {activeTab === "roles" && (<div className="space-y-5"><div className="text-sm text-muted-foreground">Роли — как в Discord. Назначай цвета, права и доступ к приватным каналам.</div><div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3"><div className="text-sm font-medium">Новая роль</div><div className="flex gap-3 items-end flex-wrap"><div className="space-y-1.5"><Label className="text-xs">Название</Label><Input placeholder="напр. Модератор" value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} maxLength={30} className="w-36" /></div><div className="space-y-1.5"><Label className="text-xs">Цвет</Label><div className="flex items-center gap-2"><input type="color" value={newRoleColor} onChange={(e) => setNewRoleColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer border-0 p-0" /><Input value={newRoleColor} onChange={(e) => setNewRoleColor(e.target.value)} className="w-24 font-mono text-xs h-8" maxLength={7} /></div></div></div><div className="space-y-1.5"><Label className="text-xs">Права</Label><div className="flex flex-wrap gap-3">{Object.entries(PERMISSION_LABELS).map(([key, label]) => (<Label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer"><Switch checked={newRolePermissions[key] || false} onCheckedChange={(v) => setNewRolePermissions((p) => ({ ...p, [key]: v }))} />{label}</Label>))}</div></div><Button onClick={handleAddRole} disabled={addingRole || !newRoleName.trim()} size="sm">{addingRole && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}<Plus className="w-4 h-4 mr-1" />Создать роль</Button></div>{rolesLoading ? <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div> : roles.length === 0 ? <div className="text-sm text-muted-foreground text-center py-4">Ролей пока нет</div> : <div className="space-y-2">{roles.map((role) => (<div key={role.id} className="rounded-lg border border-border/60 bg-surface p-3 space-y-2"><div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full shrink-0 ring-1 ring-border" style={{ backgroundColor: role.color }} /><span className="text-sm font-medium flex-1">{role.name}</span><span className="text-xs text-muted-foreground font-mono">{role.color}</span><Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => handleDeleteRole(role.id)} title="Удалить роль"><Trash2 className="w-4 h-4" /></Button></div>{Object.keys(role.permissions).length > 0 && <div className="flex flex-wrap gap-1 ml-7">{Object.entries(role.permissions).filter(([,v]) => v).map(([k]) => (<Badge key={k} variant="secondary" className="text-[10px]">{PERMISSION_LABELS[k] || k}</Badge>))}</div>}</div>))}</div>}<div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3"><div className="text-sm font-medium flex items-center gap-2"><Users className="w-4 h-4" />Участники ({members.length})</div>{membersLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : members.length === 0 ? <p className="text-xs text-muted-foreground">Нет участников</p> : <div className="space-y-1.5 max-h-64 overflow-y-auto">{members.map((m) => { const cr = roles.find((r) => r.id === m.role_id); return (<div key={m.user_id} className="flex items-center gap-2 py-1"><span className="text-sm flex-1 truncate">{m.profiles?.username || m.user_id.slice(0, 8)}</span>{cr && <Badge style={{ backgroundColor: cr.color + "20", color: cr.color, borderColor: cr.color + "40" }} variant="outline" className="text-[10px]">{cr.name}</Badge>}<Select value={m.role_id || "none"} onValueChange={(v) => handleAssignRole(m.user_id, v === "none" ? null : v)}><SelectTrigger className="h-7 w-32 text-xs"><SelectValue placeholder="Нет роли" /></SelectTrigger><SelectContent><SelectItem value="none">Нет роли</SelectItem>{roles.map((role) => (<SelectItem key={role.id} value={role.id}><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: role.color }} />{role.name}</div></SelectItem>))}</SelectContent></Select></div>); })}</div>}</div></div>          )}
-          {activeTab === "invites" && (
-            <div className="space-y-5">
-              <div className="text-sm text-muted-foreground">Пригласительные ссылки позволяют другим пользователям присоединиться к приватному g-сабу.</div>
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
-                <div className="text-sm font-medium">Создать приглашение</div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Макс. использований (0 = безлимитно)</Label>
-                    <Input type="number" min={0} value={newInviteMaxUses} onChange={(e) => setNewInviteMaxUses(parseInt(e.target.value) || 0)} className="w-full" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Срок действия (0 = бессрочно)</Label>
-                    <Select value={String(newInviteExpiresDays)} onValueChange={(v) => setNewInviteExpiresDays(parseInt(v) || 0)}>
-                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="0"><span className="inline-flex items-center gap-1"><InfinityIcon className="w-3 h-3" />Бессрочно</span></SelectItem>
-                        <SelectItem value="1">1 день</SelectItem>
-                        <SelectItem value="7">7 дней</SelectItem>
-                        <SelectItem value="30">30 дней</SelectItem>
-                        <SelectItem value="90">90 дней</SelectItem>
-                        <SelectItem value="365">1 год</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <Button onClick={handleCreateInvite} disabled={creatingInvite} size="sm">{creatingInvite && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}<Plus className="w-4 h-4 mr-1" />Создать ссылку</Button>
-              </div>
-              {invitesLoading ? <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div> : invites.length === 0 ? <div className="text-sm text-muted-foreground text-center py-4">Приглашений пока нет. Создай первое!</div> : <div className="space-y-2">{invites.map((inv) => {
-                const isExpired = inv.expires_at && new Date(inv.expires_at) < new Date();
-                const isMaxed = inv.max_uses > 0 && inv.current_uses >= inv.max_uses;
-                const isActive = inv.is_active && !isExpired && !isMaxed;
-                const link = `${window.location.origin}/g/${slug}/join/${inv.code}`;
-                return (
-                  <div key={inv.id} className="rounded-lg border border-border/60 bg-surface p-3 space-y-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono max-w-full truncate">{link}</code>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copyInviteLink(inv.code)} title="Копировать"><Copy className="w-3.5 h-3.5" /></Button>
-                    </div>
-                    <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                      <Badge variant={isActive ? "default" : "secondary"} className="text-[10px]">{isActive ? "Активно" : isExpired ? "Истекло" : isMaxed ? "Лимит" : "Отключено"}</Badge>
-                      <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(inv.created_at).toLocaleDateString()}</span>
-                      {inv.max_uses > 0 && <span>{inv.current_uses}/{inv.max_uses} исп.</span>}
-                      {inv.max_uses === 0 && <span><InfinityIcon className="w-3 h-3 inline" /> исп.</span>}
-                      {inv.expires_at && <span><Clock className="w-3 h-3 inline mr-0.5" />до {new Date(inv.expires_at).toLocaleDateString()}</span>}
-                    </div>
-                    {isActive && <Button size="sm" variant="ghost" className="h-6 text-destructive hover:text-destructive text-xs" onClick={() => handleDeleteInvite(inv.id)}><Trash2 className="w-3 h-3 mr-1" />Удалить</Button>}
-                  </div>
-                );
-              })}</div>}
-            </div>
+          {!dataLoading && activeTab === "general" && (
+            <GeneralPanel
+              form={form} setForm={setForm}
+              standardRules={standardRules} setStandardRules={setStandardRules}
+              allowedRules={allowedRules} forbiddenRules={forbiddenRules}
+              updateRuleItem={updateRuleItem} addRuleItem={addRuleItem} removeRuleItem={removeRuleItem}
+              rulesPreview={rulesPreview}
+              tagInput={tagInput} setTagInput={setTagInput} addTag={addTag} removeTag={removeTag}
+              isOwner={isOwner} boardVisibility={boardVisibility} slug={slug ?? ""}
+              saving={saving} onSave={handleSave}
+            />
           )}
-          {activeTab === "general" && boardVisibility === "public" && (<div className="rounded-lg border border-border p-3 bg-muted/30"><div className="text-xs text-muted-foreground mb-2">Превью правил</div>{renderPreviewContent(rulesPreview, "g-settings-rules")}</div>)}
-          <div className="flex justify-end gap-2 pt-1">{isOwner && <Button variant="outline" onClick={handleExport} disabled={exporting}>{exporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}Экспорт</Button>}<Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}<Save className="w-4 h-4 mr-2" />Сохранить</Button></div>
-        </div>
+          {!dataLoading && activeTab === "roles" && (
+            <RolesPanel boardId={form.id} roles={roles} members={members} grants={grants} canManage={canManageRoles} onChanged={reloadAll} />
+          )}
+          {!dataLoading && activeTab === "members" && (
+            <MembersPanel
+              boardId={form.id} ownerId={ownerId} members={members} roles={roles} grants={grants}
+              actor={actor} canAssign={canManageMembers}
+              canKick={can("kick_members") || canManageMembers} canBan={can("ban_members") || canManageMembers}
+              canTimeout={can("timeout_members") || canManageMembers} onChanged={async () => { await reloadAll(); await reloadBans(); }}
+            />
+          )}
+          {!dataLoading && activeTab === "channels" && (
+            channelsLoading
+              ? <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+              : <ChannelsPanel
+                  boardId={form.id} channels={channels} categories={categories} roles={roles}
+                  overwrites={overwrites} canManage={canManageChannels} onChanged={reloadAll}
+                  openChannelId={openChannelId}
+                  onOpenOverwrites={async (id) => {
+                    setOpenChannelId((prev) => (prev === id ? null : id));
+                    if (id) await loadOverwrites(id);
+                  }}
+                />
+          )}
+          {!dataLoading && activeTab === "bans" && (
+            <BansPanel boardId={form.id} bans={bans} canManage={canManageMembers || can("ban_members")} onChanged={reloadBans} />
+          )}
+          {!dataLoading && activeTab === "invites" && (
+            <InvitesPanel boardId={form.id} slug={slug ?? ""} invites={invites} loading={invitesLoading} onChanged={reloadInvites} />
+          )}
         </div>
       </div>
     </div>
   );
 };
+
 export default GomoSubSettings;
