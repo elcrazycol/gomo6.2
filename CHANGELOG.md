@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.36.0](https://github.com/elcrazycol/gomo6.2/compare/v2.35.0...v2.36.0) (2026-10-29)
+
+
+### Features
+
+* **achievements:** quests MVP — видимая геймификация, награды и мгновенные анлоки ([#591](https://github.com/elcrazycol/gomo6.2/issues/591)) ([0aa112e](https://github.com/elcrazycol/gomo6.2/commit/0aa112e91dd2e148ce1bfbc11987984d5b345ab8))
+* **themes:** popular ports, cull, renames and appearance cleanup ([#588](https://github.com/elcrazycol/gomo6.2/issues/588)) ([3ede4d4](https://github.com/elcrazycol/gomo6.2/commit/3ede4d40e8dae3cadb30fdab726884e1574f0c28))
+
 ## [2.35.0](https://github.com/elcrazycol/gomo6.2/compare/v2.34.0...v2.35.0) (2026-10-26)
 
 
