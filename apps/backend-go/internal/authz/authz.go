@@ -15,9 +15,20 @@ import (
 )
 
 // Role names stored in user_roles.role.
+//
+// Intended hierarchy (flat in the DB, enforced per-endpoint):
+// helper < moderator < curator < admin.
+//   - helper: read-only moderation triage.
+//   - moderator: content moderation actions.
+//   - curator: everything a moderator does NOT cover but admin must not
+//     babysit — award catalog management and grants (see IsAwardManager).
+//   - admin: everything, including role grants.
 const (
 	RoleAdmin     = "admin"
 	RoleModerator = "moderator"
+	// RoleCurator manages the award catalog and grants (above moderator,
+	// below admin). It confers no content-moderation powers.
+	RoleCurator = "curator"
 	// RoleHelper may READ the moderation surface (queue, user cards, activity
 	// logs, audit log) but cannot act on anything.
 	RoleHelper = "helper"
@@ -28,6 +39,10 @@ const (
 const (
 	isModeratorQuery = `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin'))`
 	isAdminQuery     = `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role = 'admin')`
+	// isAwardManagerQuery covers the roles that may manage the award catalog
+	// and hand out awards: curators plus admins. Moderators are deliberately
+	// excluded — awards are a level above content moderation.
+	isAwardManagerQuery = `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role IN ('curator', 'admin'))`
 	// isModerationReadQuery covers every role that may read the moderation
 	// surface: helpers triage by reading, moderators/admins also act.
 	isModerationReadQuery = `SELECT EXISTS (SELECT 1 FROM user_roles WHERE user_id = $1 AND role IN ('helper', 'moderator', 'admin'))`
@@ -47,6 +62,11 @@ func HasModerationReadAccess(ctx context.Context, db *sql.DB, userID string) (bo
 // IsAdmin reports whether userID holds the platform admin role.
 func IsAdmin(ctx context.Context, db *sql.DB, userID string) (bool, error) {
 	return hasRole(ctx, db, userID, isAdminQuery)
+}
+
+// IsAwardManager reports whether userID may manage awards (curator or admin).
+func IsAwardManager(ctx context.Context, db *sql.DB, userID string) (bool, error) {
+	return hasRole(ctx, db, userID, isAwardManagerQuery)
 }
 
 func hasRole(ctx context.Context, db *sql.DB, userID, query string) (bool, error) {

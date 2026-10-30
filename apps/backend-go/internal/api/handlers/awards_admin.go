@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/notifications"
@@ -31,12 +33,13 @@ var awardKeyRe = regexp.MustCompile(`^[a-z0-9_]{2,64}$`)
 
 // AwardsAdminHandler manages hand-granted awards: the catalog entries
 // (create/edit/delete/artwork) and the grants themselves (grant/revoke).
-// Hand-granted awards are prestige marks, so every mutation is staff-gated
-// (moderator or admin) and grant/revoke additionally notify the recipient.
+// Every mutation is gated on the award-manager gate (curator or admin;
+// see authz.IsAwardManager) and grant/revoke additionally notify the recipient.
 type AwardsAdminHandler struct {
 	db      *sql.DB
 	storage *stor.StorageClient
 	notif   *notifications.Service
+	engine  *achievements.Engine
 }
 
 // NewAwardsAdminHandler wires the handler. storage and notif may be nil
@@ -45,18 +48,24 @@ func NewAwardsAdminHandler(db *sql.DB, storage *stor.StorageClient, notif *notif
 	return &AwardsAdminHandler{db: db, storage: storage, notif: notif}
 }
 
-// isStaff reports whether the user holds the platform moderator or admin role.
+// SetEngine wires the achievements engine for the manual "evaluate now"
+// call. Nil disables evaluation (503) while the catalog endpoints keep
+// working.
+func (h *AwardsAdminHandler) SetEngine(e *achievements.Engine) {
+	h.engine = e
+}
+
+// isStaff reports whether the user may manage awards: curator or admin.
+// Awards sit above content moderation, so plain moderators are excluded.
 func (h *AwardsAdminHandler) isStaff(userID string) bool {
 	if userID == "" {
 		return false
 	}
-	var count int
-	if err := h.db.QueryRow(
-		`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role IN ('moderator', 'admin')`,
-		userID).Scan(&count); err != nil {
+	ok, err := authz.IsAwardManager(context.Background(), h.db, userID)
+	if err != nil {
 		return false
 	}
-	return count > 0
+	return ok
 }
 
 // requireStaff authenticates the caller and checks the staff role. It writes the
@@ -457,9 +466,11 @@ func (h *AwardsAdminHandler) ListAwardGrants(c *gin.Context) {
 
 	query := `
 SELECT ua.id, ua.user_id, COALESCE(u.username, ''), ua.award_key, ua.reason,
-       ua.awarded_at, ua.revoked_at, ua.revoke_reason
+       ua.awarded_at, ua.revoked_at, ua.revoke_reason,
+       ua.auto_granted, COALESCE(g.username, '')
 FROM user_awards ua
 LEFT JOIN users u ON u.id = ua.user_id
+LEFT JOIN users g ON g.id = ua.awarded_by
 WHERE 1=1`
 	var args []interface{}
 	argIndex := 1
@@ -495,6 +506,8 @@ WHERE 1=1`
 		AwardedAt    string  `json:"awarded_at"`
 		RevokedAt    *string `json:"revoked_at,omitempty"`
 		RevokeReason string  `json:"revoke_reason,omitempty"`
+		AutoGranted  bool    `json:"auto_granted"`
+		AwardedBy    string  `json:"awarded_by,omitempty"`
 	}
 	var out []grant
 	for rows.Next() {
@@ -502,7 +515,7 @@ WHERE 1=1`
 		var awardedAt time.Time
 		var revokedAt sql.NullTime
 		if err := rows.Scan(&g.ID, &g.UserID, &g.Username, &g.AwardKey, &g.Reason,
-			&awardedAt, &revokedAt, &g.RevokeReason); err != nil {
+			&awardedAt, &revokedAt, &g.RevokeReason, &g.AutoGranted, &g.AwardedBy); err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
 		}
@@ -556,4 +569,218 @@ func imageContentType(ext string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// ── Automatic issuance rules ──────────────────────────────────────────────
+
+// awardRuleRequest is the upsert payload for one award's auto-issuance rule.
+// All thresholds are AND-combined; at least one must be positive.
+type awardRuleRequest struct {
+	AwardKey         string `json:"award_key"`
+	ActiveFrom       string `json:"active_from"`
+	ActiveTo         string `json:"active_to"`
+	MinWallPosts     int    `json:"min_wall_posts"`
+	MinThreads       int    `json:"min_threads"`
+	MinLikesGiven    int    `json:"min_likes_given"`
+	MinLikesReceived int    `json:"min_likes_received"`
+	MinActiveDays    int    `json:"min_active_days"`
+}
+
+// parsedRule validates the payload and converts it to timestamps.
+func parsedRule(req awardRuleRequest) (from, to time.Time, err error) {
+	if strings.TrimSpace(req.AwardKey) == "" {
+		return from, to, fmt.Errorf("award_key is required")
+	}
+	if from, err = time.Parse(time.RFC3339, req.ActiveFrom); err != nil {
+		return from, to, fmt.Errorf("active_from must be RFC3339")
+	}
+	if to, err = time.Parse(time.RFC3339, req.ActiveTo); err != nil {
+		return from, to, fmt.Errorf("active_to must be RFC3339")
+	}
+	if to.Before(from) {
+		return from, to, fmt.Errorf("active_to must not be before active_from")
+	}
+	mins := []int{req.MinWallPosts, req.MinThreads, req.MinLikesGiven, req.MinLikesReceived, req.MinActiveDays}
+	any := false
+	for _, m := range mins {
+		if m < 0 {
+			return from, to, fmt.Errorf("thresholds must not be negative")
+		}
+		if m > 1000000 {
+			return from, to, fmt.Errorf("thresholds are unreasonably large")
+		}
+		if m > 0 {
+			any = true
+		}
+	}
+	if !any {
+		return from, to, fmt.Errorf("at least one threshold must be positive")
+	}
+	return from, to, nil
+}
+
+// UpsertAwardRule — PUT /api/v1/admin/awards/rule
+// Attaches (or replaces) the automatic issuance rule of a hand-granted award:
+// an activity window plus AND-combined thresholds. The rule author (created_by)
+// becomes the awarded_by of future auto grants and the actor of their
+// notifications; it is set on first save and kept on later edits.
+func (h *AwardsAdminHandler) UpsertAwardRule(c *gin.Context) {
+	staffID := h.requireStaff(c)
+	if staffID == "" {
+		return
+	}
+
+	var req awardRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+	from, to, err := parsedRule(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	var kind string
+	if err := h.db.QueryRow(`SELECT kind FROM achievements WHERE group_key = $1`, req.AwardKey).Scan(&kind); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Award not found"))
+			return
+		}
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	if kind != string(achievements.KindAward) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Auto-rules attach to hand-granted awards only"))
+		return
+	}
+
+	_, err = h.db.Exec(`
+INSERT INTO award_auto_rules (award_key, active_from, active_to, min_wall_posts,
+  min_threads, min_likes_given, min_likes_received, min_active_days, created_by, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+ON CONFLICT (award_key) DO UPDATE SET
+  active_from = EXCLUDED.active_from, active_to = EXCLUDED.active_to,
+  min_wall_posts = EXCLUDED.min_wall_posts, min_threads = EXCLUDED.min_threads,
+  min_likes_given = EXCLUDED.min_likes_given,
+  min_likes_received = EXCLUDED.min_likes_received,
+  min_active_days = EXCLUDED.min_active_days, updated_at = NOW()`,
+		req.AwardKey, from, to, req.MinWallPosts, req.MinThreads,
+		req.MinLikesGiven, req.MinLikesReceived, req.MinActiveDays, staffID)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
+}
+
+// DeleteAwardRule — DELETE /api/v1/admin/awards/rule?award_key=<key>
+// Detaches the auto-issuance rule; already issued grants stay untouched.
+func (h *AwardsAdminHandler) DeleteAwardRule(c *gin.Context) {
+	if h.requireStaff(c) == "" {
+		return
+	}
+	key := c.Query("award_key")
+	if key == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("award_key is required"))
+		return
+	}
+	res, err := h.db.Exec(`DELETE FROM award_auto_rules WHERE award_key = $1`, key)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Rule not found"))
+		return
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
+}
+
+// ListAwardRules — GET /api/v1/admin/awards/rules
+// Lists every auto-issuance rule with its award title, for the admin panel.
+func (h *AwardsAdminHandler) ListAwardRules(c *gin.Context) {
+	if h.requireStaff(c) == "" {
+		return
+	}
+	rows, err := h.db.Query(`
+SELECT r.award_key, COALESCE(a.title, r.award_key),
+       r.active_from, r.active_to, r.min_wall_posts, r.min_threads,
+       r.min_likes_given, r.min_likes_received, r.min_active_days,
+       COALESCE(u.username, '')
+FROM award_auto_rules r
+LEFT JOIN achievements a ON a.group_key = r.award_key
+LEFT JOIN users u ON u.id = r.created_by
+ORDER BY r.active_from DESC`)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	defer rows.Close()
+
+	type rule struct {
+		AwardKey         string `json:"award_key"`
+		AwardTitle       string `json:"award_title"`
+		ActiveFrom       string `json:"active_from"`
+		ActiveTo         string `json:"active_to"`
+		MinWallPosts     int    `json:"min_wall_posts"`
+		MinLikesGiven    int    `json:"min_likes_given"`
+		MinLikesReceived int    `json:"min_likes_received"`
+		MinThreads       int    `json:"min_threads"`
+		MinActiveDays    int    `json:"min_active_days"`
+		CreatedBy        string `json:"created_by"`
+	}
+	var out []rule
+	for rows.Next() {
+		var r rule
+		var from, to time.Time
+		if err := rows.Scan(&r.AwardKey, &r.AwardTitle, &from, &to,
+			&r.MinWallPosts, &r.MinThreads, &r.MinLikesGiven,
+			&r.MinLikesReceived, &r.MinActiveDays, &r.CreatedBy); err != nil {
+			httpx.ServerError(c, "handler error", err)
+			return
+		}
+		r.ActiveFrom = from.UTC().Format(time.RFC3339)
+		r.ActiveTo = to.UTC().Format(time.RFC3339)
+		out = append(out, r)
+	}
+	if out == nil {
+		out = []rule{}
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(out))
+}
+
+// EvaluateAwards — POST /api/v1/admin/awards/evaluate {award_key?}
+// Runs the automatic issuance check right now (the "check and grant" button;
+// the hourly loop covers the background). Without award_key every open rule
+// is evaluated. Returns the newly issued grants.
+func (h *AwardsAdminHandler) EvaluateAwards(c *gin.Context) {
+	if h.requireStaff(c) == "" {
+		return
+	}
+	if h.engine == nil {
+		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse("Evaluation unavailable"))
+		return
+	}
+	var req struct {
+		AwardKey string `json:"award_key"`
+	}
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
+	}
+	grants, err := h.engine.EvaluateAutoAwards(c.Request.Context(), strings.TrimSpace(req.AwardKey))
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	if grants == nil {
+		grants = []achievements.AutoGrant{}
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"grants": grants,
+		"count":  len(grants),
+	}))
 }

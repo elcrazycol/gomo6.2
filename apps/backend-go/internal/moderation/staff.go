@@ -29,6 +29,7 @@ type StaffMember struct {
 var uiManagedRoles = map[string]bool{
 	authz.RoleHelper:    true,
 	authz.RoleModerator: true,
+	authz.RoleCurator:   true,
 }
 
 // ListStaff — GET /api/v1/moderation/staff.
@@ -42,7 +43,7 @@ func (h *Handler) ListStaff(c *gin.Context) {
 		       array_agg(r.role ORDER BY r.role)
 		FROM user_roles r
 		JOIN users u ON u.id = r.user_id
-		WHERE r.role IN ('helper', 'moderator', 'admin')
+		WHERE r.role IN ('helper', 'moderator', 'curator', 'admin')
 		GROUP BY u.id, u.username, u.display_name, u.avatar_url
 		ORDER BY u.username`)
 	if err != nil {

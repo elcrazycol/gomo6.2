@@ -104,6 +104,9 @@ type Engine struct {
 	// Notifier is called when a milestone level rises. Nil = silent.
 	Notifier Notifier
 
+	// AwardNotifier is called for every automatic award grant. Nil = silent.
+	AwardNotifier AwardNotifier
+
 	// ledger records every handled event in the append-only activity log, which
 	// powers moderation and time-series. Nil = the ledger is disabled (the
 	// engine still works). Wired by the routes layer via SetActivityRecorder.

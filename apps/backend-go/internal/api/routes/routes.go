@@ -217,6 +217,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	notifService := notifications.New(db, redis, wsHub, pushService)
 	// Milestone unlocks land in the notifications panel (no toast).
 	achEngine.Notifier = handlers.NewAchievementNotifier(notifService)
+	// Automatic award grants notify "@curator вручил награду".
+	achEngine.AwardNotifier = handlers.NewAchievementNotifier(notifService)
 	likesHandler.SetNotifier(notifService)
 
 	rpcHandler := rpc.NewRPCHandler(db)
@@ -303,6 +305,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	storiesHandler.StartMaintenance(context.Background(), 30*time.Minute)
 
 	awardsAdminHandler := handlers.NewAwardsAdminHandler(db, storageClient, notifService)
+	awardsAdminHandler.SetEngine(achEngine)
 
 	backupHandler := backup.NewBackupHandler(db)
 	backupHandler.SetStorage(storageClient)
@@ -738,6 +741,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.PATCH("/admin/awards", awardsAdminHandler.UpdateAward)
 			protected.DELETE("/admin/awards", awardsAdminHandler.DeleteAward)
 			protected.POST("/admin/awards/image", awardsAdminHandler.UploadAwardImage)
+			protected.PUT("/admin/awards/rule", awardsAdminHandler.UpsertAwardRule)
+			protected.DELETE("/admin/awards/rule", awardsAdminHandler.DeleteAwardRule)
+			protected.GET("/admin/awards/rules", awardsAdminHandler.ListAwardRules)
+			protected.POST("/admin/awards/evaluate", awardsAdminHandler.EvaluateAwards)
 			protected.POST("/admin/awards/grant", awardsAdminHandler.GrantAward)
 			protected.POST("/admin/awards/revoke", awardsAdminHandler.RevokeAward)
 			protected.GET("/admin/awards/grants", awardsAdminHandler.ListAwardGrants)
@@ -1267,6 +1274,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	} else {
 		go achEngine.RecomputeDirty(context.Background())
 	}
+
+	// Rarity (owner-share percentages for the award cards) and automatic
+	// award issuance run hourly. Both are idempotent best-effort passes;
+	// failures are logged inside the loops.
+	go achEngine.RarityLoop(context.Background(), time.Hour)
+	go achEngine.AutoAwardLoop(context.Background(), time.Hour)
 
 	// One-time full backfill: after a catalog rework (or a fresh DB) everyone's
 	// progress is recomputed from live data — old rows that don't match the new
