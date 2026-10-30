@@ -481,6 +481,13 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 	if needed == "" || perms[needed] || perms["administrator"] {
 		return true
 	}
+	// Role assignment sits at the intersection of the two management
+	// domains: holders of either can_manage_roles or can_manage_members may
+	// grant/revoke roles (Discord's Manage Roles covers it; our
+	// can_manage_members explicitly documents role assignment too).
+	if tableName == "gomosub_member_roles" && (perms["can_manage_roles"] || perms["can_manage_members"]) {
+		return true
+	}
 
 	c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
 	c.Abort()

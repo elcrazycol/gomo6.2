@@ -137,6 +137,11 @@ const MembersPanel = ({ boardId, ownerId, members, roles, grants, actor, canAssi
         <Input placeholder="Поиск участников…" value={query} onChange={(e) => setQuery(e.target.value)} className={inputCls("pl-9 h-9")} />
       </div>
       <div className="text-xs text-muted-foreground">{members.length} уч.</div>
+      {!canAssign && (
+        <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
+          Выдавать роли могут только держатели прав «Управление ролями» или «Управление участниками».
+        </div>
+      )}
       <div className={`${settingsCard} divide-y divide-border/40 max-h-[60vh] overflow-y-auto`}>
         {filtered.map((m) => {
           const name = m.profiles?.username ?? `${m.user_id.slice(0, 8)}…`;
@@ -180,7 +185,7 @@ const MembersPanel = ({ boardId, ownerId, members, roles, grants, actor, canAssi
                   )}
                 </div>
               </div>
-              {canAssign && !isOwnerRow && (
+              {canAssign && (
                 <div className="flex flex-wrap gap-x-3 gap-y-1 pl-10">
                   {sortedRoles.filter((r) => !r.is_everyone).map((r) => {
                     const has = ids.includes(r.id);
