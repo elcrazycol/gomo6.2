@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.37.0](https://github.com/elcrazycol/gomo6.2/compare/v2.36.2...v2.37.0) (2026-10-30)
+
+
+### Features
+
+* holiday auto-awards, curator role, gems/drops economy and header motion ([#597](https://github.com/elcrazycol/gomo6.2/issues/597)) ([bc49f1d](https://github.com/elcrazycol/gomo6.2/commit/bc49f1ddb8b8f908d757d048ae1b559f1e30023a))
+
 ## [2.36.2](https://github.com/elcrazycol/gomo6.2/compare/v2.36.1...v2.36.2) (2026-10-30)
 
 
