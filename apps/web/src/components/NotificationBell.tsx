@@ -3,7 +3,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Bell } from "lucide-react";
 import { useNotificationStore } from "@/stores/notificationStore";
-import { Button } from "@/components/ui/button";
+import { HeaderIconButton } from "@/components/HeaderIconButton";
+import { INK_ATTR } from "@/components/ui/ink-bar";
 import { NotificationItem } from "@/components/NotificationItem";
 import { UnreadBadge } from "@/components/UnreadBadge";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -100,8 +101,9 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
 
   return (
     <div
-      className="relative"
+      className="relative z-10"
       ref={rootRef}
+      {...{ [INK_ATTR]: true }}
       onMouseEnter={
         canHover && !onNotificationsPage
           ? () => { cancelScheduledClose(); setShowCard(true); }
@@ -109,17 +111,17 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
       }
       onMouseLeave={canHover && !onNotificationsPage ? scheduleClose : undefined}
     >
-      <Button
-        variant="ghost"
-        className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group"
+      <HeaderIconButton
+        label={t("nav.notifications")}
+        active={onNotificationsPage}
+        ink={false}
+        badge={<UnreadBadge count={unreadCount} />}
         onClick={() => {
           if (!onNotificationsPage) navigate("/notify");
         }}
       >
-        <Bell className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-        <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-        <UnreadBadge count={unreadCount} />
-      </Button>
+        <Bell className="h-4 w-4" />
+      </HeaderIconButton>
 
       {canHover && !onNotificationsPage && showCard && (
         <div className="absolute top-full right-0 mt-2 z-50 w-[22rem] max-w-[calc(100vw-2rem)] bg-background text-foreground border border-border rounded-2xl shadow-lg overflow-hidden">

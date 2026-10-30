@@ -16,6 +16,8 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { TopLoadingBar } from "@/components/TopLoadingBar";
 import { HeaderUsername } from "@/components/HeaderUsername";
+import { HeaderIconButton, HeaderIconLink } from "@/components/HeaderIconButton";
+import { InkBar } from "@/components/ui/ink-bar";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { GuestSignupBanner } from "@/components/GuestSignupBanner";
@@ -1345,10 +1347,17 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           <motion.div
             className={`flex items-center justify-between gap-2 sm:gap-3 min-h-[49px]${mobileSearchOpen ? " hidden lg:flex" : ""}`}
           >
-          <NavigationLink to="/" aria-label="gomo6" className="shrink-0 inline-flex items-center group">
-            <Gomo6Mark className="app-header-logo h-11 w-11 text-primary transition-transform duration-200 ease-out group-hover:scale-105" />
+          <NavigationLink to="/" aria-label="gomo6" className="shrink-0 inline-flex items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <motion.span
+              className="inline-flex"
+              whileHover={reduceMotion ? undefined : { scale: 1.06, rotate: -2 }}
+              whileTap={reduceMotion ? undefined : { scale: 0.94 }}
+              transition={springFor("snappy", reduceMotion)}
+            >
+              <Gomo6Mark className="app-header-logo h-11 w-11 text-primary" />
+            </motion.span>
           </NavigationLink>
-          <div className="flex gap-1 sm:gap-2 items-center shrink-0">
+          <InkBar className="flex gap-1 sm:gap-2 items-center shrink-0">
             {/* Desktop search: one element that morphs — the lens button IS
                 the pill's right end, and the field unrolls leftward out of it
                 with a spring (width via framer, colors via CSS transition).
@@ -1393,16 +1402,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                     }}
                   />
                 </motion.div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label={desktopSearchExpanded ? t('nav.closeSearch') : t('nav.openSearch')}
-                  className="absolute right-0 top-0 h-9 w-9 p-0 rounded-full shrink-0"
+                <HeaderIconButton
+                  label={desktopSearchExpanded ? t('nav.closeSearch') : t('nav.openSearch')}
                   onClick={() => setDesktopSearchExpanded((prev) => !prev)}
+                  ink={false}
+                  className="absolute right-0 top-0 h-9 w-9"
                 >
                   <Search className="h-4 w-4" />
-                </Button>
+                </HeaderIconButton>
               </motion.form>
 
               {searchOpen && desktopSearchExpanded && (
@@ -1417,21 +1424,24 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                 </div>
               )}
             </div>
-            <Button
-              variant="ghost"
-              className="lg:hidden h-8 w-8 p-0"
+            <HeaderIconButton
+              label={mobileSearchOpen ? t('nav.closeSearch') : t('nav.openSearch')}
               onClick={() => setMobileSearchOpen((prev) => !prev)}
+              className="lg:hidden"
             >
               <Search className="h-4 w-4" />
-            </Button>
+            </HeaderIconButton>
             {/* Настройки в хедере — только на десктопе; на мобилке пункт
                 переехал в бургер-панель (над гемами). */}
-            <NavigationLink to="/settings" className="hidden lg:block">
-              <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group">
-                <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-                <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-              </Button>
-            </NavigationLink>
+            <div className="hidden lg:block">
+              <HeaderIconLink
+                to="/settings"
+                label={t('nav.settings')}
+                active={location.pathname === "/settings" || location.pathname.startsWith("/settings/")}
+              >
+                <Settings className="h-4 w-4" />
+              </HeaderIconLink>
+            </div>
             {user && <NotificationBell userId={user.id} />}
             {/* Messenger lives in the bottom nav on phones — keep the header
                 one for desktop only to avoid two identical entry points. */}
@@ -1443,12 +1453,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             {/* Quests live under the profile on phones (right sidebar) — the
                 header icon is the desktop entry point. */}
             {user && (
-              <NavigationLink to={`/achievements/${user.id}`} className="hidden lg:block" aria-label={t('nav.quests')}>
-                <Button variant="ghost" title={t('nav.quests')} className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group">
-                  <ScrollText className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                </Button>
-              </NavigationLink>
+              <div className="hidden lg:block">
+                <HeaderIconLink
+                  to={`/achievements/${user.id}`}
+                  label={t('nav.quests')}
+                  title={t('nav.quests')}
+                  active={location.pathname.startsWith("/achievements")}
+                >
+                  <ScrollText className="h-4 w-4" />
+                </HeaderIconLink>
+              </div>
             )}
             {user && (
               <div className="hidden lg:flex gap-1 sm:gap-2 items-center ml-2">
@@ -1458,7 +1472,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             {/* The login CTA lives inside the menu's profile block, so guests
                 get the hamburger instead of a separate header button. */}
             <MobileMenu user={user} isModerator={isModerator} />
-          </div>
+          </InkBar>
           </motion.div>
         </div>
         <TopLoadingBar />

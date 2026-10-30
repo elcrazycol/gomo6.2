@@ -57,9 +57,13 @@ export const InkBar = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reduceMotion = useReducedMotion();
   const [ink, setInk] = useState({ x: 0, y: 0, visible: false });
+  // mouseover bubbles from every child — gliding to the same element twice is
+  // a wasted render, not motion.
+  const lastTargetRef = useRef<HTMLElement | null>(null);
 
   const moveTo = useCallback((element: HTMLElement | null) => {
-    if (!element) return;
+    if (!element || lastTargetRef.current === element) return;
+    lastTargetRef.current = element;
     // offsetLeft/Top are relative to the positioned container and scroll-safe.
     setInk({ x: element.offsetLeft, y: element.offsetTop, visible: true });
   }, []);
@@ -74,7 +78,10 @@ export const InkBar = ({
     <div
       ref={containerRef}
       className={`relative ${className}`}
-      onMouseLeave={() => setInk((prev) => ({ ...prev, visible: false }))}
+      onMouseLeave={() => {
+        lastTargetRef.current = null;
+        setInk((prev) => ({ ...prev, visible: false }));
+      }}
       onMouseOver={(event) => moveTo(findInkTarget(event.target))}
       onFocusCapture={(event) => moveTo(findInkTarget(event.target))}
     >

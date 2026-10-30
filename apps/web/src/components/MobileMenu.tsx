@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
+import { HeaderIconButton } from "@/components/HeaderIconButton";
 import { storageUrl } from "@/utils/storage";
 import { CurrencyIcon } from "@/components/CurrencyIcon";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
@@ -179,17 +180,16 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        aria-label={t('nav.menu')}
-        data-testid="mobile-menu-trigger"
+      <HeaderIconButton
+        label={t('nav.menu')}
+        testId="mobile-menu-trigger"
         // Logged in: mobile-only (desktop shows the username in the header).
         // Guest: shown at every size — this menu holds the only login entry.
-        className={`${user ? "lg:hidden " : ""}h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors`}
+        className={user ? "lg:hidden" : ""}
         onClick={() => setOpen(true)}
       >
         <Menu className="h-5 w-5" />
-      </Button>
+      </HeaderIconButton>
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-[300px] sm:w-[340px] p-0 flex flex-col">

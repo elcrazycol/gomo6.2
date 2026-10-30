@@ -1,15 +1,16 @@
 import { MessageCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { messengerWs } from "@/services/messengerWebSocket";
 import { eventManager } from "@/services/eventManager";
 import { warmRouteIntent } from "@/lib/routeChunks";
+import { HeaderIconButton } from "@/components/HeaderIconButton";
 import { UnreadBadge } from "@/components/UnreadBadge";
 
 export const ChatIcon = ({ userId }: { userId: string }) => {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const conversations = useMessengerStore((s) => s.conversations);
   const init = useMessengerStore((s) => s.init);
 
@@ -43,20 +44,18 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
   }, [conversations]);
 
   return (
-    <Button
-      variant="ghost"
-      className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group"
+    <HeaderIconButton
+      label="Открыть мессенджер"
+      active={pathname === "/messages" || pathname.startsWith("/messages/")}
+      badge={<UnreadBadge count={unreadCount} />}
       onClick={() => {
         // No hover intent on a button: warm the chunk + data first so the
         // instant swap lands on cache instead of a cold fetch.
         warmRouteIntent("/messages");
         navigate("/messages");
       }}
-      aria-label="Открыть мессенджер"
     >
-      <MessageCircle className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full" />
-      <UnreadBadge count={unreadCount} />
-    </Button>
+      <MessageCircle className="h-4 w-4" />
+    </HeaderIconButton>
   );
 };

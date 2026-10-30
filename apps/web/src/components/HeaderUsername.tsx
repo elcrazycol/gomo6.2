@@ -53,7 +53,7 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
   return (
     <ProfileHoverCard userId={userId} showDrops>
       <span
-        className={`inline-flex items-center gap-1 cursor-pointer group ${className}`}
+        className={`inline-flex items-center gap-1 cursor-pointer ${className}`}
         onClick={() => {
           const to = profileUrl({ id: userId, public_id: profileData.public_id });
           // A span, not a link — no hover intent to warm from.
@@ -62,17 +62,16 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
         }}
         style={{ userSelect: 'none' }}
       >
-        <span className={`${usernameClassName} relative inline-block transition-transform duration-200 group-hover:translate-x-0.5`} style={usernameStyle}>
+        <span className={`${usernameClassName} inline-block hover:text-foreground`} style={usernameStyle}>
           {profileData.display_name?.trim() || profileData.username || 'Профиль'}
-          <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
         </span>
         {profileData.nickname_emoji_id && (
           <NicknameEmoji
             emojiId={profileData.nickname_emoji_id}
-            className="transition-transform duration-200 group-hover:translate-x-0.5"
+            className="inline-flex items-center"
           />
         )}
-        <span className="transition-transform duration-200 group-hover:translate-x-0.5 inline-flex items-center">
+        <span className="inline-flex items-center">
           <AdminBadge userId={userId} />
         </span>
       </span>
