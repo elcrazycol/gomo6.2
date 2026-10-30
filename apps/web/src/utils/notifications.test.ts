@@ -178,9 +178,16 @@ describe("notificationTitle", () => {
     const granted: Notification = {
       ...base,
       type: "award_granted",
-      params: { award_key: "award_bughunter", reason: "Found it" },
+      params: { award_key: "award_bughunter", reason: "Found it", actor: "ann" },
     };
-    expect(notificationTitle(granted, t)).toBe("Тебе вручили награду «Баг-хантер»");
+    expect(notificationTitle(granted, t)).toBe("@ann выдал вам награду «Баг-хантер»");
+
+    const grantedSystem: Notification = {
+      ...base,
+      type: "award_granted",
+      params: { award_key: "award_bughunter" },
+    };
+    expect(notificationTitle(grantedSystem, t)).toBe("Вам вручили награду «Баг-хантер»");
 
     const revoked: Notification = {
       ...base,

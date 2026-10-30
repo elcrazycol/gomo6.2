@@ -211,8 +211,16 @@ export function notificationTitle(notif: Notification, t: TFunction, actorName?:
       }
       case "award_granted": {
         const name = awardName(t, params);
-        key = name ? "notif.awardGranted" : "notif.awardGrantedGeneric";
-        values = { name: name ?? "" };
+        if (!name) {
+          key = "notif.awardGrantedGeneric";
+          values = {};
+        } else if (params.actor) {
+          key = "notif.awardGranted";
+          values = { actor: params.actor, name };
+        } else {
+          key = "notif.awardGrantedSystem";
+          values = { name };
+        }
         break;
       }
       case "award_revoked": {

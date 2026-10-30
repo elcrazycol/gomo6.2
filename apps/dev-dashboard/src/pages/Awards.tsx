@@ -17,6 +17,7 @@ import {
   Shield,
   Crown,
   ImageIcon,
+  Sparkles,
   Undo2,
   type LucideIcon,
 } from "lucide-react";
@@ -62,6 +63,22 @@ interface Grant {
   reason: string;
   awarded_at: string;
   revoked_at?: string;
+  auto_granted?: boolean;
+  awarded_by?: string;
+}
+
+/** Auto-issuance rule attached to a hand-granted award. */
+interface AutoRule {
+  award_key: string;
+  award_title: string;
+  active_from: string;
+  active_to: string;
+  min_wall_posts: number;
+  min_threads: number;
+  min_likes_given: number;
+  min_likes_received: number;
+  min_active_days: number;
+  created_by: string;
 }
 
 interface UserHit {
@@ -123,11 +140,10 @@ export default function Awards() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<"catalog" | "grants">("catalog");
   const [search, setSearch] = useState("");
-  const [onlyManual, setOnlyManual] = useState(false);
 
   const [editing, setEditing] = useState<AwardRow | "new" | null>(null);
   const [grantTo, setGrantTo] = useState<AwardRow | null>(null);
-  const [uploadFor, setUploadFor] = useState<AwardRow | null>(null);
+  const [evaluating, setEvaluating] = useState<string | null>(null);
 
   const catalog = useQuery({
     queryKey: ["awards", "catalog"],
@@ -137,20 +153,44 @@ export default function Awards() {
     queryKey: ["awards", "grants"],
     queryFn: () => apiJson<Grant[]>("/api/v1/admin/awards/grants?limit=200"),
   });
+  const rules = useQuery({
+    queryKey: ["awards", "rules"],
+    queryFn: () => apiJson<AutoRule[]>("/api/v1/admin/awards/rules"),
+  });
 
-  const awards = catalog.data ?? [];
+  // Stock quests (milestones) are hidden here by design: this panel manages
+  // hand-granted awards only. Quests stay visible to users on their page.
+  const awards = (catalog.data ?? []).filter((a) => a.kind === "award");
+  const rulesByKey = useMemo(
+    () => new Map((rules.data ?? []).map((r) => [r.award_key, r])),
+    [rules.data],
+  );
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return awards.filter((a) => {
-      if (onlyManual && a.kind !== "award") return false;
       if (q && !awardName(a).toLowerCase().includes(q) && !a.group_key.includes(q)) return false;
       return true;
     });
-  }, [awards, search, onlyManual]);
+  }, [awards, search]);
 
-  const manualCount = awards.filter((a) => a.kind === "award").length;
   const grantRows = grants.data ?? [];
   const activeGrants = grantRows.filter((g) => !g.revoked_at);
+
+  const evaluate = async (award: AwardRow) => {
+    setEvaluating(award.group_key);
+    try {
+      const res = await apiJson<{ count: number }>("/api/v1/admin/awards/evaluate", {
+        method: "POST",
+        body: JSON.stringify({ award_key: award.group_key }),
+      });
+      toast.success(res.count > 0 ? `Выдано: ${res.count}` : "Никто пока не выполнил условия");
+      qc.invalidateQueries({ queryKey: ["awards"] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setEvaluating(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -162,7 +202,7 @@ export default function Awards() {
             Награды
           </h1>
           <p className="text-sm text-muted-foreground">
-            Ручные награды и авто-вехи. Арты, выдачи и отзывы.
+            Ручные награды: арт, окно автопроверки, ручные и автоматические выдачи.
           </p>
         </div>
         <Button onClick={() => setEditing("new")}>
@@ -206,17 +246,6 @@ export default function Awards() {
                 className="pl-9"
               />
             </div>
-            <button
-              onClick={() => setOnlyManual((v) => !v)}
-              className={cn(
-                "h-10 px-3 rounded-md border text-sm transition-colors",
-                onlyManual
-                  ? "border-primary/50 bg-primary/10 text-foreground"
-                  : "border-border text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Только ручные ({manualCount})
-            </button>
           </div>
 
           {catalog.isLoading ? (
@@ -226,7 +255,7 @@ export default function Awards() {
           ) : filtered.length === 0 ? (
             <EmptyState
               title="Ничего не найдено"
-              hint={onlyManual ? "Создай первую ручную награду." : "Измени запрос."}
+              hint="Создай первую награду: название, арт и окно автопроверки."
             />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -234,10 +263,12 @@ export default function Awards() {
                 <AwardCard
                   key={a.group_key}
                   award={a}
+                  rule={rulesByKey.get(a.group_key) ?? null}
                   grants={activeGrants.filter((g) => g.award_key === a.group_key).length}
+                  evaluating={evaluating === a.group_key}
+                  onEvaluate={() => evaluate(a)}
                   onGrant={() => setGrantTo(a)}
                   onEdit={() => setEditing(a)}
-                  onUpload={() => setUploadFor(a)}
                   onDelete={async () => {
                     if (!confirm(`Удалить награду «${awardName(a)}»?`)) return;
                     try {
@@ -278,20 +309,11 @@ export default function Awards() {
       {editing && (
         <AwardEditor
           award={editing === "new" ? null : editing}
+          rule={editing === "new" ? null : (rulesByKey.get(editing.group_key) ?? null)}
           onClose={() => setEditing(null)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["awards"] });
             setEditing(null);
-          }}
-        />
-      )}
-      {uploadFor && (
-        <UploadArtModal
-          award={uploadFor}
-          onClose={() => setUploadFor(null)}
-          onUploaded={() => {
-            qc.invalidateQueries({ queryKey: ["awards"] });
-            setUploadFor(null);
           }}
         />
       )}
@@ -311,36 +333,49 @@ export default function Awards() {
 
 // ── Award card ──────────────────────────────────────────────────────────────
 
+function formatRuleWindow(rule: AutoRule): string {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "numeric" });
+  return `${fmt(rule.active_from)}–${fmt(rule.active_to)}`;
+}
+
+function ruleSummary(rule: AutoRule): string {
+  const parts: string[] = [];
+  if (rule.min_wall_posts > 0) parts.push(`стена ≥${rule.min_wall_posts}`);
+  if (rule.min_threads > 0) parts.push(`треды ≥${rule.min_threads}`);
+  if (rule.min_likes_given > 0) parts.push(`лайки+ ≥${rule.min_likes_given}`);
+  if (rule.min_likes_received > 0) parts.push(`лайки− ≥${rule.min_likes_received}`);
+  if (rule.min_active_days > 0) parts.push(`дни ≥${rule.min_active_days}`);
+  return parts.join(" · ");
+}
+
 function AwardCard({
   award,
+  rule,
   grants,
+  evaluating,
+  onEvaluate,
   onGrant,
   onEdit,
-  onUpload,
   onDelete,
 }: {
   award: AwardRow;
+  rule: AutoRule | null;
   grants: number;
+  evaluating: boolean;
+  onEvaluate: () => void;
   onGrant: () => void;
   onEdit: () => void;
-  onUpload: () => void;
   onDelete: () => void;
 }) {
   const Icon = iconFor(award.icon);
-  const isManual = award.kind === "award";
-  const isAdmin = award.origin === "admin";
-  const isMilestone = award.kind === "milestone";
-  const thumb = award.image_url || award.level_images?.["1"] || null;
-
-  const levels = award.levels ?? [];
-  const topRarity = levels.length
-    ? rarityOf(award, levels.length)
-    : rarityOf(award, 1);
+  const thumb = award.image_url || null;
+  const topRarity = rarityOf(award, 1);
 
   return (
     <div className="group rounded-lg border border-border bg-card p-4 transition-colors hover:border-border/80">
       <div className="flex gap-4">
-        {/* Art / icon */}
+        {/* Art */}
         <div className="flex-shrink-0 w-16 h-16 rounded-md bg-muted/60 border border-border/60 flex items-center justify-center overflow-hidden">
           {thumb ? (
             <img
@@ -369,46 +404,27 @@ function AwardCard({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
-            <Tag tone={isManual ? "primary" : "muted"}>
-              {isManual ? "ручная" : "веха"}
-            </Tag>
-            <Tag tone={isAdmin ? "warn" : "muted"}>{isAdmin ? "admin" : "code"}</Tag>
-            {isManual && grants > 0 && (
+            <Tag tone={thumb ? "primary" : "warn"}>{thumb ? "с артом" : "без арта"}</Tag>
+            {rule ? (
+              <span
+                title={ruleSummary(rule)}
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-primary/15 text-primary"
+              >
+                авто · {formatRuleWindow(rule)}
+              </span>
+            ) : (
+              <Tag tone="muted">только вручную</Tag>
+            )}
+            {grants > 0 && (
               <Tag tone="muted">
                 {grants} {plural(grants, "выдача", "выдачи", "выдач")}
               </Tag>
             )}
-            {award.achievement_type === "tenure" && <Tag tone="muted">стаж</Tag>}
           </div>
 
-          {isMilestone && levels.length > 0 && (
-            <div className="mt-3 space-y-1">
-              {levels.map((l) => (
-                <div
-                  key={l.level}
-                  className="flex items-center justify-between text-xs text-muted-foreground"
-                >
-                  <span className="flex items-center gap-1.5 truncate">
-                    {award.level_images?.[String(l.level)] && (
-                      <img
-                        src={award.level_images[String(l.level)]}
-                        alt=""
-                        className="w-5 h-5 object-contain flex-shrink-0"
-                        loading="lazy"
-                      />
-                    )}
-                    Ур. {l.level}
-                  </span>
-                  <span className="tabular-nums">
-                    ≥ {l.threshold} · {formatPercent(rarityOf(award, l.level))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          {award.achievement_type === "tenure" && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              динамическая серия — по одному уровню за срок на сайте
+          {rule && (
+            <p className="mt-2 text-xs text-muted-foreground truncate" title={ruleSummary(rule)}>
+              {ruleSummary(rule)}
             </p>
           )}
         </div>
@@ -416,37 +432,32 @@ function AwardCard({
 
       {/* Actions */}
       <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-border/60">
-        {isManual && (
-          <Button size="sm" variant="secondary" onClick={onGrant}>
-            <Award className="w-3.5 h-3.5 mr-1" />
-            Выдать
+        <Button size="sm" variant="secondary" onClick={onGrant}>
+          <Award className="w-3.5 h-3.5 mr-1" />
+          Выдать
+        </Button>
+        {rule && (
+          <Button size="sm" variant="secondary" onClick={onEvaluate} disabled={evaluating}>
+            {evaluating ? (
+              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5 mr-1" />
+            )}
+            Проверить и выдать
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={onUpload}>
-          <Upload className="w-3.5 h-3.5 mr-1" />
-          Арт
+        <Button size="sm" variant="ghost" onClick={onEdit} className="ml-auto">
+          <Pencil className="w-3.5 h-3.5 mr-1" />
+          Править
         </Button>
-        {isAdmin && (
-          <>
-            <Button size="sm" variant="ghost" onClick={onEdit}>
-              <Pencil className="w-3.5 h-3.5 mr-1" />
-              Править
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onDelete}
-              className="text-destructive hover:text-destructive ml-auto"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
-          </>
-        )}
-        {!isAdmin && (
-          <span className="ml-auto text-[11px] text-muted-foreground">
-            code — из каталога в Go
-          </span>
-        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onDelete}
+          className="text-destructive hover:text-destructive"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
       </div>
     </div>
   );
@@ -532,8 +543,17 @@ function GrantRows({
               <span className="font-medium">@{g.username || g.user_id.slice(0, 8)}</span>
               <span className="text-muted-foreground"> · </span>
               <span>{byKey.get(g.award_key) ? awardName(byKey.get(g.award_key)!) : g.award_key}</span>
+              {g.auto_granted && (
+                <span className="ml-1.5 inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                  авто
+                </span>
+              )}
             </p>
-            {g.reason && <p className="text-xs text-muted-foreground truncate">{g.reason}</p>}
+            {(g.reason || g.awarded_by) && (
+              <p className="text-xs text-muted-foreground truncate">
+                {[g.awarded_by ? `@${g.awarded_by}` : "", g.reason].filter(Boolean).join(" · ")}
+              </p>
+            )}
           </div>
           <time className="text-xs text-muted-foreground whitespace-nowrap">
             {new Date(g.awarded_at).toLocaleDateString("ru-RU")}
@@ -614,12 +634,48 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
+/** datetime-local value (local time) → RFC3339 UTC for the API. */
+function localInputToISO(v: string): string {
+  return new Date(v).toISOString();
+}
+
+/** RFC3339 → local datetime-local value for the input. */
+function isoToLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Default auto window: now → +7 days, as a local datetime-local value. */
+function defaultLocalInput(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function uploadAwardArt(awardKey: string, file: File): Promise<void> {
+  const token = api.getToken();
+  const form = new FormData();
+  form.append("key", awardKey);
+  form.append("file", file);
+  const res = await fetch("/api/v1/admin/awards/image", {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.error || `Ошибка ${res.status}`);
+}
+
 function AwardEditor({
   award,
+  rule,
   onClose,
   onSaved,
 }: {
   award: AwardRow | null;
+  rule: AutoRule | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -631,13 +687,60 @@ function AwardEditor({
   const [sortOrder, setSortOrder] = useState(award?.sort_order ?? 100);
   const [busy, setBusy] = useState(false);
 
+  // Art: current image plus an optional replacement file.
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(award?.image_url || null);
+  useEffect(() => {
+    return () => {
+      if (preview && preview.startsWith("blob:")) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+  const pick = (f: File | null) => {
+    if (!f) return;
+    setPreview((prev) => {
+      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(f);
+    });
+    setFile(f);
+  };
+
+  // Auto-issuance rule: window + AND-combined thresholds.
+  const [ruleOn, setRuleOn] = useState(!!rule);
+  const [activeFrom, setActiveFrom] = useState(
+    rule ? isoToLocalInput(rule.active_from) : defaultLocalInput(0),
+  );
+  const [activeTo, setActiveTo] = useState(
+    rule ? isoToLocalInput(rule.active_to) : defaultLocalInput(7),
+  );
+  const [minWallPosts, setMinWallPosts] = useState(rule?.min_wall_posts ?? 0);
+  const [minThreads, setMinThreads] = useState(rule?.min_threads ?? 0);
+  const [minLikesGiven, setMinLikesGiven] = useState(rule?.min_likes_given ?? 0);
+  const [minLikesReceived, setMinLikesReceived] = useState(rule?.min_likes_received ?? 0);
+  const [minActiveDays, setMinActiveDays] = useState(rule?.min_active_days ?? 0);
+
   const save = async () => {
     if (!title.trim()) {
       toast.error("Введите название");
       return;
     }
+    if (ruleOn) {
+      if (!activeFrom || !activeTo || Number.isNaN(new Date(activeFrom).getTime()) || Number.isNaN(new Date(activeTo).getTime())) {
+        toast.error("Укажите корректное окно автопроверки");
+        return;
+      }
+      if (new Date(activeTo) < new Date(activeFrom)) {
+        toast.error("Конец окна раньше начала");
+        return;
+      }
+      if ([minWallPosts, minThreads, minLikesGiven, minLikesReceived, minActiveDays].every((v) => v <= 0)) {
+        toast.error("Укажите хотя бы один порог больше нуля");
+        return;
+      }
+    }
     setBusy(true);
     try {
+      let awardKey = award?.group_key ?? "";
       if (isEdit && award) {
         await apiJson("/api/v1/admin/awards", {
           method: "PATCH",
@@ -649,9 +752,8 @@ function AwardEditor({
             sort_order: sortOrder,
           }),
         });
-        toast.success("Сохранено");
       } else {
-        await apiJson("/api/v1/admin/awards", {
+        const created = await apiJson<{ key: string }>("/api/v1/admin/awards", {
           method: "POST",
           body: JSON.stringify({
             key: key.trim() || undefined,
@@ -661,8 +763,35 @@ function AwardEditor({
             sort_order: sortOrder,
           }),
         });
-        toast.success("Награда создана");
+        awardKey = created.key;
       }
+      if (file && awardKey) {
+        try {
+          await uploadAwardArt(awardKey, file);
+        } catch (e) {
+          toast.error(`Арт не загрузился: ${(e as Error).message}`);
+        }
+      }
+      if (ruleOn && awardKey) {
+        await apiJson("/api/v1/admin/awards/rule", {
+          method: "PUT",
+          body: JSON.stringify({
+            award_key: awardKey,
+            active_from: localInputToISO(activeFrom),
+            active_to: localInputToISO(activeTo),
+            min_wall_posts: minWallPosts,
+            min_threads: minThreads,
+            min_likes_given: minLikesGiven,
+            min_likes_received: minLikesReceived,
+            min_active_days: minActiveDays,
+          }),
+        });
+      } else if (!ruleOn && rule) {
+        await apiJson(`/api/v1/admin/awards/rule?award_key=${encodeURIComponent(rule.award_key)}`, {
+          method: "DELETE",
+        });
+      }
+      toast.success(isEdit ? "Сохранено" : "Награда создана");
       onSaved();
     } catch (e) {
       toast.error((e as Error).message);
@@ -674,8 +803,9 @@ function AwardEditor({
   return (
     <Modal
       title={isEdit ? "Правка награды" : "Новая награда"}
-      subtitle={isEdit ? award?.group_key : "Создаётся в каталоге (origin=admin) и остаётся навсегда."}
+      subtitle={isEdit ? award?.group_key : "Название, арт и окно автопроверки — всё в одном месте."}
       onClose={onClose}
+      wide
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -689,23 +819,23 @@ function AwardEditor({
       }
     >
       {!isEdit && (
-        <Field label="Ключ" hint="Латиница/цифры/подчёркивания. Пусто — сгенерируется.">
-          <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="award_veteran" />
+        <Field label="Ключ (ID)" hint="Латиница/цифры/подчёркивания. Пусто — сгенерируется. Потом не меняется.">
+          <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="halloween_2026" />
         </Field>
       )}
       <Field label="Название">
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ветеран" />
+        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Хэллоуин 2026" />
       </Field>
       <Field label="Описание">
         <Textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="За что выдаётся"
-          rows={3}
+          rows={2}
         />
       </Field>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Иконка">
+        <Field label="Иконка (запасная, если нет арта)">
           <div className="flex flex-wrap gap-1.5">
             {ICON_CHOICES.map(({ name, Icon }) => (
               <button
@@ -733,146 +863,94 @@ function AwardEditor({
           />
         </Field>
       </div>
-    </Modal>
-  );
-}
 
-function UploadArtModal({
-  award,
-  onClose,
-  onUploaded,
-}: {
-  award: AwardRow;
-  onClose: () => void;
-  onUploaded: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const levels = award.levels ?? [];
-  const hasLevels = levels.length > 0;
-  const [level, setLevel] = useState(hasLevels ? 1 : 0);
-  const existing = (lvl: number) =>
-    hasLevels ? award.level_images?.[String(lvl)] || "" : award.image_url || "";
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(existing(hasLevels ? 1 : 0) || null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      if (preview && preview.startsWith("blob:")) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
-
-  const chooseLevel = (lvl: number) => {
-    setFile(null);
-    setPreview(existing(lvl) || null);
-    setLevel(lvl);
-  };
-
-  const pick = (f: File | null) => {
-    if (!f) return;
-    setPreview((prev) => {
-      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(f);
-    });
-    setFile(f);
-  };
-
-  const upload = async () => {
-    if (!file) {
-      toast.error("Выберите файл");
-      return;
-    }
-    setBusy(true);
-    try {
-      const token = api.getToken();
-      const form = new FormData();
-      form.append("key", award.group_key);
-      if (hasLevels) form.append("level", String(level));
-      form.append("file", file);
-      const res = await fetch("/api/v1/admin/awards/image", {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(json?.error || `Ошибка ${res.status}`);
-      toast.success(hasLevels ? `Арт уровня ${level} загружен` : "Арт загружен");
-      onUploaded();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal
-      title={hasLevels ? "Арт уровня" : "Арт награды"}
-      subtitle={awardName(award)}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Отмена
-          </Button>
-          <Button onClick={upload} disabled={busy || !file}>
-            {busy && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
-            {hasLevels ? `Загрузить (ур. ${level})` : "Загрузить"}
-          </Button>
-        </>
-      }
-    >
-      {hasLevels && (
-        <Field label="Уровень">
-          <div className="flex flex-wrap gap-1.5">
-            {levels.map((l) => (
-              <button
-                key={l.level}
-                type="button"
-                onClick={() => chooseLevel(l.level)}
-                className={cn(
-                  "h-9 min-w-9 px-2.5 rounded-md border text-sm transition-colors flex items-center gap-1.5",
-                  level === l.level
-                    ? "border-primary/50 bg-primary/10 text-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {award.level_images?.[String(l.level)] && (
-                  <img
-                    src={award.level_images[String(l.level)]}
-                    alt=""
-                    className="w-5 h-5 object-contain"
-                  />
-                )}
-                {l.level}
-              </button>
-            ))}
+      {/* Art */}
+      <Field label="Фотокарточка награды" hint="PNG/JPG/WebP/GIF до 5 МБ. Видна в профиле во всю карточку.">
+        <div className="flex items-start gap-3">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="w-28 h-28 rounded-lg border border-dashed border-border hover:border-primary/50 transition-colors flex items-center justify-center overflow-hidden bg-muted/30"
+          >
+            {preview ? (
+              <img src={preview} alt="" className="w-full h-full object-contain" />
+            ) : (
+              <ImageIcon className="w-8 h-8 text-muted-foreground" />
+            )}
+          </button>
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <Button size="sm" variant="secondary" onClick={() => inputRef.current?.click()}>
+              <Upload className="w-3.5 h-3.5 mr-1" />
+              {preview ? "Заменить" : "Выбрать файл"}
+            </Button>
+            {file && <p className="text-xs text-muted-foreground truncate">{file.name}</p>}
+            {!file && preview && (
+              <p className="text-xs text-muted-foreground">Текущий арт. Выберите файл, чтобы заменить.</p>
+            )}
           </div>
-        </Field>
-      )}
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className="w-full rounded-lg border border-dashed border-border hover:border-primary/50 transition-colors p-6 flex flex-col items-center gap-2"
-      >
-        {preview ? (
-          <img src={preview} alt="" className="w-32 h-32 object-contain" />
-        ) : (
-          <div className="w-32 h-32 rounded-md bg-muted flex items-center justify-center">
-            <ImageIcon className="w-8 h-8 text-muted-foreground" />
-          </div>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => pick(e.target.files?.[0] ?? null)}
+        />
+      </Field>
+
+      {/* Auto-issuance */}
+      <div className="rounded-lg border border-border/70 p-4 space-y-4">
+        <label className="flex items-center gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={ruleOn}
+            onChange={(e) => setRuleOn(e.target.checked)}
+            className="w-4 h-4 rounded accent-primary"
+          />
+          <span className="text-sm font-medium">Выдавать автоматически за активность</span>
+        </label>
+        {ruleOn && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Активность с" hint="Включительно">
+                <Input
+                  type="datetime-local"
+                  value={activeFrom}
+                  onChange={(e) => setActiveFrom(e.target.value)}
+                />
+              </Field>
+              <Field label="Активность по" hint="Включительно. Позже — никому.">
+                <Input
+                  type="datetime-local"
+                  value={activeTo}
+                  onChange={(e) => setActiveTo(e.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <Field label="Постов на стене ≥">
+                <Input type="number" min={0} value={minWallPosts} onChange={(e) => setMinWallPosts(Number(e.target.value))} />
+              </Field>
+              <Field label="Тредов ≥">
+                <Input type="number" min={0} value={minThreads} onChange={(e) => setMinThreads(Number(e.target.value))} />
+              </Field>
+              <Field label="Лайков поставлено ≥">
+                <Input type="number" min={0} value={minLikesGiven} onChange={(e) => setMinLikesGiven(Number(e.target.value))} />
+              </Field>
+              <Field label="Лайков получено ≥">
+                <Input type="number" min={0} value={minLikesReceived} onChange={(e) => setMinLikesReceived(Number(e.target.value))} />
+              </Field>
+              <Field label="Дней активности ≥">
+                <Input type="number" min={0} value={minActiveDays} onChange={(e) => setMinActiveDays(Number(e.target.value))} />
+              </Field>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Все условия — одновременно (И). Проверка каждый час и кнопкой «Проверить и выдать».
+              Дата выдачи — момент проверки. Кто не выполнил до конца окна — не получит.
+            </p>
+          </>
         )}
-        <span className="text-sm text-muted-foreground">
-          {file ? file.name : "Нажмите, чтобы выбрать PNG/JPG/WebP (до 5 МБ)"}
-        </span>
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        className="hidden"
-        onChange={(e) => pick(e.target.files?.[0] ?? null)}
-      />
+      </div>
     </Modal>
   );
 }

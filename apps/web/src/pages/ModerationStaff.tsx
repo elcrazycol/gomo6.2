@@ -98,7 +98,7 @@ const ModerationStaff = () => {
             Персонал
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isAdmin ? "Вы можете выдавать и снимать роли модератора и хелпера. Роль admin — только вручную в БД." : "Только просмотр — роли меняет админ."}
+            {isAdmin ? "Вы можете выдавать и снимать роли. Роль admin — только вручную в БД." : "Только просмотр — роли меняет админ."}
           </p>
         </div>
 
@@ -115,6 +115,7 @@ const ModerationStaff = () => {
               <SelectContent>
                 <SelectItem value="helper">helper — только чтение</SelectItem>
                 <SelectItem value="moderator">moderator</SelectItem>
+                <SelectItem value="curator">curator — награды</SelectItem>
               </SelectContent>
             </Select>
             <Button size="sm" className="gap-1.5" onClick={grant} disabled={busy === "grant"}>
