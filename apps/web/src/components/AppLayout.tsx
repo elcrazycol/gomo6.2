@@ -1410,6 +1410,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                   label={desktopSearchExpanded ? t('nav.closeSearch') : t('nav.openSearch')}
                   onClick={() => setDesktopSearchExpanded((prev) => !prev)}
                   ink={false}
+                  testId="desktop-search-toggle"
                   className="absolute right-0 top-0 h-9 w-9"
                 >
                   <Search className="h-4 w-4" />
@@ -1431,6 +1432,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             <HeaderIconButton
               label={mobileSearchOpen ? t('nav.closeSearch') : t('nav.openSearch')}
               onClick={() => setMobileSearchOpen((prev) => !prev)}
+              testId="mobile-search-toggle"
               className="lg:hidden"
             >
               <Search className="h-4 w-4" />
