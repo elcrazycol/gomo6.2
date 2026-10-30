@@ -14,7 +14,7 @@ import ChannelsPanel from "@/components/gomosub/settings/ChannelsPanel";
 import BansPanel from "@/components/gomosub/settings/BansPanel";
 import InvitesPanel, { type Invite } from "@/components/gomosub/settings/InvitesPanel";
 import { memberTop } from "@/components/gomosub/settings/permissions";
-import { parsePerms, type BanItem, type ChannelOverwrite, type Member, type MemberRoleGrant, type Role, type SettingsCategory, type SettingsChannel } from "@/components/gomosub/settings/types";
+import { parsePerms, rpcGet, type BanItem, type ChannelOverwrite, type Member, type MemberRoleGrant, type Role, type SettingsCategory, type SettingsChannel } from "@/components/gomosub/settings/types";
 
 type TabValue = "general" | "roles" | "members" | "channels" | "bans" | "invites";
 
@@ -119,18 +119,20 @@ const GomoSubSettings = () => {
     setRoles(normalizeRoles(d.data));
   };
 
+  // Members come from the permission-gated roster RPC (not the generic
+  // memberships table, which is user-scoped and only ever returns the
+  // caller's own row — the old code showed a single member for that reason).
   const loadMembers = async (boardId: string) => {
-    const r = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${boardId}`);
-    const d = await r.json();
-    const data = (d.data || []) as (Member & { user_id: string })[];
-    if (data.length > 0) {
-      const userIds = [...new Set(data.map((m) => m.user_id))].join(",");
-      const pr = await fetch(`/api/v1/profiles?id=in.(${userIds})`);
-      const pd = await pr.json();
-      const profiles = (pd.data || []) as { id: string; username: string }[];
-      const pm = new Map(profiles.map((p) => [p.id, p]));
-      setMembers(data.map((m) => ({ ...m, profiles: pm.get(m.user_id) })));
-    } else setMembers([]);
+    const res = await rpcGet(`/api/rpc/gomosub_members?_board_id=${boardId}`);
+    const rows = ((res.ok ? (res.data as { members?: unknown[] })?.members : []) ?? []) as {
+      user_id: string; username?: string; role_id?: string | null; timed_out_until?: string | null;
+    }[];
+    setMembers(rows.map((m) => ({
+      user_id: m.user_id,
+      role_id: m.role_id ?? null,
+      timed_out_until: m.timed_out_until ?? null,
+      profiles: { username: m.username ?? "" },
+    } as Member)));
   };
 
   const loadGrants = async (boardId: string) => {

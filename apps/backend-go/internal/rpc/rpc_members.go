@@ -3,6 +3,7 @@ package rpc
 import (
 	"database/sql"
 	"net/http"
+	"time"
 
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
@@ -18,12 +19,14 @@ import (
 
 // GomoSubMemberRow is one roster entry.
 type GomoSubMemberRow struct {
-	UserID    string   `json:"user_id"`
-	Username  string   `json:"username"`
-	AvatarURL *string  `json:"avatar_url"`
-	RoleIDs   []string `json:"role_ids"`
-	TimedOut  bool     `json:"timed_out"`
-	IsOwner   bool     `json:"is_owner"`
+	UserID        string     `json:"user_id"`
+	Username      string     `json:"username"`
+	AvatarURL     *string    `json:"avatar_url"`
+	RoleIDs       []string   `json:"role_ids"`
+	LegacyRoleID  *string    `json:"role_id"`
+	TimedOut      bool       `json:"timed_out"`
+	TimedOutUntil *time.Time `json:"timed_out_until"`
+	IsOwner       bool       `json:"is_owner"`
 }
 
 // GomoSubRoleRow is the role side of the roster payload.
@@ -77,8 +80,9 @@ func (h *RPCHandler) ListGomoSubMembers(c *gin.Context) {
 	}
 
 	rows, err := h.db.Query(`
-		SELECT m.user_id, COALESCE(u.username, ''), u.avatar_url,
-		       (m.timed_out_until IS NOT NULL AND m.timed_out_until > NOW())
+		SELECT m.user_id, COALESCE(u.username, ''), u.avatar_url, m.role_id,
+		       (m.timed_out_until IS NOT NULL AND m.timed_out_until > NOW()),
+		       m.timed_out_until
 		FROM gomosub_memberships m LEFT JOIN users u ON u.id = m.user_id
 		WHERE m.board_id = $1`, boardID)
 	if err != nil {
@@ -90,7 +94,7 @@ func (h *RPCHandler) ListGomoSubMembers(c *gin.Context) {
 	userIDs := []string{}
 	for rows.Next() {
 		var r GomoSubMemberRow
-		if err := rows.Scan(&r.UserID, &r.Username, &r.AvatarURL, &r.TimedOut); err != nil {
+		if err := rows.Scan(&r.UserID, &r.Username, &r.AvatarURL, &r.LegacyRoleID, &r.TimedOut, &r.TimedOutUntil); err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
 		}

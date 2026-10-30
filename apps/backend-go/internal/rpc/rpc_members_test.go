@@ -24,9 +24,9 @@ func TestListGomoSubMembers_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`(?s)FROM gomosub_memberships m LEFT JOIN users u.*`).
 		WithArgs(boardID).
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "username", "avatar_url", "timed_out"}).
-			AddRow(owner, "owner", nil, false).
-			AddRow(viewer, "member", "pic.png", false))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "username", "avatar_url", "role_id", "timed_out", "timed_out_until"}).
+			AddRow(owner, "owner", nil, nil, false, nil).
+			AddRow(viewer, "member", "pic.png", nil, false, nil))
 	mock.ExpectQuery(`(?s)FROM gomosub_roles WHERE board_id = \$1.*`).
 		WithArgs(boardID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "color", "position", "is_everyone"}).
