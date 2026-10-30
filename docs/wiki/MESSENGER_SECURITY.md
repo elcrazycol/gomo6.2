@@ -249,10 +249,10 @@ header {
     X-Content-Type-Options "nosniff"
     X-Frame-Options "DENY"
     Referrer-Policy "strict-origin-when-cross-origin"
-    Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://challenges.cloudflare.com; script-src 'self' blob: https://integrate.depay.com https://challenges.cloudflare.com; worker-src 'self' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://integrate.depay.com https://api.depay.com https://challenges.cloudflare.com; font-src 'self'; media-src 'self' blob:;"
+    Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://challenges.cloudflare.com; script-src 'self' blob: https://challenges.cloudflare.com; worker-src 'self' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://challenges.cloudflare.com; font-src 'self'; media-src 'self' blob:;"
 }
 ```
-CSP задаётся **без** `unsafe-eval`; `connect-src` ограничен собственным доменом, `wss:` и платёжными доменами depay; `frame-src` разрешает self + challenges.cloudflare.com (Turnstile).
+CSP задаётся **без** `unsafe-eval`; `connect-src` ограничен собственным доменом и `wss:`; `frame-src` разрешает self + challenges.cloudflare.com (Turnstile).
 
 **Исключение для dev-панели (dev.*):** dev-панель логинится как OAuth-клиент основного сайта — после consent её callback обменивает код кросс-доменно (`dev.*` → `https://{$DOMAIN}/oauth/token`, `/oauth/userinfo`). Строгий `connect-src 'self' wss: ...` без `{$DOMAIN}` блокировал этот обмен (в консоли браузера: CSP violation + `NetworkError when attempting to fetch resource` → «Ошибка входа» на dev-панели). В Caddyfile для dev.* задан отдельный CSP (матчер `@devCsp`, применяется только к `dev.{$DOMAIN}`) — та же политика плюс `http://{$DOMAIN}` и `https://{$DOMAIN}` в `connect-src`. Основной сайт и docs сохраняют строгую политику. При изменении общей политики синхронизируйте dev-версию (в Caddyfile есть комментарий-предупреждение).
 

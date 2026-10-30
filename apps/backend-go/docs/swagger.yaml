@@ -72,15 +72,6 @@ definitions:
     required:
     - name
     type: object
-  handlers.DePayCallbackRequest:
-    type: object
-  handlers.DropsConfigRequest:
-    properties:
-      drops_amount:
-        type: integer
-      user_id:
-        type: string
-    type: object
   handlers.EditMessageRequest:
     properties:
       content:
@@ -88,16 +79,6 @@ definitions:
         type: string
     required:
     - content
-    type: object
-  handlers.ManualVerifyRequest:
-    properties:
-      blockchain:
-        type: string
-      tx_hash:
-        type: string
-    required:
-    - blockchain
-    - tx_hash
     type: object
   handlers.MarkReadRequest:
     properties:
@@ -1862,62 +1843,6 @@ paths:
       summary: List app tokens
       tags:
       - Developer
-  /drops/callback:
-    post:
-      consumes:
-      - application/json
-      description: Webhook callback from DePay after successful payment
-      parameters:
-      - description: Payment callback
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.DePayCallbackRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-      summary: DePay payment callback
-      tags:
-      - Drops
-  /drops/config:
-    post:
-      consumes:
-      - application/json
-      description: Dynamic payment configuration for DePay Widget integration
-      parameters:
-      - description: Payment request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.DropsConfigRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-      summary: Get drops payment config
-      tags:
-      - Drops
   /drops/history:
     get:
       description: Get drops transaction history for the authenticated user
@@ -1949,51 +1874,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get drops transaction history
-      tags:
-      - Drops
-  /drops/manual-verify:
-    post:
-      consumes:
-      - application/json
-      description: Manually verify a drops payment by transaction hash
-      parameters:
-      - description: Transaction details
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.ManualVerifyRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-      security:
-      - BearerAuth: []
-      summary: Manually verify drops payment
-      tags:
-      - Drops
-  /drops/packages:
-    get:
-      description: List available drops purchase packages
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.APIResponse'
-      summary: Get drops packages
       tags:
       - Drops
   /drops/transfer:

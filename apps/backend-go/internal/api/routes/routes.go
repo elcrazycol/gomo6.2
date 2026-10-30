@@ -533,21 +533,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// ranked by net votes with the caller's own vote when authenticated.
 		rest.GET("/translations", translationsHandler.ListTranslations)
 
-		// Drops packages (public)
-		rest.GET("/drops/packages", dropsHandler.GetDropsPackages)
-
 		// Quest progress (public read with optional auth; the handler applies
 		// the achievements privacy rule for other users' pages).
 		rest.GET("/quests/progress", questsHandler.GetProgress)
-
-		// DePay integration. Both handlers authenticate the request themselves:
-		// /drops/callback requires a valid DePay signature (fail-closed, C1),
-		// /drops/config accepts either a valid DePay signature or an
-		// authenticated session with user_id bound to the caller (C2). The
-		// OptionalAuthMiddleware above populates claims from cookie/Bearer so
-		// the browser widget flow works without extra middleware here.
-		rest.POST("/drops/config", dropsHandler.DropsConfig)
-		rest.POST("/drops/callback", dropsHandler.DropsCallback)
 
 		// Additional tables (frontend compatibility)
 		//
@@ -728,7 +716,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// Drops
 			protected.GET("/user/drops", dropsHandler.GetDropsBalance)
 			protected.GET("/drops/history", dropsHandler.GetDropsHistory)
-			protected.POST("/drops/manual-verify", dropsHandler.ManualVerify)
 			protected.GET("/drops/wallet", dropsHandler.GetWalletInfo)
 			protected.POST("/drops/transfer", dropsHandler.TransferDrops)
 			protected.GET("/drops/users/search", dropsHandler.SearchUsers)

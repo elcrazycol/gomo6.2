@@ -130,9 +130,6 @@ vi.mock("@/components/Footer", () => ({
 vi.mock("@/components/CookieBanner", () => ({
   CookieBanner: () => <div data-testid="cookie-banner">Cookies</div>,
 }));
-vi.mock("@/components/DropsShop", () => ({
-  DropsShop: ({ open }: any) => (open ? <div data-testid="drops-shop">Shop</div> : null),
-}));
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: any) => <>{children}</>,
   TooltipTrigger: ({ children }: any) => <>{children}</>,
@@ -234,13 +231,6 @@ describe("AppLayout", () => {
   });
 
   describe("global events", () => {
-    it("opens the drops shop on 'open-drops-shop' event", () => {
-      renderLayout();
-      expect(screen.queryByTestId("drops-shop")).not.toBeInTheDocument();
-      fireEvent(window, new CustomEvent("open-drops-shop"));
-      expect(screen.getByTestId("drops-shop")).toBeInTheDocument();
-    });
-
     it("navigates on 'navigate-to' event", () => {
       renderLayout();
       fireEvent(window, new CustomEvent("navigate-to", { detail: "/profile/42" }));

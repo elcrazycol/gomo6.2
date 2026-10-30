@@ -40,7 +40,7 @@
 # (имя не может начинаться с GITHUB_ — этот префикс зарезервирован GitHub'ом)
 #
 # Секреты: VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_PORT (опц.),
-#          VITE_DEPAY_INTEGRATION_ID, VITE_TURNSTILE_SITEKEY, VITE_SENTRY_DSN
+#          VITE_TURNSTILE_SITEKEY, VITE_SENTRY_DSN
 # Переменные: PRIMARY_FORGE ('github' включает выкат), BUILD_RUNNER (опц., JSON
 #          массив меток раннера; по умолчанию self-hosted Mac).
 # =============================================================================
@@ -274,7 +274,7 @@ jobs:
           # раскрытие пустого массива падает с "unbound variable".
           ARGS=""
           if [ "${{ matrix.service }}" = "web" ]; then
-            ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_APP_VERSION=$VERSION --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }} --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }} --build-arg VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}"
+            ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_APP_VERSION=$VERSION --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }} --build-arg VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}"
           elif [ "${{ matrix.service }}" = "backend" ]; then
             ARGS="--build-arg VERSION=$VERSION --build-arg GIT_COMMIT=${{ github.sha }}"
           fi

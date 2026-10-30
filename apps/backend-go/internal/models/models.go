@@ -506,16 +506,6 @@ type SendGiftRequest struct {
 	IsAnonymous bool    `json:"is_anonymous"`
 }
 
-// DropsPackage — a package of drops available for purchase
-type DropsPackage struct {
-	ID          string  `json:"id" db:"id"`
-	Name        string  `json:"name" db:"name"`
-	DropsAmount int     `json:"drops_amount" db:"drops_amount"`
-	PriceUSD    float64 `json:"price_usd" db:"price_usd"`
-	IsActive    bool    `json:"is_active" db:"is_active"`
-	SortOrder   int     `json:"sort_order" db:"sort_order"`
-}
-
 // DropsTransaction — ledger entry for drops balance changes
 type DropsTransaction struct {
 	ID            string    `json:"id" db:"id"`
@@ -563,10 +553,11 @@ type TransferDropsRequest struct {
 	Description       *string `json:"description"`
 }
 
-// WalletInfo — wallet address and balance
+// WalletInfo — wallet address and currency balances
 type WalletInfo struct {
 	Address string `json:"address"`
 	Balance int    `json:"balance"`
+	Drops   int    `json:"drops"`
 }
 
 // TransferResult — response after a successful transfer

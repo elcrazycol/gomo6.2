@@ -56,7 +56,7 @@ apps/backend-go/
 | `messenger` | 5 / 7 | Мессенджер: диалоги, группы, заметки, шифрование AES-256, receipts, realtime |
 | `gomosubchat` | 2 / 1 | Текстовые каналы GomoSub: keyset-пагинация, send/edit/delete, realtime |
 | `channelaccess` | 1 / 1 | Предикаты read/write/moderate для каналов гомосабов (общие для REST и WS) |
-| `drops` | 1 / 1 | Кошелёк и валюта drops: DePay-колбэки, баланс, история, переводы |
+| `drops` | 1 / 1 | Кошелёк и валюта гемов: баланс, история, переводы (покупки вырезаны с DePay) |
 | `gifts` | 3 / 3 | Подарки: каталог, отправка, слои, апгрейды + админ-каталог |
 | `gamification` | 9 / 2 | Движок сундуков: редкости (Common → Eternal), награды, каталог |
 | `achievements` | 6 / 2 | Каталог достижений + движок (сид, рекомпут, backfill) |
@@ -113,7 +113,7 @@ Swagger-спека: `GET /api/v1/docs/json` (генерируется из godoc
 | Стены | профильные стены, комментарии, лайки, репосты, альбомы — через generic CRUD + RPC |
 | Мессенджер | `GET /messenger/conversations`, `POST /messenger/conversations/:id/messages`, группы, заметки, receipts, pin, leave |
 | GomoSub chat | `GET|POST /api/v1/gomosubchat/channels/:id/messages` + edit/delete (realtime) |
-| Экономика | `GET /drops/wallet`, `POST /drops/transfer`, `POST /drops/callback` (DePay), `POST /gifts/send`, `GET /gift_catalog`, админ `/admin/gifts` |
+| Экономика | `GET /drops/wallet`, `POST /drops/transfer`, `POST /gifts/send`, `GET /gift_catalog`, админ `/admin/gifts` |
 | Геймификация | `GET /api/v1/gamification/catalog`, `POST /chests/start`, `POST /chests/tap` (stateless playground) |
 | Модерация | `POST /moderation/reports` (любой user), `GET /moderation/reports` (moderator/admin), `POST /moderation/posts/:postId/resolve` |
 | Уведомления | `GET /notifications`, `PUT /notifications/:id/read`, unread-count; Web Push: `POST /push/subscribe`, `GET /push/vapid-public-key` |
@@ -152,7 +152,7 @@ Swagger-спека: `GET /api/v1/docs/json` (генерируется из godoc
 | `MODERATION_REPORT_RATE_LIMIT_PER_MIN` | Бюджет жалоб (10) |
 | `AUDIO_RATE_LIMIT_PER_MIN` | Бюджет audio-метаданных (30) |
 | `OG_RATE_LIMIT_PER_MIN` / `OG_IMAGE_RATE_LIMIT_PER_MIN` | Бюджеты social previews (120/240) |
-| `DEPAY_*` / `SPOTIFY_*` / `WEBAUTHN_RP_*` | Внешние интеграции и passkeys |
+| `SPOTIFY_*` / `WEBAUTHN_RP_*` | Внешние интеграции и passkeys |
 
 ## Быстрый старт
 

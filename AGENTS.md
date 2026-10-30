@@ -155,7 +155,7 @@ the backend + Docker infra can stay up across restarts.
 Deploy pipeline details, secrets/variables, rollback and VPS setup live in
 [docs/wiki/DEPLOYMENT.md](docs/wiki/DEPLOYMENT.md). Required deploy secrets:
 `VPS_HOST` / `VPS_USER` / `VPS_SSH_KEY` (+ optional `VPS_PORT`), and web build args
-`VITE_TURNSTILE_SITEKEY` / `VITE_SENTRY_DSN` / `VITE_DEPAY_INTEGRATION_ID`.
+`VITE_TURNSTILE_SITEKEY` / `VITE_SENTRY_DSN`.
 
 **Deploy only ships after the `ci` gate is green.** The image build starts as soon
 as `plan` is done (parallel with the gate), but the VPS restart job `needs` both the

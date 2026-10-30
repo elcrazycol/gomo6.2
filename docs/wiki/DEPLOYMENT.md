@@ -73,7 +73,6 @@ Settings → Secrets and variables → Actions → **Secrets**:
 | `VPS_PORT` | нет | по умолчанию 22 |
 | `VITE_TURNSTILE_SITEKEY` | да | публичный sitekey Turnstile (сборка web) |
 | `VITE_SENTRY_DSN` | нет | публичный DSN Sentry; без него SDK — no-op |
-| `VITE_DEPAY_INTEGRATION_ID` | нет | сборка web |
 | `CODEBERG_TOKEN` | для зеркала | codeberg.org, скоуп `write:repository` |
 | `GITLAB_TOKEN` | для зеркала | GitLab, Maintainer + `write_repository` |
 | `CODECOV_TOKEN` | нет | покрытие; без него загрузка деградирует, CI не падает |

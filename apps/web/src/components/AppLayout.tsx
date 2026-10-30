@@ -27,7 +27,6 @@ import { HighlightText } from "@/components/search/HighlightText";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { useQueryClient } from "@tanstack/react-query";
-import { DropsShop } from "@/components/DropsShop";
 import { eventManager } from "@/services/eventManager";
 import { useTabTitle } from "@/hooks/useTabTitle";
 import { useProfileRealtimeInvalidation } from "@/hooks/useProfileRealtimeInvalidation";
@@ -130,7 +129,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const lastPlayEventRef = useRef<string | null>(null);
   const isBackgroundResumeRef = useRef(false);
   const { scrollY } = useScroll();
-  const [showDropsShop, setShowDropsShop] = useState(false);
 
   // ── Header hide/show animation ─────────────────────────────────────────────
   // The header is position:fixed, so the content below it is padded to
@@ -176,13 +174,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     12 + headerHeight * p * cp);
 
   useTabTitle();
-
-  // Global DropsShop listener
-  useEffect(() => {
-    const handler = () => setShowDropsShop(true);
-    window.addEventListener('open-drops-shop', handler);
-    return () => window.removeEventListener('open-drops-shop', handler);
-  }, []);
 
   // Global SPA navigation listener (used by ProfileHoverCard etc.)
   useEffect(() => {
@@ -1434,7 +1425,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <Search className="h-4 w-4" />
             </Button>
             {/* Настройки в хедере — только на десктопе; на мобилке пункт
-                переехал в бургер-панель (над дропсами). */}
+                переехал в бургер-панель (над гемами). */}
             <NavigationLink to="/settings" className="hidden lg:block">
               <Button variant="ghost" className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group">
                 <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -1663,8 +1654,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         <CookieBanner />
       </div>
       ) : null}
-
-      <DropsShop open={showDropsShop} onOpenChange={setShowDropsShop} />
 
       {/* Registration CTA for anonymous visitors (small, collapsible) */}
       {!user && <GuestSignupBanner mobileNavVisible={showBottomNavigation} />}

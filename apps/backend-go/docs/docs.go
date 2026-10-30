@@ -2411,92 +2411,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/drops/callback": {
-            "post": {
-                "description": "Webhook callback from DePay after successful payment",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Drops"
-                ],
-                "summary": "DePay payment callback",
-                "parameters": [
-                    {
-                        "description": "Payment callback",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.DePayCallbackRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/drops/config": {
-            "post": {
-                "description": "Dynamic payment configuration for DePay Widget integration",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Drops"
-                ],
-                "summary": "Get drops payment config",
-                "parameters": [
-                    {
-                        "description": "Payment request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.DropsConfigRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/drops/history": {
             "get": {
                 "security": [
@@ -2542,77 +2456,6 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/drops/manual-verify": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Manually verify a drops payment by transaction hash",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Drops"
-                ],
-                "summary": "Manually verify drops payment",
-                "parameters": [
-                    {
-                        "description": "Transaction details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ManualVerifyRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/models.APIResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/drops/packages": {
-            "get": {
-                "description": "List available drops purchase packages",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Drops"
-                ],
-                "summary": "Get drops packages",
-                "responses": {
-                    "200": {
-                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/models.APIResponse"
                         }
@@ -7174,20 +7017,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.DePayCallbackRequest": {
-            "type": "object"
-        },
-        "handlers.DropsConfigRequest": {
-            "type": "object",
-            "properties": {
-                "drops_amount": {
-                    "type": "integer"
-                },
-                "user_id": {
-                    "type": "string"
-                }
-            }
-        },
         "handlers.EditMessageRequest": {
             "type": "object",
             "required": [
@@ -7197,21 +7026,6 @@ const docTemplate = `{
                 "content": {
                     "type": "string",
                     "maxLength": 24000
-                }
-            }
-        },
-        "handlers.ManualVerifyRequest": {
-            "type": "object",
-            "required": [
-                "blockchain",
-                "tx_hash"
-            ],
-            "properties": {
-                "blockchain": {
-                    "type": "string"
-                },
-                "tx_hash": {
-                    "type": "string"
                 }
             }
         },

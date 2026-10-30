@@ -1,98 +1,37 @@
-// Package drops implements the drops payment domain: package config,
-// DePay-style callback handling, wallet info, balance and history, manual
-// verification and user-to-user drops transfer. Extracted from the former
-// api/handlers god package as part of the F1 sweep — the domain is
-// self-contained (its own SQL, RSA signature verification and admin checks),
-// so it lives as a leaf package next to messenger/rpc/gifts and is wired into
-// the router from routes.go.
+// Package drops implements the wallet domain for the paid currency (gems):
+// balance and history, wallet info and user-to-user transfers. Purchase flows
+// (packages, payment callbacks, manual verification) were removed with DePay;
+// a new payment provider starts from this clean slate, crediting users.gems
+// with a 'purchase' row in drops_transactions.
 package drops
 
 import (
-	"bytes"
-	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
 	"database/sql"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/logsafe"
 	"github.com/gomo6/backend/internal/models"
 )
 
 type DropsHandler struct {
-	db         *sql.DB
-	publicKey  *rsa.PublicKey
-	privateKey *rsa.PrivateKey
+	db *sql.DB
 }
 
 func NewDropsHandler(db *sql.DB) *DropsHandler {
-	h := &DropsHandler{db: db}
-	h.loadKeys()
-	return h
-}
-
-func (h *DropsHandler) loadKeys() {
-	// Load DePay public key for verifying incoming signatures
-	pubKeyPEM := os.Getenv("DEPAY_PUBLIC_KEY")
-	if pubKeyPEM != "" {
-		pubKeyPEM = strings.ReplaceAll(pubKeyPEM, "\\n", "\n")
-		block, _ := pem.Decode([]byte(pubKeyPEM))
-		if block != nil {
-			pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-			if err == nil {
-				h.publicKey = pub.(*rsa.PublicKey)
-				log.Println("[Drops] DePay public key loaded OK")
-			} else {
-				log.Printf("[Drops] Failed to parse DEPAY_PUBLIC_KEY: %v", err)
-			}
-		} else {
-			log.Println("[Drops] Failed to decode DEPAY_PUBLIC_KEY PEM block")
-		}
-	} else {
-		log.Println("[Drops] DEPAY_PUBLIC_KEY not set")
-	}
-
-	// Load our private key for signing dynamic config responses
-	privKeyPEM := os.Getenv("DEPAY_PRIVATE_KEY")
-	if privKeyPEM != "" {
-		privKeyPEM = strings.ReplaceAll(privKeyPEM, "\\n", "\n")
-		block, _ := pem.Decode([]byte(privKeyPEM))
-		if block != nil {
-			priv, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-			if err == nil {
-				h.privateKey = priv.(*rsa.PrivateKey)
-				log.Println("[Drops] DePay private key loaded OK")
-			} else {
-				log.Printf("[Drops] Failed to parse DEPAY_PRIVATE_KEY: %v", err)
-			}
-		} else {
-			log.Println("[Drops] Failed to decode DEPAY_PRIVATE_KEY PEM block")
-		}
-	} else {
-		log.Println("[Drops] DEPAY_PRIVATE_KEY not set")
-	}
+	return &DropsHandler{db: db}
 }
 
 // GetDropsBalance — GET /api/v1/user/drops (protected)
 //
 // GetDropsBalance godoc
-// @Summary      Get drops balance
-// @Description  Get the authenticated user's drops balance
+// @Summary      Get currency balances
+// @Description  Get the authenticated user's paid gems and earnable drops balances
 // @Tags         Drops
 // @Produce      json
 // @Success      200 {object} models.APIResponse
@@ -106,416 +45,19 @@ func (h *DropsHandler) GetDropsBalance(c *gin.Context) {
 	}
 	userID := claims.UserID
 
-	var drops int
-	err := h.db.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&drops)
+	var gems, drops int
+	err := h.db.QueryRow("SELECT COALESCE(gems, 0), COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&gems, &drops)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get drops balance"))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get balances"))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"drops": drops}))
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"gems": gems, "drops": drops}))
 }
 
-// GetDropsPackages — GET /api/v1/drops/packages (public)
-//
-// GetDropsPackages godoc
-// @Summary      Get drops packages
-// @Description  List available drops purchase packages
-// @Tags         Drops
-// @Produce      json
-// @Success      200 {object} models.APIResponse
-// @Router       /drops/packages [get]
-func (h *DropsHandler) GetDropsPackages(c *gin.Context) {
-	rows, err := h.db.Query(`
-		SELECT id, name, drops_amount, price_usd, is_active, sort_order
-		FROM drops_packages
-		WHERE is_active = true
-		ORDER BY sort_order
-	`)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get packages"))
-		return
-	}
-	defer rows.Close()
-
-	var packages []models.DropsPackage
-	for rows.Next() {
-		var pkg models.DropsPackage
-		if err := rows.Scan(&pkg.ID, &pkg.Name, &pkg.DropsAmount, &pkg.PriceUSD, &pkg.IsActive, &pkg.SortOrder); err != nil {
-			continue
-		}
-		packages = append(packages, pkg)
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(packages))
-}
-
-// DropsConfigRequest — payload from DePay Widget
-type DropsConfigRequest struct {
-	DropsAmount int    `json:"drops_amount"`
-	UserID      string `json:"user_id"`
-}
-
-// Price per drop in USD
-const pricePerDropUSD = 0.02
-
-// DropsConfig — POST /api/v1/drops/config (public, dynamic config for DePay Widget)
-//
-// DropsConfig godoc
-// @Summary      Get drops payment config
-// @Description  Dynamic payment configuration for DePay Widget integration
-// @Tags         Drops
-// @Accept       json
-// @Produce      json
-// @Param        request body DropsConfigRequest true "Payment request"
-// @Success      200 {object} object
-// @Failure      400 {object} models.APIResponse
-// @Router       /drops/config [post]
-func (h *DropsHandler) DropsConfig(c *gin.Context) {
-	rawBody, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		log.Printf("[Drops] Failed to read config body: %v", err)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Failed to read body"))
-		return
-	}
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(rawBody))
-
-	sigHeader := c.GetHeader("x-signature")
-	logsafe.Printf("[Drops] Config request from %s, hasSig=%v, publicKey=%v",
-		c.ClientIP(), sigHeader != "", h.publicKey != nil)
-
-	// C2 (security audit): the config request must be authenticated one way or
-	// another — either a valid DePay signature (server-to-server proxy from the
-	// DePay platform, which carries no browser cookies) or an authenticated
-	// browser session with user_id bound to the caller. Anonymous unsigned
-	// requests are rejected so nobody can mint pending payment rows for
-	// arbitrary users.
-	sigValid := h.verifyDropsSignature(sigHeader, rawBody)
-	if h.publicKey == nil {
-		log.Printf("[Drops] WARNING: No public key loaded — unsigned config requests will be rejected")
-	}
-
-	var req DropsConfigRequest
-	if err := json.Unmarshal(rawBody, &req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request"))
-		return
-	}
-
-	if req.DropsAmount < 1 || req.DropsAmount > 100000 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid drops amount (1-100000)"))
-		return
-	}
-
-	if req.UserID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_id is required"))
-		return
-	}
-
-	// Signed requests come from the trusted DePay platform (it holds the
-	// signing key), so the payload's user_id is trusted as-is. Unsigned
-	// requests must come from an authenticated browser session whose user_id
-	// matches the caller.
-	if !sigValid {
-		claims := httpx.EnsureAuth(c)
-		if claims == nil {
-			return
-		}
-		if req.UserID != claims.UserID {
-			c.JSON(http.StatusForbidden, models.ErrorResponse("user_id must match the authenticated user"))
-			return
-		}
-	}
-	var userExists bool
-	if err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", req.UserID).Scan(&userExists); err != nil || !userExists {
-		logsafe.Printf("[Drops] Config: invalid user_id=%s err=%v exists=%v", req.UserID, err, userExists)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user"))
-		return
-	}
-	logsafe.Printf("[Drops] Config: user validated: %s", req.UserID)
-
-	priceUSD := float64(req.DropsAmount) * pricePerDropUSD
-
-	var pendingID string
-	_ = h.db.QueryRow(`
-		INSERT INTO drops_pending (user_id, drops_amount, price_usd)
-		VALUES ($1, $2, $3) RETURNING id
-	`, req.UserID, req.DropsAmount, priceUSD).Scan(&pendingID)
-	logsafe.Printf("[Drops] Pending created: id=%s user=%s amount=%d price=%.2f",
-		pendingID, req.UserID, req.DropsAmount, priceUSD)
-
-	config, err := h.buildDropsConfig(priceUSD)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("No payment receivers configured"))
-		return
-	}
-
-	if h.privateKey != nil {
-		configJSON, _ := json.Marshal(config)
-		hash := sha256.Sum256(configJSON)
-		opts := &rsa.PSSOptions{
-			SaltLength: 64,
-			Hash:       crypto.SHA256,
-		}
-		sig, err := rsa.SignPSS(rand.Reader, h.privateKey, crypto.SHA256, hash[:], opts)
-		if err == nil {
-			sigB64 := base64.RawURLEncoding.EncodeToString(sig)
-			c.Header("x-signature", sigB64)
-		}
-	}
-
-	c.JSON(http.StatusOK, config)
-}
-
-// verifyDropsSignature verifies the base64 x-signature header over rawBody
-// with the loaded DePay public key. Returns false when the key is missing or
-// any step fails; callers decide whether a false result is fatal (callback
-// fail-closed) or falls back to session auth (config).
-func (h *DropsHandler) verifyDropsSignature(sigHeader string, rawBody []byte) bool {
-	if sigHeader == "" || h.publicKey == nil {
-		return false
-	}
-	sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
-	if err != nil {
-		sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
-	}
-	if err != nil {
-		log.Printf("[Drops] Signature decode failed: %v", err)
-		return false
-	}
-	hash := sha256.Sum256(rawBody)
-	opts := &rsa.PSSOptions{SaltLength: 64, Hash: crypto.SHA256}
-	if err := rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, opts); err != nil {
-		log.Printf("[Drops] Signature verification FAILED: %v", err)
-		return false
-	}
-	log.Printf("[Drops] Signature verified OK")
-	return true
-}
-
-// buildDropsConfig assembles the DePay widget config from the receiver env
-// vars, failing when no receiver chain is configured. Extracted from
-// DropsConfig so the handler stays thin.
-func (h *DropsHandler) buildDropsConfig(priceUSD float64) (gin.H, error) {
-	type chainConfig struct {
-		envKey     string
-		blockchain string
-		token      string
-	}
-	chains := []chainConfig{
-		{"DEPAY_RECEIVER_ETH", "ethereum", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"},
-		{"DEPAY_RECEIVER_ETH", "ethereum", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"},
-		{"DEPAY_RECEIVER_POLYGON", "polygon", "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"},
-		{"DEPAY_RECEIVER_BASE", "base", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"},
-		{"DEPAY_RECEIVER_BASE", "base", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"},
-		{"DEPAY_RECEIVER_SOLANA", "solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},
-	}
-
-	accept := []gin.H{}
-	for _, ch := range chains {
-		receiver := os.Getenv(ch.envKey)
-		if receiver != "" {
-			accept = append(accept, gin.H{
-				"blockchain": ch.blockchain,
-				"token":      ch.token,
-				"receiver":   receiver,
-			})
-		}
-	}
-
-	if len(accept) == 0 {
-		return nil, errors.New("no payment receivers configured")
-	}
-
-	return gin.H{
-		"amount": gin.H{
-			"currency": "USD",
-			"fix":      priceUSD,
-		},
-		"accept": accept,
-	}, nil
-}
-
-// DePayCallbackRequest — payload from DePay callback
-type DePayCallbackRequest struct {
-	Blockchain  string          `json:"blockchain"`
-	Transaction string          `json:"transaction"`
-	Sender      string          `json:"sender"`
-	Receiver    string          `json:"receiver"`
-	Token       string          `json:"token"`
-	Amount      string          `json:"amount"`
-	Payload     json.RawMessage `json:"payload"`
-}
-
-// DropsCallback — POST /api/v1/drops/callback (public, DePay webhook)
-//
-// DropsCallback godoc
-// @Summary      DePay payment callback
-// @Description  Webhook callback from DePay after successful payment
-// @Tags         Drops
-// @Accept       json
-// @Produce      json
-// @Param        request body DePayCallbackRequest true "Payment callback"
-// @Success      200 {object} object
-// @Failure      400 {object} models.APIResponse
-// @Failure      401 {object} models.APIResponse
-// @Router       /drops/callback [post]
-func (h *DropsHandler) DropsCallback(c *gin.Context) {
-	logsafe.Printf("[Drops] Callback received from %s", c.ClientIP())
-
-	rawBody, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		log.Printf("[Drops] Failed to read callback body: %v", err)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Failed to read body"))
-		return
-	}
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(rawBody))
-
-	// C1 (security audit): fail closed. The webhook credits real money-backed
-	// currency, so a callback without a valid DePay signature must never be
-	// processed — missing key, missing header or bad signature are all rejections.
-	if h.publicKey == nil {
-		log.Printf("[Drops] WARNING: DEPAY_PUBLIC_KEY not configured — rejecting callback")
-		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse("Callback verification unavailable"))
-		return
-	}
-	sigHeader := c.GetHeader("x-signature")
-	if sigHeader == "" {
-		log.Printf("[Drops] WARNING: No signature on callback — rejecting")
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Missing signature"))
-		return
-	}
-	if !h.verifyDropsSignature(sigHeader, rawBody) {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
-		return
-	}
-
-	var req DePayCallbackRequest
-	if err := json.Unmarshal(rawBody, &req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request"))
-		return
-	}
-
-	var payload struct {
-		DropsAmount int    `json:"drops_amount"`
-		UserID      string `json:"user_id"`
-	}
-	if err := json.Unmarshal(req.Payload, &payload); err != nil {
-		log.Printf("[Drops] Callback: failed to parse payload: %v", err)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid payload"))
-		return
-	}
-
-	if payload.UserID == "" {
-		logsafe.Printf("[Drops] Callback: no user_id in payload, tx=%s", req.Transaction)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Missing user_id in payload"))
-		return
-	}
-
-	var exists bool
-	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM drops_transactions WHERE tx_hash = $1)", req.Transaction).Scan(&exists)
-	if err != nil {
-		log.Printf("[Drops] Callback: failed to check tx existence: %v", err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to check transaction"))
-		return
-	}
-	if exists {
-		logsafe.Printf("[Drops] Callback: duplicate tx: %s", req.Transaction)
-		c.JSON(http.StatusOK, gin.H{"status": "already_processed"})
-		return
-	}
-
-	dropsAmount := payload.DropsAmount
-	if dropsAmount < 1 || dropsAmount > 100000 {
-		logsafe.Printf("[Drops] Callback: invalid drops amount=%d user=%s", dropsAmount, payload.UserID)
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid drops amount in payload"))
-		return
-	}
-
-	_, err = h.creditDrops(dropsAmount, payload.UserID, req.Blockchain, req.Transaction)
-	if err != nil {
-		var cf *callbackFailure
-		if errors.As(err, &cf) {
-			c.JSON(cf.status, models.ErrorResponse(cf.msg))
-		} else {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to credit drops"))
-		}
-		return
-	}
-
-	logsafe.Printf("[Drops] Drops credited: user=%s amount=%d tx=%s blockchain=%s", payload.UserID, dropsAmount, req.Transaction, req.Blockchain)
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
-
-// callbackFailure carries the HTTP-facing error class produced inside the
-// credit transaction so the handler can map it onto a status while keeping
-// the original per-step messages.
-type callbackFailure struct {
-	status int
-	msg    string
-}
-
-func (e *callbackFailure) Error() string { return e.msg }
-
-// creditDrops applies a verified payment callback inside a transaction:
-// credits the user's drops, records the purchase ledger entry and marks the
-// pending row credited. Returns the resulting balance. Extracted from
-// DropsCallback so the handler stays thin and the transactional core is a
-// separable unit.
-func (h *DropsHandler) creditDrops(amount int, userID, blockchain, txHash string) (int, error) {
-	tx, err := h.db.Begin()
-	if err != nil {
-		log.Printf("[Drops] Callback: begin tx failed: %v", err)
-		return 0, &callbackFailure{http.StatusInternalServerError, "Transaction error"}
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec("UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2", amount, userID)
-	if err != nil {
-		logsafe.Printf("[Drops] Callback: credit drops failed user=%s err=%v", userID, err)
-		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to credit drops"}
-	}
-
-	var balanceAfter int
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&balanceAfter)
-	if err != nil {
-		logsafe.Printf("[Drops] Callback: get balance failed user=%s err=%v", userID, err)
-		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to get balance"}
-	}
-
-	_, err = tx.Exec(`
-		INSERT INTO drops_transactions (user_id, type, amount, balance_after, description, blockchain, tx_hash)
-		VALUES ($1, 'purchase', $2, $3, $4, $5, $6)
-	`, userID, amount, balanceAfter,
-		fmt.Sprintf("Purchased %d drops", amount),
-		blockchain, txHash)
-	if err != nil {
-		logsafe.Printf("[Drops] Callback: record tx failed user=%s err=%v", userID, err)
-		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to record transaction"}
-	}
-
-	if _, err = tx.Exec(`
-		UPDATE drops_pending
-		SET status = 'credited', credited_at = NOW(), blockchain = $1, tx_hash = $2
-		WHERE user_id = $3 AND drops_amount = $4 AND status = 'initiated'
-		  AND created_at > NOW() - INTERVAL '1 hour'
-	`, blockchain, txHash, userID, amount); err != nil {
-		logsafe.Printf("[Drops] Callback: mark pending failed user=%s err=%v", userID, err)
-		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to update pending payment"}
-	}
-
-	if err := tx.Commit(); err != nil {
-		logsafe.Printf("[Drops] Callback: COMMIT FAILED user=%s err=%v", userID, err)
-		return 0, &callbackFailure{http.StatusInternalServerError, "Failed to commit"}
-	}
-
-	return balanceAfter, nil
-}
-
-// GetDropsHistory — GET /api/v1/drops/history (protected)
-//
 // GetDropsHistory godoc
-// @Summary      Get drops transaction history
-// @Description  Get drops transaction history for the authenticated user
+// @Summary      Get gems transaction history
+// @Description  Get paid gems transaction history for the authenticated user
 // @Tags         Drops
 // @Produce      json
 // @Param        offset query int    false "Offset for pagination"
@@ -549,6 +91,12 @@ func (h *DropsHandler) GetDropsHistory(c *gin.Context) {
 	if v := c.Query("type"); v != "" {
 		typeFilter = "AND type = ANY(string_to_array($" + fmt.Sprintf("%d", len(queryArgs)+1) + ", ','))"
 		queryArgs = append(queryArgs, v)
+	} else {
+		// The wallet is the paid-gems surface: quest drops (type
+		// 'quest_reward') are earned, not bought — they never touch the gems
+		// balance and live on the quests page. Keep them out of this history
+		// unless explicitly requested via ?type=.
+		typeFilter = "AND type != 'quest_reward'"
 	}
 
 	rows, err := h.db.Query(`
@@ -579,137 +127,11 @@ func (h *DropsHandler) GetDropsHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(transactions))
 }
 
-// ManualVerifyRequest — user-initiated verification
-type ManualVerifyRequest struct {
-	TxHash     string `json:"tx_hash" binding:"required"`
-	Blockchain string `json:"blockchain" binding:"required"`
-}
-
-// ManualVerify — POST /api/v1/drops/manual-verify (protected)
-//
-// ManualVerify godoc
-// @Summary      Manually verify drops payment
-// @Description  Manually verify a drops payment by transaction hash
-// @Tags         Drops
-// @Accept       json
-// @Produce      json
-// @Param        request body ManualVerifyRequest true "Transaction details"
-// @Success      200 {object} object
-// @Failure      400 {object} models.APIResponse
-// @Failure      404 {object} models.APIResponse
-// @Router       /drops/manual-verify [post]
-// @Security     BearerAuth
-// isAdminUser reports whether the user holds the platform 'admin' role.
-func (h *DropsHandler) isAdminUser(userID string) bool {
-	ok, err := authz.IsAdmin(context.Background(), h.db, userID)
-	if err != nil {
-		log.Printf("[Drops] admin check failed for %s: %v", userID, err)
-		return false
-	}
-	return ok
-}
-
-func (h *DropsHandler) ManualVerify(c *gin.Context) {
-	claims := httpx.EnsureAuth(c)
-	if claims == nil {
-		return
-	}
-
-	// C2 (security audit): manual crediting must be an admin action. A regular
-	// user can otherwise credit drops against a pending row they created
-	// themselves without ever paying.
-	if !h.isAdminUser(claims.UserID) {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
-		return
-	}
-	userID := claims.UserID
-
-	var req ManualVerifyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("tx_hash and blockchain required"))
-		return
-	}
-
-	var exists bool
-	err := h.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM drops_transactions WHERE tx_hash = $1)", req.TxHash).Scan(&exists)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("DB error"))
-		return
-	}
-	if exists {
-		c.JSON(http.StatusOK, gin.H{"status": "already_credited"})
-		return
-	}
-
-	var pendingAmount int
-	err = h.db.QueryRow(`
-		SELECT drops_amount FROM drops_pending
-		WHERE user_id = $1 AND status = 'initiated' AND created_at > NOW() - INTERVAL '24 hours'
-		ORDER BY created_at DESC LIMIT 1
-	`, userID).Scan(&pendingAmount)
-	if err != nil {
-		log.Printf("[Drops] Manual verify: no pending for user=%s err=%v", userID, err)
-		c.JSON(http.StatusNotFound, gin.H{"status": "no_pending_payment_found"})
-		return
-	}
-
-	tx, err := h.db.Begin()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("TX error"))
-		return
-	}
-	defer tx.Rollback()
-
-	// Every write is checked and aborts the transaction: an unchecked failure
-	// here would commit a balance change with no ledger row (or a wrong
-	// balance_after), leaving the drops economy unaccountable.
-	if _, err := tx.Exec("UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2", pendingAmount, userID); err != nil {
-		log.Printf("[Drops] Manual verify: credit balance failed user=%s err=%v", userID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to credit drops"))
-		return
-	}
-
-	var balanceAfter int
-	if err := tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&balanceAfter); err != nil {
-		log.Printf("[Drops] Manual verify: read balance failed user=%s err=%v", userID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to read balance"))
-		return
-	}
-
-	if _, err := tx.Exec(`
-		INSERT INTO drops_transactions (user_id, type, amount, balance_after, description, blockchain, tx_hash)
-		VALUES ($1, 'purchase', $2, $3, $4, $5, $6)
-	`, userID, pendingAmount, balanceAfter, fmt.Sprintf("Manual verify: %d drops", pendingAmount), req.Blockchain, req.TxHash); err != nil {
-		log.Printf("[Drops] Manual verify: record transaction failed user=%s err=%v", userID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record transaction"))
-		return
-	}
-
-	if _, err := tx.Exec(`
-		UPDATE drops_pending SET status = 'credited', credited_at = NOW(), tx_hash = $1
-		WHERE user_id = $2 AND status = 'initiated' AND drops_amount = $3
-	`, req.TxHash, userID, pendingAmount); err != nil {
-		log.Printf("[Drops] Manual verify: mark pending failed user=%s err=%v", userID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to update pending payment"))
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Printf("[Drops] Manual verify: commit failed user=%s err=%v", userID, err)
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Commit failed"))
-		return
-	}
-
-	logsafe.Printf("[Drops] Manual verify OK: user=%s amount=%d tx=%s", userID, pendingAmount, req.TxHash)
-	c.JSON(http.StatusOK, gin.H{"status": "credited", "drops": pendingAmount})
-}
-
 // GetWalletInfo — GET /api/v1/drops/wallet (protected)
 //
 // GetWalletInfo godoc
 // @Summary      Get wallet info
-// @Description  Get wallet address and drops balance for the authenticated user
+// @Description  Get wallet address and paid gems balance for the authenticated user
 // @Tags         Drops
 // @Produce      json
 // @Success      200 {object} models.APIResponse
@@ -725,8 +147,8 @@ func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
 
 	var info models.WalletInfo
 	err := h.db.QueryRow(
-		"SELECT wallet_address, COALESCE(drops, 0) FROM users WHERE id = $1", userID,
-	).Scan(&info.Address, &info.Balance)
+		"SELECT wallet_address, COALESCE(gems, 0), COALESCE(drops, 0) FROM users WHERE id = $1", userID,
+	).Scan(&info.Address, &info.Balance, &info.Drops)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get wallet info"))
 		return
@@ -738,8 +160,8 @@ func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
 // TransferDrops — POST /api/v1/drops/transfer (protected)
 //
 // TransferDrops godoc
-// @Summary      Transfer drops
-// @Description  Transfer drops to another user
+// @Summary      Transfer gems
+// @Description  Transfer paid gems to another user
 // @Tags         Drops
 // @Accept       json
 // @Produce      json
@@ -819,8 +241,8 @@ func (h *DropsHandler) TransferDrops(c *gin.Context) {
 
 	senderTxID, senderBalance, err := h.transferInTx(tx, senderID, recipientID, req.Amount, description)
 	if err != nil {
-		if errors.Is(err, errInsufficientDrops) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient drops"))
+		if errors.Is(err, errInsufficientGems) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient gems"))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Transfer failed"))
@@ -842,10 +264,10 @@ func (h *DropsHandler) TransferDrops(c *gin.Context) {
 	}))
 }
 
-// errInsufficientDrops marks the one client-class failure inside the transfer
+// errInsufficientGems marks the one client-class failure inside the transfer
 // transaction so TransferDrops can map it onto 400 while every other failure
 // stays a 500.
-var errInsufficientDrops = errors.New("insufficient drops")
+var errInsufficientGems = errors.New("insufficient gems")
 
 // transferInTx performs the atomic transfer on an open transaction: rows are
 // locked in deterministic (ID-sorted) order to avoid deadlocks, the balance
@@ -861,46 +283,46 @@ func (h *DropsHandler) transferInTx(tx *sql.Tx, senderID, recipientID string, am
 	}
 
 	// Lock both rows in deterministic order
-	var minDrops, maxDrops int
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", minID).Scan(&minDrops)
+	var minGems, maxGems int
+	err = tx.QueryRow("SELECT COALESCE(gems, 0) FROM users WHERE id = $1 FOR UPDATE", minID).Scan(&minGems)
 	if err != nil {
 		return "", 0, err
 	}
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", maxID).Scan(&maxDrops)
+	err = tx.QueryRow("SELECT COALESCE(gems, 0) FROM users WHERE id = $1 FOR UPDATE", maxID).Scan(&maxGems)
 	if err != nil {
 		return "", 0, err
 	}
 
-	// Map drops to sender
-	var senderDrops int
+	// Map gems to sender
+	var senderGems int
 	if minID == senderID {
-		senderDrops = minDrops
+		senderGems = minGems
 	} else {
-		senderDrops = maxDrops
+		senderGems = maxGems
 	}
 
 	// Check balance
-	if senderDrops < amount {
-		return "", 0, errInsufficientDrops
+	if senderGems < amount {
+		return "", 0, errInsufficientGems
 	}
 
 	// Atomic balance updates
-	_, err = tx.Exec("UPDATE users SET drops = drops - $1 WHERE id = $2", amount, senderID)
+	_, err = tx.Exec("UPDATE users SET gems = gems - $1 WHERE id = $2", amount, senderID)
 	if err != nil {
 		return "", 0, err
 	}
-	_, err = tx.Exec("UPDATE users SET drops = drops + $1 WHERE id = $2", amount, recipientID)
+	_, err = tx.Exec("UPDATE users SET gems = gems + $1 WHERE id = $2", amount, recipientID)
 	if err != nil {
 		return "", 0, err
 	}
 
 	// Read final balances. A failure must abort: balance_after is written to the
 	// ledger, and a zero-value read would record a wrong figure.
-	if err := tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&senderBalance); err != nil {
+	if err := tx.QueryRow("SELECT COALESCE(gems, 0) FROM users WHERE id = $1", senderID).Scan(&senderBalance); err != nil {
 		return "", 0, err
 	}
 	var recipientBalance int
-	if err := tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", recipientID).Scan(&recipientBalance); err != nil {
+	if err := tx.QueryRow("SELECT COALESCE(gems, 0) FROM users WHERE id = $1", recipientID).Scan(&recipientBalance); err != nil {
 		return "", 0, err
 	}
 
