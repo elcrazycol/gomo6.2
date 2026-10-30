@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.36.2](https://github.com/elcrazycol/gomo6.2/compare/v2.36.1...v2.36.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **messenger:** single-motion keyboard lift, header rides with the panel ([#595](https://github.com/elcrazycol/gomo6.2/issues/595)) ([1e63004](https://github.com/elcrazycol/gomo6.2/commit/1e63004117ef35fa615c41b0be2082d60d3cbd9f))
+
 ## [2.36.1](https://github.com/elcrazycol/gomo6.2/compare/v2.36.0...v2.36.1) (2026-10-29)
 
 
