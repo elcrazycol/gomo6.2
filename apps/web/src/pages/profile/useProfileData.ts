@@ -22,7 +22,7 @@ export interface UseProfileDataParams {
 }
 
 export interface UseProfileDataResult {
-  /** Milestones + awards merged into one rarest-first trophy list. */
+  /** Hand-granted awards as a rarest-first trophy list (no quest content). */
   trophies: Trophy[];
   /** True once the trophy fetch for the current user has settled. */
   trophiesLoaded: boolean;
@@ -41,7 +41,7 @@ export interface UseProfileDataResult {
 }
 
 /**
- * Tab-scoped profile data: trophies (milestones + hand-granted awards, fetched
+ * Tab-scoped profile data: trophies (hand-granted awards, fetched
  * when the achievements tab is first opened), avatar history + gallery, and the
  * gift catalog/count. Everything is loaded lazily so the first paint only
  * fetches the profile row.
@@ -54,14 +54,15 @@ export function useProfileData({
 }: UseProfileDataParams): UseProfileDataResult {
   const { t } = useTranslation();
 
-  // ── Trophies (milestones + hand-granted awards) ─────────────────────────────
-  // Both `user_achievements` and `user_awards` are heavy payloads, so they load
-  // lazily when the achievements tab is first opened. `useTrophies` fetches
-  // them in parallel, merges them into one rarest-first list, and resets itself
-  // when the target user changes — so switching profiles never flashes the
-  // previous user's trophies.
+  // ── Trophies (hand-granted awards only) ─────────────────────────────────
+  // `user_awards` is a heavy payload, so it loads lazily when the achievements
+  // tab is first opened. `useTrophies` runs in awards-only mode here — quest
+  // milestones never appear in the profile case (they live on the quests
+  // page) — and resets itself when the target user changes, so switching
+  // profiles never flashes the previous user's trophies.
   const { trophies, loaded: trophiesLoaded } = useTrophies(userId, {
     enabled: activeTab === 'achievements',
+    awardsOnly: true,
   });
 
   // ── Avatar history + gallery ───────────────────────────────────────────────

@@ -69,7 +69,7 @@ export interface ProfileTabsProps {
   wallRefreshKey: number;
   wallCreateOpen: boolean;
   onWallCreateOpenChange: (open: boolean) => void;
-  // Trophies (earned milestone levels + hand-granted awards)
+  // Trophies (hand-granted awards only — no quest content)
   trophies: TrophyData[];
   trophiesLoaded: boolean;
   // Gifts
@@ -926,19 +926,18 @@ export function ProfileTabs({
             <p className="text-muted-foreground">{t("profile.noAchievements")}</p>
           ) : (
             <div className="space-y-6">
-              {/* Trophy case — the rarest earned trophies (milestone levels +
-                  hand-granted awards). The full hall lives on the
-                  achievements page. */}
+              {/* Trophy case — the rarest hand-granted awards. Quest
+                  milestones live on the quests page, linked below. */}
               <TrophyShowcase trophies={trophies} />
 
-              {/* Link to full achievements page */}
+              {/* Link to the quests page */}
               <div className="pt-2">
                 <Link
                   to={`/achievements/${userId}`}
                   className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors group/link"
                 >
                   <Trophy className="w-4 h-4 group-hover/link:text-amber-400 transition-colors" />
-                  {t("achievements.allAchievements")}
+                  {t("achievements.goToQuests")}
                   <span className="text-xs text-muted-foreground/50">
                     ({trophies.length})
                   </span>

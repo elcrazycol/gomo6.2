@@ -12,9 +12,9 @@ interface TrophyShowcaseProps {
 }
 
 /**
- * Compact trophy case for the profile achievements tab: the rarest trophies,
- * including hand-granted awards, with their real owner share. The full hall lives
- * on /achievements/:userId.
+ * Compact trophy case for the profile achievements tab: the rarest
+ * hand-granted awards with their real owner share. Quest milestones live on
+ * the quests page (/achievements/:userId), linked below the case.
  */
 export function TrophyShowcase({ trophies, limit = 8, className }: TrophyShowcaseProps) {
   const shown = useMemo(() => trophies.slice(0, limit), [trophies, limit]);
