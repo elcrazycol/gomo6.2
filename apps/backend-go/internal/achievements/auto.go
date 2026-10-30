@@ -67,10 +67,11 @@ func (e *Engine) AutoAwardLoop(ctx context.Context, every time.Duration) {
 }
 
 // EvaluateAutoAwards grants open auto-rule awards to every qualifying user.
-// A rule is open while active_from <= now <= active_to: before the window the
-// counters are empty anyway, and after active_to no new grants are issued for
-// the rule (a manual staff grant stays possible anytime). When onlyKey is not
-// empty, only that rule is evaluated (the admin "check now" button).
+// The window bounds only the counted ACTIVITY: anyone who met all thresholds
+// inside [active_from, active_to] receives the award no matter how late the
+// check runs (a month-late admin press still grants everyone who qualified).
+// Activity outside the window never counts. When onlyKey is not empty, only
+// that rule is evaluated (the admin "check now" button).
 //
 // Qualification is strict AND over the nonzero thresholds, counted inside the
 // closed window [active_from, active_to]. Users holding any active grant of
@@ -96,7 +97,10 @@ func (e *Engine) EvaluateAutoAwards(ctx context.Context, onlyKey string) ([]Auto
 	return grants, nil
 }
 
-// openAutoRules loads the rules eligible for evaluation right now.
+// openAutoRules loads every rule for evaluation. There is no time gate: a
+// future window simply matches no activity yet, and a past window still
+// grants everyone who qualified inside it (late checks are the norm, not the
+// exception — the hourly loop and the admin button both funnel here).
 func (e *Engine) openAutoRules(ctx context.Context, onlyKey string) ([]AutoRule, error) {
 	q := `
 SELECT r.award_key, r.active_from, r.active_to,
@@ -105,8 +109,7 @@ SELECT r.award_key, r.active_from, r.active_to,
        COALESCE(r.created_by::text, '')
 FROM award_auto_rules r
 JOIN achievements a ON a.group_key = r.award_key
-WHERE a.kind = 'award'
-  AND r.active_from <= NOW() AND r.active_to >= NOW()`
+WHERE a.kind = 'award'`
 	args := []interface{}{}
 	if onlyKey != "" {
 		q += ` AND r.award_key = $1`

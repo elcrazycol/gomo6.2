@@ -135,22 +135,33 @@ func TestEvaluateAutoAwards_NoRulesNoGrants(t *testing.T) {
 	}
 }
 
-func TestEvaluateAutoAwards_ClosedRuleSkipped(t *testing.T) {
+func TestEvaluateAutoAwards_PastWindowStillGrants(t *testing.T) {
+	// A rule whose window already passed still grants everyone who qualified
+	// inside it: the window bounds activity, not the check. Admins may be a
+	// month late pressing the button.
 	e, mock := newEngine(t)
-	// The open-rule loader filters by window; a rule whose active_to passed
-	// never reaches the grant query.
+	e.AwardNotifier = &stubAwardNotifier{}
 	rows := sqlmock.NewRows([]string{"award_key", "active_from", "active_to",
 		"min_wall_posts", "min_threads", "min_likes_given",
-		"min_likes_received", "min_active_days", "created_by"})
-	mock.ExpectQuery("FROM award_auto_rules").WithArgs("old2025").
+		"min_likes_received", "min_active_days", "created_by"}).
+		AddRow("hw2025",
+			time.Now().Add(-30*24*time.Hour), time.Now().Add(-23*24*time.Hour),
+			1, 0, 0, 0, 1, "staff-1")
+	mock.ExpectQuery("FROM award_auto_rules").WithArgs("hw2025").
 		WillReturnRows(rows)
+	mock.ExpectQuery("INSERT INTO user_awards").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "award_key", "awarded_at"}).
+			AddRow("u1", "hw2025", time.Now()))
+	mock.ExpectQuery("SELECT username FROM users").
+		WithArgs("staff-1").
+		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("ann"))
 
-	grants, err := e.EvaluateAutoAwards(context.Background(), "old2025")
+	grants, err := e.EvaluateAutoAwards(context.Background(), "hw2025")
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
-	if len(grants) != 0 {
-		t.Errorf("closed rule must grant nothing, got %v", grants)
+	if len(grants) != 1 || grants[0].UserID != "u1" {
+		t.Errorf("past window must still grant qualifiers, got %v", grants)
 	}
 }
 
