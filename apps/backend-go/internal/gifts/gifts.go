@@ -120,7 +120,7 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 		return
 	}
 
-	// Step 2: Get gift details and deduct drops atomically
+	// Step 2: Get gift details and deduct gems atomically
 	var price int
 	var giftName, giftImageURL string
 	err = tx.QueryRow("SELECT name, COALESCE(image_url, ''), price FROM gift_catalog WHERE id = $1", giftID).Scan(&giftName, &giftImageURL, &price)
@@ -130,22 +130,22 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 	}
 
 	result, err = tx.Exec(`
-		UPDATE users SET drops = drops - $1
-		WHERE id = $2 AND drops >= $1
+		UPDATE users SET gems = gems - $1
+		WHERE id = $2 AND gems >= $1
 	`, price, senderID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to deduct drops"))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to deduct gems"))
 		return
 	}
 	affected, _ = result.RowsAffected()
 	if affected == 0 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient drops"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient gems"))
 		return
 	}
 
 	// Get new balance for transaction record
 	var balanceAfter int
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&balanceAfter)
+	err = tx.QueryRow("SELECT COALESCE(gems, 0) FROM users WHERE id = $1", senderID).Scan(&balanceAfter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get balance"))
 		return
@@ -163,7 +163,7 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 		return
 	}
 
-	// Record drops transaction (in same TX as gift creation)
+	// Record gems transaction (in same TX as gift creation)
 	_, err = tx.Exec(`
 		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
 		VALUES ($1, 'gift_send', 0 - $2, $3, $4::uuid, 'gift', $5)

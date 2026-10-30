@@ -9,7 +9,7 @@ import { giftImageUrl } from "@/utils/storage";
 import { Gift, Loader2 } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import type { GiftCatalogItem } from "@/components/GiftCard";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 
 interface GiftSendDialogProps {
   gift: GiftCatalogItem | null;
@@ -97,7 +97,7 @@ export function GiftSendDialog({ gift, recipientId, recipientUsername, open, onO
                 <p className="text-sm text-muted-foreground line-clamp-2">{gift.description}</p>
               )}
               <p className="text-sm text-muted-foreground mt-1">
-                {gift.price} {formatDropsLabel(gift.price)}
+                {gift.price} {formatGemsLabel(gift.price)}
               </p>
             </div>
           </div>
@@ -145,7 +145,7 @@ export function GiftSendDialog({ gift, recipientId, recipientUsername, open, onO
             ) : (
               <>
                 <Gift className="w-4 h-4 mr-2" />
-                Отправить за {gift.price} {formatDropsLabel(gift.price)}
+                Отправить за {gift.price} {formatGemsLabel(gift.price)}
               </>
             )}
           </Button>

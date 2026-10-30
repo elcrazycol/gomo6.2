@@ -47,13 +47,13 @@ export interface QuestChest {
 
 export interface ChestResult {
   rarity: string;
-  gems: number;
+  drops: number;
 }
 
 export interface UseQuestsResult {
   quests: Quest[];
   chests: QuestChest[];
-  gems: number;
+  drops: number;
   unclaimedCount: number;
   loading: boolean;
   claim: (questKey: string, level: number) => Promise<QuestReward[]>;
@@ -61,13 +61,13 @@ export interface UseQuestsResult {
   reload: () => Promise<void>;
   /** Patch one level as claimed without any request (after a successful claim). */
   applyClaim: (questKey: string, level: number, granted: QuestReward[]) => void;
-  /** Drop an opened chest and credit its gems without any request. */
-  applyChestOpen: (id: string, gems: number) => void;
+  /** Drop an opened chest and credit its drops without any request. */
+  applyChestOpen: (id: string, drops: number) => void;
 }
 
 interface ProgressResponse {
   user_id: string;
-  gems: number;
+  drops: number;
   unclaimed_count: number;
   quests: Quest[];
   chests?: QuestChest[];
@@ -78,7 +78,7 @@ async function fetchProgress(userId: string): Promise<ProgressResponse> {
     `/api/v1/quests/progress?user_id=${encodeURIComponent(userId)}`,
   );
   const data = body.data as ProgressResponse | undefined;
-  return data ?? { user_id: userId, gems: 0, unclaimed_count: 0, quests: [] };
+  return data ?? { user_id: userId, drops: 0, unclaimed_count: 0, quests: [] };
 }
 
 /** Fetch raw quest progress (used by the unlock overlay to resolve names). */
@@ -95,7 +95,7 @@ export async function fetchQuestProgress(userId: string): Promise<ProgressRespon
 export function useQuests(userId: string | undefined): UseQuestsResult {
   const [quests, setQuests] = useState<Quest[]>([]);
   const [chests, setChests] = useState<QuestChest[]>([]);
-  const [gems, setGems] = useState(0);
+  const [drops, setDrops] = useState(0);
   const [loading, setLoading] = useState(Boolean(userId));
   // After the first settled load, refreshes are silent background syncs.
   const firstLoad = useRef(true);
@@ -117,7 +117,7 @@ export function useQuests(userId: string | undefined): UseQuestsResult {
       const data = await fetchProgress(userId);
       setQuests(data.quests ?? []);
       setChests(data.chests ?? []);
-      setGems(data.gems ?? 0);
+      setDrops(data.drops ?? 0);
     } finally {
       if (initial) {
         firstLoad.current = false;
@@ -208,10 +208,10 @@ export function useQuests(userId: string | undefined): UseQuestsResult {
               },
         ),
       );
-      const gemsWon = granted
-        .filter((g) => g.kind === "gems")
+      const dropsWon = granted
+        .filter((g) => g.kind === "drops")
         .reduce((sum, g) => sum + (g.amount ?? 0), 0);
-      if (gemsWon > 0) setGems((g) => g + gemsWon);
+      if (dropsWon > 0) setDrops((g) => g + dropsWon);
       const chestsWon = granted.filter((g) => g.kind === "chest" && g.chest_id);
       if (chestsWon.length > 0) {
         setChests((prev) => [
@@ -229,15 +229,15 @@ export function useQuests(userId: string | undefined): UseQuestsResult {
     [],
   );
 
-  const applyChestOpen = useCallback((id: string, gemsWon: number) => {
+  const applyChestOpen = useCallback((id: string, dropsWon: number) => {
     setChests((prev) => prev.filter((c) => c.id !== id));
-    if (gemsWon > 0) setGems((g) => g + gemsWon);
+    if (dropsWon > 0) setDrops((g) => g + dropsWon);
   }, []);
 
   return {
     quests,
     chests,
-    gems,
+    drops,
     unclaimedCount,
     loading,
     claim,

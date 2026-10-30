@@ -150,7 +150,7 @@ func TestUpgradeGift_InsufficientDrops(t *testing.T) {
 	expectGiftOwnership(mock, false, 500)
 	expectLayers(mock, "gift", "background", "symbol")
 	// Atomic deduction matches zero rows → not enough drops
-	mock.ExpectExec("UPDATE users SET drops = drops - \\$1\\s*WHERE id = \\$2 AND drops >= \\$1").
+	mock.ExpectExec("UPDATE users SET gems = gems - \\$1\\s*WHERE id = \\$2 AND gems >= \\$1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	c, w := testutil.NewPOSTContext("/api/v1/gifts/"+giftRecordUUID+"/upgrade", nil, claims, map[string]string{"giftRecordID": giftRecordUUID})
@@ -168,10 +168,10 @@ func TestUpgradeGift_Success(t *testing.T) {
 	expectGiftOwnership(mock, false, 500)
 	expectLayers(mock, "gift", "background", "symbol")
 
-	mock.ExpectExec("UPDATE users SET drops = drops - \\$1\\s*WHERE id = \\$2 AND drops >= \\$1").
+	mock.ExpectExec("UPDATE users SET gems = gems - \\$1\\s*WHERE id = \\$2 AND gems >= \\$1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectQuery("SELECT COALESCE\\(drops, 0\\) FROM users WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(1000))
+	mock.ExpectQuery("SELECT COALESCE\\(gems, 0\\) FROM users WHERE id = \\$1").
+		WillReturnRows(sqlmock.NewRows([]string{"gems"}).AddRow(1000))
 
 	expectRandomLayer(mock, "gift", "gift-layer-1", "http://img/gift.png")
 	expectRandomLayer(mock, "background", "bg-layer-1", "http://img/bg.png")
@@ -208,10 +208,10 @@ func TestUpgradeGift_RandomLayerError(t *testing.T) {
 
 	expectGiftOwnership(mock, false, 500)
 	expectLayers(mock, "gift", "background", "symbol")
-	mock.ExpectExec("UPDATE users SET drops = drops - \\$1\\s*WHERE id = \\$2 AND drops >= \\$1").
+	mock.ExpectExec("UPDATE users SET gems = gems - \\$1\\s*WHERE id = \\$2 AND gems >= \\$1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectQuery("SELECT COALESCE\\(drops, 0\\) FROM users WHERE id = \\$1").
-		WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(1000))
+	mock.ExpectQuery("SELECT COALESCE\\(gems, 0\\) FROM users WHERE id = \\$1").
+		WillReturnRows(sqlmock.NewRows([]string{"gems"}).AddRow(1000))
 	// First random layer query fails
 	mock.ExpectQuery("SELECT id, image_url FROM gift_layers\\s*WHERE gift_catalog_id = \\$1 AND layer_type = \\$2").
 		WillReturnError(errors.New("db down"))

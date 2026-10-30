@@ -46,8 +46,8 @@ func TestQuestsProgress_OwnerSeesCanClaim(t *testing.T) {
 	h := NewQuestsHandler(db, achievements.New(db, cat))
 
 	mock.ExpectQuery("FROM achievements a").WithArgs("u1").WillReturnRows(questProgressRows())
-	mock.ExpectQuery("SELECT COALESCE\\(gems").WithArgs("u1").
-		WillReturnRows(sqlmock.NewRows([]string{"gems"}).AddRow(30))
+	mock.ExpectQuery("SELECT COALESCE\\(drops").WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(30))
 	mock.ExpectQuery("FROM quest_chests").WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "group_key", "level", "mechanic", "created_at", "opened_at"}))
 
@@ -59,7 +59,7 @@ func TestQuestsProgress_OwnerSeesCanClaim(t *testing.T) {
 	}
 	var body struct {
 		Data struct {
-			Gems           int `json:"gems"`
+			Drops          int `json:"drops"`
 			UnclaimedCount int `json:"unclaimed_count"`
 			Quests         []struct {
 				GroupKey string `json:"group_key"`
@@ -75,8 +75,8 @@ func TestQuestsProgress_OwnerSeesCanClaim(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Data.Gems != 30 || body.Data.UnclaimedCount != 1 {
-		t.Errorf("unexpected payload: gems=%d unclaimed=%d", body.Data.Gems, body.Data.UnclaimedCount)
+	if body.Data.Drops != 30 || body.Data.UnclaimedCount != 1 {
+		t.Errorf("unexpected payload: drops=%d unclaimed=%d", body.Data.Drops, body.Data.UnclaimedCount)
 	}
 	if len(body.Data.Quests) != 1 || body.Data.Quests[0].Track != "first_steps" {
 		t.Fatalf("unexpected quests payload: %+v", body.Data.Quests)

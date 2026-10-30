@@ -31,7 +31,7 @@ vi.mock("@/services/eventManager", () => ({
 
 const PROGRESS = {
   user_id: "u1",
-  gems: 0,
+  drops: 0,
   unclaimed_count: 1,
   quests: [
     {
@@ -49,7 +49,7 @@ const PROGRESS = {
           threshold: 1,
           name_key: "achievements.qs_avatar.1.name",
           description_key: "achievements.qs_avatar.1.description",
-          rewards: [{ kind: "gems", amount: 20 }],
+          rewards: [{ kind: "drops", amount: 20 }],
           completed: true,
           claimed: false,
           can_claim: true,

@@ -7,7 +7,7 @@ import { storageUrl, giftImageUrl } from "@/utils/storage";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { UpgradedGiftCard } from "@/components/UpgradedGiftCard";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 import { ContentEnter } from "@/components/motion/ContentEnter";
 import { toast } from "sonner";
 
@@ -364,7 +364,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium">{gift.name}</p>
-                    <p className="text-xs text-muted-foreground">{gift.price} {formatDropsLabel(gift.price)}</p>
+                    <p className="text-xs text-muted-foreground">{gift.price} {formatGemsLabel(gift.price)}</p>
                   </div>
                 </button>
               );
@@ -399,7 +399,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                 </div>
                 <div>
                   <p className="font-medium">{selectedCatalogGift.name}</p>
-                  <p className="text-sm text-muted-foreground">{selectedCatalogGift.price} {formatDropsLabel(selectedCatalogGift.price)}</p>
+                  <p className="text-sm text-muted-foreground">{selectedCatalogGift.price} {formatGemsLabel(selectedCatalogGift.price)}</p>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -429,7 +429,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                 </button>
               </div>
               <Button onClick={handleSendGift} disabled={sending} className="w-full">
-                {sending ? "Отправка..." : `Отправить за ${selectedCatalogGift.price} ${formatDropsLabel(selectedCatalogGift.price)}`}
+                {sending ? "Отправка..." : `Отправить за ${selectedCatalogGift.price} ${formatGemsLabel(selectedCatalogGift.price)}`}
               </Button>
             </div>
           )}

@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowRight, Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 
 interface TransferDialogProps {
   open: boolean;
@@ -97,11 +98,11 @@ export function TransferDialog({ open, onOpenChange, currentBalance, onSuccess }
 
   const handleSend = async () => {
     if (amount < 1) {
-      toast.error("Минимум 1 дропс");
+      toast.error("Минимум 1 гем");
       return;
     }
     if (amount > currentBalance) {
-      toast.error("Недостаточно дропсов");
+      toast.error("Недостаточно гемов");
       return;
     }
 
@@ -138,7 +139,7 @@ export function TransferDialog({ open, onOpenChange, currentBalance, onSuccess }
       const data = await res.json();
 
       if (data.success) {
-        toast.success(`Отправлено ${amount} ${amount === 1 ? "дропс" : amount < 5 ? "дропса" : "дропсов"} @${data.data.recipient_username}`);
+        toast.success(`Отправлено ${amount} ${formatGemsLabel(amount)} @${data.data.recipient_username}`);
         handleClose(false);
         onSuccess();
       } else {
@@ -157,7 +158,7 @@ export function TransferDialog({ open, onOpenChange, currentBalance, onSuccess }
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ArrowRight className="w-5 h-5 text-blue-400" />
-            Отправить дропсы
+            Отправить гемы
           </DialogTitle>
         </DialogHeader>
 

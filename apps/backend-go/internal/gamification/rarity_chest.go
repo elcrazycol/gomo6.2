@@ -28,11 +28,11 @@ type RarityChestConfig struct {
 	// that rarity upgrades it to the next one. It must cover every rarity
 	// from StartRarity up to (but excluding) MaxRarity.
 	UpgradeChances map[Rarity]float64 `json:"upgrade_chances"`
-	// Gems is the per-rarity gem payout range when the chest opens at that
+	// Drops is the per-rarity drops payout range when the chest opens at that
 	// rarity. Optional and partial: missing rungs fall back to the default
 	// table, and NewRarityChest fills the window so Describe() always serves
 	// the complete drop table.
-	Gems map[Rarity]GemsRange `json:"gems,omitempty"`
+	Drops map[Rarity]DropsRange `json:"drops,omitempty"`
 }
 
 // DefaultRarityChestConfig returns the production config for the built-in
@@ -90,8 +90,8 @@ func NewRarityChest(cfg RarityChestConfig) Mechanic {
 		cfg.AttemptsPerTier = 5
 	}
 	// Fill the payout table for the window so the drop table is complete and
-	// Describe()/GemsFor() never hit a missing rung.
-	cfg.Gems = mergedGemsTable(cfg.Gems, cfg.StartRarity, cfg.MaxRarity)
+	// Describe()/DropsFor() never hit a missing rung.
+	cfg.Drops = mergedDropsTable(cfg.Drops, cfg.StartRarity, cfg.MaxRarity)
 	return &rarityChest{cfg: cfg}
 }
 
@@ -200,8 +200,8 @@ func (c *rarityChest) Validate() error {
 	// defaults — any rung that is present must be sane enough to roll.
 	for i := c.cfg.StartRarity.Index(); i <= c.cfg.MaxRarity.Index(); i++ {
 		r := rarityOrder[i]
-		if g, ok := c.cfg.Gems[r]; ok && !g.Valid() {
-			return fmt.Errorf("rarity_chest: %s: gems range for %s is invalid (min=%d max=%d)", c.cfg.Key, r, g.Min, g.Max)
+		if g, ok := c.cfg.Drops[r]; ok && !g.Valid() {
+			return fmt.Errorf("rarity_chest: %s: drops range for %s is invalid (min=%d max=%d)", c.cfg.Key, r, g.Min, g.Max)
 		}
 	}
 	return nil
@@ -224,13 +224,13 @@ func (c *rarityChest) ChanceFor(s State) (float64, bool) {
 	return chance, ok
 }
 
-// GemsFor implements RewardProvider: the gem payout range for a chest that
+// DropsFor implements RewardProvider: the drops payout range for a chest that
 // finished at rarity r. The table is complete for the chest's window (filled
 // by NewRarityChest); anything outside it reports no payout.
-func (c *rarityChest) GemsFor(r Rarity) (GemsRange, bool) {
-	g, ok := c.cfg.Gems[r]
+func (c *rarityChest) DropsFor(r Rarity) (DropsRange, bool) {
+	g, ok := c.cfg.Drops[r]
 	if !ok || !g.Valid() {
-		return GemsRange{}, false
+		return DropsRange{}, false
 	}
 	return g, true
 }

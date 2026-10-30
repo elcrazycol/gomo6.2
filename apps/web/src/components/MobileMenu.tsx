@@ -12,7 +12,6 @@ import {
   Hammer,
   LogOut,
   Users,
-  Droplets,
   Plus,
   Bookmark,
   ChevronRight,
@@ -25,9 +24,10 @@ import {
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
+import { CurrencyIcon } from "@/components/CurrencyIcon";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { useQuery } from "@tanstack/react-query";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 import { SectionIcon } from "@/components/topic/sectionIcons";
 import { MrRandom } from "@/components/MrRandom";
 import { AddTabDialog } from "@/components/AddTabDialog";
@@ -121,7 +121,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
-      if (json.success) return json.data as { drops: number };
+      if (json.success) return json.data as { gems: number };
       return null;
     },
     enabled: open && !!user?.id,
@@ -426,13 +426,13 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               </Button>
             </NavigationLink>
 
-            {/* Drops */}
+            {/* Gems */}
             {dropsData && (
               <NavigationLink to="/wallet" onClick={() => setOpen(false)} className="block">
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
-                  <Droplets className="w-4 h-4 mr-2" />
-                  {t('nav.drops')}
-                  <span className="ml-auto text-sm text-muted-foreground">{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
+                  <CurrencyIcon kind="gems" className="w-4 h-4 mr-2" />
+                  {t('nav.gems')}
+                  <span className="ml-auto text-sm text-muted-foreground">{dropsData.gems} {formatGemsLabel(dropsData.gems)}</span>
                 </Button>
               </NavigationLink>
             )}

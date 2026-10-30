@@ -4,9 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   Check,
-  Coins,
   Flag,
-  Gem,
   Gift,
   Heart,
   HeartHandshake,
@@ -31,6 +29,9 @@ import { ContentEnter } from "@/components/motion/ContentEnter";
 import { useMotionOff } from "@/hooks/useTransitionStyle";
 import { EASE_OUT_EXPO, pressFeedback, springFor, whisperRowVariants } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { CurrencyIcon } from "@/components/CurrencyIcon";
+import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 import { useQuests, questErrorStatus, type Quest, type QuestLevel, type QuestReward, type QuestChest } from "@/hooks/useQuests";
 import { useAuth } from "@/hooks/useAuth";
 import { loadAchievementsProfile } from "@/routes/data/achievementsData";
@@ -81,18 +82,10 @@ function CascadeRow({
 
 function RewardChip({ reward }: { reward: QuestReward }) {
   const { t } = useTranslation();
-  if (reward.kind === "gems") {
+  if (reward.kind === "gems" || reward.kind === "drops") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-        <Gem className="h-3 w-3" />
-        {reward.amount}
-      </span>
-    );
-  }
-  if (reward.kind === "drops") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-        <Coins className="h-3 w-3" />
+        <CurrencyIcon kind={reward.kind} className="h-3 w-3" />
         {reward.amount}
       </span>
     );
@@ -394,10 +387,10 @@ function ChestRow({
   );
 }
 
-/** The gems balance. It pops only on a real change after mount, never on
+/** The drops balance. It pops only on a real change after mount, never on
  * the first render (counters must not perform «loading»), and is skipped
  * entirely in tests and under reduced motion. */
-function GemsChip({ gems }: { gems: number }) {
+function DropsChip({ drops }: { drops: number }) {
   const reduce = useReducedMotion();
   const skipMotion = reduce || import.meta.env.MODE === "test";
   const mounted = useRef(false);
@@ -406,15 +399,15 @@ function GemsChip({ gems }: { gems: number }) {
   }, []);
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface px-3 py-1 text-xs font-medium tabular-nums">
-      <Gem className="h-3.5 w-3.5 text-muted-foreground" />
+      <CurrencyIcon kind="drops" className="h-3.5 w-3.5" />
       <motion.span
-        key={gems}
+        key={drops}
         initial={mounted.current && !skipMotion ? { scale: 1.35 } : false}
         animate={{ scale: 1 }}
         transition={springFor("pop", reduce)}
         className="inline-block"
       >
-        {gems}
+        {drops}
       </motion.span>
     </span>
   );
@@ -456,7 +449,7 @@ export default function Achievements() {
 
   const trophyUserId =
     profile?.id ?? (userId && isPublicId(userId) ? undefined : userId);
-  const { quests, chests, gems, unclaimedCount, loading, claim, openChest, reload, applyClaim, applyChestOpen } =
+  const { quests, chests, drops, unclaimedCount, loading, claim, openChest, reload, applyClaim, applyChestOpen } =
     useQuests(trophyUserId);
   const isOwner = Boolean(user?.id && trophyUserId && user.id === trophyUserId);
   // In-flight claim/open guard: state-driven `disabled` flips only after a
@@ -486,12 +479,18 @@ export default function Achievements() {
       const granted = await claim(quest.group_key, level.level);
       // Surgical patch — no refetch, the row flips in place with animation.
       applyClaim(quest.group_key, level.level, granted);
+      const dropsWon = granted
+        .filter((g) => g.kind === "drops")
+        .reduce((sum, g) => sum + (g.amount ?? 0), 0);
       const gemsWon = granted
         .filter((g) => g.kind === "gems")
         .reduce((sum, g) => sum + (g.amount ?? 0), 0);
-      toast.success(
-        gemsWon > 0 ? t("quests.claimedGems", { count: gemsWon }) : t("quests.claimedDone"),
-      );
+      const chestsWon = granted.filter((g) => g.kind === "chest").length;
+      const parts: string[] = [];
+      if (dropsWon > 0) parts.push(t("quests.claimedDrops", { count: dropsWon, label: formatDropsLabel(dropsWon) }));
+      if (gemsWon > 0) parts.push(t("quests.claimedGems", { count: gemsWon, label: formatGemsLabel(gemsWon) }));
+      if (chestsWon > 0) parts.push(t("quests.chest"));
+      toast.success(parts.length > 0 ? parts.join(", ") : t("quests.claimedDone"));
     } catch (err) {
       // 409 = the reward is already claimed (parallel click, retry after a
       // success whose response was lost): not an error, just re-sync state.
@@ -516,8 +515,8 @@ export default function Achievements() {
     setClaimingKey(key);
     try {
       const res = await openChest(id);
-      applyChestOpen(id, res.gems);
-      toast.success(t("quests.chestOpened", { count: res.gems }));
+      applyChestOpen(id, res.drops);
+      toast.success(t("quests.chestOpened", { count: res.drops, label: formatDropsLabel(res.drops) }));
     } catch (err) {
       await reload();
       if (questErrorStatus(err) !== 409) {
@@ -565,7 +564,7 @@ export default function Achievements() {
             </div>
             {isOwner && (
               <div className="flex shrink-0 items-center gap-2 pb-0.5">
-                <GemsChip gems={gems} />
+                <DropsChip drops={drops} />
                 <AnimatePresence initial={false}>
                   {unclaimedCount > 0 && (
                     <motion.span

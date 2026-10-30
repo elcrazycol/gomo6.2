@@ -2,7 +2,7 @@ import { useState, cloneElement, useRef, useEffect, useLayoutEffect, useCallback
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
-import { Droplets } from "lucide-react";
+import { CurrencyIcon } from "@/components/CurrencyIcon";
 import { UserAvatar } from "@/components/UserAvatar";
 import { format } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
@@ -16,7 +16,7 @@ import { pluralRu } from "@/utils/pluralRu";
 import { storageUrl } from "@/utils/storage";
 import { OnlineStatus } from "./OnlineStatus";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 
 interface ProfileHoverCardProps {
   userId: string;
@@ -103,7 +103,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
-      if (json.success) return json.data as { drops: number };
+      if (json.success) return json.data as { gems: number };
       return null;
     },
     enabled: showCard && showDrops && !!userId,
@@ -298,8 +298,8 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
                   }}
                   className="flex items-center gap-1 mt-1 text-sm text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
                 >
-                  <Droplets className="w-4 h-4" />
-                  <span>{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
+                  <CurrencyIcon kind="gems" className="w-4 h-4" />
+                  <span>{dropsData.gems} {formatGemsLabel(dropsData.gems)}</span>
                 </button>
               )}
               {(() => {

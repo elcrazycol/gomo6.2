@@ -4,7 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { User } from "lucide-react";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 
 interface GiftDetailPanelProps {
   isUpgraded: boolean;
@@ -186,7 +186,7 @@ export function GiftDetailPanel({
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Стоимость:</span>
             <span className="text-sm font-medium">
-              {price} {formatDropsLabel(price)}
+              {price} {formatGemsLabel(price)}
             </span>
           </div>
         )}
@@ -214,7 +214,7 @@ export function GiftDetailPanel({
             <Sparkles className="w-4 h-4" />
             {upgrading
               ? "Улучшение..."
-              : `Улучшить за ${upgradeCost ?? "?"} ${formatDropsLabel(upgradeCost ?? 0)}`}
+              : `Улучшить за ${upgradeCost ?? "?"} ${formatGemsLabel(upgradeCost ?? 0)}`}
           </button>
         )}
       </div>

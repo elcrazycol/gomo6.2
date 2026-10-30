@@ -110,9 +110,17 @@ func grantReward(ctx context.Context, tx *sql.Tx, userID, achievementID string, 
 	gr := GrantedReward{Reward: r}
 	switch r.Kind {
 	case RewardGems:
-		if _, err := tx.ExecContext(ctx,
-			"UPDATE users SET gems = COALESCE(gems, 0) + $1 WHERE id = $2", r.Amount, userID); err != nil {
+		var balance int
+		if err := tx.QueryRowContext(ctx,
+			"UPDATE users SET gems = COALESCE(gems, 0) + $1 WHERE id = $2 RETURNING COALESCE(gems, 0)",
+			r.Amount, userID).Scan(&balance); err != nil {
 			return gr, fmt.Errorf("achievements: grant gems: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_type, description)
+VALUES ($1, 'quest_reward_gems', $2, $3, 'quest', $4)`,
+			userID, r.Amount, balance, fmt.Sprintf("Quest reward: +%d gems", r.Amount)); err != nil {
+			return gr, fmt.Errorf("achievements: grant gems ledger: %w", err)
 		}
 	case RewardDrops:
 		var balance int
@@ -150,12 +158,12 @@ VALUES ($1, $2, $3, $4) RETURNING id::text`,
 // ChestResult is the outcome of opening a quest chest.
 type ChestResult struct {
 	Rarity string                `json:"rarity"`
-	Gems   int                   `json:"gems"`
+	Drops  int                   `json:"drops"`
 	Detail []gamification.Reward `json:"rewards"`
 }
 
 // OpenChest plays a full gamification session for one of the user's unopened
-// chests and credits the rolled gems. One chest opens exactly once
+// chests and credits the rolled drops. One chest opens exactly once
 // (opened_at guard); a retry after a crash returns ErrChestOpened.
 func (e *Engine) OpenChest(ctx context.Context, userID, chestID string) (*ChestResult, error) {
 	if e.db == nil {
@@ -201,23 +209,31 @@ WHERE id = $1::uuid AND user_id = $2 AND opened_at IS NULL`,
 		return nil, fmt.Errorf("achievements: chest did not open")
 	}
 	detail := gamification.RollRewards(m, st.FinalRarity, src)
-	gems := 0
+	drops := 0
 	for _, r := range detail {
-		gems += r.Amount
+		drops += r.Amount
 	}
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE users SET gems = COALESCE(gems, 0) + $1 WHERE id = $2", gems, userID); err != nil {
+	var balance int
+	if err := tx.QueryRowContext(ctx,
+		"UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2 RETURNING COALESCE(drops, 0)",
+		drops, userID).Scan(&balance); err != nil {
 		return nil, fmt.Errorf("achievements: chest credit: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_type, description)
+VALUES ($1, 'quest_reward', $2, $3, 'quest', $4)`,
+		userID, drops, balance, fmt.Sprintf("Quest chest: +%d drops", drops)); err != nil {
+		return nil, fmt.Errorf("achievements: chest credit ledger: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE quest_chests SET opened_at = NOW(), reward_gems = $1 WHERE id = $2::uuid",
-		gems, chestID); err != nil {
+		"UPDATE quest_chests SET opened_at = NOW(), reward_drops = $1 WHERE id = $2::uuid",
+		drops, chestID); err != nil {
 		return nil, fmt.Errorf("achievements: chest close: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("achievements: open commit: %w", err)
 	}
-	return &ChestResult{Rarity: string(st.FinalRarity), Gems: gems, Detail: detail}, nil
+	return &ChestResult{Rarity: string(st.FinalRarity), Drops: drops, Detail: detail}, nil
 }
 
 // cryptoSource is a gamification.Source backed by crypto/rand.

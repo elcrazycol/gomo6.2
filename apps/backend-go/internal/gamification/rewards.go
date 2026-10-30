@@ -6,10 +6,10 @@ package gamification
 type RewardKind string
 
 const (
-	// RewardGems is the free premium currency granted when a chest opens. It
-	// is a second, earnable currency next to drops (paid); the wallet and
+	// RewardDrops is the soft earnable currency granted when a chest opens.
+	// It is the quest/fun currency next to gems (paid); the wallet and
 	// ledger live outside the engine and are the caller's responsibility.
-	RewardGems RewardKind = "gems"
+	RewardDrops RewardKind = "drops"
 )
 
 // Reward is a single payout produced when a chest session finishes (opens).
@@ -20,21 +20,22 @@ type Reward struct {
 	Amount int        `json:"amount"`
 }
 
-// GemsRange is the min/max gems a chest finishing at one rarity pays out. The
-// roll is uniform over the inclusive range.
-type GemsRange struct {
+// DropsRange is the min/max drops a chest finishing at one rarity pays out.
+// The roll is uniform over the inclusive range.
+type DropsRange struct {
 	Min int `json:"min"`
 	Max int `json:"max"`
 }
 
 // Valid reports whether the range is sane enough to roll.
-func (g GemsRange) Valid() bool { return g.Min >= 0 && g.Max >= g.Min }
+func (g DropsRange) Valid() bool { return g.Min >= 0 && g.Max >= g.Min }
 
-// defaultGemsTable is the built-in payout table for the rarity ladder. Amounts
-// grow steeply so an Eternal jackpot feels once-in-a-forever, yet stay bounded:
-// this currency feeds a cosmetics shop, so a single open must never print the
-// whole catalog (compare: 100-day streak milestone grants 1500).
-var defaultGemsTable = map[Rarity]GemsRange{
+// defaultDropsTable is the built-in payout table for the rarity ladder.
+// Amounts grow steeply so an Eternal jackpot feels once-in-a-forever, yet
+// stay bounded: this currency feeds a cosmetics shop, so a single open must
+// never print the whole catalog (compare: 100-day streak milestone grants
+// 1500).
+var defaultDropsTable = map[Rarity]DropsRange{
 	RarityCommon:    {Min: 15, Max: 30},
 	RarityUnusual:   {Min: 30, Max: 55},
 	RarityRare:      {Min: 55, Max: 95},
@@ -44,18 +45,18 @@ var defaultGemsTable = map[Rarity]GemsRange{
 	RarityEternal:   {Min: 700, Max: 1500},
 }
 
-// mergedGemsTable builds the effective payout table for the rarities a chest
+// mergedDropsTable builds the effective payout table for the rarities a chest
 // can actually finish at (its start..max window): the default range for every
 // rung, overridden by any entry the config provides. A nil overrides map
 // yields the plain defaults; a partial map tunes single rarities.
-func mergedGemsTable(overrides map[Rarity]GemsRange, start, max Rarity) map[Rarity]GemsRange {
-	out := make(map[Rarity]GemsRange)
+func mergedDropsTable(overrides map[Rarity]DropsRange, start, max Rarity) map[Rarity]DropsRange {
+	out := make(map[Rarity]DropsRange)
 	for i := start.Index(); i <= max.Index(); i++ {
 		r := rarityOrder[i]
 		if g, ok := overrides[r]; ok {
 			out[r] = g
 		} else {
-			out[r] = defaultGemsTable[r]
+			out[r] = defaultDropsTable[r]
 		}
 	}
 	return out
@@ -73,7 +74,7 @@ func RollRewards(m Mechanic, final Rarity, src Source) []Reward {
 	if !ok {
 		return nil
 	}
-	rg, ok := rp.GemsFor(final)
+	rg, ok := rp.DropsFor(final)
 	if !ok || !rg.Valid() {
 		return nil
 	}
@@ -85,5 +86,5 @@ func RollRewards(m Mechanic, final Rarity, src Source) []Reward {
 	if amount > rg.Max {
 		amount = rg.Max
 	}
-	return []Reward{{Kind: RewardGems, Amount: amount}}
+	return []Reward{{Kind: RewardDrops, Amount: amount}}
 }

@@ -2,7 +2,7 @@ import { giftImageUrl } from "@/utils/storage";
 import { Gift } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useDateLocale } from "@/i18n/dateLocale";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { formatGemsLabel } from "@/utils/formatGemsLabel";
 
 export interface GiftCatalogItem {
   id: string;
@@ -81,7 +81,7 @@ export function GiftCard({ gift, variant = "catalog", onSend }: GiftCardProps) {
         )}
         {isCatalog && catalogGift && (
           <p className="text-xs text-muted-foreground">
-            {price} {formatDropsLabel(price)}
+            {price} {formatGemsLabel(price)}
             {catalogGift.is_limited && (
               <span className="ml-1 text-amber-500">·Limited</span>
             )}

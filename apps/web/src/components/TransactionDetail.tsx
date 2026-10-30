@@ -1,9 +1,11 @@
+import type { ComponentType } from "react";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowUpRight, ArrowDownLeft, ShoppingCart, Gift, Droplets, Copy, Check } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, Gift, Coins, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { CurrencyIcon, type CurrencyKind } from "@/components/CurrencyIcon";
+import { formatTxAmountLabel } from "./TransactionItem";
 import { getIntlLanguage } from "@/i18n/dateLocale";
 import type { TransactionItemData } from "./TransactionItem";
 
@@ -13,11 +15,22 @@ interface TransactionDetailProps {
   transaction: TransactionItemData | null;
 }
 
-const TYPE_CONFIG: Record<string, { icon: typeof ArrowUpRight; color: string; label: string; bg: string }> = {
+interface TxDetailTypeConfig {
+  icon?: ComponentType<{ className?: string }>;
+  currency?: CurrencyKind;
+  color: string;
+  label: string;
+  bg: string;
+}
+
+const TYPE_CONFIG: Record<string, TxDetailTypeConfig> = {
   transfer_send: { icon: ArrowUpRight, color: "text-red-400", label: "Перевод отправлен", bg: "bg-red-500/10" },
   transfer_receive: { icon: ArrowDownLeft, color: "text-green-400", label: "Перевод получен", bg: "bg-green-500/10" },
-  purchase: { icon: ShoppingCart, color: "text-blue-400", label: "Покупка дропсов", bg: "bg-blue-500/10" },
+  purchase: { currency: "gems", color: "text-rose-400", label: "Покупка гемов", bg: "bg-rose-500/10" },
   gift_send: { icon: Gift, color: "text-purple-400", label: "Подарок отправлен", bg: "bg-purple-500/10" },
+  gift_upgrade: { icon: Gift, color: "text-purple-400", label: "Улучшение подарка", bg: "bg-purple-500/10" },
+  quest_reward: { currency: "drops", color: "text-amber-400", label: "Награда за квест", bg: "bg-amber-500/10" },
+  quest_reward_gems: { currency: "gems", color: "text-rose-400", label: "Награда за квест", bg: "bg-rose-500/10" },
 };
 
 function formatFullDate(dateStr: string): string {
@@ -72,7 +85,7 @@ export function TransactionDetail({ open, onOpenChange, transaction }: Transacti
 
   if (!transaction) return null;
 
-  const config = TYPE_CONFIG[transaction.type] || { icon: Droplets, color: "text-muted-foreground", label: transaction.type, bg: "bg-muted" };
+  const config: TxDetailTypeConfig = TYPE_CONFIG[transaction.type] || { icon: Coins, color: "text-muted-foreground", label: transaction.type, bg: "bg-muted" };
   const Icon = config.icon;
   const isPositive = transaction.amount > 0;
 
@@ -90,7 +103,11 @@ export function TransactionDetail({ open, onOpenChange, transaction }: Transacti
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ${config.bg}`}>
-              <Icon className={`w-5 h-5 ${config.color}`} />
+              {config.currency ? (
+                <CurrencyIcon kind={config.currency} className="w-5 h-5" />
+              ) : (
+                Icon && <Icon className={`w-5 h-5 ${config.color}`} />
+              )}
             </div>
             <div>
               <DialogTitle className="text-base">{config.label}</DialogTitle>
@@ -105,13 +122,13 @@ export function TransactionDetail({ open, onOpenChange, transaction }: Transacti
             {isPositive ? "+" : ""}{transaction.amount}
           </p>
           <p className="text-sm text-muted-foreground mt-1">
-            {formatDropsLabel(Math.abs(transaction.amount))}
+            {formatTxAmountLabel(transaction.type, transaction.amount)}
           </p>
         </div>
 
         {/* Details */}
         <div className="divide-y divide-border border-t">
-          <DetailRow label="Баланс после" value={`${transaction.balance_after} ${formatDropsLabel(transaction.balance_after)}`} />
+          <DetailRow label="Баланс после" value={`${transaction.balance_after} ${formatTxAmountLabel(transaction.type, transaction.balance_after)}`} />
 
           {counterparty && (
             <DetailRow

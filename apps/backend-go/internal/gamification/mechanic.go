@@ -40,9 +40,9 @@ type ChanceProvider interface {
 
 // RewardProvider is an optional Mechanic capability: expose the payout table
 // for a finished session. RollRewards consults it when a chest opens, so a
-// mechanic decides its own rewards (the rarity chest pays gems today; others
+// mechanic decides its own rewards (the rarity chest pays drops today; others
 // may drop fragments or cosmetics later) without the engine knowing the kinds.
 type RewardProvider interface {
-	// GemsFor returns the gem payout range for a session finished at rarity r.
-	GemsFor(r Rarity) (GemsRange, bool)
+	// DropsFor returns the drops payout range for a session finished at rarity r.
+	DropsFor(r Rarity) (DropsRange, bool)
 }

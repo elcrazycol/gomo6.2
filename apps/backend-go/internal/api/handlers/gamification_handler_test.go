@@ -184,11 +184,11 @@ func TestGamificationTapChest(t *testing.T) {
 				t.Errorf("tap %d: rewards = %+v, want none before opening", i+1, data.Rewards)
 			}
 			if i == 4 {
-				if len(data.Rewards) != 1 || data.Rewards[0].Kind != gamification.RewardGems {
-					t.Fatalf("tap %d: rewards = %+v, want exactly one gems payout", i+1, data.Rewards)
+				if len(data.Rewards) != 1 || data.Rewards[0].Kind != gamification.RewardDrops {
+					t.Fatalf("tap %d: rewards = %+v, want exactly one drops payout", i+1, data.Rewards)
 				}
 				if amt := data.Rewards[0].Amount; amt < 15 || amt > 30 {
-					t.Errorf("tap %d: gem amount = %d, want in [15, 30] for common", i+1, amt)
+					t.Errorf("tap %d: drops amount = %d, want in [15, 30] for common", i+1, amt)
 				}
 			}
 			s = data.State

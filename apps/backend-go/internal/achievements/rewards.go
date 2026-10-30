@@ -8,13 +8,14 @@ import "fmt"
 type RewardKind string
 
 const (
-	// RewardGems credits the soft earnable currency (users.gems).
+	// RewardGems credits the paid currency (users.gems), granted by purchases
+	// and by top quest levels.
 	RewardGems RewardKind = "gems"
-	// RewardDrops credits the paid currency with a ledger row
-	// (drops_transactions type 'quest_reward').
+	// RewardDrops credits the soft earnable currency (users.drops) with a
+	// ledger row (drops_transactions type 'quest_reward').
 	RewardDrops RewardKind = "drops"
 	// RewardChest grants a chest inventory row (quest_chests); opening it
-	// plays a full gamification session server-side and credits the gems.
+	// plays a full gamification session server-side and credits the drops.
 	RewardChest RewardKind = "chest"
 )
 

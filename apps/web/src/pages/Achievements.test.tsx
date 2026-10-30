@@ -45,7 +45,7 @@ const QUESTS = [
         threshold: 1,
         name_key: "achievements.qs_avatar.1.name",
         description_key: "achievements.qs_avatar.1.description",
-        rewards: [{ kind: "gems", amount: 20 }],
+        rewards: [{ kind: "drops", amount: 20 }],
         completed: true,
         claimed: false,
         can_claim: true,
@@ -67,7 +67,7 @@ const QUESTS = [
         threshold: 1,
         name_key: "achievements.entries.1.name",
         description_key: "achievements.entries.1.description",
-        rewards: [{ kind: "gems", amount: 10 }],
+        rewards: [{ kind: "drops", amount: 10 }],
         completed: true,
         claimed: true,
         can_claim: false,
@@ -77,7 +77,7 @@ const QUESTS = [
         threshold: 10,
         name_key: "achievements.entries.2.name",
         description_key: "achievements.entries.2.description",
-        rewards: [{ kind: "gems", amount: 25 }],
+        rewards: [{ kind: "drops", amount: 25 }],
         completed: false,
         claimed: false,
         can_claim: false,
@@ -89,12 +89,12 @@ const QUESTS = [
 function setupFetch({
   profile = { id: "profile-user-1", username: "testuser" },
   quests = QUESTS,
-  gems = 30,
+  drops = 30,
   unclaimed = 1,
 }: {
   profile?: { id: string; username: string } | null;
   quests?: typeof QUESTS;
-  gems?: number;
+  drops?: number;
   unclaimed?: number;
 } = {}) {
   const ok = (data: unknown) => ({
@@ -110,7 +110,7 @@ function setupFetch({
     }
     if (url.includes("/quests/progress")) {
       return Promise.resolve(
-        ok({ user_id: "profile-user-1", gems, unclaimed_count: unclaimed, quests, chests: [] }),
+        ok({ user_id: "profile-user-1", drops, unclaimed_count: unclaimed, quests, chests: [] }),
       );
     }
     return Promise.resolve(ok([]));

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import { Coins, Gem, Gift, Trophy } from "lucide-react";
+import { Gift, Trophy } from "lucide-react";
+import { CurrencyIcon } from "@/components/CurrencyIcon";
 import { EASE_OUT_EXPO, pressFeedback, springFor, SPRING } from "@/lib/motion";
 import { useMotionOff } from "@/hooks/useTransitionStyle";
 import { eventManager } from "@/services/eventManager";
@@ -32,15 +33,9 @@ function UnlockRewards({ rewards }: { rewards: QuestReward[] }) {
           key={`${r.kind}-${i}`}
           className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums"
         >
-          {r.kind === "gems" && (
+          {(r.kind === "gems" || r.kind === "drops") && (
             <>
-              <Gem className="h-3 w-3" />
-              {r.amount}
-            </>
-          )}
-          {r.kind === "drops" && (
-            <>
-              <Coins className="h-3 w-3" />
+              <CurrencyIcon kind={r.kind} className="h-3 w-3" />
               {r.amount}
             </>
           )}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Droplets } from "lucide-react";
 import { api } from "@/integrations/api/compat";
+import { CurrencyIcon } from "@/components/CurrencyIcon";
 
 interface DropsBalanceProps {
   className?: string;
@@ -22,7 +22,7 @@ export function DropsBalance({ className = "" }: DropsBalanceProps) {
         });
         const data = await res.json();
         if (data.success) {
-          setDrops(data.data.drops);
+          setDrops(data.data.gems);
         }
       } catch {
         // silent
@@ -41,7 +41,7 @@ export function DropsBalance({ className = "" }: DropsBalanceProps) {
       to="/wallet"
       className={`flex items-center gap-1.5 hover:opacity-80 transition-opacity ${className}`}
     >
-      <Droplets className="w-4 h-4 text-blue-400" />
+      <CurrencyIcon kind="gems" className="w-4 h-4" />
       <span className="text-sm font-medium">{drops}</span>
     </Link>
   );

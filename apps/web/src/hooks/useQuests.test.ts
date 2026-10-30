@@ -29,7 +29,7 @@ function emitNotification(data: unknown) {
 
 const PROGRESS = {
   user_id: "u1",
-  gems: 30,
+  drops: 30,
   unclaimed_count: 1,
   quests: [
     {
@@ -47,7 +47,7 @@ const PROGRESS = {
           threshold: 1,
           name_key: "k",
           description_key: "d",
-          rewards: [{ kind: "gems", amount: 20 }],
+          rewards: [{ kind: "drops", amount: 20 }],
           completed: true,
           claimed: false,
           can_claim: true,
@@ -77,29 +77,29 @@ describe("useQuests", () => {
   it("loads progress once and derives unclaimed from quests", async () => {
     const { result } = renderHook(() => useQuests("u1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.gems).toBe(30);
+    expect(result.current.drops).toBe(30);
     expect(result.current.unclaimedCount).toBe(1);
     expect(mockFetch.mock.calls.filter(([u]) => String(u).includes("/quests/progress")).length).toBe(1);
   });
 
-  it("applyClaim patches the level and gems without refetching", async () => {
+  it("applyClaim patches the level and drops without refetching", async () => {
     const { result } = renderHook(() => useQuests("u1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
     mockFetch.mockClear();
 
     act(() => {
-      result.current.applyClaim("qs_avatar", 1, [{ kind: "gems", amount: 20 }]);
+      result.current.applyClaim("qs_avatar", 1, [{ kind: "drops", amount: 20 }]);
     });
 
     const lvl = result.current.quests[0].levels[0];
     expect(lvl.claimed).toBe(true);
     expect(lvl.can_claim).toBe(false);
     expect(result.current.unclaimedCount).toBe(0);
-    expect(result.current.gems).toBe(50);
+    expect(result.current.drops).toBe(50);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("applyChestOpen drops the chest and adds gems without refetching", async () => {
+  it("applyChestOpen drops the chest and adds drops without refetching", async () => {
     const { result } = renderHook(() => useQuests("u1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
     mockFetch.mockClear();
@@ -107,7 +107,7 @@ describe("useQuests", () => {
     act(() => {
       result.current.applyChestOpen("missing-id", 40);
     });
-    expect(result.current.gems).toBe(70);
+    expect(result.current.drops).toBe(70);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

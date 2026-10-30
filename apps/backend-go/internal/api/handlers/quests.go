@@ -163,10 +163,10 @@ ORDER BY a.sort_order, a.group_key`, targetID)
 		quests = append(quests, qp)
 	}
 
-	var gems int
-	_ = h.db.QueryRow("SELECT COALESCE(gems, 0) FROM users WHERE id = $1", targetID).Scan(&gems)
+	var drops int
+	_ = h.db.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", targetID).Scan(&drops)
 
-	payload := gin.H{"user_id": targetID, "gems": gems, "unclaimed_count": unclaimed, "quests": quests}
+	payload := gin.H{"user_id": targetID, "drops": drops, "unclaimed_count": unclaimed, "quests": quests}
 	if isOwner {
 		payload["chests"] = h.openChests(targetID)
 	}
@@ -247,7 +247,7 @@ func (h *QuestsHandler) Claim(c *gin.Context) {
 
 // OpenChest godoc
 // @Summary      Open a quest chest
-// @Description  Plays a full chest session server-side and credits the rolled gems. One chest opens exactly once.
+// @Description  Plays a full chest session server-side and credits the rolled drops. One chest opens exactly once.
 // @Tags         Quests
 // @Produce      json
 // @Param        id path string true "Chest UUID"

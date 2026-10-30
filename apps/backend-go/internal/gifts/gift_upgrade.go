@@ -135,22 +135,22 @@ func (h *GiftsHandler) performGiftUpgrade(userID, giftRecordID string) (*models.
 		return nil, &upgradeFailure{http.StatusBadRequest, "Gift layers not fully configured for this gift"}
 	}
 
-	// Deduct drops atomically
+	// Deduct gems atomically
 	result, err := tx.Exec(`
-		UPDATE users SET drops = drops - $1
-		WHERE id = $2 AND drops >= $1
+		UPDATE users SET gems = gems - $1
+		WHERE id = $2 AND gems >= $1
 	`, upgradeCost, userID)
 	if err != nil {
-		return nil, &upgradeFailure{http.StatusInternalServerError, "Failed to deduct drops"}
+		return nil, &upgradeFailure{http.StatusInternalServerError, "Failed to deduct gems"}
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
-		return nil, &upgradeFailure{http.StatusBadRequest, "Insufficient drops"}
+		return nil, &upgradeFailure{http.StatusBadRequest, "Insufficient gems"}
 	}
 
 	// Get new balance
 	var balanceAfter int
-	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", userID).Scan(&balanceAfter)
+	err = tx.QueryRow("SELECT COALESCE(gems, 0) FROM users WHERE id = $1", userID).Scan(&balanceAfter)
 	if err != nil {
 		return nil, &upgradeFailure{http.StatusInternalServerError, "Failed to get balance"}
 	}
@@ -176,7 +176,7 @@ func (h *GiftsHandler) performGiftUpgrade(userID, giftRecordID string) (*models.
 		return nil, &upgradeFailure{http.StatusInternalServerError, "Failed to save upgrade"}
 	}
 
-	// Record drops transaction
+	// Record gems transaction
 	_, err = tx.Exec(`
 		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
 		VALUES ($1, 'gift_upgrade', 0 - $2, $3, $4::uuid, 'gift_upgrade', $5)
