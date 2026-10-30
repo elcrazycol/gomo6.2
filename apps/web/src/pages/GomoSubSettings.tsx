@@ -414,7 +414,7 @@ const GomoSubSettings = () => {
           )}
           {!dataLoading && activeTab === "members" && (
             <MembersPanel
-              boardId={form.id} ownerId={ownerId} members={members} roles={roles} grants={grants}
+              boardId={form.id} ownerId={ownerId} members={members} roles={roles} grants={grants} bans={bans}
               actor={actor} canAssign={canManageMembers}
               canKick={can("kick_members") || canManageMembers} canBan={can("ban_members") || canManageMembers}
               canTimeout={can("timeout_members") || canManageMembers} onChanged={async () => { await reloadAll(); await reloadBans(); }}
