@@ -146,6 +146,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	boardsHandler.SetRedis(redis)
 	boardsHandler.SetAuthService(authService)
 	boardsHandler.SetSearchIndexer(searchIndexer)
+	boardsHandler.SetWebSocketHub(wsHub)
 	threadsHandler := handlers.NewThreadsHandler(db)
 	threadsHandler.SetRedis(redis)
 	threadsHandler.SetAuthService(authService)

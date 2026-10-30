@@ -19,6 +19,7 @@ import (
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/search"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,6 +28,7 @@ type BoardsHandler struct {
 	redis         *redis.Client
 	authService   *auth.AuthService
 	searchIndexer *search.Indexer
+	hub           *websocket.Hub
 }
 
 func NewBoardsHandler(db *sql.DB) *BoardsHandler {
@@ -43,6 +45,9 @@ func (h *BoardsHandler) SetRedis(redis *redis.Client) {
 func (h *BoardsHandler) SetAuthService(authService *auth.AuthService) {
 	h.authService = authService
 }
+
+// SetWebSocketHub wires the realtime hub for roster fan-out (nil disables it).
+func (h *BoardsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
 
 func (h *BoardsHandler) getUserIDFromRequest(c *gin.Context) string {
 	if claims, ok := httpx.BearerClaims(c); ok {
@@ -824,6 +829,9 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		return
+	}
+	if h.hub != nil {
+		_ = h.hub.PublishGomoSubMemberChanged(inv.BoardID, userClaims.UserID, "joined")
 	}
 
 	// Invalidate cache for memberships and board

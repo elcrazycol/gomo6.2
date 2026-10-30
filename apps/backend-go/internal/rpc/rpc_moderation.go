@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gomo6/backend/internal/websocket"
+
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
@@ -161,6 +163,13 @@ func (h *RPCHandler) authorizeMod(c *gin.Context, boardID, targetID, needPerm st
 	return true
 }
 
+// publishMemberChanged fans roster changes to the board room (nil-safe).
+func (h *RPCHandler) publishMemberChanged(boardID, userID, action string) {
+	if hub, ok := h.wsHub.(*websocket.Hub); ok && hub != nil {
+		_ = hub.PublishGomoSubMemberChanged(boardID, userID, action)
+	}
+}
+
 func (h *RPCHandler) invalidateMembershipsCache(boardID string) {
 	if h.redis != nil {
 		cache.InvalidateForTable(h.redis, "gomosub_memberships", map[string]string{"board_id": boardID})
@@ -209,6 +218,7 @@ func (h *RPCHandler) KickMember(c *gin.Context) {
 		return
 	}
 	h.invalidateMembershipsCache(req.BoardID)
+	h.publishMemberChanged(req.BoardID, req.UserID, "kicked")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "kicked"}))
 }
 
@@ -280,6 +290,7 @@ func (h *RPCHandler) BanMember(c *gin.Context) {
 		return
 	}
 	h.invalidateMembershipsCache(req.BoardID)
+	h.publishMemberChanged(req.BoardID, req.UserID, "banned")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "banned"}))
 }
 
@@ -302,6 +313,7 @@ func (h *RPCHandler) UnbanMember(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("User is not banned"))
 		return
 	}
+	h.publishMemberChanged(req.BoardID, req.UserID, "unbanned")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "unbanned"}))
 }
 
@@ -348,6 +360,7 @@ func (h *RPCHandler) TimeoutMember(c *gin.Context) {
 		return
 	}
 	h.invalidateMembershipsCache(req.BoardID)
+	h.publishMemberChanged(req.BoardID, req.UserID, "timed_out")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "timed_out"}))
 }
 
@@ -372,6 +385,7 @@ func (h *RPCHandler) UntimeoutMember(c *gin.Context) {
 		return
 	}
 	h.invalidateMembershipsCache(req.BoardID)
+	h.publishMemberChanged(req.BoardID, req.UserID, "untimeout")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "untimeout"}))
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
+import { wsService } from "@/services/websocket";
 import { Button } from "@/components/ui/button";
 import { Loader2, Hash, Shield, Users, Link, Gavel, PenLine, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -193,6 +194,31 @@ const GomoSubSettings = () => {
     if (openChannelId) await loadOverwrites(openChannelId);
     setDataLoading(false);
   };
+
+  // Live roster: any membership/grant change on this board (join, leave,
+  // kick, ban, timeout, role grant) refetches members + roles + bans so the
+  // open tab never goes stale. Channel edits are excluded on purpose — a
+  // refetch mid-drag would yank the row out from under the pointer.
+  const reloadRosterRelated = async () => {
+    if (!form.id) return;
+    await Promise.all([loadRoles(form.id), loadMembers(form.id), loadGrants(form.id)]);
+    await reloadBans();
+  };
+
+  useEffect(() => {
+    if (!form.id) return;
+    const room = `board_${form.id}`;
+    wsService.subscribe(room);
+    const unsub = wsService.on("gomosub_member_changed", (message) => {
+      const data = message.data as { board_id?: string } | undefined;
+      if (data?.board_id === form.id) void reloadRosterRelated();
+    });
+    return () => {
+      unsub();
+      wsService.unsubscribe(room);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.id]);
 
   const reloadBans = async () => {
     if (!form.id) return;

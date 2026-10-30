@@ -438,6 +438,7 @@ const Board = () => {
   loadChannelsRef.current = loadChannels;
   const loadThreadsRef = useRef(loadThreads);
   loadThreadsRef.current = loadThreads;
+  const loadRosterRef = useRef<() => Promise<void>>(async () => {});
   const activeChannelIdRef = useRef(activeChannelId);
   activeChannelIdRef.current = activeChannelId;
   // Tracks which board the loaded thread list belongs to, so a channel switch
@@ -641,28 +642,29 @@ const Board = () => {
   // the join button renders a stable ghost, not a wrong "Вступить".
   const [membershipKnown, setMembershipKnown] = useState(false);
 
-  useEffect(() => {
-    const loadMembership = async () => {
-      const needsFetch = Boolean(board?.is_gomosub && user?.id);
-      // Ghost-button state ONLY while a real fetch is in flight; guests and
-      // non-gomosub boards know "not joined" immediately.
-      setMembershipKnown(!needsFetch);
-      if (!board?.is_gomosub) {
-        setIsJoined(false);
-        return;
-      }
-      if (!user?.id) {
-        setIsJoined(false);
-        return;
-      }
+  const refreshMyMembership = useCallback(async () => {
+    const needsFetch = Boolean(board?.is_gomosub && user?.id);
+    // Ghost-button state ONLY while a real fetch is in flight; guests and
+    // non-gomosub boards know "not joined" immediately.
+    setMembershipKnown(!needsFetch);
+    if (!board?.is_gomosub) {
+      setIsJoined(false);
+      return;
+    }
+    if (!user?.id) {
+      setIsJoined(false);
+      return;
+    }
 
-      const membership = await getMyGomosubMembership(board.id, user.id);
-      setIsJoined(membership !== null);
-      setMembershipKnown(true);
-    };
-
-    loadMembership();
+    if (board?.id && user?.id) invalidateGomosubMembership(board.id, user.id);
+    const membership = board?.id && user?.id ? await getMyGomosubMembership(board.id, user.id) : null;
+    setIsJoined(membership !== null);
+    setMembershipKnown(true);
   }, [board?.id, board?.is_gomosub, user?.id]);
+
+  useEffect(() => {
+    refreshMyMembership();
+  }, [refreshMyMembership]);
 
   // Real-time WebSocket subscription — replaces 30s polling
   useEffect(() => {
@@ -678,11 +680,24 @@ const Board = () => {
       }
     });
 
+    // Roster changes (join/leave/kick/ban/timeout/role grant) refetch the
+    // member rail live; events about the viewer also refresh join state so
+    // a kick/ban flips the join button without reload.
+    const unsubMembers = wsService.on('gomosub_member_changed', (message) => {
+      const data = message.data as { board_id?: string; user_id?: string } | undefined;
+      if (data?.board_id !== board.id) return;
+      if (data?.user_id && data.user_id === user?.id) {
+        refreshMyMembership();
+      }
+      loadRosterRef.current();
+    });
+
     return () => {
       unsub();
+      unsubMembers();
       wsService.unsubscribe(room);
     };
-  }, [board]);
+  }, [board, user?.id, refreshMyMembership]);
 
   // Infinite scroll for threads — IntersectionObserver on sentinel
   useEffect(() => {
@@ -863,28 +878,32 @@ const Board = () => {
 
   // Discord-like roster for the member rail (members + owner only; the RPC
   // enforces it, failures simply hide the rail).
-  useEffect(() => {
-    if (!isGomoRoute || !board?.id || !isJoined || !user?.id) {
+  const loadRoster = useCallback(async () => {
+    if (!isGomoRoute || !board?.id || !user?.id) {
       setRoster(null);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: { session } } = await api.auth.getSession();
-        const r = await fetch(`/api/rpc/gomosub_members?_board_id=${board.id}`, {
-          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-        });
-        const d = await r.json();
-        if (!cancelled && r.ok && d?.success) setRoster(d.data);
-      } catch {
-        // Roster is best-effort — the page works without it.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isGomoRoute, board?.id, isJoined, user?.id]);
+    try {
+      const { data: { session } } = await api.auth.getSession();
+      const r = await fetch(`/api/rpc/gomosub_members?_board_id=${board.id}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
+      const d = await r.json();
+      if (r.ok && d?.success) setRoster(d.data);
+      else setRoster(null);
+    } catch {
+      // Roster is best-effort — the page works without it.
+    }
+  }, [isGomoRoute, board?.id, user?.id]);
+
+  useEffect(() => {
+    if (!isJoined) {
+      setRoster(null);
+      return;
+    }
+    loadRoster();
+  }, [isJoined, loadRoster]);
+  loadRosterRef.current = loadRoster;
 
   // Per-row entrance motion needs the reduced-motion gate (no parent cascade
   // anymore — see the thread list below).

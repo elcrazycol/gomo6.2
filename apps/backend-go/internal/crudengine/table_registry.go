@@ -338,6 +338,7 @@ var genericTables = []TableMeta{
 		Writes:            fullWrites(),
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
+		AfterWrite:        afterGomosubMemberRolesWrite,
 		InvalidateCache:   invalidateMemberRolesCache,
 	},
 	{
@@ -349,6 +350,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:    true,
 		GomosubManagement: true,
 		PrepareBody:       prepareGomosubMembershipsBody,
+		AfterWrite:        afterGomosubMembershipsWrite,
 		InvalidateCache:   invalidateGomosubMembershipsCache,
 		EmitAchievements:  emitGomosubMembershipsAchievements,
 	},

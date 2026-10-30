@@ -2,6 +2,7 @@ package crudengine
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
@@ -178,6 +179,43 @@ func emitUserDailyVisitsAchievements(h *Engine, result map[string]interface{}) {
 	e := h.achEngine
 	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
 		achievements.EmitAchievement(e, uid, achievements.EventDailyVisit)
+	}
+}
+
+// afterGomosubMembershipsWrite fans roster changes out to the board room so
+// open settings tabs and server rails refetch instead of going stale.
+func afterGomosubMembershipsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	if h.hub == nil {
+		return
+	}
+	boardID := crud.WallResultString(result["board_id"])
+	uid := profiles.RowUserID(result["user_id"])
+	if boardID == "" || uid == "" {
+		return
+	}
+	action := "joined"
+	if method == "DELETE" {
+		action = "left"
+	} else if method == "PUT" {
+		action = "roles_changed"
+	}
+	if err := h.hub.PublishGomoSubMemberChanged(boardID, uid, action); err != nil {
+		log.Printf("[gomosub] failed to publish member change for %s: %v", boardID, err)
+	}
+}
+
+// afterGomosubMemberRolesWrite fans role-grant changes out to the board room.
+func afterGomosubMemberRolesWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	if h.hub == nil {
+		return
+	}
+	boardID := crud.WallResultString(result["board_id"])
+	uid := profiles.RowUserID(result["user_id"])
+	if boardID == "" || uid == "" {
+		return
+	}
+	if err := h.hub.PublishGomoSubMemberChanged(boardID, uid, "roles_changed"); err != nil {
+		log.Printf("[gomosub] failed to publish role change for %s: %v", boardID, err)
 	}
 }
 

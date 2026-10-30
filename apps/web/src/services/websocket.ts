@@ -63,6 +63,7 @@ export type WebSocketMessageType =
   | 'new_report'
   | 'new_appeal'
   | 'profile_updated'
+  | 'gomosub_member_changed'
   | 'disconnected';
 
 export interface WebSocketMessage {

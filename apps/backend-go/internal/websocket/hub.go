@@ -86,6 +86,11 @@ const (
 	// thread or wall, and carries only the user id — nothing private.
 	MessageTypeProfileUpdated = "profile_updated"
 
+	// A gomosub roster change (join/leave/kick/ban/timeout/role grant). The
+	// payload carries only ids + action: clients refetch through audited
+	// REST, so nothing membership-private leaks through the socket.
+	MessageTypeGomoSubMemberChanged = "gomosub_member_changed"
+
 	// Redis channels
 	RedisChannelPosts         = "realtime:posts"
 	RedisChannelThreads       = "realtime:threads"
@@ -581,6 +586,14 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 		// it goes to the public feed room everyone joins. The payload is a bare
 		// user id, so there is nothing private to leak.
 		h.BroadcastToRoom("feed", messageBytes)
+
+	case MessageTypeGomoSubMemberChanged:
+		// Roster signal for the board room: settings member tabs and server
+		// rails refetch on it (see the payload contract on
+		// PublishGomoSubMemberChanged — ids and action only).
+		if boardID := extractRoomID(payload, "board_id"); boardID != "" {
+			h.BroadcastToRoom(fmt.Sprintf("board_%s", boardID), messageBytes)
+		}
 
 	case MessageTypeUserOnline, MessageTypeUserOffline:
 		h.broadcastPresenceEvent(payload, messageBytes)
@@ -1252,6 +1265,24 @@ func (h *Hub) PublishProfileUpdated(userID string) error {
 		Payload: map[string]string{"user_id": userID},
 	}
 	return h.PublishToRedis(RedisChannelProfiles, event)
+}
+
+// PublishGomoSubMemberChanged tells board-room subscribers that the roster
+// changed. Payload contract: {board_id, user_id, action} where action is one
+// of joined|left|kicked|banned|unbanned|timed_out|untimeout|roles_changed.
+// No membership data travels on the socket — clients refetch via REST. Like
+// new_thread, this reaches board-room subscribers (board rooms are public by
+// design); the payload is deliberately ids-only.
+func (h *Hub) PublishGomoSubMemberChanged(boardID, userID, action string) error {
+	event := RealtimeEvent{
+		Type: MessageTypeGomoSubMemberChanged,
+		Payload: map[string]string{
+			"board_id": boardID,
+			"user_id":  userID,
+			"action":   action,
+		},
+	}
+	return h.PublishToRedis(RedisChannelThreads, event)
 }
 
 // PublishNewPost publishes a new post event to Redis
