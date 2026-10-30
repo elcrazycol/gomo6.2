@@ -20,7 +20,7 @@ import {
   Home,
   X,
   Settings,
-  Trophy,
+  ScrollText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
@@ -442,7 +442,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             {user && (
               <NavigationLink to={`/achievements/${user.id}`} onClick={() => setOpen(false)} className="block">
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
-                  <Trophy className="w-4 h-4 mr-2" />
+                  <ScrollText className="w-4 h-4 mr-2" />
                   {t('nav.quests')}
                 </Button>
               </NavigationLink>
