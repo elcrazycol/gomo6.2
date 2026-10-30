@@ -261,6 +261,7 @@ var genericTables = []TableMeta{
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
 		GomosubVisibility: true,
+		InvalidateCache:   invalidateChannelCategoriesCache,
 	},
 	{
 		Name:              "channel_permissions",
@@ -337,6 +338,7 @@ var genericTables = []TableMeta{
 		Writes:            fullWrites(),
 		WriteGroup:        GenericWrite,
 		GomosubManagement: true,
+		InvalidateCache:   invalidateMemberRolesCache,
 	},
 	{
 		Name:              "gomosub_memberships",

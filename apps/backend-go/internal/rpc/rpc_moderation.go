@@ -347,6 +347,7 @@ func (h *RPCHandler) TimeoutMember(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("User is not a member of this gomosub"))
 		return
 	}
+	h.invalidateMembershipsCache(req.BoardID)
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "timed_out"}))
 }
 
@@ -370,6 +371,7 @@ func (h *RPCHandler) UntimeoutMember(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("User is not a member of this gomosub"))
 		return
 	}
+	h.invalidateMembershipsCache(req.BoardID)
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "untimeout"}))
 }
 

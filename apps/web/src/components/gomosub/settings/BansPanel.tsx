@@ -36,7 +36,7 @@ const BansPanel = ({ boardId, bans, canManage, onChanged }: Props) => {
   return (
     <div className="space-y-1.5">
       {bans.map((b) => (
-        <div key={b.user_id} className="rounded-xl border border-border/60 bg-surface p-3 flex items-center gap-3">
+        <div key={b.user_id} className="rounded-2xl border border-border/60 bg-surface px-3 py-2.5 flex items-center gap-3">
           <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-sm font-bold text-white bg-destructive/80">
             {b.username?.[0]?.toUpperCase() ?? "?"}
           </div>

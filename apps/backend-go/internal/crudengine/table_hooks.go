@@ -83,6 +83,21 @@ func invalidateGomosubMembershipsCache(h *Engine, _ *gin.Context, result map[str
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", boardID))
 }
 
+// invalidateChannelCategoriesCache clears the board's category list (the
+// sidebar groups channels by it, so a stale list hides new categories).
+func invalidateChannelCategoriesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
+	boardID := crud.WallResultString(result["board_id"])
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_categories*board_id=eq.%s*", boardID))
+}
+
+// invalidateMemberRolesCache clears the board's grant list plus the
+// memberships list the settings members tab renders roles from.
+func invalidateMemberRolesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
+	boardID := crud.WallResultString(result["board_id"])
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_member_roles*board_id=eq.%s*", boardID))
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", boardID))
+}
+
 // invalidateProfileCustomizationCache clears the profile's customization keys
 // and the hover-card / profiles responses that embed them.
 func invalidateProfileCustomizationCache(h *Engine, _ *gin.Context, result map[string]interface{}) {

@@ -1,15 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Trash2, Hash, MessageSquare, Lock, Shield, ChevronUp, ChevronDown, FolderPlus } from "lucide-react";
+import { GripVertical, Loader2, Plus, Trash2, Hash, MessageSquare, Lock, Shield, FolderPlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { applyTriState, overwriteTriState, type TriState } from "./permissions";
+import { buildOverwriteBody, overwriteTriState, type TriState } from "./permissions";
 import { csrfHeaders, type ChannelOverwrite, type Role, type SettingsCategory, type SettingsChannel } from "./types";
+import { inputCls, settingsFormCard, settingsSectionTitle } from "./ui";
 
 type Props = {
   boardId: string;
@@ -72,6 +73,142 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
     return byCat;
   }, [channels]);
 
+  // Display order: uncategorized (when non-empty), then categories in order.
+  const displayGroups = useMemo(() => {
+    const arr: { key: string; catId: string | null; label: string; channels: SettingsChannel[] }[] = [];
+    const unc = groups.get(null) ?? [];
+    if (unc.length > 0) arr.push({ key: "__none", catId: null, label: "Без категории", channels: unc });
+    for (const c of sortedCats) arr.push({ key: `cat:${c.id}`, catId: c.id, label: c.name, channels: groups.get(c.id) ?? [] });
+    return arr;
+  }, [groups, sortedCats]);
+
+  // ─── Pointer drag-and-drop (mouse + touch) ────────────────────────────────
+  // Grip has touch-action:none so a touch drag never fights page scroll.
+  // Drop target: {catId, beforeId} — beforeId null means append to the group.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ catId: string | null; beforeId: string | null } | null>(null);
+  const [persisting, setPersisting] = useState(false);
+  const dragState = useRef<{ id: string; started: boolean } | null>(null);
+
+  const channelById = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
+
+  const finishDrag = () => {
+    window.removeEventListener("pointermove", onDragMove);
+    window.removeEventListener("pointerup", onDragUp);
+    window.removeEventListener("pointercancel", onDragCancel);
+    dragState.current = null;
+  };
+
+  const onDragMove = (e: PointerEvent) => {
+    const st = dragState.current;
+    if (!st) return;
+    st.started = true;
+    setDragId(st.id);
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const row = el?.closest?.("[data-chid]") as HTMLElement | null;
+    if (row?.dataset.chid && row.dataset.chid !== st.id) {
+      const rect = row.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      setDropTarget({ catId: row.dataset.cat || null, beforeId: before ? row.dataset.chid : nextSiblingId(row.dataset.chid as string) });
+      return;
+    }
+    const cat = el?.closest?.("[data-catdrop]") as HTMLElement | null;
+    if (cat) {
+      const catId = (cat.dataset.catdrop || null) as string | null;
+      setDropTarget({ catId, beforeId: null });
+      return;
+    }
+    setDropTarget(null);
+  };
+
+  // Insert after the hovered row (when pointing at its lower half).
+  const nextSiblingId = (rowId: string): string | null => {
+    for (const g of displayGroupsRef.current) {
+      const idx = g.channels.findIndex((c) => c.id === rowId);
+      if (idx >= 0) return g.channels[idx + 1]?.id ?? null;
+    }
+    return null;
+  };
+  const displayGroupsRef = useRef(displayGroups);
+  displayGroupsRef.current = displayGroups;
+
+  const onDragUp = () => {
+    const st = dragState.current;
+    const target = dropTargetRef.current;
+    finishDrag();
+    setDragId(null);
+    if (st?.started && target) void commitDrop(st.id, target);
+    else setDropTarget(null);
+  };
+  const dropTargetRef = useRef(dropTarget);
+  dropTargetRef.current = dropTarget;
+
+  const onDragCancel = () => {
+    finishDrag();
+    setDragId(null);
+    setDropTarget(null);
+  };
+
+  const startDrag = (e: React.PointerEvent, chId: string) => {
+    if (!canManage || persisting) return;
+    e.preventDefault();
+    dragState.current = { id: chId, started: false };
+    setDropTarget(null);
+    window.addEventListener("pointermove", onDragMove);
+    window.addEventListener("pointerup", onDragUp);
+    window.addEventListener("pointercancel", onDragCancel);
+  };
+
+  const commitDrop = async (chId: string, target: { catId: string | null; beforeId: string | null }) => {
+    setDropTarget(null);
+    const moved = channelById.get(chId);
+    if (!moved) return;
+    // Build the new flat order in display order.
+    const ordered: { ch: SettingsChannel; catId: string | null }[] = [];
+    for (const g of displayGroups) {
+      const list = g.channels.filter((c) => c.id !== chId);
+      if (g.catId === target.catId) {
+        if (target.beforeId) {
+          const idx = list.findIndex((c) => c.id === target.beforeId);
+          list.splice(idx >= 0 ? idx : list.length, 0, moved);
+        } else {
+          list.push(moved);
+        }
+      }
+      for (const c of list) ordered.push({ ch: c, catId: g.catId });
+    }
+    // Include channels of unknown groups (shouldn't happen, but never drop).
+    for (const c of channels) {
+      if (!ordered.some((o) => o.ch.id === c.id)) ordered.push({ ch: c, catId: c.category_id ?? null });
+    }
+    const movedCatChanged = (moved.category_id ?? null) !== target.catId;
+    setPersisting(true);
+    try {
+      if (movedCatChanged) {
+        const r = await fetch(`/api/v1/channels?id=eq.${chId}&board_id=eq.${boardId}`, {
+          method: "PUT", headers: csrfHeaders(true),
+          body: JSON.stringify({ category_id: target.catId }),
+        });
+        if (!r.ok) throw new Error("category");
+      }
+      const jobs: Promise<Response>[] = [];
+      ordered.forEach((o, i) => {
+        if (o.ch.sort_order !== i) {
+          jobs.push(fetch(`/api/v1/channels?id=eq.${o.ch.id}&board_id=eq.${boardId}`, {
+            method: "PUT", headers: csrfHeaders(true), body: JSON.stringify({ sort_order: i }),
+          }));
+        }
+      });
+      const results = await Promise.all(jobs);
+      if (results.some((r) => !r.ok)) throw new Error("order");
+      toast.success("Каналы обновлены");
+    } catch {
+      toast.error("Не удалось сохранить порядок");
+    }
+    setPersisting(false);
+    await reload();
+  };
+
   const reload = onChanged;
 
   const createChannel = async () => {
@@ -120,21 +257,7 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
     await reload();
   };
 
-  const moveChannel = async (ch: SettingsChannel, dir: -1 | 1) => {
-    const group = groups.get(ch.category_id ?? null) ?? [];
-    const idx = group.findIndex((c) => c.id === ch.id);
-    const other = group[idx + dir];
-    if (!other) return;
-    // Swap sort orders with the neighbour.
-    const swap = async (id: string, order: number) =>
-      fetch(`/api/v1/channels?id=eq.${id}&board_id=eq.${boardId}`, {
-        method: "PUT", headers: csrfHeaders(true), body: JSON.stringify({ sort_order: order }),
-      });
-    const ok1 = await (await swap(ch.id, other.sort_order)).ok;
-    const ok2 = await (await swap(other.id, ch.sort_order)).ok;
-    if (!ok1 || !ok2) toast.error("Не удалось сохранить порядок");
-    await reload();
-  };
+  const rowRefs = useRef(new Map<string, HTMLDivElement | null>());
 
   const createCategory = async () => {
     const name = newCatName.trim();
@@ -174,16 +297,8 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
     const key = `${chId}:${roleId}:${perm}`;
     setSavingOw(key);
     const ex = overwrites.find((o) => o.channel_id === chId && o.role_id === roleId);
-    const patch = applyTriState(ex, perm, state);
-    const other: "view_channel" | "send_messages" = perm === "view_channel" ? "send_messages" : "view_channel";
-    const otherState = overwriteTriState(ex, other);
-    const otherPatch = applyTriState({ allow: patch.allow, deny: patch.deny }, other, otherState);
-    const body = {
-      board_id: boardId, channel_id: chId, role_id: roleId,
-      allow: otherPatch.allow, deny: otherPatch.deny,
-      can_read: perm === "view_channel" ? patch.can_read : otherPatch.can_read,
-      can_write: perm === "send_messages" ? patch.can_write : otherPatch.can_write,
-    };
+    const patch = buildOverwriteBody(ex, perm, state);
+    const body = { board_id: boardId, channel_id: chId, role_id: roleId, ...patch };
     let r: Response;
     if (ex?.id) {
       r = await fetch(`/api/v1/channel_permissions?id=eq.${ex.id}&board_id=eq.${boardId}`, {
@@ -203,12 +318,27 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
     await reload();
   };
 
-  const renderChannel = (ch: SettingsChannel) => {
+  const renderChannel = (ch: SettingsChannel, catId: string | null) => {
     const isOpen = openChannelId === ch.id;
     const isEditing = editingId === ch.id;
+    const isDragged = dragId === ch.id;
+    const showBefore = dropTarget?.beforeId === ch.id;
     return (
-      <div key={ch.id} className="rounded-lg border border-border/60 bg-surface">
+      <div key={ch.id} data-chid={ch.id} data-cat={catId ?? ""} className={cn(isDragged && "opacity-40")}>
+        {showBefore && <div className="h-0.5 rounded bg-primary mx-1 -my-0.5 relative z-10" />}
+        <div ref={(el) => { rowRefs.current.set(ch.id, el); if (!el) rowRefs.current.delete(ch.id); }}
+          data-chid={ch.id} data-cat={catId ?? ""}
+          className="rounded-lg border border-border/60 bg-surface">
         <div className="flex items-center gap-2 px-3 py-2">
+          {canManage && (
+            <div
+              onPointerDown={(e) => startDrag(e, ch.id)}
+              className="touch-none cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 p-0.5 -ml-1"
+              title="Тянуть чтобы переместить"
+            >
+              <GripVertical className="w-4 h-4" />
+            </div>
+          )}
           {ch.kind === "text"
             ? <MessageSquare className="w-4 h-4 text-sky-400 shrink-0" />
             : ch.is_private ? <Lock className="w-4 h-4 text-amber-500 shrink-0" /> : <Hash className="w-4 h-4 text-muted-foreground shrink-0" />}
@@ -220,10 +350,6 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
           </div>
           {canManage && (
             <div className="flex items-center gap-0.5 shrink-0">
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Выше"
-                onClick={() => moveChannel(ch, -1)}><ChevronUp className="w-3.5 h-3.5" /></Button>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Ниже"
-                onClick={() => moveChannel(ch, 1)}><ChevronDown className="w-3.5 h-3.5" /></Button>
               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Права доступа"
                 onClick={() => (isOpen ? onOpenOverwrites("") : (setEditingId(null), onOpenOverwrites(ch.id)))}>
                 <Shield className={cn("w-3.5 h-3.5", isOpen && "text-primary")} />
@@ -275,8 +401,8 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
         )}
         {isOpen && (
           <div className="border-t border-border/60 p-3 space-y-2">
-            <div className="text-xs text-muted-foreground">
-              ✓ — разрешить · ✕ — запретить (перекрывает) · – — наследовать. Запрет побеждает.
+            <div className="px-1 text-[11px] text-muted-foreground">
+              ✓ разрешить · ✕ запретить · – наследовать. Запрет побеждает.
             </div>
             {roles.map((role) => {
               const ow = overwrites.find((o) => o.channel_id === ch.id && o.role_id === role.id);
@@ -297,6 +423,7 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
             })}
           </div>
         )}
+        </div>
       </div>
     );
   };
@@ -304,10 +431,10 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
   return (
     <div className="space-y-4">
       {canManage && (
-        <div className="rounded-xl border border-border/70 bg-muted/30 p-4 space-y-3">
-          <div className="text-sm font-medium">Новый канал</div>
+        <div className={settingsFormCard}>
+          <div className={settingsSectionTitle}>Новый канал</div>
           <div className="grid gap-3 sm:grid-cols-[1fr_140px_150px]">
-            <Input placeholder="Название" value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={50} className="h-9" />
+            <Input placeholder="Название" value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={50} className={inputCls("h-9")} />
             <div className="flex items-center gap-1">
               <Button type="button" size="sm" variant={newKind === "forum" ? "secondary" : "ghost"} className="h-8 text-xs flex-1"
                 onClick={() => setNewKind("forum")}># Форум</Button>
@@ -336,8 +463,8 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
       )}
 
       {canManage && (
-        <div className="rounded-xl border border-border/70 bg-muted/30 p-4 space-y-2">
-          <div className="text-sm font-medium">Категории</div>
+        <div className={settingsFormCard}>
+          <div className={settingsSectionTitle}>Категории</div>
           {sortedCats.map((c) => (
             <div key={c.id} className="flex items-center gap-2">
               {renamingCat === c.id ? (
@@ -361,7 +488,7 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
             </div>
           ))}
           <div className="flex gap-2">
-            <Input placeholder="Новая категория" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} maxLength={40} className="h-8 text-sm" />
+            <Input placeholder="Новая категория" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} maxLength={40} className={inputCls("h-8 text-sm")} />
             <Button size="sm" variant="outline" className="h-8" onClick={createCategory} disabled={!newCatName.trim()}>
               <FolderPlus className="w-4 h-4 mr-1" />Добавить
             </Button>
@@ -369,18 +496,23 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
         </div>
       )}
 
-      {(groups.get(null) ?? []).length > 0 && (
-        <div className="space-y-1.5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Без категории</div>
-          {(groups.get(null) ?? []).map(renderChannel)}
-        </div>
-      )}
-      {sortedCats.map((c) => (
-        <div key={c.id} className="space-y-1.5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{c.name}</div>
-          {(groups.get(c.id) ?? []).length === 0
-            ? <p className="text-xs text-muted-foreground pl-1">Пусто</p>
-            : (groups.get(c.id) ?? []).map(renderChannel)}
+      {persisting && <div className="text-xs text-muted-foreground text-center">Сохранение порядка…</div>}
+      {displayGroups.map((g) => (
+        <div key={g.key} data-catdrop={g.catId ?? ""} className="space-y-1.5 rounded-lg">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{g.label}</div>
+          {g.channels.length === 0 ? (
+            <div className={cn(
+              "rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground",
+              dropTarget && dropTarget.catId === g.catId && dropTarget.beforeId === null && "border-primary bg-primary/5 text-primary",
+            )}>
+              {dropTarget && dropTarget.catId === g.catId ? "Отпусти сюда" : "Пусто — тяни сюда каналы"}
+            </div>
+          ) : (
+            g.channels.map((ch) => renderChannel(ch, g.catId))
+          )}
+          {g.channels.length > 0 && dropTarget && dropTarget.catId === g.catId && dropTarget.beforeId === null && (
+            <div className="h-0.5 rounded bg-primary mx-1" />
+          )}
         </div>
       ))}
       {channels.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Каналов пока нет</p>}

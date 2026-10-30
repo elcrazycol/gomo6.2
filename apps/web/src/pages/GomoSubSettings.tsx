@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { Loader2, Hash, Shield, Users, Link, Gavel, PenLine, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -178,6 +179,15 @@ const GomoSubSettings = () => {
 
   const reloadAll = async () => {
     if (!form.id) return;
+    // Raw CRUD fetches bypass the query-builder, so drop the client URL
+    // cache explicitly — otherwise the board page keeps serving the
+    // pre-mutation channel/role/member lists.
+    invalidateByPrefix("/api/v1/channels");
+    invalidateByPrefix("/api/v1/channel_categories");
+    invalidateByPrefix("/api/v1/gomosub_roles");
+    invalidateByPrefix("/api/v1/channel_permissions");
+    invalidateByPrefix("/api/v1/gomosub_member_roles");
+    invalidateByPrefix("/api/v1/gomosub_memberships");
     setDataLoading(true);
     await Promise.all([loadChannels(form.id), loadCategories(form.id), loadRoles(form.id), loadMembers(form.id), loadGrants(form.id)]);
     if (openChannelId) await loadOverwrites(openChannelId);
@@ -390,7 +400,9 @@ const GomoSubSettings = () => {
                   overwrites={overwrites} canManage={canManageChannels} onChanged={reloadAll}
                   openChannelId={openChannelId}
                   onOpenOverwrites={async (id) => {
-                    setOpenChannelId((prev) => (prev === id ? null : id));
+                    // Set (not toggle): saving an overwrite refreshes through
+                    // this same callback and must not collapse the panel.
+                    setOpenChannelId(id || null);
                     if (id) await loadOverwrites(id);
                   }}
                 />

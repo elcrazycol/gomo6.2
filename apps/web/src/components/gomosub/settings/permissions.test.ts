@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTriState, canModerateTarget, memberRoleIds, memberTop, overwriteTriState } from "./permissions";
+import { applyTriState, buildOverwriteBody, canModerateTarget, memberRoleIds, memberTop, overwriteTriState } from "./permissions";
 
 describe("overwriteTriState", () => {
   it("reads allow/deny first", () => {
@@ -49,6 +49,35 @@ describe("memberTop", () => {
       [{ board_id: "b", user_id: "u", role_id: "b2" }],
     );
     expect(ids.sort()).toEqual(["a", "b2"]);
+  });
+});
+
+describe("buildOverwriteBody", () => {
+  it("sets one side, keeps the other, syncs legacy", () => {
+    const b = buildOverwriteBody(undefined, "view_channel", "allow");
+    expect(b.allow).toEqual({ view_channel: true });
+    expect(b.deny).toEqual({});
+    expect(b.can_read).toBe(true);
+    expect(b.can_write).toBe(false);
+  });
+
+  it("deny on send keeps an existing view allow", () => {
+    const b = buildOverwriteBody({ allow: { view_channel: true }, deny: {} }, "send_messages", "deny");
+    expect(b.allow).toEqual({ view_channel: true });
+    expect(b.deny).toEqual({ send_messages: true });
+    expect(b.can_read).toBe(true);
+    expect(b.can_write).toBe(false);
+  });
+
+  it("inherit clears only its own side", () => {
+    const b = buildOverwriteBody(
+      { allow: { view_channel: true, send_messages: true }, deny: {} },
+      "send_messages",
+      "inherit",
+    );
+    expect(b.allow).toEqual({ view_channel: true });
+    expect(b.can_read).toBe(true);
+    expect(b.can_write).toBe(false);
   });
 });
 

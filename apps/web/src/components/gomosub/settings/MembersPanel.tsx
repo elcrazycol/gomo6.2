@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Search, Crown, Timer, Gavel, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { canModerateTarget, memberRoleIds, memberTop } from "./permissions";
+import { inputCls, settingsCard } from "./ui";
 import { csrfHeaders, rpcPost, type Member, type MemberRoleGrant, type Role } from "./types";
 
 type Actor = { id: string; isOwner: boolean; isAdmin: boolean; top: number };
@@ -133,10 +134,10 @@ const MembersPanel = ({ boardId, ownerId, members, roles, grants, actor, canAssi
     <div className="space-y-3">
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="Поиск участников…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" />
+        <Input placeholder="Поиск участников…" value={query} onChange={(e) => setQuery(e.target.value)} className={inputCls("pl-9 h-9")} />
       </div>
       <div className="text-xs text-muted-foreground">{members.length} уч.</div>
-      <div className="space-y-1.5 max-h-[60vh] overflow-y-auto pr-0.5">
+      <div className={`${settingsCard} divide-y divide-border/40 max-h-[60vh] overflow-y-auto`}>
         {filtered.map((m) => {
           const name = m.profiles?.username ?? `${m.user_id.slice(0, 8)}…`;
           const ids = memberRoleIds(m, grants);
@@ -148,7 +149,7 @@ const MembersPanel = ({ boardId, ownerId, members, roles, grants, actor, canAssi
           const heldRoles = sortedRoles.filter((r) => !r.is_everyone && ids.includes(r.id));
           const topRole = heldRoles[0];
           return (
-            <div key={m.user_id} className="rounded-xl border border-border/60 bg-surface p-3 space-y-2">
+            <div key={m.user_id} className="px-3 py-2.5 space-y-1.5">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div
                   className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-sm font-bold text-white"

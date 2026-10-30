@@ -79,8 +79,8 @@ const InvitesPanel = ({ boardId, slug, invites, loading, onChanged }: Props) => 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">Пригласительные ссылки для входа в приватный саб.</p>
-      <div className="rounded-xl border border-border/70 bg-muted/30 p-4 space-y-3">
-        <div className="text-sm font-medium">Создать приглашение</div>
+      <div className="rounded-2xl border border-border/60 bg-muted/25 p-4 space-y-3">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Создать приглашение</div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label className="text-xs">Макс. использований (0 = безлимитно)</Label>
@@ -117,7 +117,7 @@ const InvitesPanel = ({ boardId, slug, invites, loading, onChanged }: Props) => 
             const isActive = inv.is_active && !isExpired && !isMaxed;
             const link = `${window.location.origin}/g/${slug}/join/${inv.code}`;
             return (
-              <div key={inv.id} className="rounded-xl border border-border/60 bg-surface p-3 space-y-2">
+              <div key={inv.id} className="rounded-2xl border border-border/60 bg-surface p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono max-w-full truncate flex-1">{link}</code>
                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copyLink(inv.code)} title="Копировать">

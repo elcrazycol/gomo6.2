@@ -59,6 +59,25 @@ export const overwriteTriState = (
   return "inherit";
 };
 
+// buildOverwriteBody merges one tri-state pick into the stored row: the
+// picked permission takes the new state, the other one keeps its current
+// state, and the legacy booleans follow the resolved grants.
+export const buildOverwriteBody = (
+  ex: { allow?: Record<string, boolean>; deny?: Record<string, boolean>; can_read?: boolean; can_write?: boolean } | undefined,
+  perm: "view_channel" | "send_messages",
+  state: TriState,
+): { allow: Record<string, boolean>; deny: Record<string, boolean>; can_read?: boolean; can_write?: boolean } => {
+  const patch = applyTriState(ex, perm, state);
+  const other = perm === "view_channel" ? "send_messages" : "view_channel";
+  const otherState = overwriteTriState(ex, other);
+  const merged = applyTriState({ allow: patch.allow, deny: patch.deny }, other, otherState);
+  return {
+    allow: merged.allow,
+    deny: merged.deny,
+    can_read: perm === "view_channel" ? patch.can_read : merged.can_read,
+    can_write: perm === "send_messages" ? patch.can_write : merged.can_write,
+  };
+};
 // applyTriState returns the allow/deny patch plus the legacy booleans kept in
 // sync (resolved view/send, false when denied or unset).
 export const applyTriState = (
