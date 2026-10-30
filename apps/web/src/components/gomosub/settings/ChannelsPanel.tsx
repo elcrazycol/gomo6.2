@@ -1,11 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { GripVertical, Loader2, Plus, Trash2, Hash, MessageSquare, Lock, Shield, FolderPlus } from "lucide-react";
+import { GripVertical, Loader2, PenLine, Plus, Trash2, Hash, MessageSquare, Lock, Shield, FolderPlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { buildOverwriteBody, overwriteTriState, type TriState } from "./permissions";
@@ -328,53 +327,62 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
         {showBefore && <div className="h-0.5 rounded bg-primary mx-1 -my-0.5 relative z-10" />}
         <div ref={(el) => { rowRefs.current.set(ch.id, el); if (!el) rowRefs.current.delete(ch.id); }}
           data-chid={ch.id} data-cat={catId ?? ""}
-          className="rounded-lg border border-border/60 bg-surface">
-        <div className="flex items-center gap-2 px-3 py-2">
+          className="rounded-2xl border border-border/60 bg-surface overflow-hidden">
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
           {canManage && (
             <div
               onPointerDown={(e) => startDrag(e, ch.id)}
-              className="touch-none cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 p-0.5 -ml-1"
+              className="touch-none cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground shrink-0"
               title="Тянуть чтобы переместить"
             >
               <GripVertical className="w-4 h-4" />
             </div>
           )}
-          {ch.kind === "text"
-            ? <MessageSquare className="w-4 h-4 text-sky-400 shrink-0" />
-            : ch.is_private ? <Lock className="w-4 h-4 text-amber-500 shrink-0" /> : <Hash className="w-4 h-4 text-muted-foreground shrink-0" />}
+          <span className={ch.kind === "text"
+            ? "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-sky-500/15 text-sky-400"
+            : ch.is_private ? "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-amber-500/15 text-amber-500"
+            : "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-muted text-muted-foreground"}>
+            {ch.kind === "text"
+              ? <MessageSquare className="w-4 h-4" />
+              : ch.is_private ? <Lock className="w-4 h-4" /> : <Hash className="w-4 h-4" />}
+          </span>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">{ch.name}</div>
-            <div className="text-xs text-muted-foreground truncate">
-              /c/{ch.slug}{ch.kind === "text" ? " · чат" : ""}{ch.is_private ? " · приватный" : ""}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[15px] font-semibold truncate">{ch.name}</span>
+              {ch.kind === "text" && <Badge variant="secondary" className="text-[10px] rounded shrink-0">чат</Badge>}
+              {ch.is_private && <Badge variant="outline" className="text-[10px] rounded shrink-0 text-amber-600 border-amber-500/40">приват</Badge>}
             </div>
+            <div className="text-xs text-muted-foreground truncate">/c/{ch.slug}</div>
           </div>
           {canManage && (
             <div className="flex items-center gap-0.5 shrink-0">
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Права доступа"
+              <Button size="sm" variant="ghost" className={cn("h-8 w-8 p-0 rounded-lg", isOpen && "bg-primary/10 text-primary")} title="Права доступа"
                 onClick={() => (isOpen ? onOpenOverwrites("") : (setEditingId(null), onOpenOverwrites(ch.id)))}>
-                <Shield className={cn("w-3.5 h-3.5", isOpen && "text-primary")} />
+                <Shield className="w-4 h-4" />
               </Button>
-              <Button size="sm" variant="ghost" className="h-7 px-1.5 text-xs" title="Изменить"
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-lg" title="Изменить"
                 onClick={() => {
-                  setEditingId(ch.id);
+                  setEditingId(isEditing ? null : ch.id);
                   setEdit({ name: ch.name, kind: ch.kind ?? "forum", category_id: ch.category_id ?? "__none", is_private: ch.is_private });
-                }}>Изм.</Button>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" title="Удалить"
-                onClick={() => deleteChannel(ch)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                }}>
+                <PenLine className={cn("w-4 h-4", isEditing && "text-primary")} />
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10" title="Удалить"
+                onClick={() => deleteChannel(ch)}><Trash2 className="w-4 h-4" /></Button>
             </div>
           )}
         </div>
         {isEditing && (
-          <div className="border-t border-border/60 p-3 space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="border-t border-border/40 px-3 py-3 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-[1fr_150px]">
               <div className="space-y-1.5">
-                <Label className="text-xs">Название</Label>
-                <Input value={edit.name} maxLength={50} onChange={(e) => setEdit((p) => ({ ...p, name: e.target.value }))} className="h-8 text-sm" />
+                <div className={settingsSectionTitle}>Название</div>
+                <Input value={edit.name} maxLength={50} onChange={(e) => setEdit((p) => ({ ...p, name: e.target.value }))} className={inputCls("h-9 text-sm")} />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Категория</Label>
+                <div className={settingsSectionTitle}>Категория</div>
                 <Select value={edit.category_id} onValueChange={(v) => setEdit((p) => ({ ...p, category_id: v }))}>
-                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className={inputCls("h-9 text-sm")}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">Без категории</SelectItem>
                     {sortedCats.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -382,45 +390,50 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
                 </Select>
               </div>
             </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-1">
-                <Button type="button" size="sm" variant={edit.kind === "forum" ? "secondary" : "ghost"} className="h-7 text-xs"
-                  onClick={() => setEdit((p) => ({ ...p, kind: "forum" }))}># Форум</Button>
-                <Button type="button" size="sm" variant={edit.kind === "text" ? "secondary" : "ghost"} className="h-7 text-xs"
-                  onClick={() => setEdit((p) => ({ ...p, kind: "text" }))}>Чат</Button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex rounded-lg bg-muted/60 p-0.5 gap-0.5">
+                <button type="button" onClick={() => setEdit((p) => ({ ...p, kind: "forum" }))}
+                  className={cn("h-7 px-3 rounded-md text-xs font-medium transition-colors", edit.kind === "forum" ? "bg-surface shadow-sm" : "text-muted-foreground hover:text-foreground")}># Форум</button>
+                <button type="button" onClick={() => setEdit((p) => ({ ...p, kind: "text" }))}
+                  className={cn("h-7 px-3 rounded-md text-xs font-medium transition-colors", edit.kind === "text" ? "bg-surface shadow-sm" : "text-muted-foreground hover:text-foreground")}>Чат</button>
               </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <Switch checked={edit.is_private} onCheckedChange={(v) => setEdit((p) => ({ ...p, is_private: v }))} />
-                Приватный
-              </label>
               <span className="flex-1" />
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingId(null)}>Отмена</Button>
-              <Button size="sm" className="h-7 text-xs" onClick={() => saveEdit(ch)}>Сохранить</Button>
+              <Button size="sm" variant="ghost" className="h-8 text-xs rounded-lg" onClick={() => setEditingId(null)}>Отмена</Button>
+              <Button size="sm" className="h-8 text-xs rounded-lg" onClick={() => saveEdit(ch)}>Сохранить</Button>
             </div>
+            <label className="flex items-center gap-3 px-1 py-1 cursor-pointer">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">Приватный канал</span>
+                <span className="block text-xs text-muted-foreground">Видят только роли с доступом</span>
+              </span>
+              <Switch checked={edit.is_private} onCheckedChange={(v) => setEdit((p) => ({ ...p, is_private: v }))} className="shrink-0" />
+            </label>
           </div>
         )}
         {isOpen && (
-          <div className="border-t border-border/60 p-3 space-y-2">
-            <div className="px-1 text-[11px] text-muted-foreground">
+          <div className="border-t border-border/40 px-3 py-2">
+            <div className="text-[11px] text-muted-foreground py-1">
               ✓ разрешить · ✕ запретить · – наследовать. Запрет побеждает.
             </div>
-            {roles.map((role) => {
-              const ow = overwrites.find((o) => o.channel_id === ch.id && o.role_id === role.id);
-              return (
-                <div key={role.id} className="flex items-center gap-2 py-1">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
-                  <span className="text-sm flex-1 min-w-0 truncate">{role.name}</span>
-                  <span className="hidden sm:inline text-xs text-muted-foreground w-14">Вид</span>
-                  <TriButton state={overwriteTriState(ow, "view_channel")}
-                    disabled={savingOw === `${ch.id}:${role.id}:view_channel`}
-                    onPick={(s) => setOverwrite(ch.id, role.id, "view_channel", s)} />
-                  <span className="hidden sm:inline text-xs text-muted-foreground w-14">Текст</span>
-                  <TriButton state={overwriteTriState(ow, "send_messages")}
-                    disabled={savingOw === `${ch.id}:${role.id}:send_messages`}
-                    onPick={(s) => setOverwrite(ch.id, role.id, "send_messages", s)} />
-                </div>
-              );
-            })}
+            <div className="divide-y divide-border/40">
+              {roles.map((role) => {
+                const ow = overwrites.find((o) => o.channel_id === ch.id && o.role_id === role.id);
+                return (
+                  <div key={role.id} className="flex items-center gap-2 py-2">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
+                    <span className="text-sm font-medium flex-1 min-w-0 truncate">{role.name}</span>
+                    <span className="hidden sm:inline text-[11px] uppercase tracking-wide text-muted-foreground w-12">Вид</span>
+                    <TriButton state={overwriteTriState(ow, "view_channel")}
+                      disabled={savingOw === `${ch.id}:${role.id}:view_channel`}
+                      onPick={(s) => setOverwrite(ch.id, role.id, "view_channel", s)} />
+                    <span className="hidden sm:inline text-[11px] uppercase tracking-wide text-muted-foreground w-12">Текст</span>
+                    <TriButton state={overwriteTriState(ow, "send_messages")}
+                      disabled={savingOw === `${ch.id}:${role.id}:send_messages`}
+                      onPick={(s) => setOverwrite(ch.id, role.id, "send_messages", s)} />
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
         </div>
