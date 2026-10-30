@@ -10,11 +10,11 @@ import (
 )
 
 type stubAwardNotifier struct {
-	grants [][3]string // userID, awardKey, actor
+	grants [][4]string // userID, awardKey, actor, title
 }
 
-func (s *stubAwardNotifier) NotifyAwardGranted(userID, awardKey, actor string) {
-	s.grants = append(s.grants, [3]string{userID, awardKey, actor})
+func (s *stubAwardNotifier) NotifyAwardGranted(userID, awardKey, actor, title string) {
+	s.grants = append(s.grants, [4]string{userID, awardKey, actor, title})
 }
 
 func openRuleRows(keys ...string) *sqlmock.Rows {
@@ -93,6 +93,9 @@ func TestEvaluateAutoAwards_GrantsAndNotifies(t *testing.T) {
 	mock.ExpectQuery("SELECT username FROM users").
 		WithArgs("staff-1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("curator_ann"))
+	mock.ExpectQuery("SELECT title FROM achievements").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"title"}).AddRow("Test Award"))
 
 	grants, err := e.EvaluateAutoAwards(context.Background(), "")
 	if err != nil {
@@ -115,7 +118,7 @@ func TestEvaluateAutoAwards_GrantsAndNotifies(t *testing.T) {
 	if len(notif.grants) != 2 {
 		t.Fatalf("expected 2 notifications, got %d", len(notif.grants))
 	}
-	if notif.grants[0] != [3]string{"u1", "hw2026", "curator_ann"} {
+	if notif.grants[0] != [4]string{"u1", "hw2026", "curator_ann", "Test Award"} {
 		t.Errorf("unexpected notification: %v", notif.grants[0])
 	}
 }
@@ -155,6 +158,9 @@ func TestEvaluateAutoAwards_PastWindowStillGrants(t *testing.T) {
 	mock.ExpectQuery("SELECT username FROM users").
 		WithArgs("staff-1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("ann"))
+	mock.ExpectQuery("SELECT title FROM achievements").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"title"}).AddRow("Past Award"))
 
 	grants, err := e.EvaluateAutoAwards(context.Background(), "hw2025")
 	if err != nil {
@@ -185,6 +191,9 @@ func TestEvaluateAutoAwards_RegrantAfterRevoke(t *testing.T) {
 	mock.ExpectQuery("SELECT username FROM users").
 		WithArgs("staff-1").
 		WillReturnRows(sqlmock.NewRows([]string{"username"}).AddRow("ann"))
+	mock.ExpectQuery("SELECT title FROM achievements").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"title"}).AddRow("Regrant Award"))
 
 	grants, err := e.EvaluateAutoAwards(context.Background(), "hw2026")
 	if err != nil {

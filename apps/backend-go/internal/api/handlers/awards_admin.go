@@ -267,8 +267,8 @@ func (h *AwardsAdminHandler) GrantAward(c *gin.Context) {
 		return
 	}
 
-	var kind string
-	if err := h.db.QueryRow(`SELECT kind FROM achievements WHERE group_key = $1`, req.AwardKey).Scan(&kind); err != nil {
+	var kind, awardTitle string
+	if err := h.db.QueryRow(`SELECT kind, COALESCE(title, '') FROM achievements WHERE group_key = $1`, req.AwardKey).Scan(&kind, &awardTitle); err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Award not found"))
 			return
@@ -294,9 +294,10 @@ VALUES ($1, $2, $3, $4) RETURNING id`,
 	// Notify after a successful commit — never before, so a failed insert
 	// cannot produce a phantom notification.
 	h.notify(req.UserID, "award_granted", &models.NotificationParams{
-		AwardKey: req.AwardKey,
-		Reason:   req.Reason,
-		Actor:    h.username(staffID),
+		AwardKey:   req.AwardKey,
+		AwardTitle: awardTitle,
+		Reason:     req.Reason,
+		Actor:      h.username(staffID),
 	})
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{"id": grantID}))
@@ -337,10 +338,13 @@ RETURNING user_id, award_key`, req.ID, staffID, req.Reason).Scan(&userID, &award
 		return
 	}
 
+	var awardTitle string
+	_ = h.db.QueryRow(`SELECT COALESCE(title, '') FROM achievements WHERE group_key = $1`, awardKey).Scan(&awardTitle)
 	h.notify(userID, "award_revoked", &models.NotificationParams{
-		AwardKey: awardKey,
-		Reason:   req.Reason,
-		Actor:    h.username(staffID),
+		AwardKey:   awardKey,
+		AwardTitle: awardTitle,
+		Reason:     req.Reason,
+		Actor:      h.username(staffID),
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))

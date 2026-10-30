@@ -29,6 +29,7 @@ type AutoGrant struct {
 	UserID    string
 	AwardKey  string
 	Actor     string
+	Title     string
 	AwardedAt time.Time
 }
 
@@ -36,7 +37,7 @@ type AutoGrant struct {
 // panel — no toast). Nil disables them. Wired in routes once the notification
 // service is available.
 type AwardNotifier interface {
-	NotifyAwardGranted(userID, awardKey, actor string)
+	NotifyAwardGranted(userID, awardKey, actor, title string)
 }
 
 // autoAwardEvery is the default cadence of the auto-award loop.
@@ -162,19 +163,22 @@ func (e *Engine) evaluateAutoRule(ctx context.Context, r AutoRule) ([]AutoGrant,
 		return nil, nil
 	}
 
-	actor := ""
+	actor, title := "", ""
 	if r.CreatedBy != "" {
 		_ = e.db.QueryRowContext(ctx,
 			`SELECT username FROM users WHERE id = $1`, r.CreatedBy).Scan(&actor)
 	}
+	_ = e.db.QueryRowContext(ctx,
+		`SELECT title FROM achievements WHERE group_key = $1`, r.AwardKey).Scan(&title)
 	for i := range grants {
 		grants[i].Actor = actor
+		grants[i].Title = title
 	}
 	// Notify after the commit — never before, so a failed insert cannot
 	// produce a phantom notification. Delivery is best-effort.
 	if e.AwardNotifier != nil {
 		for _, g := range grants {
-			e.AwardNotifier.NotifyAwardGranted(g.UserID, g.AwardKey, g.Actor)
+			e.AwardNotifier.NotifyAwardGranted(g.UserID, g.AwardKey, g.Actor, g.Title)
 		}
 	}
 	return grants, nil

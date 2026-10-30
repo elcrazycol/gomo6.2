@@ -21,10 +21,10 @@ func NewAchievementNotifier(svc *notifications.Service) *AchievementNotifier {
 }
 
 // NotifyAwardGranted writes an "award_granted" notification carrying the award
-// key and the granter's username. It implements achievements.AwardNotifier;
-// the auto-award engine calls it only for newly inserted grants, so
-// notifications are naturally idempotent per (award, user).
-func (n *AchievementNotifier) NotifyAwardGranted(userID, awardKey, actor string) {
+// key, its display title and the granter's username. It implements
+// achievements.AwardNotifier; the auto-award engine calls it only for newly
+// inserted grants, so notifications are naturally idempotent per (award, user).
+func (n *AchievementNotifier) NotifyAwardGranted(userID, awardKey, actor, title string) {
 	if n == nil || n.svc == nil || userID == "" {
 		return
 	}
@@ -32,8 +32,9 @@ func (n *AchievementNotifier) NotifyAwardGranted(userID, awardKey, actor string)
 		RecipientID: userID,
 		Type:        "award_granted",
 		Params: &models.NotificationParams{
-			AwardKey: awardKey,
-			Actor:    actor,
+			AwardKey:   awardKey,
+			AwardTitle: title,
+			Actor:      actor,
 		},
 	})
 }

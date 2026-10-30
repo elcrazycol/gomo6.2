@@ -146,3 +146,22 @@ func TestDeleteAwardRule_OK(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestGrantAward_OK(t *testing.T) {
+	h, mock := setupAwardsAdminHandler(t)
+	expectAwardManager(mock, "curator-1", true)
+	// The kind lookup also resolves the display title for the notification.
+	mock.ExpectQuery(`SELECT kind, COALESCE\(title, ''\) FROM achievements WHERE group_key = \$1`).
+		WithArgs("hw2026").
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "title"}).AddRow("award", "Хэллоуин 2026"))
+	mock.ExpectQuery(`INSERT INTO user_awards`).
+		WithArgs("user-9", "hw2026", "curator-1", "за активность").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("grant-1"))
+
+	body := map[string]interface{}{"user_id": "user-9", "award_key": "hw2026", "reason": "за активность"}
+	c, w := testutil.NewPOSTContext("/api/v1/admin/awards/grant", body, curatorClaims(), nil)
+	h.GrantAward(c)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}

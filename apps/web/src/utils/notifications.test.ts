@@ -141,10 +141,10 @@ describe("notificationTitle", () => {
     expect(notificationTitle(n, t)).toBe("@bob хочет добавить вас в друзья");
   });
 
-  it("links achievement and award notifications to the trophy hall", () => {
+  it("links milestones to the quests page and awards to the profile", () => {
     expect(notificationLink({ ...base, type: "achievement_unlock" })).toBe("/achievements/me");
-    expect(notificationLink({ ...base, type: "award_granted" })).toBe("/achievements/me");
-    expect(notificationLink({ ...base, type: "award_revoked" })).toBe("/achievements/me");
+    expect(notificationLink({ ...base, type: "award_granted" })).toBe("/profile/me");
+    expect(notificationLink({ ...base, type: "award_revoked" })).toBe("/profile/me");
   });
 
   it("names the unlocked milestone level from the catalog", () => {
@@ -188,6 +188,13 @@ describe("notificationTitle", () => {
       params: { award_key: "award_bughunter" },
     };
     expect(notificationTitle(grantedSystem, t)).toBe("Вам вручили награду «Баг-хантер»");
+
+    const grantedTitle: Notification = {
+      ...base,
+      type: "award_granted",
+      params: { award_key: "smertniy", award_title: "смертный", actor: "demo" },
+    };
+    expect(notificationTitle(grantedTitle, t)).toBe("@demo выдал вам награду «смертный»");
 
     const revoked: Notification = {
       ...base,

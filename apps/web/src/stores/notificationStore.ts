@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { apiClient, type Notification } from "@/integrations/api/client";
 import type { WebSocketMessage } from "@/services/websocket";
 import { eventManager } from "@/services/eventManager";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 
 type NotificationStore = {
   notifications: Notification[];
@@ -80,6 +81,13 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
 
         return update;
       });
+
+      if (notif.type === "award_granted" || notif.type === "award_revoked") {
+        // The trophy case is cached per user for 30s — drop the recipient's
+        // awards entry at once, so the profile awards tab shows the grant
+        // (or its revoke) as soon as the user opens it instead of after TTL.
+        if (notif.user_id) invalidateByPrefix(`trophies:awards:${notif.user_id}`);
+      }
     });
 
     // Register callback for EventManager count updates (reconnection recovery)

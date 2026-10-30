@@ -4258,6 +4258,7 @@ export interface components {
                 achievement_name?: string;
                 group_key?: string;
                 award_key?: string;
+                award_title?: string;
                 level?: number;
                 reason?: string;
                 count?: number;

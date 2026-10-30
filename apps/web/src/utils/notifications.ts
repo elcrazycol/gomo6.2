@@ -12,6 +12,8 @@ export interface NotificationParams {
   /** Achievements group key (milestones) / award key (hand-granted). */
   group_key?: string;
   award_key?: string;
+  /** Award display title at grant time (admin awards have no i18n key). */
+  award_title?: string;
   /** Unlocked milestone level (1 for awards). */
   level?: number;
   /** Grant/revoke reason for award notifications. */
@@ -41,9 +43,13 @@ export function isWallNotification(type: string): boolean {
 export function notificationLink(notif: Notification, threadSlug?: string): string {
   const { type } = notif;
 
-  // Achievement/award notifications point at the recipient's trophy hall.
-  if (type === "achievement_unlock" || type === "award_granted" || type === "award_revoked") {
+  // Milestones live on the quests page; hand-granted awards live on the
+  // recipient's profile awards tab (the profile's default tab).
+  if (type === "achievement_unlock") {
     return notif.user_id ? `/achievements/${notif.user_id}` : "#";
+  }
+  if (type === "award_granted" || type === "award_revoked") {
+    return notif.user_id ? profileUrl({ id: notif.user_id }) : "#";
   }
 
   if (isWallNotification(type)) {
@@ -132,8 +138,11 @@ function milestoneName(t: TFunction, params: NotificationParams): string | null 
   return value === i18nKey ? null : value;
 }
 
-/** Resolve a hand-granted award's display name from the catalog, or null. */
+/** Resolve a hand-granted award's display name. Admin-created awards carry
+ * their title in the params (they have no i18n key); code awards fall back
+ * to the catalog lookup. Null when neither resolves. */
 function awardName(t: TFunction, params: NotificationParams): string | null {
+  if (params.award_title) return params.award_title;
   if (!params.award_key) return null;
   const i18nKey = `achievements.${params.award_key}.title`;
   const value = t(i18nKey);

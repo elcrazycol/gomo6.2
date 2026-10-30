@@ -294,6 +294,9 @@ type NotificationParams struct {
 	Level int `json:"level,omitempty"`
 	// AwardKey is the hand-granted award key for award_granted.
 	AwardKey string `json:"award_key,omitempty"`
+	// AwardTitle is the award's display title at grant time, so the frontend
+	// does not need an i18n key for admin-created awards (which have none).
+	AwardTitle string `json:"award_title,omitempty"`
 	// Reason is the grant/revoke reason shown for award_granted/award_revoked.
 	Reason string `json:"reason,omitempty"`
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCached, invalidateByPrefix } from "@/integrations/api/queryCache";
+import { eventManager } from "@/services/eventManager";
 import {
   buildTrophies,
   mapUserAchievementRaw,
@@ -126,6 +127,21 @@ export function useTrophies(
     loadedFor.current = userId;
     await load();
   }, [userId, load]);
+
+  // Live grant updates: when an award is granted/revoked while the profile
+  // is open, refetch at once instead of waiting out the 30s cache TTL.
+  // The notification room is already scoped to the viewer, so only the
+  // recipient's own row can arrive here.
+  useEffect(() => {
+    if (!enabled || !userId) return;
+    return eventManager.on("new_notification", (message) => {
+      const data = message.data as { type?: string; user_id?: string } | undefined;
+      if (!data) return;
+      if (data.type !== "award_granted" && data.type !== "award_revoked") return;
+      if (data.user_id && data.user_id !== userId) return;
+      void reload();
+    });
+  }, [enabled, userId, reload]);
 
   const trophies = useMemo(() => buildTrophies(milestones, awards), [milestones, awards]);
 
