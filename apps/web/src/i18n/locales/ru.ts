@@ -213,6 +213,7 @@ const ru: LocaleResources = {
     gems: "Гемы",
     gomosubs: "G-сабы",
     achievements: "Награды",
+    quests: "Квесты",
     moderation: "Модерация",
     logout: "Выйти",
     login: "Войти",

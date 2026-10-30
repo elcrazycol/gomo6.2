@@ -20,7 +20,7 @@ import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { GuestSignupBanner } from "@/components/GuestSignupBanner";
 import { Gomo6Mark } from "@/components/Gomo6Mark";
-import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
+import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search, Trophy } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 import { HighlightText } from "@/components/search/HighlightText";
@@ -1439,6 +1439,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <div className="hidden lg:block">
                 <ChatIcon userId={user.id} />
               </div>
+            )}
+            {/* Quests live under the profile on phones (right sidebar) — the
+                header icon is the desktop entry point. */}
+            {user && (
+              <NavigationLink to={`/achievements/${user.id}`} className="hidden lg:block" aria-label={t('nav.quests')}>
+                <Button variant="ghost" title={t('nav.quests')} className="relative h-8 w-8 p-0 hover:bg-[oklch(var(--foreground)/0.12)] transition-colors group">
+                  <Trophy className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+                </Button>
+              </NavigationLink>
             )}
             {user && (
               <div className="hidden lg:flex gap-1 sm:gap-2 items-center ml-2">

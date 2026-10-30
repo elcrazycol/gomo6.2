@@ -212,6 +212,7 @@ const en: LocaleResources = {
     gems: "Gems",
     gomosubs: "G-subs",
     achievements: "Awards",
+    quests: "Quests",
     moderation: "Moderation",
     logout: "Log out",
     login: "Log in",

@@ -20,6 +20,7 @@ import {
   Home,
   X,
   Settings,
+  Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
@@ -433,6 +434,16 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   <CurrencyIcon kind="gems" className="w-4 h-4 mr-2" />
                   {t('nav.gems')}
                   <span className="ml-auto text-sm text-muted-foreground">{dropsData.gems} {formatGemsLabel(dropsData.gems)}</span>
+                </Button>
+              </NavigationLink>
+            )}
+
+            {/* Quests — personal progress page; logged-in users only. */}
+            {user && (
+              <NavigationLink to={`/achievements/${user.id}`} onClick={() => setOpen(false)} className="block">
+                <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
+                  <Trophy className="w-4 h-4 mr-2" />
+                  {t('nav.quests')}
                 </Button>
               </NavigationLink>
             )}
