@@ -17,7 +17,9 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { TopLoadingBar } from "@/components/TopLoadingBar";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { HeaderIconButton, HeaderIconLink } from "@/components/HeaderIconButton";
+import { UnreadBadge } from "@/components/UnreadBadge";
 import { InkBar } from "@/components/ui/ink-bar";
+import { useUnclaimedCount } from "@/hooks/useUnclaimedRewards";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { GuestSignupBanner } from "@/components/GuestSignupBanner";
@@ -87,6 +89,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { user } = useAuth(); // Use cached auth hook instead of local state
+  // Claimable quest rewards for the header badge (0 for guests — no fetch).
+  const unclaimedCount = useUnclaimedCount(user?.id);
   const { loadProfile } = useProfileCache();
   const [isModerator, setIsModerator] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
@@ -1443,15 +1447,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               </HeaderIconLink>
             </div>
             {user && <NotificationBell userId={user.id} />}
-            {/* Messenger lives in the bottom nav on phones — keep the header
-                one for desktop only to avoid two identical entry points. */}
-            {user && (
-              <div className="hidden lg:block">
-                <ChatIcon userId={user.id} />
-              </div>
-            )}
-            {/* Quests live under the profile on phones (right sidebar) — the
-                header icon is the desktop entry point. */}
+            {/* Quests sit between notifications and messages: one glance shows
+                the bell, the claimable rewards and the chats, in that order. */}
             {user && (
               <div className="hidden lg:block">
                 <HeaderIconLink
@@ -1459,9 +1456,17 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                   label={t('nav.quests')}
                   title={t('nav.quests')}
                   active={location.pathname.startsWith("/achievements")}
+                  badge={<UnreadBadge count={unclaimedCount} />}
                 >
                   <ScrollText className="h-4 w-4" />
                 </HeaderIconLink>
+              </div>
+            )}
+            {/* Messenger lives in the bottom nav on phones — keep the header
+                one for desktop only to avoid two identical entry points. */}
+            {user && (
+              <div className="hidden lg:block">
+                <ChatIcon userId={user.id} />
               </div>
             )}
             {user && (

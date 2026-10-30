@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { HeaderIconButton } from "@/components/HeaderIconButton";
+import { useUnclaimedCount } from "@/hooks/useUnclaimedRewards";
 import { storageUrl } from "@/utils/storage";
 import { CurrencyIcon } from "@/components/CurrencyIcon";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
@@ -66,6 +67,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
 
   // Sidebar data (fetched lazily — only while the sheet is open).
   const { sections, loading: sectionsLoading } = useThreadSections(open);
+  const unclaimedCount = useUnclaimedCount(user?.id);
   const sidebarTabs = useSidebarTabsStore((state) => state.tabs);
   const removeSidebarTab = useSidebarTabsStore((state) => state.removeTab);
 
@@ -444,6 +446,11 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
                   <ScrollText className="w-4 h-4 mr-2" />
                   {t('nav.quests')}
+                  {unclaimedCount > 0 && (
+                    <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold tabular-nums text-primary-foreground">
+                      {unclaimedCount}
+                    </span>
+                  )}
                 </Button>
               </NavigationLink>
             )}

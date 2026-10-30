@@ -33,6 +33,7 @@ import { CurrencyIcon } from "@/components/CurrencyIcon";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 import { formatGemsLabel } from "@/utils/formatGemsLabel";
 import { useQuests, questErrorStatus, type Quest, type QuestLevel, type QuestReward, type QuestChest } from "@/hooks/useQuests";
+import { refreshUnclaimedCount } from "@/hooks/useUnclaimedRewards";
 import { useAuth } from "@/hooks/useAuth";
 import { loadAchievementsProfile } from "@/routes/data/achievementsData";
 import { isPublicId } from "@/utils/entityUrl";
@@ -479,6 +480,8 @@ export default function Achievements() {
       const granted = await claim(quest.group_key, level.level);
       // Surgical patch — no refetch, the row flips in place with animation.
       applyClaim(quest.group_key, level.level, granted);
+      // The header/sidebar badge reads a shared entry — drop it at once.
+      refreshUnclaimedCount(user?.id);
       const dropsWon = granted
         .filter((g) => g.kind === "drops")
         .reduce((sum, g) => sum + (g.amount ?? 0), 0);
@@ -497,6 +500,7 @@ export default function Achievements() {
       // 422 = progress moved (e.g. rules changed): re-sync too.
       const status = questErrorStatus(err);
       await reload();
+      refreshUnclaimedCount(user?.id);
       if (status === 409) {
         toast.message(t("quests.alreadyClaimed"));
       } else if (status !== 422) {
