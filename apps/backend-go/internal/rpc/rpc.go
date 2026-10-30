@@ -72,49 +72,95 @@ func (h *RPCHandler) SetNotifier(n *notifications.Service) {
 	h.notif = n
 }
 
-// canWriteChannel checks if a user can write to a channel (handles private channels).
+// canWriteChannel checks if a user can write to a channel (forum threads and
+// their replies — the member-only text chat additionally lives behind
+// channelaccess.CanWriteChannel, which shares the same union semantics).
+//
+// Denials are absolute: a ban, an active timeout or an explicit send_messages
+// deny block the write on public channels too. Owners and administrators
+// bypass everything.
 func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, error) {
 	if userID == "" {
 		return false, nil
 	}
 	var isPrivate bool
-	var ownerID string
+	var boardID, ownerID string
 	err := h.db.QueryRow(`
-		SELECT c.is_private, b.owner_id
+		SELECT COALESCE(c.is_private, false), c.board_id, b.owner_id
 		FROM channels c JOIN boards b ON c.board_id = b.id
 		WHERE c.id = $1
-	`, channelID).Scan(&isPrivate, &ownerID)
+	`, channelID).Scan(&isPrivate, &boardID, &ownerID)
 	if err != nil {
 		return false, err
-	}
-	if !isPrivate {
-		return true, nil
 	}
 	if ownerID == userID {
 		return true, nil
 	}
-	var hasAccess bool
+	// Bans deny everything, active timeouts deny writes.
+	var blocked bool
 	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM channel_permissions cp
-			JOIN gomosub_roles gr ON gr.id = cp.role_id
-			WHERE cp.channel_id = $1 AND gr.board_id = (SELECT board_id FROM channels WHERE id = $1)
-			AND (
-				(COALESCE(gr.is_everyone, false) = TRUE
-					AND EXISTS(SELECT 1 FROM gomosub_memberships gm0 WHERE gm0.board_id = (SELECT board_id FROM channels WHERE id = $1) AND gm0.user_id = $2))
-				OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-					WHERE mr.role_id = cp.role_id AND mr.user_id = $2 AND mr.board_id = (SELECT board_id FROM channels WHERE id = $1))
-				OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-					WHERE gm.role_id = cp.role_id AND gm.user_id = $2 AND gm.board_id = (SELECT board_id FROM channels WHERE id = $1))
-			)
-			AND (cp.allow @> '{"send_messages": true}'::jsonb OR (cp.allow = '{}'::jsonb AND cp.deny = '{}'::jsonb AND cp.can_write = true))
-			AND NOT (cp.deny @> '{"send_messages": true}'::jsonb)
-		)
-	`, channelID, userID).Scan(&hasAccess)
+		SELECT EXISTS(SELECT 1 FROM gomosub_bans
+			WHERE board_id = $1 AND user_id = $2
+			AND (expires_at IS NULL OR expires_at > NOW()))
+		OR EXISTS(SELECT 1 FROM gomosub_memberships
+			WHERE board_id = $1 AND user_id = $2
+			AND timed_out_until IS NOT NULL AND timed_out_until > NOW())
+	`, boardID, userID).Scan(&blocked)
 	if err != nil {
 		return false, err
 	}
-	return hasAccess, nil
+	if blocked {
+		return false, nil
+	}
+	// Server-level grants shared by every check on this board: administrator
+	// bypass plus the allow/deny union for the user's roles.
+	const grantsCTE = `
+		WITH my_roles AS (
+			SELECT gr.id, gr.permissions
+			FROM gomosub_roles gr
+			WHERE gr.board_id = $3 AND (
+				(COALESCE(gr.is_everyone, false) = TRUE
+					AND EXISTS(SELECT 1 FROM gomosub_memberships gm0
+						WHERE gm0.board_id = $3 AND gm0.user_id = $2))
+				OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
+					WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $3)
+				OR EXISTS(SELECT 1 FROM gomosub_memberships gm
+					WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $3)
+			)
+		)`
+	var admin bool
+	err = h.db.QueryRow(grantsCTE+`
+		SELECT EXISTS(SELECT 1 FROM my_roles WHERE permissions @> '{"administrator": true}'::jsonb)
+	`, channelID, userID, boardID).Scan(&admin)
+	if err != nil {
+		return false, err
+	}
+	if admin {
+		return true, nil
+	}
+	var allowed, denied bool
+	err = h.db.QueryRow(grantsCTE+`
+		SELECT
+			EXISTS(SELECT 1 FROM channel_permissions cp
+				WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)
+				AND (cp.allow @> '{"send_messages": true}'::jsonb
+				     OR (cp.allow = '{}'::jsonb AND cp.deny = '{}'::jsonb AND cp.can_write = true))),
+			EXISTS(SELECT 1 FROM channel_permissions cp
+				WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)
+				AND cp.deny @> '{"send_messages": true}'::jsonb)
+	`, channelID, userID, boardID).Scan(&allowed, &denied)
+	if err != nil {
+		return false, err
+	}
+	// An explicit deny wins everywhere (this is what let "no-write" roles
+	// keep posting on public channels before).
+	if denied {
+		return false, nil
+	}
+	if !isPrivate {
+		return true, nil
+	}
+	return allowed, nil
 }
 
 // ─── Wall Post RPC ──────────────────────────────────────────────────────────
@@ -256,7 +302,8 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	// Check board-level access for the thread's board
 	var postBoardID string
-	err = h.db.QueryRow("SELECT board_id FROM threads WHERE id = $1", req.ThreadID).Scan(&postBoardID)
+	var postChannelID sql.NullString
+	err = h.db.QueryRow("SELECT board_id, channel_id FROM threads WHERE id = $1", req.ThreadID).Scan(&postBoardID, &postChannelID)
 	if err == nil {
 		var postBoardVisibility string
 		var postBoardOwnerID string
@@ -271,6 +318,18 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 				c.JSON(http.StatusForbidden, models.ErrorResponse("You are not a member of this gomosub"))
 				return
 			}
+		}
+	}
+	// Replies obey the thread channel's write rule (mute/ban/deny included).
+	if postChannelID.Valid && postChannelID.String != "" {
+		channelWrite, channelErr := h.canWriteChannel(claims.UserID, postChannelID.String)
+		if channelErr != nil && channelErr != sql.ErrNoRows {
+			httpx.ServerError(c, "handler error", channelErr)
+			return
+		}
+		if !channelWrite {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to post in this channel"))
+			return
 		}
 	}
 	post, createErr := h.insertPostAndNotify(claims.UserID, claims.Username, &req, postBoardID)
