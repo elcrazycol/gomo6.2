@@ -4,7 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { wsService } from "@/services/websocket";
 import { Button } from "@/components/ui/button";
-import { Loader2, Hash, Shield, Users, Link, Gavel, PenLine, type LucideIcon } from "lucide-react";
+import { Loader2, Hash, KeyRound, Users, Link, Gavel, PenLine, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import GeneralPanel, { type GeneralForm } from "@/components/gomosub/settings/GeneralPanel";
@@ -46,7 +46,7 @@ const buildRulesMarkdown = (s: string, a: string[], f: string[]) => {
 const buildTabItems = (visibility: string, bans: number): { value: TabValue; label: string; icon: LucideIcon; badge?: number }[] => {
   const items: { value: TabValue; label: string; icon: LucideIcon; badge?: number }[] = [
     { value: "general", label: "Основное", icon: PenLine },
-    { value: "roles", label: "Роли", icon: Shield },
+    { value: "roles", label: "Роли", icon: KeyRound },
     { value: "members", label: "Участники", icon: Users },
     { value: "channels", label: "Каналы", icon: Hash },
     { value: "bans", label: "Баны", icon: Gavel, badge: bans || undefined },
@@ -178,6 +178,15 @@ const GomoSubSettings = () => {
       setInvites((d.data || []) as Invite[]);
     } catch { /* ignore */ }
     setInvitesLoading(false);
+  };
+
+  // Targeted patch after drag-and-drop reorder: updates the list in place
+  // without the full reloadAll (which flashes a spinner and jumps scroll).
+  // Structural writes (create/edit/delete) still go through reloadAll.
+  const patchChannels = (next: SettingsChannel[]) => {
+    invalidateByPrefix("/api/v1/channels");
+    invalidateByPrefix("/api/v1/channel_categories");
+    setChannels(next);
   };
 
   const reloadAll = async () => {
@@ -426,12 +435,18 @@ const GomoSubSettings = () => {
               : <ChannelsPanel
                   boardId={form.id} channels={channels} categories={categories} roles={roles}
                   overwrites={overwrites} canManage={canManageChannels} onChanged={reloadAll}
+                  onPatchChannels={patchChannels}
                   openChannelId={openChannelId}
                   onOpenOverwrites={async (id) => {
                     // Set (not toggle): saving an overwrite refreshes through
                     // this same callback and must not collapse the panel.
+                    // Targeted per-channel refetch only — no reloadAll, so no
+                    // spinner and no scroll jump while toggling overwrites.
                     setOpenChannelId(id || null);
-                    if (id) await loadOverwrites(id);
+                    if (id) {
+                      invalidateByPrefix("/api/v1/channel_permissions");
+                      await loadOverwrites(id);
+                    }
                   }}
                 />
           )}

@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { GripVertical, Loader2, PenLine, Plus, Trash2, Hash, MessageSquare, Lock, Shield, FolderPlus } from "lucide-react";
+import { GripVertical, Loader2, PenLine, Plus, Trash2, Hash, MessageSquare, Lock, SlidersHorizontal, FolderPlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { buildOverwriteBody, overwriteTriState } from "./permissions";
@@ -20,13 +20,14 @@ type Props = {
   overwrites: ChannelOverwrite[];
   canManage: boolean;
   onChanged: () => Promise<void>;
+  onPatchChannels: (next: SettingsChannel[]) => void;
   onOpenOverwrites: (channelId: string) => void;
   openChannelId: string | null;
 };
 
 const slugify = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "").slice(0, 30);
 
-const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canManage, onChanged, onOpenOverwrites, openChannelId }: Props) => {
+const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canManage, onChanged, onPatchChannels, onOpenOverwrites, openChannelId }: Props) => {
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<"forum" | "text">("forum");
   const [newCategory, setNewCategory] = useState("__none");
@@ -179,12 +180,15 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
       });
       const results = await Promise.all(jobs);
       if (results.some((r) => !r.ok)) throw new Error("order");
+      // Patch the parent list in place: no full reload, no spinner, the
+      // dragged row and scroll position stay exactly where they are.
+      onPatchChannels(ordered.map((o, i) => ({ ...o.ch, sort_order: i, category_id: o.catId })));
       toast.success("Каналы обновлены");
     } catch {
       toast.error("Не удалось сохранить порядок");
+      await reload();
     }
     setPersisting(false);
-    await reload();
   };
 
   const reload = onChanged;
@@ -288,12 +292,9 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
     const d = await r.json().catch(() => null);
     setSavingOw(null);
     if (!r.ok || !d?.success) { toast.error(d?.error || "Не удалось обновить права"); return; }
-    await onOpenOverwritesRefresh(chId);
-  };
-
-  const onOpenOverwritesRefresh = async (chId: string) => {
-    onOpenOverwrites(chId);
-    await reload();
+    // Targeted refresh of this channel's overwrites only: the panel stays
+    // open and the page never reloads or jumps.
+    await onOpenOverwrites(chId);
   };
 
   const renderChannel = (ch: SettingsChannel, catId: string | null) => {
@@ -337,7 +338,7 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
             <div className="flex items-center gap-0.5 shrink-0">
               <Button size="sm" variant="ghost" className={cn("h-8 w-8 p-0 rounded-lg", isOpen && "bg-primary/10 text-primary")} title="Права доступа"
                 onClick={() => (isOpen ? onOpenOverwrites("") : (setEditingId(null), onOpenOverwrites(ch.id)))}>
-                <Shield className="w-4 h-4" />
+                <SlidersHorizontal className="w-4 h-4" />
               </Button>
               <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-lg" title="Изменить"
                 onClick={() => {
