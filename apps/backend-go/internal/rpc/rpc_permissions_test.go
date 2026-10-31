@@ -57,9 +57,9 @@ func TestGetBoardUserPermissions_MultiRoleUnion(t *testing.T) {
 	// Two roles: one grants manage_channels, the other manage_members.
 	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
 		WithArgs(boardID, viewer).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "is_everyone"}).
-			AddRow("role-1", "mods", []byte(`{"can_manage_channels": true}`), false).
-			AddRow("role-2", "helpers", []byte(`{"can_manage_members": true}`), false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("role-1", "mods", []byte(`{"can_manage_channels": true}`), 5, false).
+			AddRow("role-2", "helpers", []byte(`{"can_manage_members": true}`), 3, false))
 
 	c, w := testutil.NewRPCGETContext(map[string]string{"_board_id": boardID})
 	c.Set("claims", &auth.Claims{UserID: viewer})

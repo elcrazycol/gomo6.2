@@ -918,10 +918,10 @@ func mockManagerGrants(mock sqlmock.Sqlmock, perms string, pos int) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
 		WithArgs("b1", "u2").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`(?s)SELECT gr\.permissions, gr\.position.*FROM gomosub_roles gr.*`).
+	mock.ExpectQuery(`(?s)SELECT gr\.id, gr\.name, gr\.permissions.*FROM gomosub_roles gr.*`).
 		WithArgs("b1", "u2").
-		WillReturnRows(sqlmock.NewRows([]string{"permissions", "position", "is_everyone"}).
-			AddRow([]byte(perms), pos, false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("r1", "role", []byte(perms), pos, false))
 }
 
 func mockRoleTarget(mock sqlmock.Sqlmock, roleID, boardID string, pos int, everyone bool) {

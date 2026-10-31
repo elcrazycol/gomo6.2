@@ -21,6 +21,7 @@ package storyaccess
 
 import (
 	"database/sql"
+	"github.com/gomo6/backend/internal/gomosubperms"
 )
 
 // viewerCanSeeProfile is the SQL form of privacy.CanViewUserContent for the
@@ -132,49 +133,57 @@ func CanViewBoardStories(db *sql.DB, viewerID, boardID string) (bool, error) {
 }
 
 // CanPostBoardStories reports whether viewerID may publish a story as boardID:
-// the board owner always; otherwise a member whose role carries the
-// `can_post_stories` permission. GomoSub roles are JSONB permission bags, so a
-// new capability needs no migration — it is read from the same row the
-// settings UI already writes.
+// the board owner always; otherwise a non-banned, non-timed-out member whose
+// resolved union carries `can_post_stories` (administrators included).
+// Resolves through the shared gomosubperms kernel instead of the legacy
+// single-role join.
 func CanPostBoardStories(db *sql.DB, viewerID, boardID string) (bool, error) {
-	if db == nil || viewerID == "" || boardID == "" {
-		return false, nil
-	}
-	var ok bool
-	err := db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1 FROM boards b
-			WHERE b.id::text = $2::text
-			  AND (b.owner_id::text = $1::text OR EXISTS (
-				SELECT 1 FROM gomosub_memberships gm
-				JOIN gomosub_roles gr ON gr.id = gm.role_id
-				WHERE gm.board_id = b.id AND gm.user_id::text = $1::text
-				  AND gr.permissions @> '{"can_post_stories": true}'::jsonb
-			  ))
-		)`, viewerID, boardID).Scan(&ok)
-	return ok, err
+	return checkBoardServerPerm(db, viewerID, boardID, gomosubperms.PermPostStories)
 }
 
 // CanModerateBoardStories reports whether viewerID may delete any story of the
-// board: the owner, or a member whose role carries can_delete_threads (the
-// existing "moderate content" switch).
+// board: the owner, or a non-banned, non-timed-out member whose resolved
+// union carries can_delete_threads (the existing "moderate content" switch).
 func CanModerateBoardStories(db *sql.DB, viewerID, boardID string) (bool, error) {
-	if db == nil || viewerID == "" || boardID == "" {
+	return checkBoardServerPerm(db, viewerID, boardID, gomosubperms.PermManageMessages)
+}
+
+// checkBoardServerPerm is the shared gate for board-level server permissions:
+// owner bypass, then the shared kernel union, with banned/timed-out members
+// denied (administrators bypass everything, mirroring channelaccess).
+func checkBoardServerPerm(db *sql.DB, userID, boardID, perm string) (bool, error) {
+	if db == nil || userID == "" || boardID == "" {
 		return false, nil
 	}
-	var ok bool
-	err := db.QueryRow(`
-		SELECT EXISTS (
-			SELECT 1 FROM boards b
-			WHERE b.id::text = $2::text
-			  AND (b.owner_id::text = $1::text OR EXISTS (
-				SELECT 1 FROM gomosub_memberships gm
-				JOIN gomosub_roles gr ON gr.id = gm.role_id
-				WHERE gm.board_id = b.id AND gm.user_id::text = $1::text
-				  AND gr.permissions @> '{"can_delete_threads": true}'::jsonb
-			  ))
-		)`, viewerID, boardID).Scan(&ok)
-	return ok, err
+	var ownerID string
+	if err := db.QueryRow(`SELECT owner_id::text FROM boards WHERE id::text = $1::text`, boardID).Scan(&ownerID); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	if ownerID == userID {
+		return true, nil
+	}
+	var banned, timedOut bool
+	_ = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_bans WHERE board_id::text = $2::text AND user_id::text = $1::text AND (expires_at IS NULL OR expires_at > NOW()))`,
+		userID, boardID).Scan(&banned)
+	if banned {
+		return false, nil
+	}
+	_ = db.QueryRow(`SELECT COALESCE(timed_out_until IS NOT NULL AND timed_out_until > NOW(), false) FROM gomosub_memberships WHERE board_id::text = $2::text AND user_id::text = $1::text`,
+		userID, boardID).Scan(&timedOut)
+	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
+	if err != nil || eff == nil {
+		return false, err
+	}
+	if eff.IsAdmin() {
+		return true, nil
+	}
+	if timedOut {
+		return false, nil
+	}
+	return eff.Perms()[perm], nil
 }
 
 var viewStoryQuery = `

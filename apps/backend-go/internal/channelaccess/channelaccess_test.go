@@ -45,12 +45,21 @@ func expectMembership(mock sqlmock.Sqlmock, isMember bool) {
 		WillReturnRows(rows)
 }
 
+// expectMemberExists mocks the membership check inside the shared kernel
+// loader (gomosubperms.LoadEffective); expectMembership above mocks the
+// timeout-aware check in membershipStatus. Both run per access check.
+func expectMemberExists(mock sqlmock.Sqlmock, isMember bool) {
+	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(isMember))
+}
+
 func expectRoles(mock sqlmock.Sqlmock, perms ...string) {
-	rows := sqlmock.NewRows([]string{"permissions", "is_everyone"})
-	for _, p := range perms {
+	rows := sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"})
+	for i, p := range perms {
 		// []byte mirrors what pgx returns for JSONB in production (sqlmock
 		// strings do not scan into json.RawMessage).
-		rows.AddRow([]byte(`{"`+p+`": true}`), false)
+		rows.AddRow("r-"+string(rune('0'+i)), "role", []byte(`{"`+p+`": true}`), i+1, false)
 	}
 	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
 		WithArgs(testBoard, testUser).
@@ -65,8 +74,8 @@ func expectDenyOverwrite(mock sqlmock.Sqlmock, user string) {
 }
 
 func expectEveryoneGrant(mock sqlmock.Sqlmock, perms string) {
-	rows := sqlmock.NewRows([]string{"permissions", "is_everyone"})
-	rows.AddRow([]byte(perms), true)
+	rows := sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"})
+	rows.AddRow("r-everyone", "@everyone", []byte(perms), 0, true)
 	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
 		WithArgs(testBoard, testUser).
 		WillReturnRows(rows)
@@ -84,6 +93,7 @@ func TestCanReadChannel_Allowed(t *testing.T) {
 	expectScope(mock, false, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, false)
+	expectMemberExists(mock, false)
 	expectRoles(mock)
 
 	ok, err := CanReadChannel(db, testUser, testChannel)
@@ -101,6 +111,7 @@ func TestCanReadChannel_Denied(t *testing.T) {
 	expectScope(mock, true, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, false)
+	expectMemberExists(mock, false)
 	expectRoles(mock)
 	expectNoOverwrites(mock)
 
@@ -120,6 +131,7 @@ func TestCanReadChannel_ExplicitDenyOnPublicDenied(t *testing.T) {
 	expectScope(mock, false, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, true)
+	expectMemberExists(mock, true)
 	expectRoles(mock, "send_messages")
 	expectDenyOverwrite(mock, testUser)
 
@@ -139,6 +151,7 @@ func TestCanReadChannel_MemberPublicNoGrantDenied(t *testing.T) {
 	expectScope(mock, false, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, true)
+	expectMemberExists(mock, true)
 	expectRoles(mock) // no grants at all
 	expectNoOverwrites(mock)
 
@@ -156,6 +169,7 @@ func TestCanReadChannel_MemberPublicEveryoneGrantAllowed(t *testing.T) {
 	expectScope(mock, false, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, true)
+	expectMemberExists(mock, true)
 	expectEveryoneGrant(mock, `{"view_channel": true}`)
 	expectNoOverwrites(mock)
 
@@ -189,6 +203,7 @@ func TestCanWriteChannel_Allowed(t *testing.T) {
 	expectScope(mock, false, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, true)
+	expectMemberExists(mock, true)
 	expectRoles(mock)
 
 	ok, err := CanWriteChannel(db, testUser, testChannel)
@@ -221,6 +236,7 @@ func TestCanModerateChannel_RoleGranted(t *testing.T) {
 	expectScope(mock, false, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, true)
+	expectMemberExists(mock, true)
 	expectRoles(mock, "can_delete_threads")
 
 	ok, err := CanModerateChannel(db, testUser, testChannel)
@@ -237,6 +253,7 @@ func TestCanModerateChannel_Denied(t *testing.T) {
 	expectScope(mock, false, "public")
 	expectNotBanned(mock)
 	expectMembership(mock, true)
+	expectMemberExists(mock, true)
 	expectRoles(mock) // no grants
 
 	ok, err := CanModerateChannel(db, testUser, testChannel)

@@ -2,10 +2,10 @@ package rpc
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"time"
 
+	"github.com/gomo6/backend/internal/gomosubperms"
 	"github.com/gomo6/backend/internal/websocket"
 
 	"github.com/gomo6/backend/internal/cache"
@@ -29,77 +29,29 @@ const (
 	maxTimeoutMinutes = 40320
 )
 
-// modProfile is one user's server-level standing on a board.
+// modProfile is one user's server-level standing on a board, resolved
+// through the shared kernel.
 type modProfile struct {
-	perms    map[string]bool
-	top      int
-	isMember bool
+	eff *gomosubperms.Effective
 }
 
-// loadModProfile reads the union of @everyone (members only) + all assigned
-// roles, plus the top position. @everyone sits at the implicit bottom:
-// members holding only it get top 0, outsiders get -1.
+// loadModProfile resolves the caller's standing via the shared kernel.
 func loadModProfile(db *sql.DB, boardID, userID string) (*modProfile, error) {
-	p := &modProfile{perms: map[string]bool{}, top: -1}
-	_ = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)`,
-		boardID, userID).Scan(&p.isMember)
-	rows, err := db.Query(`
-		SELECT gr.permissions, gr.position, COALESCE(gr.is_everyone, false)
-		FROM gomosub_roles gr
-		WHERE gr.board_id = $1 AND (
-			(COALESCE(gr.is_everyone, false) = TRUE)
-			OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-				WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $1)
-			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-				WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $1)
-		)`, boardID, userID)
+	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var raw json.RawMessage
-		var pos int
-		var everyone bool
-		if err := rows.Scan(&raw, &pos, &everyone); err != nil {
-			continue
-		}
-		if everyone && !p.isMember {
-			continue
-		}
-		if everyone {
-			if p.top < 0 {
-				p.top = 0
-			}
-			m := map[string]bool{}
-			if len(raw) > 0 {
-				_ = json.Unmarshal(raw, &m)
-			}
-			for k, v := range m {
-				if v {
-					p.perms[k] = true
-				}
-			}
-			continue
-		}
-		if pos > p.top {
-			p.top = pos
-		}
-		m := map[string]bool{}
-		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &m)
-		}
-		for k, v := range m {
-			if v {
-				p.perms[k] = true
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return p, nil
+	return &modProfile{eff: eff}, nil
 }
+
+// perms is shorthand for the resolved grant set.
+func (p *modProfile) perms() map[string]bool { return p.eff.Perms() }
+
+// isMember reports board membership.
+func (p *modProfile) isMember() bool { return p.eff.IsMember }
+
+// topRole is the highest held role position.
+func (p *modProfile) topRole() int { return p.eff.Top() }
 
 // authorizeMod enforces the three moderation gates. It returns nil + writes
 // the denial response when the action is not allowed.
@@ -140,15 +92,15 @@ func (h *RPCHandler) authorizeMod(c *gin.Context, boardID, targetID, needPerm st
 		httpx.ServerError(c, "handler error", err)
 		return false
 	}
-	if !actor.isMember {
+	if !actor.isMember() {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("You are not a member of this gomosub"))
 		return false
 	}
-	if !actor.perms[needPerm] && !actor.perms["can_manage_members"] && !actor.perms["administrator"] {
+	if !actor.perms()[needPerm] && !actor.perms()["can_manage_members"] && !actor.perms()["administrator"] {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
 		return false
 	}
-	if actor.perms["administrator"] {
+	if actor.perms()["administrator"] {
 		return true
 	}
 	target, err := loadModProfile(h.db, boardID, targetID)
@@ -156,7 +108,7 @@ func (h *RPCHandler) authorizeMod(c *gin.Context, boardID, targetID, needPerm st
 		httpx.ServerError(c, "handler error", err)
 		return false
 	}
-	if actor.top <= target.top {
+	if actor.topRole() <= target.topRole() {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("You cannot moderate someone with an equal or higher role"))
 		return false
 	}
@@ -430,7 +382,7 @@ func (h *RPCHandler) ListBans(c *gin.Context) {
 			httpx.ServerError(c, "handler error", err)
 			return
 		}
-		if !prof.isMember || (!prof.perms["ban_members"] && !prof.perms["can_manage_members"] && !prof.perms["administrator"]) {
+		if !prof.isMember() || (!prof.perms()["ban_members"] && !prof.perms()["can_manage_members"] && !prof.perms()["administrator"]) {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
 			return
 		}

@@ -25,26 +25,30 @@ func expectModOwner(mock sqlmock.Sqlmock, owner string) {
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(owner))
 }
 
-func expectModMember(mock sqlmock.Sqlmock, user string, member bool) {
+// expectKernelGrant mocks one LoadEffective call: the membership check
+// followed by the shared 5-column union.
+func expectKernelGrant(mock sqlmock.Sqlmock, user, perms string, pos int, member bool, name string) {
+	if name == "" {
+		name = "role"
+	}
 	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
 		WithArgs(modBoard, user).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(member))
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(modBoard, user).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("role-1", name, []byte(perms), pos, false))
 }
 
 func expectModRoles(mock sqlmock.Sqlmock, user, perms string, pos int) {
-	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
-		WithArgs(modBoard, user).
-		WillReturnRows(sqlmock.NewRows([]string{"permissions", "position", "is_everyone"}).
-			AddRow([]byte(perms), pos, false))
+	expectKernelGrant(mock, user, perms, pos, true, "")
 }
 
 // expectModGateOK mocks a passing gate: actor (kick-capable, top 5) vs target (top 2).
 func expectModGateOK(mock sqlmock.Sqlmock, perm string) {
 	expectModOwner(mock, modOwner)
-	expectModMember(mock, modActor, true)
-	expectModRoles(mock, modActor, `{"`+perm+`": true}`, 5)
-	expectModMember(mock, modTarget, true)
-	expectModRoles(mock, modTarget, `{}`, 2)
+	expectKernelGrant(mock, modActor, `{"`+perm+`": true}`, 5, true, "")
+	expectKernelGrant(mock, modTarget, `{}`, 2, true, "")
 }
 
 func TestKickMember_Success(t *testing.T) {
@@ -91,10 +95,8 @@ func TestKickMember_NotMember(t *testing.T) {
 func TestKickMember_HierarchyDenial(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 	expectModOwner(mock, modOwner)
-	expectModMember(mock, modActor, true)
-	expectModRoles(mock, modActor, `{"kick_members": true}`, 2)
-	expectModMember(mock, modTarget, true)
-	expectModRoles(mock, modTarget, `{}`, 9)
+	expectKernelGrant(mock, modActor, `{"kick_members": true}`, 2, true, "")
+	expectKernelGrant(mock, modTarget, `{}`, 9, true, "")
 
 	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
 	h.KickMember(c)

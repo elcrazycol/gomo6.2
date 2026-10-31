@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gomo6/backend/internal/channelaccess"
+	"github.com/gomo6/backend/internal/gomosubperms"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/notifications"
@@ -117,29 +118,13 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 	if blocked {
 		return false, nil
 	}
-	// Union of the user's server-level roles on this board.
-	const rolesCTE = `
-		WITH my_roles AS (
-			SELECT gr.id, gr.permissions
-			FROM gomosub_roles gr
-			WHERE gr.board_id = $2 AND (
-				(COALESCE(gr.is_everyone, false) = TRUE
-					AND EXISTS(SELECT 1 FROM gomosub_memberships gm0
-						WHERE gm0.board_id = $2 AND gm0.user_id = $1))
-				OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-					WHERE mr.role_id = gr.id AND mr.user_id = $1 AND mr.board_id = $2)
-				OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-					WHERE gm.role_id = gr.id AND gm.user_id = $1 AND gm.board_id = $2)
-			)
-		)`
-	var admin bool
-	err = h.db.QueryRow(rolesCTE+`
-		SELECT EXISTS(SELECT 1 FROM my_roles WHERE permissions @> '{"administrator": true}'::jsonb)
-	`, userID, boardID).Scan(&admin)
+	// Server-level standing from the shared kernel: union, top role,
+	// administrator bypass (owners bypassed earlier).
+	eff, err := gomosubperms.LoadEffective(h.db, boardID, userID)
 	if err != nil {
 		return false, err
 	}
-	if admin {
+	if eff.IsAdmin() {
 		return true, nil
 	}
 	// Must see the channel to write in it: members on public channels need
@@ -155,20 +140,7 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 		return false, nil
 	}
 	var allowed, denied bool
-	err = h.db.QueryRow(`
-		WITH my_roles AS (
-			SELECT gr.id
-			FROM gomosub_roles gr
-			WHERE gr.board_id = $3 AND (
-				(COALESCE(gr.is_everyone, false) = TRUE
-					AND EXISTS(SELECT 1 FROM gomosub_memberships gm0
-						WHERE gm0.board_id = $3 AND gm0.user_id = $2))
-				OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-					WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $3)
-				OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-					WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $3)
-			)
-		)
+	err = h.db.QueryRow(gomosubperms.RoleScopeCTE("$3", "$2")+`
 		SELECT
 			EXISTS(SELECT 1 FROM channel_permissions cp
 				WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)
@@ -878,72 +850,23 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 
 	if ownerID == claims.UserID {
 		c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
-			"is_owner": true,
-			"permissions": map[string]bool{
-				"administrator":       true,
-				"can_manage_roles":    true,
-				"can_manage_channels": true,
-				"can_manage_members":  true,
-				"kick_members":        true,
-				"ban_members":         true,
-				"timeout_members":     true,
-				"can_delete_threads":  true,
-				"can_pin_threads":     true,
-				// Stories: the owner may always publish community stories and
-				// the settings UI shows the switch as granted.
-				"can_post_stories": true,
-				"view_channel":     true,
-				"send_messages":    true,
-			},
-			"roles": []interface{}{},
+			"is_owner":    true,
+			"permissions": gomosubperms.OwnerPermissions(),
+			"roles":       []interface{}{},
 		}))
 		return
 	}
 
-	// Union of @everyone (members only) + all assigned roles — the multi-role
-	// join plus the legacy single role_id.
-	var memberExists bool
-	_ = h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)`,
-		boardID, claims.UserID).Scan(&memberExists)
-	rows, err := h.db.Query(`
-		SELECT gr.id, gr.name, gr.permissions, COALESCE(gr.is_everyone, false)
-		FROM gomosub_roles gr
-		WHERE gr.board_id = $1 AND (
-			(COALESCE(gr.is_everyone, false) = TRUE)
-			OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-				WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $1)
-			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-				WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $1)
-		)
-		ORDER BY gr.position DESC
-	`, boardID, claims.UserID)
+	// Server-level standing from the shared kernel.
+	eff, err := gomosubperms.LoadEffective(h.db, boardID, claims.UserID)
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	defer rows.Close()
-	perms := map[string]bool{}
+	perms := eff.Perms()
 	roles := []interface{}{}
-	for rows.Next() {
-		var id, name string
-		var raw json.RawMessage
-		var everyone bool
-		if err := rows.Scan(&id, &name, &raw, &everyone); err != nil {
-			continue
-		}
-		if everyone && !memberExists {
-			continue
-		}
-		m := map[string]bool{}
-		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &m)
-		}
-		for k, v := range m {
-			if v {
-				perms[k] = true
-			}
-		}
-		roles = append(roles, map[string]interface{}{"id": id, "name": name})
+	for _, r := range eff.Roles {
+		roles = append(roles, map[string]interface{}{"id": r.ID, "name": r.Name})
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{

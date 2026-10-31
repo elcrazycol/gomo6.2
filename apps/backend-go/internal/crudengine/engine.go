@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/gomosubperms"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/wall"
@@ -467,55 +468,15 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 	return h.checkRoleHierarchy(c, tableName, boardID, perms, actorTop)
 }
 
-// loadActorGrants unions the user's server-level permission grants on a board
-// (@everyone for members only, plus every assigned role) and reports the top
-// role position (@everyone counts as 0, outsiders get -1).
-func loadActorGrants(db *sql.DB, boardID, userID string, isMember bool) (map[string]bool, int, error) {
-	rows, err := db.Query(`
-		SELECT gr.permissions, gr.position, COALESCE(gr.is_everyone, false)
-		FROM gomosub_roles gr
-		WHERE gr.board_id = $1 AND (
-			(COALESCE(gr.is_everyone, false) = TRUE)
-			OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-				WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $1)
-			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-				WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $1)
-		)
-	`, boardID, userID)
-	if err != nil {
+// loadActorGrants resolves the user's server-level grants through the shared
+// kernel (gomosubperms.LoadEffective) instead of a local copy of the union
+// query. isMember is re-derived by the loader; the passed flag only short-circuits.
+func loadActorGrants(db *sql.DB, boardID, userID string, _ bool) (map[string]bool, int, error) {
+	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
+	if err != nil || eff == nil {
 		return nil, -1, err
 	}
-	defer rows.Close()
-	perms := map[string]bool{}
-	top := -1
-	for rows.Next() {
-		var raw json.RawMessage
-		var pos int
-		var everyone bool
-		if err := rows.Scan(&raw, &pos, &everyone); err != nil {
-			continue
-		}
-		if everyone && !isMember {
-			continue
-		}
-		if everyone {
-			if top < 0 {
-				top = 0
-			}
-		} else if pos > top {
-			top = pos
-		}
-		m := map[string]bool{}
-		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &m)
-		}
-		for k, v := range m {
-			if v {
-				perms[k] = true
-			}
-		}
-	}
-	return perms, top, rows.Err()
+	return eff.Perms(), eff.Top(), nil
 }
 
 // roleTarget describes a gomosub role referenced by a management write.

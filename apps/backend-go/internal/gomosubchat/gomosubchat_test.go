@@ -71,10 +71,16 @@ func expectChatMembership(mock sqlmock.Sqlmock, user string, isMember bool) {
 		WillReturnRows(rows)
 }
 
+func expectChatMemberExists(mock sqlmock.Sqlmock, user string, member bool) {
+	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs(testBoard, user).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(member))
+}
+
 func expectChatRoles(mock sqlmock.Sqlmock, user string, perms ...string) {
-	rows := sqlmock.NewRows([]string{"permissions", "is_everyone"})
-	for _, p := range perms {
-		rows.AddRow([]byte(`{"`+p+`": true}`), false)
+	rows := sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"})
+	for i, p := range perms {
+		rows.AddRow("r-chat-%d", "role", []byte(`{"`+p+`": true}`), i+1, false)
 	}
 	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
 		WithArgs(testBoard, user).
@@ -92,6 +98,7 @@ func expectChatReadOK(mock sqlmock.Sqlmock, user string) {
 	expectChatScope(mock, false)
 	expectChatNotBanned(mock, user)
 	expectChatMembership(mock, user, false)
+	expectChatMemberExists(mock, user, false)
 	expectChatRoles(mock, user)
 }
 
@@ -100,6 +107,7 @@ func expectChatReadDenied(mock sqlmock.Sqlmock, user string) {
 	expectChatScope(mock, true)
 	expectChatNotBanned(mock, user)
 	expectChatMembership(mock, user, false)
+	expectChatMemberExists(mock, user, false)
 	expectChatRoles(mock, user)
 	expectChatNoOverwrites(mock, user)
 }
@@ -109,6 +117,7 @@ func expectChatWriteOK(mock sqlmock.Sqlmock, user string) {
 	expectChatScope(mock, false)
 	expectChatNotBanned(mock, user)
 	expectChatMembership(mock, user, true)
+	expectChatMemberExists(mock, user, true)
 	expectChatRoles(mock, user)
 }
 
@@ -117,6 +126,7 @@ func expectChatWriteDenied(mock sqlmock.Sqlmock, user string) {
 	expectChatScope(mock, false)
 	expectChatNotBanned(mock, user)
 	expectChatMembership(mock, user, false)
+	expectChatMemberExists(mock, user, false)
 }
 
 // Moderator with the manage-messages grant.
@@ -124,6 +134,7 @@ func expectChatModerateOK(mock sqlmock.Sqlmock, user string) {
 	expectChatScope(mock, false)
 	expectChatNotBanned(mock, user)
 	expectChatMembership(mock, user, true)
+	expectChatMemberExists(mock, user, true)
 	expectChatRoles(mock, user, "can_delete_threads")
 }
 
@@ -132,6 +143,7 @@ func expectChatModerateDenied(mock sqlmock.Sqlmock, user string) {
 	expectChatScope(mock, false)
 	expectChatNotBanned(mock, user)
 	expectChatMembership(mock, user, true)
+	expectChatMemberExists(mock, user, true)
 	expectChatRoles(mock, user)
 }
 

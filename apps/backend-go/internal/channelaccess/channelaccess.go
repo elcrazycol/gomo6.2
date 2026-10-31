@@ -66,46 +66,34 @@ func isBanned(db *sql.DB, boardID, userID string) bool {
 	return banned
 }
 
-// roleRow carries one role's permission map plus its @everyone flag.
-type roleRow struct {
-	perms      map[string]bool
-	isEveryone bool
+// effectiveSet resolves the user's server-level grants on a board through the
+// shared kernel (gomosubperms.LoadEffective) instead of a local copy of the
+// union query.
+func effectiveSet(db *sql.DB, boardID, userID string) map[string]bool {
+	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
+	if err != nil || eff == nil {
+		return map[string]bool{}
+	}
+	return eff.Perms()
 }
 
-// loadRoleMaps returns the permission maps of every role granted to the user
-// on the board: @everyone counts only for members (callers pass isMember).
-func loadRoleMaps(db *sql.DB, boardID, userID string, isMember bool) []map[string]bool {
-	rows, err := db.Query(`
-		SELECT gr.permissions, COALESCE(gr.is_everyone, false)
-		FROM gomosub_roles gr
-		WHERE gr.board_id = $1 AND (
-			(COALESCE(gr.is_everyone, false) = TRUE)
-			OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-				WHERE mr.role_id = gr.id AND mr.user_id = $2 AND mr.board_id = $1)
-			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-				WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $1)
-		)`, boardID, userID)
-	if err != nil {
-		return nil
+// effectiveTop returns the user's top role position (see LoadEffective).
+func effectiveTop(db *sql.DB, boardID, userID string) int {
+	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
+	if err != nil || eff == nil {
+		return -1
 	}
-	defer rows.Close()
-	var out []map[string]bool
-	for rows.Next() {
-		var raw json.RawMessage
-		var everyone bool
-		if err := rows.Scan(&raw, &everyone); err != nil {
-			continue
-		}
-		if everyone && !isMember {
-			continue
-		}
-		m := map[string]bool{}
-		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &m)
-		}
-		out = append(out, m)
+	return eff.Top()
+}
+
+// isRoleMember reports board membership (used to skip the @everyone grant
+// for outsiders in overwrite resolution).
+func isRoleMember(db *sql.DB, boardID, userID string) bool {
+	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
+	if err != nil || eff == nil {
+		return false
 	}
-	return out
+	return eff.IsMember
 }
 
 // loadOverwrites returns the union of allow/deny maps for the user's roles on
@@ -113,18 +101,12 @@ func loadRoleMaps(db *sql.DB, boardID, userID string, isMember bool) []map[strin
 // can_read/can_write feed view_channel/send_messages when allow/deny are
 // empty for that row.
 func loadOverwrites(db *sql.DB, channelID, boardID, userID string, isMember bool) (allows, denies []map[string]bool) {
-	rows, err := db.Query(`
+	rows, err := db.Query(gomosubperms.RoleScopeCTE("$2", "$3")+`
 		SELECT cp.allow, cp.deny, COALESCE(cp.can_read, true), COALESCE(cp.can_write, true),
 		       COALESCE(gr.is_everyone, false)
 		FROM channel_permissions cp
 		JOIN gomosub_roles gr ON gr.id = cp.role_id
-		WHERE cp.channel_id = $1 AND gr.board_id = $2 AND (
-			(COALESCE(gr.is_everyone, false) = TRUE)
-			OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
-				WHERE mr.role_id = gr.id AND mr.user_id = $3)
-			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
-				WHERE gm.role_id = gr.id AND gm.user_id = $3 AND gm.board_id = $2)
-		)`, channelID, boardID, userID)
+		WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)`, channelID, boardID, userID)
 	if err != nil {
 		return nil, nil
 	}
@@ -190,11 +172,6 @@ func hasExplicitViewDeny(denies []map[string]bool) bool {
 	return false
 }
 
-// effectiveSet unions the user's server-level grants on a board.
-func effectiveSet(db *sql.DB, boardID, userID string, isMember bool) map[string]bool {
-	return gomosubperms.Union(loadRoleMaps(db, boardID, userID, isMember)...)
-}
-
 // CanReadChannel reports whether userID may see the message history of the
 // text channel channelID. userID must be non-empty (the caller is responsible
 // for requiring authentication).
@@ -223,7 +200,7 @@ func CanReadChannel(db *sql.DB, userID, channelID string) (bool, error) {
 		return true, nil
 	}
 	isMember, _ := membershipStatus(db, scope.boardID, userID)
-	eff := effectiveSet(db, scope.boardID, userID, isMember)
+	eff := effectiveSet(db, scope.boardID, userID)
 	if gomosubperms.IsAdmin(eff) {
 		return true, nil
 	}
@@ -274,7 +251,7 @@ func CanWriteChannel(db *sql.DB, userID, channelID string) (bool, error) {
 	if !isMember || timedOut {
 		return false, nil
 	}
-	eff := effectiveSet(db, scope.boardID, userID, true)
+	eff := effectiveSet(db, scope.boardID, userID)
 	if gomosubperms.IsAdmin(eff) {
 		return true, nil
 	}
@@ -316,7 +293,7 @@ func CanModerateChannel(db *sql.DB, userID, channelID string) (bool, error) {
 	if !isMember {
 		return false, nil
 	}
-	eff := effectiveSet(db, scope.boardID, userID, true)
+	eff := effectiveSet(db, scope.boardID, userID)
 	if gomosubperms.IsAdmin(eff) {
 		return true, nil
 	}
