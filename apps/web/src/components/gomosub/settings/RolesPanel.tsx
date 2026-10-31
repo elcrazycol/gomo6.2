@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Trash2, ArrowLeft } from "lucide-react";
+import { ChevronDown, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ALL_PERM_KEYS, PERMISSION_GROUPS, roleMemberCount } from "./permissions";
@@ -21,6 +21,20 @@ type Props = {
 
 const RolesPanel = ({ boardId, roles, members, grants, canManage, onChanged }: Props) => {
   const sorted = useMemo(() => [...roles].sort((a, b) => b.position - a.position), [roles]);
+  // @everyone always first: it is the base every other role builds on.
+  const ordered = useMemo(() => {
+    const ev = sorted.filter((r) => r.is_everyone);
+    return [...ev, ...sorted.filter((r) => !r.is_everyone)];
+  }, [sorted]);
+
+  const toggleRole = (r: Role) => {
+    if (selectedId === r.id) {
+      setSelectedId(null);
+      setDraft(null);
+    } else {
+      openRole(r);
+    }
+  };
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // No implicit selection: the editor draft is created on click, so the
   // switches always edit a real role instead of a draft-less placeholder.
@@ -90,33 +104,30 @@ const RolesPanel = ({ boardId, roles, members, grants, canManage, onChanged }: P
     await onChanged();
   };
 
-  const list = (
-    <div className="rounded-2xl border border-border/60 bg-surface overflow-hidden divide-y divide-border/40 p-1">
-      {sorted.map((r) => {
-        const count = r.is_everyone ? members.length : roleMemberCount(r.id, members, grants);
-        const active = selected?.id === r.id;
-        return (
-          <button
-            key={r.id}
-            onClick={() => openRole(r)}
-            className={cn(
-              "w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors",
-              active ? "bg-muted" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
-            <span className={cn("flex-1 min-w-0 truncate", active ? "font-semibold" : "font-medium")}>{r.name}</span>
-            {r.is_everyone && <Badge variant="secondary" className="text-[10px] shrink-0">все</Badge>}
-            <span className="text-xs text-muted-foreground shrink-0">{count}</span>
-          </button>
-        );
-      })}
-      {sorted.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">Ролей пока нет</p>}
-    </div>
-  );
+  const renderRow = (r: Role) => {
+    const count = r.is_everyone ? members.length : roleMemberCount(r.id, members, grants);
+    const open = selected?.id === r.id;
+    return (
+      <button
+        key={r.id}
+        onClick={() => toggleRole(r)}
+        aria-expanded={open}
+        className={cn(
+          "w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+          open ? "bg-muted/60" : "hover:bg-muted/40",
+        )}
+      >
+        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+        <span className={cn("flex-1 min-w-0 truncate", open ? "font-semibold" : "font-medium")}>{r.name}</span>
+        {r.is_everyone && <Badge variant="secondary" className="text-[10px] rounded shrink-0">базовая</Badge>}
+        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{count}</span>
+        <ChevronDown className={cn("w-4 h-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+    );
+  };
 
   const editor = selected && (
-    <div className="rounded-2xl border border-border/60 bg-surface overflow-hidden">
+    <div className="border-t border-border/40 bg-muted/20">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40">
         <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: draft?.color ?? selected.color }} />
         <span className="font-semibold text-[15px] truncate flex-1">{selected.is_everyone ? "@everyone — базовая роль" : draft?.name || selected.name}</span>
@@ -189,20 +200,16 @@ const RolesPanel = ({ boardId, roles, members, grants, canManage, onChanged }: P
 
   return (
     <div className="space-y-4">
-      {/* Mobile: list → editor with back. Desktop: two columns. */}
-      <div className="md:hidden">
-        {!selected || !draft ? list : (
-          <div className="space-y-3">
-            <Button size="sm" variant="ghost" onClick={() => { setSelectedId(null); setDraft(null); }}>
-              <ArrowLeft className="w-4 h-4 mr-1" />Все роли
-            </Button>
-            {editor}
+      {/* Single-column accordion on every viewport: tap a role to edit it
+          inline. @everyone stays pinned first as the base role. */}
+      <div className="rounded-2xl border border-border/60 bg-surface overflow-hidden divide-y divide-border/40">
+        {ordered.map((r) => (
+          <div key={r.id}>
+            {renderRow(r)}
+            {selected?.id === r.id && editor}
           </div>
-        )}
-      </div>
-      <div className="hidden md:grid md:grid-cols-[220px_1fr] md:gap-4 md:items-start">
-        <div className="sticky top-0">{list}</div>
-        <div>{editor ?? <p className="text-sm text-muted-foreground py-8 text-center">Выбери роль слева</p>}</div>
+        ))}
+        {ordered.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">Ролей пока нет</p>}
       </div>
       {canManage && (
         <div className={settingsFormCard}>

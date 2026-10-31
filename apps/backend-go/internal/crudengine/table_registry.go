@@ -316,11 +316,13 @@ var genericTables = []TableMeta{
 		InvalidateCache: invalidateEmojiPacksCache,
 	},
 	{
-		Name:              "gomosub_bans",
+		Name: "gomosub_bans",
+		// No generic writes on purpose: bans go exclusively through the
+		// gomosub_ban/unban RPC, which enforces the hierarchy (a generic
+		// write would let any can_manage_members holder ban upwards).
 		ReadAccess:        ProtectedRead,
 		ReadWildcard:      true,
-		Writes:            fullWrites(),
-		WriteGroup:        GenericWrite,
+		WriteDenied:       true,
 		GomosubManagement: true,
 	},
 	{

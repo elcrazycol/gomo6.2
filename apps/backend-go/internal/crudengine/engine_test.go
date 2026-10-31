@@ -914,6 +914,114 @@ func TestEnginePut_GomosubMemberships_SameBoardRole(t *testing.T) {
 	}
 }
 
+func mockManagerGrants(mock sqlmock.Sqlmock, perms string, pos int) {
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs("b1", "u2").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`(?s)SELECT gr\.permissions, gr\.position.*FROM gomosub_roles gr.*`).
+		WithArgs("b1", "u2").
+		WillReturnRows(sqlmock.NewRows([]string{"permissions", "position", "is_everyone"}).
+			AddRow([]byte(perms), pos, false))
+}
+
+func mockRoleTarget(mock sqlmock.Sqlmock, roleID, boardID string, pos int, everyone bool) {
+	mock.ExpectQuery(`SELECT board_id, position, COALESCE\(is_everyone, false\) FROM gomosub_roles WHERE id = \$1`).
+		WithArgs(roleID).
+		WillReturnRows(sqlmock.NewRows([]string{"board_id", "position", "is_everyone"}).
+			AddRow(boardID, pos, everyone))
+}
+
+func mockBoardOwner(mock sqlmock.Sqlmock, boardID, owner string) {
+	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(owner))
+}
+
+// A manager must not edit roles at or above their own top role.
+func TestEnginePut_GomosubRoles_HierarchyDenial(t *testing.T) {
+	h, mock := setupEngine(t)
+	mockBoardOwner(mock, "b1", "u9")
+	mockManagerGrants(mock, `{"can_manage_roles": true}`, 5)
+	mockRoleTarget(mock, "senior-role", "b1", 9, false)
+
+	c, w := newRequestContext("PUT", "/api/v1/gomosub_roles?id=eq.senior-role&board_id=eq.b1", map[string]interface{}{
+		"name": "Senior",
+	}, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Granting administrator without holding it is rejected even below top.
+func TestEnginePost_GomosubRoles_AdminGrantDenied(t *testing.T) {
+	h, mock := setupEngine(t)
+	mockBoardOwner(mock, "b1", "u9")
+	mockManagerGrants(mock, `{"can_manage_roles": true}`, 5)
+
+	c, w := newRequestContext("POST", "/api/v1/gomosub_roles", map[string]interface{}{
+		"board_id": "b1", "name": "Sneaky", "position": 1,
+		"permissions": map[string]interface{}{"administrator": true},
+	}, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// A legitimate lower-role grant passes both gates.
+func TestEnginePost_GomosubMemberRoles_Allowed(t *testing.T) {
+	h, mock := setupEngine(t)
+	mockBoardOwner(mock, "b1", "u9")
+	mockManagerGrants(mock, `{"can_manage_members": true}`, 5)
+	mockRoleTarget(mock, "helper-role", "b1", 2, false)
+	mock.ExpectQuery(`(?s).*INSERT INTO gomosub_member_roles.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id", "user_id", "role_id"}).
+			AddRow("g1", "b1", "u3", "helper-role"))
+
+	c, w := newRequestContext("POST", "/api/v1/gomosub_member_roles", map[string]interface{}{
+		"board_id": "b1", "user_id": "u3", "role_id": "helper-role",
+	}, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Assigning a role above your top is rejected.
+func TestEnginePost_GomosubMemberRoles_HierarchyDenial(t *testing.T) {
+	h, mock := setupEngine(t)
+	mockBoardOwner(mock, "b1", "u9")
+	mockManagerGrants(mock, `{"can_manage_members": true}`, 5)
+	mockRoleTarget(mock, "senior-role", "b1", 9, false)
+
+	c, w := newRequestContext("POST", "/api/v1/gomosub_member_roles", map[string]interface{}{
+		"board_id": "b1", "user_id": "u3", "role_id": "senior-role",
+	}, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// Untargeted grant wipes are rejected (role_id is required).
+func TestEngineDelete_GomosubMemberRoles_RoleRequired(t *testing.T) {
+	h, mock := setupEngine(t)
+	mockBoardOwner(mock, "b1", "u9")
+	mockManagerGrants(mock, `{"can_manage_members": true}`, 5)
+
+	c, w := newRequestContext("DELETE", "/api/v1/gomosub_member_roles?board_id=eq.b1&user_id=eq.u3", nil, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestEngineDelete_WallComments_OwnershipScope(t *testing.T) {
 	h, mock := setupEngine(t)
 

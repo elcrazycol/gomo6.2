@@ -431,10 +431,48 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 	_ = h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)`,
 		boardID, claims.UserID).Scan(&memberExists)
 
-	// Get user's role permissions: union of @everyone (members only) + all
-	// assigned roles (multi-role join plus the legacy single role_id).
-	rows, err := h.db.Query(`
-		SELECT gr.permissions, COALESCE(gr.is_everyone, false)
+	perms, actorTop, err := loadActorGrants(h.db, boardID, claims.UserID, memberExists)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		c.Abort()
+		return false
+	}
+	if len(perms) == 0 && !memberExists {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
+		c.Abort()
+		return false
+	}
+
+	// Check table-specific permissions.
+	needed := gomosubTablePermission(tableName)
+	hasPerm := needed == "" || perms[needed] || perms["administrator"]
+	// Role assignment sits at the intersection of the two management
+	// domains: holders of either can_manage_roles or can_manage_members may
+	// grant/revoke roles (Discord's Manage Roles covers it; our
+	// can_manage_members explicitly documents role assignment too).
+	if tableName == "gomosub_member_roles" && (perms["can_manage_roles"] || perms["can_manage_members"]) {
+		hasPerm = true
+	}
+	if !hasPerm {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
+		c.Abort()
+		return false
+	}
+	// Hierarchy (Discord rule): role-affecting writes may only touch roles
+	// strictly below the actor's top role and may never grant permissions
+	// the actor lacks. Owners bypassed earlier, administrators here.
+	if perms["administrator"] {
+		return true
+	}
+	return h.checkRoleHierarchy(c, tableName, boardID, perms, actorTop)
+}
+
+// loadActorGrants unions the user's server-level permission grants on a board
+// (@everyone for members only, plus every assigned role) and reports the top
+// role position (@everyone counts as 0, outsiders get -1).
+func loadActorGrants(db *sql.DB, boardID, userID string, isMember bool) (map[string]bool, int, error) {
+	rows, err := db.Query(`
+		SELECT gr.permissions, gr.position, COALESCE(gr.is_everyone, false)
 		FROM gomosub_roles gr
 		WHERE gr.board_id = $1 AND (
 			(COALESCE(gr.is_everyone, false) = TRUE)
@@ -443,22 +481,29 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 			OR EXISTS(SELECT 1 FROM gomosub_memberships gm
 				WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $1)
 		)
-	`, boardID, claims.UserID)
+	`, boardID, userID)
 	if err != nil {
-		httpx.ServerError(c, "handler error", err)
-		c.Abort()
-		return false
+		return nil, -1, err
 	}
 	defer rows.Close()
 	perms := map[string]bool{}
+	top := -1
 	for rows.Next() {
 		var raw json.RawMessage
+		var pos int
 		var everyone bool
-		if err := rows.Scan(&raw, &everyone); err != nil {
+		if err := rows.Scan(&raw, &pos, &everyone); err != nil {
 			continue
 		}
-		if everyone && !memberExists {
+		if everyone && !isMember {
 			continue
+		}
+		if everyone {
+			if top < 0 {
+				top = 0
+			}
+		} else if pos > top {
+			top = pos
 		}
 		m := map[string]bool{}
 		if len(raw) > 0 {
@@ -470,28 +515,246 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 			}
 		}
 	}
-	if len(perms) == 0 && !memberExists {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
+	return perms, top, rows.Err()
+}
+
+// roleTarget describes a gomosub role referenced by a management write.
+type roleTarget struct {
+	boardID    string
+	position   int
+	isEveryone bool
+}
+
+// fetchRoleTarget loads the board, position and @everyone flag of a role.
+// sql.ErrNoRows means the role does not exist.
+func fetchRoleTarget(db *sql.DB, roleID string) (*roleTarget, error) {
+	var t roleTarget
+	err := db.QueryRow(`SELECT board_id, position, COALESCE(is_everyone, false) FROM gomosub_roles WHERE id = $1`,
+		roleID).Scan(&t.boardID, &t.position, &t.isEveryone)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// gomosubRequestRoleID extracts the role a member_roles write targets: the
+// role_id query filter (DELETE) first, then the JSON body (POST).
+func gomosubRequestRoleID(c *gin.Context) string {
+	if rid := strings.TrimPrefix(c.Query("role_id"), "eq."); rid != "" {
+		return rid
+	}
+	if body := gomosubRequestBody(c); body != nil {
+		if rid, _ := body["role_id"].(string); rid != "" {
+			return rid
+		}
+	}
+	return ""
+}
+
+// gomosubRequestBody parses the JSON body and restores it for downstream
+// handlers (the body reader is single-use).
+func gomosubRequestBody(c *gin.Context) map[string]interface{} {
+	if c.Request.Body == nil {
+		return nil
+	}
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	if len(bodyBytes) == 0 {
+		return nil
+	}
+	var body map[string]interface{}
+	if json.Unmarshal(bodyBytes, &body) != nil {
+		return nil
+	}
+	return body
+}
+
+// gomosubTargetID extracts the row id a PUT/DELETE addresses: the id query
+// filter (PostgREST style) first, then the URL path form.
+func gomosubTargetID(c *gin.Context, tableName string) string {
+	if id := strings.TrimPrefix(c.Query("id"), "eq."); id != "" {
+		return id
+	}
+	return extractRecordID(c.Request.URL.Path, tableName)
+}
+
+// checkRoleHierarchy enforces the Discord hierarchy rule on role-affecting
+// writes: only roles strictly below the actor's top role may be touched, only
+// permissions the actor holds may be granted, and @everyone can never be
+// renamed, moved, deleted or explicitly granted. A missing or foreign-board
+// target is left to the downstream board-scoped statement (which naturally
+// matches nothing), so existence is never leaked. Returns false after
+// writing the denial response.
+func (h *Engine) checkRoleHierarchy(c *gin.Context, tableName, boardID string, actorPerms map[string]bool, actorTop int) bool {
+	deny := func(msg string) bool {
+		c.JSON(http.StatusForbidden, models.ErrorResponse(msg))
 		c.Abort()
 		return false
 	}
 
-	// Check table-specific permissions (administrator bypasses everything).
-	needed := gomosubTablePermission(tableName)
-	if needed == "" || perms[needed] || perms["administrator"] {
-		return true
-	}
-	// Role assignment sits at the intersection of the two management
-	// domains: holders of either can_manage_roles or can_manage_members may
-	// grant/revoke roles (Discord's Manage Roles covers it; our
-	// can_manage_members explicitly documents role assignment too).
-	if tableName == "gomosub_member_roles" && (perms["can_manage_roles"] || perms["can_manage_members"]) {
-		return true
-	}
+	switch tableName {
+	case "gomosub_roles":
+		if c.Request.Method == "POST" {
+			body := gomosubRequestBody(c)
+			if body == nil {
+				return deny("Invalid request body")
+			}
+			if v, _ := body["is_everyone"].(bool); v {
+				return deny("The @everyone role is managed by the system")
+			}
+			if name, _ := body["name"].(string); name == "@everyone" {
+				return deny("That role name is reserved")
+			}
+			pos := 0
+			if p, ok := body["position"].(float64); ok {
+				pos = int(p)
+			}
+			if pos >= actorTop {
+				return deny("You cannot create roles at or above your own top role")
+			}
+			return checkGrantedPerms(c, body, actorPerms)
+		}
+		targetID := gomosubTargetID(c, tableName)
+		if targetID == "" {
+			return deny("Role id is required")
+		}
+		target, err := fetchRoleTarget(h.db, targetID)
+		if err == sql.ErrNoRows {
+			return true // downstream board-scoped statement matches nothing
+		}
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			c.Abort()
+			return false
+		}
+		if target.boardID != boardID {
+			return true // cross-board: downstream matches nothing (no leak)
+		}
+		if c.Request.Method == "DELETE" {
+			if target.isEveryone {
+				return deny("The @everyone role cannot be deleted")
+			}
+			if target.position >= actorTop {
+				return deny("You cannot delete roles at or above your own top role")
+			}
+			return true
+		}
+		// PUT
+		if target.isEveryone {
+			body := gomosubRequestBody(c)
+			if body != nil {
+				if _, hasName := body["name"]; hasName {
+					return deny("The @everyone role cannot be renamed")
+				}
+				if _, hasPos := body["position"]; hasPos {
+					return deny("The @everyone role cannot be moved")
+				}
+				if _, hasFlag := body["is_everyone"]; hasFlag {
+					return deny("The @everyone role is managed by the system")
+				}
+			}
+			return checkGrantedPerms(c, body, actorPerms)
+		}
+		if target.position >= actorTop {
+			return deny("You cannot edit roles at or above your own top role")
+		}
+		if pos, ok := gomosubRequestPosition(c); ok && pos >= actorTop {
+			return deny("You cannot move roles to or above your own top role")
+		}
+		return checkGrantedPerms(c, gomosubRequestBody(c), actorPerms)
 
-	c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
-	c.Abort()
-	return false
+	case "gomosub_member_roles":
+		roleID := gomosubRequestRoleID(c)
+		if roleID == "" {
+			return deny("role_id is required")
+		}
+		target, err := fetchRoleTarget(h.db, roleID)
+		if err == sql.ErrNoRows {
+			return true // downstream matches nothing
+		}
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			c.Abort()
+			return false
+		}
+		if target.boardID != boardID {
+			return true // cross-board: downstream matches nothing
+		}
+		if target.isEveryone {
+			return deny("The @everyone role applies to everyone implicitly")
+		}
+		if target.position >= actorTop {
+			return deny("You cannot assign roles at or above your own top role")
+		}
+		return true
+
+	case "gomosub_memberships":
+		// Legacy single-role assignment on PUT (and exotic POST with a role).
+		body := gomosubRequestBody(c)
+		if body == nil {
+			return true
+		}
+		rid, _ := body["role_id"].(string)
+		if rid == "" || rid == "<nil>" {
+			return true
+		}
+		target, err := fetchRoleTarget(h.db, rid)
+		if err == sql.ErrNoRows {
+			return true // PrepareBody already rejects unknown-board roles
+		}
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			c.Abort()
+			return false
+		}
+		if target.boardID != boardID || target.isEveryone {
+			return true // handled downstream / nothing to escalate to
+		}
+		if target.position >= actorTop {
+			return deny("You cannot assign roles at or above your own top role")
+		}
+		return true
+	}
+	return true
+}
+
+// gomosubRequestPosition reads an optional position from the JSON body.
+func gomosubRequestPosition(c *gin.Context) (int, bool) {
+	body := gomosubRequestBody(c)
+	if body == nil {
+		return 0, false
+	}
+	p, ok := body["position"].(float64)
+	if !ok {
+		return 0, false
+	}
+	return int(p), true
+}
+
+// checkGrantedPerms ensures every permission the write turns on is one the
+// actor holds (nil body = nothing granted). Discord parity: you cannot hand
+// out what you lack — in particular, administrator.
+func checkGrantedPerms(c *gin.Context, body map[string]interface{}, actorPerms map[string]bool) bool {
+	if body == nil {
+		return true
+	}
+	raw, ok := body["permissions"]
+	if !ok || raw == nil {
+		return true
+	}
+	granted, _ := raw.(map[string]interface{})
+	for key, val := range granted {
+		on, _ := val.(bool)
+		if on && !actorPerms[key] {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("You cannot grant permissions you don't have ("+key+")"))
+			c.Abort()
+			return false
+		}
+	}
+	return true
 }
 
 // gomosubTablePermission returns the permission key needed to write to a gomosub table.
