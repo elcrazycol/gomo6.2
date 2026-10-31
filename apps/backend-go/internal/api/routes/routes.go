@@ -634,10 +634,17 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/favorites/ids", favoritesHandler.GetFavoriteIds)
 			protected.DELETE("/favorites/:itemType/:itemId", favoritesHandler.RemoveFavorite)
 
-			// Quests: idempotent reward claims and chest opens (self only).
+			// Quests: full-session opens (credited at once) + idempotent claims, self only.
 			protected.POST("/quests/claim", questsHandler.Claim)
 			protected.POST("/quests/reconcile", questsHandler.Reconcile)
 			protected.POST("/quests/chests/:id/open", questsHandler.OpenChest)
+
+			// Daily quests: rotating server-day set, self only (every read
+			// settles yesterday, so reads write).
+			protected.GET("/quests/daily", questsHandler.GetDaily)
+			protected.POST("/quests/daily/claim", questsHandler.ClaimDaily)
+			protected.POST("/quests/daily/restore", questsHandler.RestoreDailyStreak)
+			protected.POST("/quests/daily/chests/:id/open", questsHandler.OpenDailyChest)
 
 			// Custom sidebar tabs (synced across devices).
 			protected.GET("/sidebar_tabs", sidebarTabsHandler.GetTabs)
@@ -1287,7 +1294,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// catalog are dropped and counters are seeded from the real source tables,
 	// so unlocks appear immediately instead of after the next action. Guarded by
 	// a Redis marker so it only runs once per Redis lifetime; on a fresh DB the
-	// backfill also populates the user_achievement_counters table.
+	// backfill also populates the user_achievement_counters table. The pass
+	// itself streams users in keyset pages (see RecomputeAll), so memory stays
+	// flat and a restart stops it cleanly; per-user recompute is idempotent, so
+	// an interrupted pass converges on the next run or lazily via live events.
 	if redis != nil {
 		backfillKey := "achievements:backfill:v4"
 		claimed, err := redis.SetNX(context.Background(), backfillKey, "1", 0).Result()

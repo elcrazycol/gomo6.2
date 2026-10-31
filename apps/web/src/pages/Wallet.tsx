@@ -61,9 +61,10 @@ export default function Wallet() {
     try {
       const token = await getToken();
       if (!token) return;
-      // Drops mode is the earnable-currency view: only quest earnings, which
-      // never touch the gems balance and stay out of the gems history.
-      const typeParam = mode === "drops" ? "&type=quest_reward" : activeFilter !== "all" ? `&type=${activeFilter}` : "";
+      // Drops mode is the earnable-currency view: quest earnings, daily
+      // earnings (incl. chest payouts) and streak-restore spends. The paid
+      // gems history never shows these (backend default excludes them).
+      const typeParam = mode === "drops" ? "&type=quest_reward,daily_reward,daily_restore" : activeFilter !== "all" ? `&type=${activeFilter}` : "";
       const res = await fetch(`/api/v1/drops/history?limit=50${typeParam}`, {
         headers: { Authorization: `Bearer ${token}` },
       });

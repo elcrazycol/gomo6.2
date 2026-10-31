@@ -161,55 +161,47 @@ VALUES ($1, $2, $3, $4) RETURNING id::text`,
 	return gr, nil
 }
 
-// ChestResult is the outcome of opening a quest chest.
+// ChestResult is the outcome of opening a quest chest. The whole session is
+// played AND credited server-side in a single call, the moment the modal
+// opens — there is no backing out of the ceremony, and leaving mid-way
+// loses nothing: everything the remaining taps would reveal is already in
+// the wallet. Steps replays the session tap-by-tap (attempt budget per
+// rarity, upgrade-or-lose-it, exactly the dev-panel feel) so every click
+// reveals the next pre-rolled event.
 type ChestResult struct {
 	Rarity string                `json:"rarity"`
 	Drops  int                   `json:"drops"`
 	Detail []gamification.Reward `json:"rewards"`
+	Steps  []ChestStep           `json:"steps"`
 }
 
-// OpenChest plays a full gamification session for one of the user's unopened
-// chests and credits the rolled drops. One chest opens exactly once
-// (opened_at guard); a retry after a crash returns ErrChestOpened.
-func (e *Engine) OpenChest(ctx context.Context, userID, chestID string) (*ChestResult, error) {
-	if e.db == nil {
-		return nil, fmt.Errorf("achievements: OpenChest: nil db")
-	}
-	tx, err := e.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("achievements: open begin: %w", err)
-	}
-	defer tx.Rollback()
+// ChestStep is one tap of the server-side session, in order.
+type ChestStep struct {
+	Type         string `json:"type"`
+	Rarity       string `json:"rarity"`
+	AttemptsLeft int    `json:"attempts_left"`
+}
 
-	var mechanic string
-	err = tx.QueryRowContext(ctx, `
-SELECT mechanic FROM quest_chests
-WHERE id = $1::uuid AND user_id = $2 AND opened_at IS NULL`,
-		chestID, userID).Scan(&mechanic)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrChestUnknown
-		}
-		return nil, fmt.Errorf("achievements: open chest read: %w", err)
-	}
+// playChestSession runs one full gamification chest session server-side and
+// rolls its rewards. Shared by the quest-catalog chests and the daily ones.
+func playChestSession(mechanic string) (*ChestResult, error) {
 	m, ok := gamification.Lookup(mechanic)
 	if !ok {
 		return nil, fmt.Errorf("achievements: unknown chest mechanic %q", mechanic)
 	}
-
-	// Play the whole session server-side: Start, then tap until opened.
 	st, err := gamification.Start(mechanic)
 	if err != nil {
 		return nil, fmt.Errorf("achievements: chest start: %w", err)
 	}
 	src := cryptoSource{}
+	steps := make([]ChestStep, 0, 32)
 	var ev gamification.Event
 	for i := 0; i < 1000 && !st.IsOpened(); i++ {
 		st, ev, err = gamification.Tap(st, src)
 		if err != nil {
 			return nil, fmt.Errorf("achievements: chest tap: %w", err)
 		}
-		_ = ev
+		steps = append(steps, ChestStep{Type: string(ev.Type), Rarity: string(ev.Rarity), AttemptsLeft: ev.AttemptsLeft})
 	}
 	if !st.IsOpened() {
 		return nil, fmt.Errorf("achievements: chest did not open")
@@ -219,28 +211,86 @@ WHERE id = $1::uuid AND user_id = $2 AND opened_at IS NULL`,
 	for _, r := range detail {
 		drops += r.Amount
 	}
+	return &ChestResult{Rarity: string(st.FinalRarity), Drops: drops, Detail: detail, Steps: steps}, nil
+}
+
+// openChest plays a full session for one unopened chest row and credits the
+// rolled drops. table/ledger/ref/desc vary between the quest and daily
+// vaults; the mechanic is identical. One chest opens exactly once
+// (opened_at guard); a retry after a crash returns ErrChestOpened.
+//
+// The ledger placeholder count is pinned by
+// TestOpenChestQueries_PlaceholderCounts: sqlmock matches query text but
+// never the driver arg count, so a dropped $N stays green in tests and
+// explodes only in production.
+func (e *Engine) openChest(ctx context.Context, table, ledgerType, ref, desc, userID, chestID string) (*ChestResult, error) {
+	if e.db == nil {
+		return nil, fmt.Errorf("achievements: openChest: nil db")
+	}
+	tx, err := e.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("achievements: open begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	var mechanic string
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(openChestSelectQuery, table),
+		chestID, userID).Scan(&mechanic)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrChestUnknown
+		}
+		return nil, fmt.Errorf("achievements: open chest read: %w", err)
+	}
+	res, err := playChestSession(mechanic)
+	if err != nil {
+		return nil, err
+	}
+	drops := res.Drops
 	var balance int
 	if err := tx.QueryRowContext(ctx,
 		"UPDATE users SET drops = COALESCE(drops, 0) + $1 WHERE id = $2 RETURNING COALESCE(drops, 0)",
 		drops, userID).Scan(&balance); err != nil {
 		return nil, fmt.Errorf("achievements: chest credit: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_type, description)
-VALUES ($1, 'quest_reward', $2, $3, 'quest', $4)`,
-		userID, drops, balance, fmt.Sprintf("Quest chest: +%d drops", drops)); err != nil {
+	if _, err := tx.ExecContext(ctx, openChestLedgerQuery,
+		userID, ledgerType, drops, balance, ref, fmt.Sprintf("%s: +%d drops", desc, drops)); err != nil {
 		return nil, fmt.Errorf("achievements: chest credit ledger: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE quest_chests SET opened_at = NOW(), reward_drops = $1 WHERE id = $2::uuid",
+		"UPDATE "+table+" SET opened_at = NOW(), reward_drops = $1 WHERE id = $2::uuid",
 		drops, chestID); err != nil {
 		return nil, fmt.Errorf("achievements: chest close: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("achievements: open commit: %w", err)
 	}
-	return &ChestResult{Rarity: string(st.FinalRarity), Drops: drops, Detail: detail}, nil
+	return res, nil
 }
+
+// OpenChest plays a full gamification session for one of the user's unopened
+// quest chests and credits the rolled drops.
+func (e *Engine) OpenChest(ctx context.Context, userID, chestID string) (*ChestResult, error) {
+	return e.openChest(ctx, "quest_chests", "quest_reward", "quest", "Quest chest", userID, chestID)
+}
+
+// OpenDailyChest plays a full gamification session for one of the user's
+// unopened daily chests and credits the rolled drops.
+func (e *Engine) OpenDailyChest(ctx context.Context, userID, chestID string) (*ChestResult, error) {
+	return e.openChest(ctx, "daily_chests", "daily_reward", "daily", "Daily chest", userID, chestID)
+}
+
+// openChestLedgerQuery carries 6 placeholders for 6 ledger columns —
+// the $6 that once went missing here killed every payout tap.
+const openChestLedgerQuery = `
+INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_type, description)
+VALUES ($1, $2, $3, $4, $5, $6)`
+
+// openChestSelectQuery locks the chest row: two concurrent opens must
+// serialize, otherwise both see opened_at IS NULL and both credit.
+const openChestSelectQuery = `
+SELECT mechanic FROM %s
+WHERE id = $1::uuid AND user_id = $2 AND opened_at IS NULL FOR UPDATE`
 
 // cryptoSource is a gamification.Source backed by crypto/rand.
 type cryptoSource struct{}

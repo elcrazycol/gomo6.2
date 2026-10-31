@@ -92,11 +92,11 @@ func (h *DropsHandler) GetDropsHistory(c *gin.Context) {
 		typeFilter = "AND type = ANY(string_to_array($" + fmt.Sprintf("%d", len(queryArgs)+1) + ", ','))"
 		queryArgs = append(queryArgs, v)
 	} else {
-		// The wallet is the paid-gems surface: quest drops (type
-		// 'quest_reward') are earned, not bought — they never touch the gems
-		// balance and live on the quests page. Keep them out of this history
+		// The wallet is the paid-gems surface: earned drops (quest rewards,
+		// daily rewards, streak restores) never touch the gems balance and
+		// live in the drops-mode history. Keep them out of this history
 		// unless explicitly requested via ?type=.
-		typeFilter = "AND type != 'quest_reward'"
+		typeFilter = "AND type NOT IN ('quest_reward', 'daily_reward', 'daily_restore')"
 	}
 
 	rows, err := h.db.Query(`

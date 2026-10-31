@@ -54,14 +54,18 @@ type QuestProgress struct {
 	Levels          []QuestProgressLevel `json:"levels"`
 }
 
-// QuestChest is one inventory chest row.
+// QuestChest is one inventory chest row. StateRarity/StateAttempts describe
+// the persisted tap session (NULL session = never tapped): the modal renders
+// the dots correctly on mount and resumes mid-chest sessions.
 type QuestChest struct {
-	ID        string  `json:"id"`
-	QuestKey  string  `json:"quest_key"`
-	Level     int     `json:"level"`
-	Mechanic  string  `json:"mechanic"`
-	CreatedAt string  `json:"created_at"`
-	OpenedAt  *string `json:"opened_at,omitempty"`
+	ID            string  `json:"id"`
+	QuestKey      string  `json:"quest_key"`
+	Level         int     `json:"level"`
+	Mechanic      string  `json:"mechanic"`
+	CreatedAt     string  `json:"created_at"`
+	OpenedAt      *string `json:"opened_at,omitempty"`
+	StateRarity   string  `json:"state_rarity,omitempty"`
+	StateAttempts *int    `json:"state_attempts,omitempty"`
 }
 
 // GetProgress godoc
@@ -105,7 +109,7 @@ SELECT a.group_key, COALESCE(a.title, a.name, ''), COALESCE(a.category, ''),
        COALESCE(ua.current_level, 0), COALESCE(ua.progress_current, 0),
        COALESCE(a.levels, '[]'::jsonb),
        COALESCE((
-         SELECT json_agg(json_build_object('level', qc.level, 'rewards', qc.rewards) ORDER BY qc.level)
+         SELECT json_agg(json_build_object('level', qc.level, 'rewards', qc.rewards, 'topup', qc.topup_rewards) ORDER BY qc.level)
          FROM quest_claims qc WHERE qc.user_id = $1 AND qc.achievement_id = a.id
        ), '[]'::json)
 FROM achievements a
@@ -136,13 +140,15 @@ ORDER BY a.sort_order, a.group_key`, targetID)
 		var claimedObjs []struct {
 			Level   int                   `json:"level"`
 			Rewards []achievements.Reward `json:"rewards"`
+			Topup   []achievements.Reward `json:"topup"`
 		}
 		_ = json.Unmarshal(claimedJSON, &claimedObjs)
 		claimedSet := map[int]bool{}
 		claimedRewards := map[int][]achievements.Reward{}
 		for _, co := range claimedObjs {
 			claimedSet[co.Level] = true
-			claimedRewards[co.Level] = co.Rewards
+			// Effective grant: what was claimed plus every reconcile top-up.
+			claimedRewards[co.Level] = append(append([]achievements.Reward{}, co.Rewards...), co.Topup...)
 		}
 		qp.Levels = make([]QuestProgressLevel, 0, len(levels))
 		for _, lvl := range levels {
@@ -218,6 +224,8 @@ func recalcOwes(already, current []achievements.Reward) bool {
 
 // catalogUpdatedAt is the newest code-catalog mirror write — the frontend
 // compares it with the seen version to show the "quests reworked" banner.
+// Sync bumps it only when a definition hash actually changes, so restarts
+// alone never move it.
 func (h *QuestsHandler) catalogUpdatedAt() string {
 	var ts string
 	if err := h.db.QueryRow(
@@ -230,7 +238,7 @@ func (h *QuestsHandler) catalogUpdatedAt() string {
 func (h *QuestsHandler) openChests(userID string) []QuestChest {
 	rows, err := h.db.Query(`
 SELECT c.id::text, a.group_key, c.level, c.mechanic,
-       c.created_at::text, c.opened_at::text
+       c.created_at::text, c.opened_at::text, c.session::text
 FROM quest_chests c
 JOIN achievements a ON a.id = c.achievement_id
 WHERE c.user_id = $1 AND c.opened_at IS NULL
@@ -242,16 +250,41 @@ ORDER BY c.created_at DESC LIMIT 50`, userID)
 	out := []QuestChest{}
 	for rows.Next() {
 		var ch QuestChest
-		var opened sql.NullString
-		if err := rows.Scan(&ch.ID, &ch.QuestKey, &ch.Level, &ch.Mechanic, &ch.CreatedAt, &opened); err != nil {
+		var opened, session sql.NullString
+		if err := rows.Scan(&ch.ID, &ch.QuestKey, &ch.Level, &ch.Mechanic, &ch.CreatedAt, &opened, &session); err != nil {
 			continue
 		}
 		if opened.Valid {
 			ch.OpenedAt = &opened.String
 		}
+		if snap := parseChestSession(session); snap != nil {
+			ch.StateRarity = snap.Rarity
+			ch.StateAttempts = &snap.Attempts
+		}
 		out = append(out, ch)
 	}
 	return out
+}
+
+// chestSessionSnap is the client-facing slice of a persisted tap session.
+type chestSessionSnap struct {
+	Rarity   string
+	Attempts int
+}
+
+// parseChestSession extracts rarity + attempts from a session JSON snapshot.
+func parseChestSession(session sql.NullString) *chestSessionSnap {
+	if !session.Valid || session.String == "" {
+		return nil
+	}
+	var st struct {
+		Rarity       string `json:"rarity"`
+		AttemptsLeft int    `json:"attempts_left"`
+	}
+	if err := json.Unmarshal([]byte(session.String), &st); err != nil || st.Rarity == "" {
+		return nil
+	}
+	return &chestSessionSnap{Rarity: st.Rarity, Attempts: st.AttemptsLeft}
 }
 
 // ClaimRequest is the body of POST /quests/claim.
@@ -301,7 +334,7 @@ func (h *QuestsHandler) Claim(c *gin.Context) {
 
 // Reconcile godoc
 // @Summary      Top up reworked quest rewards
-// @Description  Grants the positive difference for every already-claimed level whose catalog rewards grew ("забрать недоданное"). Idempotent: repeats grant nothing.
+// @Description  Grants the positive difference for every already-claimed level whose catalog rewards grew ("добрать заслуженное"). Idempotent: repeats grant nothing.
 // @Tags         Quests
 // @Produce      json
 // @Success      200 {object} models.APIResponse
@@ -329,7 +362,7 @@ func (h *QuestsHandler) Reconcile(c *gin.Context) {
 
 // OpenChest godoc
 // @Summary      Open a quest chest
-// @Description  Plays a full chest session server-side and credits the rolled drops. One chest opens exactly once.
+// @Description  Plays the full chest session server-side the moment the modal opens (credited at once, no backing out), and returns the outcome with the tap-by-tap trace the client replays. One chest opens exactly once.
 // @Tags         Quests
 // @Produce      json
 // @Param        id path string true "Chest UUID"

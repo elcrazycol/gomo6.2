@@ -31,6 +31,8 @@ const TYPE_CONFIG: Record<string, TxDetailTypeConfig> = {
   gift_upgrade: { icon: Gift, color: "text-purple-400", label: "Улучшение подарка", bg: "bg-purple-500/10" },
   quest_reward: { currency: "drops", color: "text-amber-400", label: "Награда за квест", bg: "bg-amber-500/10" },
   quest_reward_gems: { currency: "gems", color: "text-rose-400", label: "Награда за квест", bg: "bg-rose-500/10" },
+  daily_reward: { currency: "drops", color: "text-amber-400", label: "Награда за дейлик", bg: "bg-amber-500/10" },
+  daily_restore: { currency: "drops", color: "text-muted-foreground", label: "Восстановление серии", bg: "bg-muted" },
 };
 
 function formatFullDate(dateStr: string): string {

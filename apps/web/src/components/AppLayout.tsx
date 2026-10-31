@@ -1450,19 +1450,19 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             </div>
             {user && <NotificationBell userId={user.id} />}
             {/* Quests sit between notifications and messages: one glance shows
-                the bell, the claimable rewards and the chats, in that order. */}
+                the bell, the claimable rewards and the chats, in that order.
+                Visible on mobile too — on phones this is the only entry point
+                (the burger row was removed to avoid two side-by-side doors). */}
             {user && (
-              <div className="hidden lg:block">
-                <HeaderIconLink
-                  to={`/achievements/${user.id}`}
-                  label={t('nav.quests')}
-                  title={t('nav.quests')}
-                  active={location.pathname.startsWith("/achievements")}
-                  badge={<UnreadBadge count={unclaimedCount} />}
-                >
-                  <ScrollText className="h-4 w-4" />
-                </HeaderIconLink>
-              </div>
+              <HeaderIconLink
+                to={`/achievements/${user.id}`}
+                label={t('nav.quests')}
+                title={t('nav.quests')}
+                active={location.pathname.startsWith("/achievements")}
+                badge={<UnreadBadge count={unclaimedCount} />}
+              >
+                <ScrollText className="h-4 w-4" />
+              </HeaderIconLink>
             )}
             {/* Messenger lives in the bottom nav on phones — keep the header
                 one for desktop only to avoid two identical entry points. */}

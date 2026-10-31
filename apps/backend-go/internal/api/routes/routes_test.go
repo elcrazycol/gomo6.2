@@ -116,6 +116,10 @@ var expectedRoutes = []string{
 	"POST /api/v1/quests/claim",
 	"POST /api/v1/quests/reconcile",
 	"POST /api/v1/quests/chests/:id/open",
+	"GET /api/v1/quests/daily",
+	"POST /api/v1/quests/daily/claim",
+	"POST /api/v1/quests/daily/restore",
+	"POST /api/v1/quests/daily/chests/:id/open",
 
 	// Push (PWA) — public VAPID key; subscribe/preferences are protected below
 	"GET /api/v1/push/vapid-public-key",

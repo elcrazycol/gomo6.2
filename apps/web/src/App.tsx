@@ -121,6 +121,7 @@ const Notify = lazyWithRetry(() => import("./pages/Notify"));
 const NotificationLikes = lazyWithRetry(() => import("./pages/NotificationLikes"));
 const OAuthConsent = lazyWithRetry(() => import("./pages/OAuthConsent"));
 const Achievements = lazyWithRetry(() => import("./pages/Achievements"));
+const DailyQuests = lazyWithRetry(() => import("./pages/DailyQuests"));
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 const Translate = lazyWithRetry(() => import("./pages/Translate"));
 // Правовые документы грузим лениво: это тексты, а не критичный путь.
@@ -388,6 +389,8 @@ function AppRoutes() {
           <Route path="c/:sectionSlug" element={<LazyPage component={Index} fallback={feedFallback} />} />
           <Route path="c/:sectionSlug/:subSlug" element={<LazyPage component={Index} fallback={feedFallback} />} />
           <Route path="messages" element={<AuthGuard><LazyPage component={Messages} fallback={<MessagesFallback />} /></AuthGuard>} />
+          {/* Static first: /achievements/daily must not be read as a userId. */}
+          <Route path="achievements/daily" element={<LazyPage component={DailyQuests} />} />
           <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
           <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
           <Route path="profile/:userId" element={<LazyPage component={Profile} fallback={<ProfileFallback />} />} />

@@ -45,9 +45,16 @@ export interface QuestChest {
   created_at: string;
 }
 
-export interface ChestResult {
+export interface ChestStep {
+  type: "upgraded" | "failed" | "opened" | string;
+  rarity: string;
+  attempts_left: number;
+}
+
+export interface ChestOpenOutcome {
   rarity: string;
   drops: number;
+  steps?: ChestStep[];
 }
 
 export interface ToppedUpLevel {
@@ -67,9 +74,9 @@ export interface UseQuestsResult {
   catalogUpdatedAt: string;
   loading: boolean;
   claim: (questKey: string, level: number) => Promise<QuestReward[]>;
-  /** Top up reworked rewards ("забрать недоданное"). Idempotent. */
+  /** Top up reworked rewards ("добрать заслуженное"). Idempotent. */
   reconcile: () => Promise<ToppedUpLevel[]>;
-  openChest: (id: string) => Promise<ChestResult>;
+  openChest: (id: string) => Promise<ChestOpenOutcome>;
   reload: () => Promise<void>;
   /** Patch one level as claimed without any request (after a successful claim). */
   applyClaim: (questKey: string, level: number, granted: QuestReward[]) => void;
@@ -202,13 +209,13 @@ export function useQuests(userId: string | undefined): UseQuestsResult {
   );
 
   const openChest = useCallback(
-    async (id: string): Promise<ChestResult> => {
-      const body = await apiClient.request<ChestResult>(
+    async (id: string): Promise<ChestOpenOutcome> => {
+      const body = await apiClient.request<ChestOpenOutcome>(
         `/api/v1/quests/chests/${encodeURIComponent(id)}/open`,
         { method: "POST" },
       );
-      const data = body.data as ChestResult | undefined;
-      if (!data) throw new Error("open failed");
+      const data = body.data as ChestOpenOutcome | undefined;
+      if (!data || typeof data.drops !== "number") throw new Error("open failed");
       return data;
     },
     [],

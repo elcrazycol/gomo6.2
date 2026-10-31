@@ -74,16 +74,17 @@ func TestGetDropsHistory_Success(t *testing.T) {
 	}
 }
 
-// TestGetDropsHistory_ExcludesQuestRewardsByDefault guards the currency
-// split: the wallet is the paid-gems surface, so quest drops (which never
-// touch the gems balance) must not leak into the default history.
-func TestGetDropsHistory_ExcludesQuestRewardsByDefault(t *testing.T) {
+// TestGetDropsHistory_ExcludesEarnedDropsByDefault guards the currency
+// split: the wallet is the paid-gems surface, so earned drops (quest rewards,
+// daily rewards, streak restores — which never touch the gems balance) must
+// not leak into the default history.
+func TestGetDropsHistory_ExcludesEarnedDropsByDefault(t *testing.T) {
 	handler, mock := setupDropsHandler(t)
 	claims := &auth.Claims{UserID: "user-123"}
 
 	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "amount", "balance_after", "reference_id", "reference_type",
 		"description", "blockchain", "tx_hash", "created_at"})
-	mock.ExpectQuery(`FROM drops_transactions\s+WHERE user_id = \$1\s+AND type != 'quest_reward'`).
+	mock.ExpectQuery(`FROM drops_transactions\s+WHERE user_id = \$1\s+AND type NOT IN \('quest_reward', 'daily_reward', 'daily_restore'\)`).
 		WillReturnRows(rows)
 
 	c, w := testutil.NewGETContextWithClaims("/api/v1/drops/history", nil, claims)

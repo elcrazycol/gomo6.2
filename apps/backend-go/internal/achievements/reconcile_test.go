@@ -82,30 +82,33 @@ func TestReconcileUser_TopUp(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	e := New(db, reconcileTestCatalog(t))
 
-	// re_a level 1: completed, claimed 5 of the current 10 → top up 5.
+	// One transaction for the whole pass: lock, two bulk reads, then writes.
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE\\(current_level").
-		WithArgs("u1", GroupID("re_a")).WillReturnRows(sqlmock.NewRows([]string{"current_level"}).AddRow(2))
-	mock.ExpectQuery("SELECT rewards FROM quest_claims").
-		WithArgs("u1", GroupID("re_a"), 1).
-		WillReturnRows(sqlmock.NewRows([]string{"rewards"}).AddRow(mustMarshal(t, []Reward{{Kind: RewardDrops, Amount: 5}})))
+	mock.ExpectExec("pg_advisory_xact_lock").
+		WithArgs("achievements:reconcile:u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM user_achievements WHERE user_id").
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "current_level"}).
+			AddRow(GroupID("re_a"), 2).
+			AddRow(GroupID("re_b"), 1)) // completed but never claimed → skipped
+	mock.ExpectQuery("FROM quest_claims WHERE user_id").
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "level", "rewards", "topup_rewards"}).
+			AddRow(GroupID("re_a"), 1, mustMarshal(t, []Reward{{Kind: RewardDrops, Amount: 5}}), "[]").
+			AddRow(GroupID("re_a"), 2, mustMarshal(t, []Reward{{Kind: RewardDrops, Amount: 50}}), "[]"))
+
+	// re_a level 1: completed, claimed 5 of the current 10 → top up 5.
 	mock.ExpectQuery("UPDATE users SET drops").
 		WithArgs(5, "u1").WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(105))
 	mock.ExpectExec("INSERT INTO drops_transactions").
 		WithArgs("u1", 5, 105, "quest_recalc", "Quest recalc: +5 drops").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("UPDATE quest_claims SET rewards").
+	mock.ExpectExec("UPDATE quest_claims SET topup_rewards").
 		WithArgs(sqlmock.AnyArg(), "u1", GroupID("re_a"), 1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
 
 	// re_a level 2: completed, claimed 50 drops (no gems/chest yet) → gems + chest.
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE\\(current_level").
-		WithArgs("u1", GroupID("re_a")).WillReturnRows(sqlmock.NewRows([]string{"current_level"}).AddRow(2))
-	mock.ExpectQuery("SELECT rewards FROM quest_claims").
-		WithArgs("u1", GroupID("re_a"), 2).
-		WillReturnRows(sqlmock.NewRows([]string{"rewards"}).AddRow(mustMarshal(t, []Reward{{Kind: RewardDrops, Amount: 50}})))
 	mock.ExpectQuery("UPDATE users SET gems").
 		WithArgs(5, "u1").WillReturnRows(sqlmock.NewRows([]string{"gems"}).AddRow(10))
 	mock.ExpectExec("INSERT INTO drops_transactions").
@@ -114,16 +117,10 @@ func TestReconcileUser_TopUp(t *testing.T) {
 	mock.ExpectQuery("INSERT INTO quest_chests").
 		WithArgs("u1", GroupID("re_a"), 2, "rarity_chest").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("00000000-0000-0000-0000-000000000001"))
-	mock.ExpectExec("UPDATE quest_claims SET rewards").
+	mock.ExpectExec("UPDATE quest_claims SET topup_rewards").
 		WithArgs(sqlmock.AnyArg(), "u1", GroupID("re_a"), 2).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
-
-	// re_b: never unlocked → skipped without touching claims.
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE\\(current_level").
-		WithArgs("u1", GroupID("re_b")).WillReturnRows(sqlmock.NewRows([]string{"current_level"}))
-	mock.ExpectRollback()
 
 	topped, err := e.ReconcileUser(t.Context(), "u1")
 	if err != nil {
@@ -154,22 +151,23 @@ func TestReconcileUser_NothingOwed(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	e := New(db, reconcileTestCatalog(t))
 
-	for _, lvl := range []int{1, 2} {
-		mock.ExpectBegin()
-		mock.ExpectQuery("SELECT COALESCE\\(current_level").
-			WithArgs("u1", GroupID("re_a")).WillReturnRows(sqlmock.NewRows([]string{"current_level"}).AddRow(2))
-		current := e.levelRewards("re_a", lvl)
-		mock.ExpectQuery("SELECT rewards FROM quest_claims").
-			WithArgs("u1", GroupID("re_a"), lvl).
-			WillReturnRows(sqlmock.NewRows([]string{"rewards"}).AddRow(mustMarshal(t, current)))
-		mock.ExpectRollback()
-	}
+	// Nothing owed: one transaction, lock, two bulk reads, then the deferred
+	// rollback closes the tx without a commit.
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COALESCE\\(current_level").
-		WithArgs("u1", GroupID("re_b")).WillReturnRows(sqlmock.NewRows([]string{"current_level"}).AddRow(1))
-	mock.ExpectQuery("SELECT rewards FROM quest_claims").
-		WithArgs("u1", GroupID("re_b"), 1).
-		WillReturnRows(sqlmock.NewRows([]string{"rewards"}).AddRow(mustMarshal(t, e.levelRewards("re_b", 1))))
+	mock.ExpectExec("pg_advisory_xact_lock").
+		WithArgs("achievements:reconcile:u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM user_achievements WHERE user_id").
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "current_level"}).
+			AddRow(GroupID("re_a"), 2).
+			AddRow(GroupID("re_b"), 1))
+	mock.ExpectQuery("FROM quest_claims WHERE user_id").
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "level", "rewards", "topup_rewards"}).
+			AddRow(GroupID("re_a"), 1, mustMarshal(t, e.levelRewards("re_a", 1)), "[]").
+			AddRow(GroupID("re_a"), 2, mustMarshal(t, e.levelRewards("re_a", 2)), "[]").
+			AddRow(GroupID("re_b"), 1, mustMarshal(t, e.levelRewards("re_b", 1)), "[]"))
 	mock.ExpectRollback()
 
 	topped, err := e.ReconcileUser(t.Context(), "u1")
@@ -178,6 +176,70 @@ func TestReconcileUser_NothingOwed(t *testing.T) {
 	}
 	if len(topped) != 0 {
 		t.Errorf("expected no top-ups, got %v", topped)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled: %v", err)
+	}
+}
+
+// Top-ups accumulate in topup_rewards while rewards keeps the original grant:
+// a repeat pass diffs the catalog against their sum and grants nothing.
+func TestReconcileUser_AccumulatesTopups(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	e := New(db, reconcileTestCatalog(t))
+
+	base := mustMarshal(t, []Reward{{Kind: RewardDrops, Amount: 5}})
+	firstTopup := mustMarshal(t, []Reward{{Kind: RewardDrops, Amount: 5}})
+
+	// Pass 1: claimed 5 of 10 → top up 5, appended to topup_rewards.
+	mock.ExpectBegin()
+	mock.ExpectExec("pg_advisory_xact_lock").WithArgs("achievements:reconcile:u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM user_achievements WHERE user_id").WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "current_level"}).
+			AddRow(GroupID("re_a"), 1))
+	mock.ExpectQuery("FROM quest_claims WHERE user_id").WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "level", "rewards", "topup_rewards"}).
+			AddRow(GroupID("re_a"), 1, base, "[]"))
+	mock.ExpectQuery("UPDATE users SET drops").WithArgs(5, "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"drops"}).AddRow(105))
+	mock.ExpectExec("INSERT INTO drops_transactions").
+		WithArgs("u1", 5, 105, "quest_recalc", "Quest recalc: +5 drops").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("UPDATE quest_claims SET topup_rewards").
+		WithArgs(sqlmock.AnyArg(), "u1", GroupID("re_a"), 1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	// Pass 2: original 5 + top-up 5 = full 10 → nothing owed, no commit.
+	mock.ExpectBegin()
+	mock.ExpectExec("pg_advisory_xact_lock").WithArgs("achievements:reconcile:u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM user_achievements WHERE user_id").WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "current_level"}).
+			AddRow(GroupID("re_a"), 1))
+	mock.ExpectQuery("FROM quest_claims WHERE user_id").WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"achievement_id", "level", "rewards", "topup_rewards"}).
+			AddRow(GroupID("re_a"), 1, base, firstTopup))
+	mock.ExpectRollback()
+
+	first, err := e.ReconcileUser(t.Context(), "u1")
+	if err != nil {
+		t.Fatalf("pass 1: %v", err)
+	}
+	if len(first) != 1 || len(first[0].Granted) != 1 {
+		t.Fatalf("pass 1: expected one 1-reward top-up, got %+v", first)
+	}
+	second, err := e.ReconcileUser(t.Context(), "u1")
+	if err != nil {
+		t.Fatalf("pass 2: %v", err)
+	}
+	if len(second) != 0 {
+		t.Errorf("pass 2: expected no top-ups, got %+v", second)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled: %v", err)

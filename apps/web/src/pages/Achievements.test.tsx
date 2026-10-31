@@ -10,9 +10,15 @@ const mockFetch = vi.fn();
 
 vi.stubGlobal("fetch", mockFetch);
 
+// Controllable router: the toast deep-link rides in location.state.
+const routerCtl = vi.hoisted(() => ({ state: null as unknown, calls: [] as any[] }));
+
 vi.mock("react-router-dom", () => ({
   useParams: () => ({ userId: "profile-user-1" }),
-  useNavigate: () => vi.fn(),
+  useNavigate: () => (to: any, opts: any) => {
+    routerCtl.calls.push([to, opts]);
+  },
+  useLocation: () => ({ pathname: "/achievements/profile-user-1", state: routerCtl.state }),
   Link: ({ to, children, className }: any) => (
     <a href={to} className={className}>
       {children}
@@ -87,6 +93,39 @@ const QUESTS = [
   },
 ];
 
+const DAILY = {
+  day: "2026-10-31",
+  quests: [
+    {
+      key: "daily_likes",
+      name_key: "achievements.daily.daily_likes.name",
+      desc_key: "achievements.daily.daily_likes.description",
+      threshold: 5,
+      progress: 5,
+      completed: true,
+      claimed: false,
+      can_claim: true,
+      rewards: [{ kind: "drops", amount: 10 }],
+    },
+    {
+      key: "daily_comments",
+      name_key: "achievements.daily.daily_comments.name",
+      desc_key: "achievements.daily.daily_comments.description",
+      threshold: 2,
+      progress: 1,
+      completed: false,
+      claimed: false,
+      can_claim: false,
+      rewards: [{ kind: "drops", amount: 12 }],
+    },
+  ],
+  unclaimed_count: 2,
+  full_claimed: false,
+  streak: { current: 3, longest: 7 },
+  chests: [],
+  drops: 100,
+};
+
 function setupFetch({
   profile = { id: "profile-user-1", username: "testuser" },
   quests = QUESTS,
@@ -94,6 +133,7 @@ function setupFetch({
   unclaimed = 1,
   recalcAvailable = false,
   catalogUpdatedAt = "",
+  daily = DAILY,
 }: {
   profile?: { id: string; username: string } | null;
   quests?: typeof QUESTS;
@@ -101,6 +141,7 @@ function setupFetch({
   unclaimed?: number;
   recalcAvailable?: boolean;
   catalogUpdatedAt?: string;
+  daily?: typeof DAILY;
 } = {}) {
   const ok = (data: unknown) => ({
     ok: true,
@@ -112,6 +153,9 @@ function setupFetch({
   mockFetch.mockImplementation((url: string, opts?: RequestInit) => {
     if (url.includes("/profiles")) {
       return Promise.resolve(ok(profile ? [profile] : []));
+    }
+    if (url.includes("/quests/daily")) {
+      return Promise.resolve(ok(daily));
     }
     if (url.includes("/quests/reconcile") && opts?.method === "POST") {
       return Promise.resolve(ok({ topped_up: [] }));
@@ -136,6 +180,8 @@ function setupFetch({
 beforeEach(() => {
   clearQueryCache();
   mockFetch.mockReset();
+  routerCtl.state = null;
+  routerCtl.calls = [];
 });
 
 // Motion reduced to instant: AnimatePresence exits settle synchronously,
@@ -289,6 +335,102 @@ describe("Achievements page", () => {
     await waitFor(() => {
       expect(screen.queryByText("Писатель")).not.toBeInTheDocument();
     });
+  });
+
+  it("scrolls to and blinks the quest opened from the unlock toast", async () => {
+    routerCtl.state = { focusQuest: "entries" };
+    setupFetch();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Писатель")).toBeInTheDocument();
+    });
+    const card = document.getElementById("quest-entries");
+    expect(card).not.toBeNull();
+    expect(card?.className).toMatch(/ring-primary/);
+    // The neighbour card stays calm.
+    expect(document.getElementById("quest-qs_avatar")?.className).not.toMatch(/ring-primary/);
+    // The deep-link state is consumed so re-renders don't blink again.
+    expect(routerCtl.calls).toContainEqual(["/achievements/profile-user-1", { replace: true }]);
+  });
+
+  it("blinks a first-steps row opened from the unlock toast", async () => {
+    routerCtl.state = { focusQuest: "qs_avatar" };
+    setupFetch();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Лицо")).toBeInTheDocument();
+    });
+    const row = document.getElementById("quest-qs_avatar");
+    expect(row?.className).toMatch(/bg-primary/);
+    expect(routerCtl.calls).toContainEqual(["/achievements/profile-user-1", { replace: true }]);
+  });
+
+  it("ignores an unknown toast quest without crashing", async () => {
+    routerCtl.state = { focusQuest: "nope" };
+    setupFetch();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Писатель")).toBeInTheDocument();
+    });
+    expect(document.getElementById("quest-nope")).toBeNull();
+    expect(routerCtl.calls).toContainEqual(["/achievements/profile-user-1", { replace: true }]);
+  });
+
+  it("links to the daily quests with the claimable count", async () => {
+    setupFetch();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Ежедневные")).toBeInTheDocument();
+    });
+    const link = screen.getByRole("link", { name: /Ежедневные/ });
+    expect(link.getAttribute("href")).toBe("/achievements/daily");
+    expect(screen.getByText("Выполнено 1 из 2")).toBeInTheDocument();
+  });
+
+  it("raises «!» on the daily button for an unvisited day", async () => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete store[k];
+      },
+    });
+    setupFetch({ daily: { ...DAILY, quests: [], unclaimed_count: 0 } });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Ежедневные")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Новые задания")).toBeInTheDocument();
+  });
+
+  it("stays quiet on a plain restart with no seen version", async () => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete store[k];
+      },
+    });
+    setupFetch({ recalcAvailable: false, catalogUpdatedAt: "2026-10-31T00:00:00Z" });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Лицо")).toBeInTheDocument();
+    });
+    // A newer catalog timestamp alone (backend restart bump) raises nothing
+    // without a stored seen version to differ from.
+    expect(screen.queryByText("Квесты обновлены")).not.toBeInTheDocument();
   });
 
   it("shows progress for locked levels", async () => {

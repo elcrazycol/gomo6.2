@@ -13,6 +13,7 @@ import type { Notification } from "@/integrations/api/client";
 
 interface Unlock {
   key: string;
+  groupKey: string;
   nameKey: string;
   descKey: string;
   rewards: QuestReward[];
@@ -118,8 +119,9 @@ function UnlockToast({ unlock, onGo }: { unlock: Unlock; onGo: () => void }) {
  * Quest unlock toast: appears above everything when the server reports a
  * completed level (`achievement_unlock` over WS), shows what the quest is
  * and what it gives, then glides away on its own. A button takes the user to
- * the achievements page to claim — claiming itself stays there. One toast at
- * a time; the next one waits in the queue.
+ * the achievements page to claim — claiming itself stays there. The quest's
+ * group key rides along in the router state so the page can scroll to the
+ * card and blink it once. One toast at a time; the next one waits in the queue.
  *
  * The dock sits above the mobile bottom nav (its height + safe area) and
  * back at bottom-6 on ≥sm, where the nav is gone.
@@ -161,6 +163,7 @@ export function QuestUnlockOverlay() {
             ...q,
             {
               key: `${key}:${Date.now()}`,
+              groupKey: params.group_key,
               nameKey: level.name_key,
               descKey: level.description_key,
               rewards: level.rewards,
@@ -191,7 +194,8 @@ export function QuestUnlockOverlay() {
 
   const goToQuests = () => {
     if (!current) return;
-    navigate(`/achievements/${current.uid}`);
+    // The page scrolls to this quest and blinks it once (consumes the state).
+    navigate(`/achievements/${current.uid}`, { state: { focusQuest: current.groupKey } });
     dismiss();
   };
 

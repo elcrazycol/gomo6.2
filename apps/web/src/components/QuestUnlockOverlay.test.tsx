@@ -101,7 +101,9 @@ describe("QuestUnlockOverlay", () => {
 
     const btn = await screen.findByText("Забрать награду");
     fireEvent.click(btn);
-    expect(mockNavigate).toHaveBeenCalledWith("/achievements/u1");
+    expect(mockNavigate).toHaveBeenCalledWith("/achievements/u1", {
+      state: { focusQuest: "qs_avatar" },
+    });
   });
 
   it("docks bottom-center instead of covering the screen", async () => {

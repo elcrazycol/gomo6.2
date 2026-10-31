@@ -39,11 +39,13 @@ const TYPE_CONFIG: Record<string, TxTypeConfig> = {
   gift_upgrade: { icon: Gift, color: "text-purple-400", label: "Улучшение" },
   quest_reward: { currency: "drops", color: "text-amber-400", label: "Награда за квест" },
   quest_reward_gems: { currency: "gems", color: "text-rose-400", label: "Награда за квест" },
+  daily_reward: { currency: "drops", color: "text-amber-400", label: "Награда за дейлик" },
+  daily_restore: { currency: "drops", color: "text-muted-foreground", label: "Восстановление серии" },
 };
 
-/** Amount label in the row's own currency: quest rewards pay drops, everything else moves gems. */
+/** Amount label in the row's own currency: earned drops pay drops, everything else moves gems. */
 export function formatTxAmountLabel(type: string, amount: number): string {
-  return type === "quest_reward"
+  return type === "quest_reward" || type === "daily_reward" || type === "daily_restore"
     ? formatDropsLabel(Math.abs(amount))
     : formatGemsLabel(Math.abs(amount));
 }

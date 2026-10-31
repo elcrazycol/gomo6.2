@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   CalendarCheck,
+  CalendarDays,
   Camera,
   Check,
   ChevronDown,
+  ChevronRight,
   Clock,
   Flag,
   Flame,
@@ -39,6 +41,9 @@ import { CurrencyIcon } from "@/components/CurrencyIcon";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 import { formatGemsLabel } from "@/utils/formatGemsLabel";
 import { useQuests, questErrorStatus, type Quest, type QuestLevel, type QuestReward, type QuestChest } from "@/hooks/useQuests";
+import { useDailyQuests, dailySeenKey } from "@/hooks/useDailyQuests";
+import { ChestOpenModal } from "@/components/ChestOpenModal";
+import { smoothScrollToElement } from "@/utils/smoothScroll";
 import { refreshUnclaimedCount } from "@/hooks/useUnclaimedRewards";
 import { useAuth } from "@/hooks/useAuth";
 import { loadAchievementsProfile } from "@/routes/data/achievementsData";
@@ -223,12 +228,14 @@ function FirstStepRow({
   isOwner,
   claiming,
   onClaim,
+  flash,
 }: {
   quest: Quest;
   index: number;
   isOwner: boolean;
   claiming: boolean;
   onClaim: () => void;
+  flash: boolean;
 }) {
   const { t } = useTranslation();
   const level = quest.levels[0];
@@ -237,7 +244,13 @@ function FirstStepRow({
   const done = level.completed;
   return (
     <CascadeRow index={index}>
-      <div className="flex items-center gap-3 px-4 py-3">
+      <div
+        id={`quest-${quest.group_key}`}
+        className={cn(
+          "flex scroll-mt-28 items-center gap-3 px-4 py-3 transition-colors duration-700 motion-reduce:transition-none",
+          flash && "bg-primary/[0.07]",
+        )}
+      >
         <div
           className={cn(
             "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
@@ -274,12 +287,14 @@ function LadderCard({
   isOwner,
   claimingKey,
   onClaimLevel,
+  flash,
 }: {
   quest: Quest;
   cardIndex: number;
   isOwner: boolean;
   claimingKey: string | null;
   onClaimLevel: (level: QuestLevel) => void;
+  flash: boolean;
 }) {
   const { t } = useTranslation();
   const reduce = useReducedMotion();
@@ -294,7 +309,13 @@ function LadderCard({
   if (!focus) return null;
   return (
     <CascadeRow index={cardIndex}>
-      <div className="overflow-hidden rounded-xl border border-border/60 bg-surface">
+      <div
+        id={`quest-${quest.group_key}`}
+        className={cn(
+          "scroll-mt-28 overflow-hidden rounded-xl border bg-surface transition-[border-color,box-shadow] duration-700 motion-reduce:transition-none",
+          flash ? "border-primary/50 ring-2 ring-primary/30" : "border-border/60",
+        )}
+      >
         <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
             <QuestIcon name={quest.icon} className="h-4 w-4" />
@@ -553,10 +574,13 @@ function DropsChip({ drops }: { drops: number }) {
 export default function Achievements() {
   const { t } = useTranslation();
   const { userId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [profile, setProfile] = useState<{ id: string; username: string } | null>(null);
   const [profileLoading, setProfileLoading] = useState(Boolean(userId));
   const [claimingKey, setClaimingKey] = useState<string | null>(null);
+  const [openChestModal, setOpenChestModal] = useState<{ id: string; title: string } | null>(null);
 
   useEffect(() => {
     if (!userId) {
@@ -582,6 +606,16 @@ export default function Achievements() {
   const { quests, chests, drops, unclaimedCount, recalcAvailable, catalogUpdatedAt, loading, claim, reconcile, openChest, reload, applyClaim, applyRecalc, applyChestOpen } =
     useQuests(trophyUserId);
   const isOwner = Boolean(user?.id && trophyUserId && user.id === trophyUserId);
+  // Daily button state: one extra light read; the day may already contain
+  // auto-grants (settle runs on every read, idempotent).
+  const daily = useDailyQuests(isOwner ? user?.id : undefined);
+  const dailyDone = daily.quests.filter((q) => q.completed).length;
+  let dailySeen = "";
+  try {
+    dailySeen = user?.id ? (localStorage.getItem(dailySeenKey(user.id)) ?? "") : "";
+  } catch {
+    dailySeen = "";
+  }
   // In-flight claim/open guard: state-driven `disabled` flips only after a
   // re-render, so a fast double click fires two POSTs — the second gets a 409
   // while the first already granted. The ref blocks the second synchronously.
@@ -641,7 +675,7 @@ export default function Achievements() {
     }
   };
 
-  // Rework top-up ("забрать недоданное"): the catalog version the user last
+  // Rework top-up ("добрать заслуженное"): the catalog version the user last
   // saw lives in localStorage; a newer catalog_updated_at raises the banner.
   const seenKey = user?.id ? `quests:catalog:seen:${user.id}` : null;
   const [reconciling, setReconciling] = useState(false);
@@ -659,7 +693,41 @@ export default function Achievements() {
       setReworkedSeen(null);
     }
   }, [seenKey]);
-  const showReworked = isOwner && Boolean(catalogUpdatedAt) && reworkedSeen !== catalogUpdatedAt;
+
+  // Deep-link from the unlock toast ("Забрать награду"): scroll to the quest
+  // card and blink it once. The router state is consumed (replaced) so
+  // back-nav and re-renders never blink again; a new toast click pushes fresh
+  // state and blinks anew. Unknown keys just clear the state, never crash.
+  const focusQuest = (location.state as { focusQuest?: string } | null)?.focusQuest;
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (loading || quests.length === 0 || !focusQuest) return;
+    navigate(location.pathname, { replace: true });
+    const el = document.getElementById(`quest-${focusQuest}`);
+    if (!el) return;
+    // Post-load render is committed; one frame lets the entrance cascade
+    // settle so the eased scroller measures the resting position.
+    const raf = requestAnimationFrame(() => smoothScrollToElement(el, { block: "center" }));
+    setFlashKey(focusQuest);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashKey(null), 3000);
+    return () => cancelAnimationFrame(raf);
+  }, [loading, quests, focusQuest, location.pathname, navigate]);
+  // The banner means "changed since YOU last looked": a stored seen version
+  // must exist and differ. Without this a plain backend restart (or a first
+  // ever visit) would raise it for everyone.
+  const showReworked =
+    isOwner &&
+    Boolean(catalogUpdatedAt) &&
+    reworkedSeen !== null &&
+    reworkedSeen !== catalogUpdatedAt;
   const markReworkedSeen = () => {
     if (!seenKey || !catalogUpdatedAt) return;
     try {
@@ -694,7 +762,9 @@ export default function Achievements() {
       if (gemsWon > 0) parts.push(t("quests.claimedGems", { count: gemsWon, label: formatGemsLabel(gemsWon) }));
       if (chestsWon > 0) parts.push(t("quests.recalcChest", { count: chestsWon }));
       toast.success(parts.length > 0 ? parts.join(", ") : t("quests.claimedDone"));
-      void reload();
+      // No reload: applyRecalc already patched drops/chests/recalcAvailable
+      // locally, and top-ups change no other page state. reload() stays the
+      // initial load and the conflict re-sync path (see useQuests).
     } catch {
       toast.error(t("quests.recalcFailed"));
     } finally {
@@ -702,23 +772,32 @@ export default function Achievements() {
     }
   };
 
-  const handleOpenChest = async (id: string) => {    const key = `chest:${id}`;
+  const handleOpenChest = (chest: QuestChest) => {
+    const key = `chest:${chest.id}`;
     if (inflight.current.has(key)) return;
     inflight.current.add(key);
-    setClaimingKey(key);
-    try {
-      const res = await openChest(id);
-      applyChestOpen(id, res.drops);
-      toast.success(t("quests.chestOpened", { count: res.drops, label: formatDropsLabel(res.drops) }));
-    } catch (err) {
-      await reload();
-      if (questErrorStatus(err) !== 409) {
-        toast.error(t("quests.openFailed"));
+    // The play call fires on modal mount and credits at once: opening the
+    // modal IS starting, there is no backing out of the ceremony.
+    setOpenChestModal({ id: chest.id, title: t("quests.chestName") });
+  };
+
+  const closeChestModal = () => {
+    setOpenChestModal((m) => {
+      if (m) inflight.current.delete(`chest:${m.id}`);
+      return null;
+    });
+  };
+
+  const expireChestModal = () => {
+    setOpenChestModal((m) => {
+      if (m) {
+        inflight.current.delete(`chest:${m.id}`);
+        // Gone server-side (opened elsewhere): drop the row, resync quietly.
+        applyChestOpen(m.id, 0);
+        void reload();
       }
-    } finally {
-      inflight.current.delete(key);
-      setClaimingKey(null);
-    }
+      return null;
+    });
   };
 
   if (profileLoading || loading) {
@@ -779,6 +858,39 @@ export default function Achievements() {
       </ContentEnter>
 
       <div className="mt-8 space-y-9">
+        {isOwner && (
+          <section aria-label={t("quests.daily.title")}>
+            <Link
+              to="/achievements/daily"
+              className="group flex items-center gap-3 rounded-xl border border-border/60 bg-surface px-4 py-3 transition-colors hover:bg-card/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <CalendarDays className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{t("quests.daily.title")}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {t("quests.daily.teaser", { done: dailyDone, total: daily.quests.length })}
+                </p>
+              </div>
+              {daily.unclaimed > 0 ? (
+                <span className="inline-flex shrink-0 items-center rounded-full bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground tabular-nums">
+                  {t("quests.unclaimed", { count: daily.unclaimed })}
+                </span>
+              ) : daily.day && dailySeen !== daily.day ? (
+                <span
+                  role="img"
+                  aria-label={t("quests.daily.newToday")}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[11px] font-bold text-white"
+                >
+                  !
+                </span>
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              )}
+            </Link>
+          </section>
+        )}
         {isOwner && (recalcAvailable || showReworked) && (
           <section
             aria-label={t("quests.reworkedTitle")}
@@ -809,8 +921,8 @@ export default function Achievements() {
                     key={ch.id}
                     chest={ch}
                     index={i}
-                    claiming={claimingKey === `chest:${ch.id}`}
-                    onOpen={() => void handleOpenChest(ch.id)}
+                    claiming={openChestModal?.id === ch.id}
+                    onOpen={() => handleOpenChest(ch)}
                   />
                 ))}
               </AnimatePresence>
@@ -833,6 +945,7 @@ export default function Achievements() {
                     isOwner={isOwner}
                     claiming={claimingKey === `${quest.group_key}:${level.level}`}
                     onClaim={() => void handleClaim(quest, level)}
+                    flash={flashKey === quest.group_key}
                   />
                 );
               })}
@@ -852,6 +965,7 @@ export default function Achievements() {
                   isOwner={isOwner}
                   claimingKey={claimingKey}
                   onClaimLevel={(level) => void handleClaim(quest, level)}
+                  flash={flashKey === quest.group_key}
                 />
               ))}
             </div>
@@ -865,6 +979,15 @@ export default function Achievements() {
           </ContentEnter>
         )}
       </div>
+      {isOwner && openChestModal && (
+        <ChestOpenModal
+          title={openChestModal.title}
+          openChest={() => openChest(openChestModal.id)}
+          onApplied={(won) => applyChestOpen(openChestModal.id, won)}
+          onExpired={expireChestModal}
+          onClose={closeChestModal}
+        />
+      )}
     </main>
   );
 }
