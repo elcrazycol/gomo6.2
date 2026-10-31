@@ -190,9 +190,12 @@ func hasExplicitViewDeny(denies []map[string]bool) bool {
 	return false
 }
 
-// effectiveSet unions the user's server-level grants on a board.
+// effectiveSet resolves the user's server-level grants on a board: the union
+// of @everyone plus all assigned roles, with explicit denies winning over
+// allows (tri-state role model).
 func effectiveSet(db *sql.DB, boardID, userID string, isMember bool) map[string]bool {
-	return gomosubperms.Union(loadRoleMaps(db, boardID, userID, isMember)...)
+	allow, deny := gomosubperms.Partition(loadRoleMaps(db, boardID, userID, isMember)...)
+	return gomosubperms.Resolve(allow, deny)
 }
 
 // CanReadChannel reports whether userID may see the message history of the

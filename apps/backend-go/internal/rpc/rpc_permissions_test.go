@@ -87,3 +87,41 @@ func TestGetBoardUserPermissions_MultiRoleUnion(t *testing.T) {
 		t.Fatal("administrator must not leak to regular members")
 	}
 }
+
+func TestGetBoardUserPermissions_DenyWins(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+	owner := "880e8400-e29b-41d4-a716-446655440000"
+	viewer := "770e8400-e29b-41d4-a716-446655443333"
+	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(owner))
+	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs(boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(boardID, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "is_everyone"}).
+			AddRow("role-1", "base", []byte(`{"view_channel": true}`), true).
+			AddRow("role-2", "muted", []byte(`{"view_channel": false, "send_messages": false}`), false))
+
+	c, w := testutil.NewRPCGETContext(map[string]string{"_board_id": boardID})
+	c.Set("claims", &auth.Claims{UserID: viewer})
+	h.GetBoardUserPermissions(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Permissions map[string]bool `json:"permissions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if resp.Data.Permissions["view_channel"] || resp.Data.Permissions["send_messages"] {
+		t.Fatalf("denies must win, got %+v", resp.Data.Permissions)
+	}
+}

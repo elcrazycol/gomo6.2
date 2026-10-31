@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/gomosubperms"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/wall"
@@ -431,12 +432,13 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 	_ = h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)`,
 		boardID, claims.UserID).Scan(&memberExists)
 
-	perms, actorTop, err := loadActorGrants(h.db, boardID, claims.UserID, memberExists)
+	allowGrants, denyGrants, actorTop, err := loadActorGrants(h.db, boardID, claims.UserID, memberExists)
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		c.Abort()
 		return false
 	}
+	perms := gomosubperms.Resolve(allowGrants, denyGrants)
 	if len(perms) == 0 && !memberExists {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
 		c.Abort()
@@ -469,8 +471,9 @@ func (h *Engine) checkGomosubWritePermission(c *gin.Context, tableName string) b
 
 // loadActorGrants unions the user's server-level permission grants on a board
 // (@everyone for members only, plus every assigned role) and reports the top
-// role position (@everyone counts as 0, outsiders get -1).
-func loadActorGrants(db *sql.DB, boardID, userID string, isMember bool) (map[string]bool, int, error) {
+// role position (@everyone counts as 0, outsiders get -1). Grants come back
+// partitioned into explicit allows and denies (tri-state role model).
+func loadActorGrants(db *sql.DB, boardID, userID string, isMember bool) (allow, deny map[string]bool, top int, err error) {
 	rows, err := db.Query(`
 		SELECT gr.permissions, gr.position, COALESCE(gr.is_everyone, false)
 		FROM gomosub_roles gr
@@ -483,11 +486,12 @@ func loadActorGrants(db *sql.DB, boardID, userID string, isMember bool) (map[str
 		)
 	`, boardID, userID)
 	if err != nil {
-		return nil, -1, err
+		return nil, nil, -1, err
 	}
 	defer rows.Close()
-	perms := map[string]bool{}
-	top := -1
+	allow = map[string]bool{}
+	deny = map[string]bool{}
+	top = -1
 	for rows.Next() {
 		var raw json.RawMessage
 		var pos int
@@ -511,11 +515,13 @@ func loadActorGrants(db *sql.DB, boardID, userID string, isMember bool) (map[str
 		}
 		for k, v := range m {
 			if v {
-				perms[k] = true
+				allow[k] = true
+			} else {
+				deny[k] = true
 			}
 		}
 	}
-	return perms, top, rows.Err()
+	return allow, deny, top, rows.Err()
 }
 
 // roleTarget describes a gomosub role referenced by a management write.

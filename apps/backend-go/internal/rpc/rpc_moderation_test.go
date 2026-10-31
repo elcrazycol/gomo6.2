@@ -196,3 +196,24 @@ func TestListBans_OwnerSeesBans(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestKickMember_DenyWinsOverAllow(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	// Actor holds kick_members on one role and an explicit deny on another:
+	// the kick must be refused.
+	expectModOwner(mock, modOwner)
+	expectModMember(mock, modActor, true)
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(modBoard, modActor).
+		WillReturnRows(sqlmock.NewRows([]string{"permissions", "position", "is_everyone"}).
+			AddRow([]byte(`{"kick_members": true}`), 5, false).
+			AddRow([]byte(`{"kick_members": false}`), 3, false))
+
+	// The deny wipes the grant at the permission gate — the target profile
+	// is never even loaded.
+	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	h.KickMember(c)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}

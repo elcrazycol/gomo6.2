@@ -33,8 +33,8 @@ export const PERMISSION_GROUPS: { title: string; items: PermMeta[] }[] = [
   {
     title: "Каналы по умолчанию",
     items: [
-      { key: "view_channel", label: "Видеть каналы", desc: "Базовое право; приватные каналы требуют явного разрешения" },
-      { key: "send_messages", label: "Писать в каналы", desc: "Базовое право; запрет на канале перекрывает его" },
+      { key: "view_channel", label: "Видеть каналы", desc: "✓ — видит всё; ✕ — прячет даже публичные каналы" },
+      { key: "send_messages", label: "Писать в каналы", desc: "✓ — пишет везде; ✕ — запрет на весь сервер" },
     ],
   },
 ];

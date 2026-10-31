@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { GripVertical, Loader2, PenLine, Plus, Trash2, Hash, MessageSquare, Lock, Shield, FolderPlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { buildOverwriteBody, overwriteTriState, type TriState } from "./permissions";
+import { buildOverwriteBody, overwriteTriState } from "./permissions";
+import { TriStateControl, type TriState } from "./TriStateControl";
 import { csrfHeaders, type ChannelOverwrite, type Role, type SettingsCategory, type SettingsChannel } from "./types";
 import { inputCls, settingsFormCard, settingsSectionTitle } from "./ui";
 
@@ -24,28 +25,6 @@ type Props = {
 };
 
 const slugify = (s: string) => s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "").slice(0, 30);
-
-const TriButton = ({ state, onPick, disabled }: { state: TriState; onPick: (s: TriState) => void; disabled?: boolean }) => (
-  <span className="inline-flex rounded-md border border-border/70 overflow-hidden">
-    {(["deny", "inherit", "allow"] as TriState[]).map((s) => (
-      <button
-        key={s}
-        type="button"
-        disabled={disabled}
-        onClick={() => onPick(s)}
-        title={s === "allow" ? "Разрешить" : s === "deny" ? "Запретить" : "Наследовать"}
-        className={cn(
-          "w-7 h-6 text-[11px] font-bold transition-colors disabled:opacity-50",
-          state === s
-            ? s === "allow" ? "bg-emerald-500/90 text-white" : s === "deny" ? "bg-destructive text-white" : "bg-muted text-foreground"
-            : "bg-surface text-muted-foreground hover:bg-muted",
-        )}
-      >
-        {s === "allow" ? "✓" : s === "deny" ? "✕" : "–"}
-      </button>
-    ))}
-  </span>
-);
 
 const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canManage, onChanged, onOpenOverwrites, openChannelId }: Props) => {
   const [newName, setNewName] = useState("");
@@ -423,11 +402,11 @@ const ChannelsPanel = ({ boardId, channels, categories, roles, overwrites, canMa
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
                     <span className="text-sm font-medium flex-1 min-w-0 truncate">{role.name}</span>
                     <span className="hidden sm:inline text-[11px] uppercase tracking-wide text-muted-foreground w-12">Вид</span>
-                    <TriButton state={overwriteTriState(ow, "view_channel")}
+                    <TriStateControl size="sm" state={overwriteTriState(ow, "view_channel")}
                       disabled={savingOw === `${ch.id}:${role.id}:view_channel`}
                       onPick={(s) => setOverwrite(ch.id, role.id, "view_channel", s)} />
                     <span className="hidden sm:inline text-[11px] uppercase tracking-wide text-muted-foreground w-12">Текст</span>
-                    <TriButton state={overwriteTriState(ow, "send_messages")}
+                    <TriStateControl size="sm" state={overwriteTriState(ow, "send_messages")}
                       disabled={savingOw === `${ch.id}:${role.id}:send_messages`}
                       onPick={(s) => setOverwrite(ch.id, role.id, "send_messages", s)} />
                   </div>

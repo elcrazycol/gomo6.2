@@ -1022,6 +1022,30 @@ func TestEngineDelete_GomosubMemberRoles_RoleRequired(t *testing.T) {
 	}
 }
 
+func TestEnginePut_Channels_DenyWinsOverAllow(t *testing.T) {
+	h, mock := setupEngine(t)
+	mockBoardOwner(mock, "b1", "u9")
+	// Two roles: one allows channel management, the other explicitly denies
+	// it — the deny must win even though the union is non-empty.
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs("b1", "u2").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`(?s)SELECT gr\.permissions, gr\.position.*FROM gomosub_roles gr.*`).
+		WithArgs("b1", "u2").
+		WillReturnRows(sqlmock.NewRows([]string{"permissions", "position", "is_everyone"}).
+			AddRow([]byte(`{"can_manage_channels": true}`), 5, false).
+			AddRow([]byte(`{"can_manage_channels": false}`), 3, false))
+
+	c, w := newRequestContext("PUT", "/api/v1/channels?id=eq.c1&board_id=eq.b1", map[string]interface{}{
+		"name": "Renamed",
+	}, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestEngineDelete_WallComments_OwnershipScope(t *testing.T) {
 	h, mock := setupEngine(t)
 

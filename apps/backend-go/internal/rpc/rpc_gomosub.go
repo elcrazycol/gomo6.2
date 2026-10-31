@@ -171,7 +171,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	// Every board gets its @everyone base role (idempotent).
 	_, _ = h.db.Exec(`
 		INSERT INTO gomosub_roles (board_id, name, color, position, permissions, is_everyone)
-		VALUES ($1, '@everyone', '#99aab5', 0, '{}'::jsonb, TRUE)
+		VALUES ($1, '@everyone', '#99aab5', 0, '{"view_channel": true, "send_messages": true}'::jsonb, TRUE)
 		ON CONFLICT (board_id, name) DO NOTHING
 	`, board.ID)
 
