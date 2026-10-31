@@ -68,10 +68,12 @@ func invalidateChannelsCache(h *Engine, _ *gin.Context, result map[string]interf
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channels*board_id=eq.%s*", boardID))
 }
 
-// invalidateGomosubRolesCache clears the board's roles list.
+// invalidateGomosubRolesCache clears the board's roles list plus the
+// thread lists whose visibility derives from those roles.
 func invalidateGomosubRolesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	boardID := crud.WallResultString(result["board_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_roles*board_id=eq.%s*", boardID))
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID))
 }
 
 // invalidateChannelPermissionsCache clears the channel's permission list, in
@@ -83,6 +85,9 @@ func invalidateChannelPermissionsCache(h *Engine, _ *gin.Context, result map[str
 	channelID := crud.WallResultString(result["channel_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_permissions*channel_id=eq.%s*", channelID))
 	cache.InvalidateByPattern(h.redis, "data:/api/v1/channel_permissions*channel_id=in.*")
+	if boardID := boardIDOfChannel(h, channelID); boardID != "" {
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID))
+	}
 }
 
 // invalidateGomosubMembershipsCache clears the board's memberships list and
@@ -103,12 +108,14 @@ func invalidateChannelCategoriesCache(h *Engine, _ *gin.Context, result map[stri
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_categories*board_id=eq.%s*", boardID))
 }
 
-// invalidateMemberRolesCache clears the board's grant list plus the
-// memberships list the settings members tab renders roles from.
+// invalidateMemberRolesCache clears the board's grant list, the memberships
+// list the settings members tab renders roles from, and the thread lists
+// whose visibility derives from those grants.
 func invalidateMemberRolesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	boardID := crud.WallResultString(result["board_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_member_roles*board_id=eq.%s*", boardID))
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", boardID))
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID))
 }
 
 // invalidateProfileCustomizationCache clears the profile's customization keys
