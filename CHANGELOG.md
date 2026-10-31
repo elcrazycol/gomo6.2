@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.40.0](https://github.com/elcrazycol/gomo6.2/compare/v2.39.0...v2.40.0) (2026-10-31)
+
+
+### Features
+
+* **gomosub:** discord-grade roles, permissions and moderation ([#603](https://github.com/elcrazycol/gomo6.2/issues/603)) ([9e1b551](https://github.com/elcrazycol/gomo6.2/commit/9e1b55176ec3add23f6a3e7311c4ee7b82274db1))
+
 ## [2.39.0](https://github.com/elcrazycol/gomo6.2/compare/v2.38.0...v2.39.0) (2026-10-31)
 
 
