@@ -17,8 +17,10 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/gomo6/backend/internal/gomosubperms"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/search"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,6 +29,7 @@ type BoardsHandler struct {
 	redis         *redis.Client
 	authService   *auth.AuthService
 	searchIndexer *search.Indexer
+	hub           *websocket.Hub
 }
 
 func NewBoardsHandler(db *sql.DB) *BoardsHandler {
@@ -43,6 +46,9 @@ func (h *BoardsHandler) SetRedis(redis *redis.Client) {
 func (h *BoardsHandler) SetAuthService(authService *auth.AuthService) {
 	h.authService = authService
 }
+
+// SetWebSocketHub wires the realtime hub for roster fan-out (nil disables it).
+func (h *BoardsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
 
 func (h *BoardsHandler) getUserIDFromRequest(c *gin.Context) string {
 	if claims, ok := httpx.BearerClaims(c); ok {
@@ -527,6 +533,27 @@ func (h *BoardsHandler) fetchBoardByID(boardID string) (models.Board, error) {
 // @Failure      403 {object} models.APIResponse
 // @Router       /boards/{id}/invites [post]
 // @Security     BearerAuth
+// canManageInvites reports whether userID may manage a board's invites: the
+// owner always, otherwise a member holding can_manage_members (or an
+// administrator) via the shared permission kernel.
+func (h *BoardsHandler) canManageInvites(boardID, userID string) (bool, error) {
+	if boardID == "" || userID == "" {
+		return false, nil
+	}
+	var ownerID sql.NullString
+	if err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&ownerID); err != nil {
+		return false, err
+	}
+	if ownerID.Valid && ownerID.String == userID {
+		return true, nil
+	}
+	eff, err := gomosubperms.LoadEffective(h.db, boardID, userID)
+	if err != nil || eff == nil || !eff.IsMember {
+		return false, err
+	}
+	return eff.IsAdmin() || eff.Perms()[gomosubperms.PermManageMembers], nil
+}
+
 func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 	boardID := c.Param("id")
 
@@ -537,9 +564,8 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var boardOwner sql.NullString
 	var boardVisibility string
-	err := h.db.QueryRow(`SELECT owner_id, COALESCE(visibility, 'public') FROM boards WHERE id = $1`, boardID).Scan(&boardOwner, &boardVisibility)
+	err := h.db.QueryRow(`SELECT COALESCE(visibility, 'public') FROM boards WHERE id = $1`, boardID).Scan(&boardVisibility)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 		return
@@ -548,8 +574,13 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can create invites"))
+	canManage, err := h.canManageInvites(boardID, userClaims.UserID)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	if !canManage {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Managing invites requires the owner or the manage-members permission"))
 		return
 	}
 	if boardVisibility != "private" {
@@ -625,8 +656,7 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var boardOwner sql.NullString
-	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&boardOwner)
+	canManage, err := h.canManageInvites(boardID, userClaims.UserID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 		return
@@ -635,8 +665,8 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can view invites"))
+	if !canManage {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Managing invites requires the owner or the manage-members permission"))
 		return
 	}
 
@@ -690,8 +720,7 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var boardOwner sql.NullString
-	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&boardOwner)
+	canManage, err := h.canManageInvites(boardID, userClaims.UserID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 		return
@@ -700,8 +729,8 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can delete invites"))
+	if !canManage {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Managing invites requires the owner or the manage-members permission"))
 		return
 	}
 
@@ -792,6 +821,13 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
+	// Banned users cannot rejoin through invites either.
+	var banned bool
+	if err := h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_bans WHERE board_id = $1 AND user_id = $2 AND (expires_at IS NULL OR expires_at > NOW()))`, inv.BoardID, userClaims.UserID).Scan(&banned); err == nil && banned {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You are banned from this gomosub"))
+		return
+	}
+
 	// Atomically increment usage counter (prevents race conditions).
 	// Only succeeds if limit not reached (or unlimited when max_uses=0).
 	var ok bool
@@ -817,6 +853,9 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		return
+	}
+	if h.hub != nil {
+		_ = h.hub.PublishGomoSubMemberChanged(inv.BoardID, userClaims.UserID, "joined")
 	}
 
 	// Invalidate cache for memberships and board

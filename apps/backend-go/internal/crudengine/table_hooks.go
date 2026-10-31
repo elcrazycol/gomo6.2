@@ -2,11 +2,14 @@ package crudengine
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/gomo6/backend/internal/gomosubaudit"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/profiles"
 )
 
@@ -65,22 +68,54 @@ func invalidateChannelsCache(h *Engine, _ *gin.Context, result map[string]interf
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channels*board_id=eq.%s*", boardID))
 }
 
-// invalidateGomosubRolesCache clears the board's roles list.
+// invalidateGomosubRolesCache clears the board's roles list plus the
+// thread lists whose visibility derives from those roles.
 func invalidateGomosubRolesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	boardID := crud.WallResultString(result["board_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_roles*board_id=eq.%s*", boardID))
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID))
 }
 
-// invalidateChannelPermissionsCache clears the channel's permission list.
+// invalidateChannelPermissionsCache clears the channel's permission list, in
+// both query shapes the clients use: per-channel reads
+// (channel_id=eq.X, settings) and board-wide reads
+// (channel_id=in.(...), board sidebar). Missing the latter left the sidebar
+// serving pre-edit overwrites until the data-cache TTL expired.
 func invalidateChannelPermissionsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	channelID := crud.WallResultString(result["channel_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_permissions*channel_id=eq.%s*", channelID))
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/channel_permissions*channel_id=in.*")
+	if boardID := boardIDOfChannel(h, channelID); boardID != "" {
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID))
+	}
 }
 
-// invalidateGomosubMembershipsCache clears the board's memberships list.
+// invalidateGomosubMembershipsCache clears the board's memberships list and
+// the member's own membership lookups (user_id=eq. keys, e.g. the header's
+// "my subs" check), which carry no board_id filter.
 func invalidateGomosubMembershipsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	boardID := crud.WallResultString(result["board_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", boardID))
+	if userID := crud.WallResultString(result["user_id"]); userID != "" {
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*user_id=eq.%s*", userID))
+	}
+}
+
+// invalidateChannelCategoriesCache clears the board's category list (the
+// sidebar groups channels by it, so a stale list hides new categories).
+func invalidateChannelCategoriesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
+	boardID := crud.WallResultString(result["board_id"])
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_categories*board_id=eq.%s*", boardID))
+}
+
+// invalidateMemberRolesCache clears the board's grant list, the memberships
+// list the settings members tab renders roles from, and the thread lists
+// whose visibility derives from those grants.
+func invalidateMemberRolesCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
+	boardID := crud.WallResultString(result["board_id"])
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_member_roles*board_id=eq.%s*", boardID))
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", boardID))
+	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID))
 }
 
 // invalidateProfileCustomizationCache clears the profile's customization keys
@@ -164,6 +199,140 @@ func emitUserDailyVisitsAchievements(h *Engine, result map[string]interface{}) {
 	if uid := profiles.RowUserID(result["user_id"]); uid != "" {
 		achievements.EmitAchievement(e, uid, achievements.EventDailyVisit)
 	}
+}
+
+// afterGomosubMembershipsWrite fans roster changes out to the board room so
+// open settings tabs and server rails refetch instead of going stale.
+func afterGomosubMembershipsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	if h.hub == nil {
+		return
+	}
+	boardID := crud.WallResultString(result["board_id"])
+	uid := profiles.RowUserID(result["user_id"])
+	if boardID == "" || uid == "" {
+		return
+	}
+	action := "joined"
+	switch method {
+	case "DELETE":
+		action = "left"
+	case "PUT":
+		action = "roles_changed"
+	}
+	if err := h.hub.PublishGomoSubMemberChanged(boardID, uid, action); err != nil {
+		log.Printf("[gomosub] failed to publish member change for %s: %v", boardID, err)
+	}
+}
+
+// afterGomosubMemberRolesWrite fans role-grant changes out to the board room
+// and records them in the audit log.
+func afterGomosubMemberRolesWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	boardID := crud.WallResultString(result["board_id"])
+	uid := profiles.RowUserID(result["user_id"])
+	rid := crud.WallResultString(result["role_id"])
+	if boardID == "" || uid == "" || rid == "" {
+		return
+	}
+	if h.hub != nil {
+		if err := h.hub.PublishGomoSubMemberChanged(boardID, uid, "roles_changed"); err != nil {
+			log.Printf("[gomosub] failed to publish role change for %s: %v", boardID, err)
+		}
+	}
+	action := gomosubaudit.ActionGrant
+	if method == "DELETE" {
+		action = gomosubaudit.ActionRevoke
+	}
+	auditWrite(h, c, boardID, action, &uid, &rid, nil)
+}
+
+// boardIDOfChannel resolves the board owning a channel (audit needs the
+// board id; permission rows only carry the channel).
+func boardIDOfChannel(h *Engine, channelID string) string {
+	if channelID == "" {
+		return ""
+	}
+	var boardID string
+	if err := h.db.QueryRow(`SELECT board_id FROM channels WHERE id = $1`, channelID).Scan(&boardID); err != nil {
+		return ""
+	}
+	return boardID
+}
+
+// strPtrRef boxes a non-empty string for audit target fields.
+func strPtrRef(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// auditWrite records a management change in the audit log. Best-effort:
+// failures never fail the management write itself.
+func auditWrite(h *Engine, c *gin.Context, boardID, action string, targetUserID, targetRoleID, targetChannelID *string) {
+	if boardID == "" || action == "" {
+		return
+	}
+	gomosubaudit.Log(h.db, gomosubaudit.Entry{
+		BoardID:         boardID,
+		ActorID:         httpx.AuthenticatedUserID(c),
+		Action:          action,
+		TargetUserID:    targetUserID,
+		TargetRoleID:    targetRoleID,
+		TargetChannelID: targetChannelID,
+	})
+}
+
+// afterGomosubRolesWrite records role create/update/delete in the audit log.
+func afterGomosubRolesWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	action := map[string]string{
+		"POST":   gomosubaudit.ActionRoleCreate,
+		"PUT":    gomosubaudit.ActionRoleUpdate,
+		"DELETE": gomosubaudit.ActionRoleDelete,
+	}[method]
+	boardID := crud.WallResultString(result["board_id"])
+	rid := crud.WallResultString(result["id"])
+	if action == "" || boardID == "" || rid == "" {
+		return
+	}
+	auditWrite(h, c, boardID, action, nil, &rid, nil)
+}
+
+// afterChannelsWrite records channel create/update/delete in the audit log.
+func afterChannelsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	action := map[string]string{
+		"POST":   gomosubaudit.ActionChannelCreate,
+		"PUT":    gomosubaudit.ActionChannelUpdate,
+		"DELETE": gomosubaudit.ActionChannelDelete,
+	}[method]
+	boardID := crud.WallResultString(result["board_id"])
+	cid := crud.WallResultString(result["id"])
+	if action == "" || boardID == "" || cid == "" {
+		return
+	}
+	auditWrite(h, c, boardID, action, nil, nil, &cid)
+}
+
+// afterChannelCategoriesWrite records category create/update/delete.
+func afterChannelCategoriesWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	action := map[string]string{
+		"POST":   gomosubaudit.ActionCategoryCreate,
+		"PUT":    gomosubaudit.ActionCategoryUpdate,
+		"DELETE": gomosubaudit.ActionCategoryDelete,
+	}[method]
+	if action == "" || crud.WallResultString(result["board_id"]) == "" {
+		return
+	}
+	auditWrite(h, c, crud.WallResultString(result["board_id"]), action, nil, nil, nil)
+}
+
+// afterChannelPermissionsWrite records overwrite changes in the audit log.
+func afterChannelPermissionsWrite(h *Engine, c *gin.Context, method string, result map[string]interface{}) {
+	boardID := boardIDOfChannel(h, crud.WallResultString(result["channel_id"]))
+	rid := crud.WallResultString(result["role_id"])
+	if boardID == "" || rid == "" {
+		return
+	}
+	auditWrite(h, c, boardID, gomosubaudit.ActionOverwriteUpdate, nil, &rid, strPtrRef(crud.WallResultString(result["channel_id"])))
 }
 
 func emitGomosubMembershipsAchievements(h *Engine, result map[string]interface{}) {

@@ -254,6 +254,17 @@ var genericTables = []TableMeta{
 		WriteDenied:  true,
 	},
 	{
+		Name:              "channel_categories",
+		ReadAccess:        GuestRead,
+		ReadWildcard:      true,
+		Writes:            fullWrites(),
+		WriteGroup:        GenericWrite,
+		GomosubManagement: true,
+		GomosubVisibility: true,
+		InvalidateCache:   invalidateChannelCategoriesCache,
+		AfterWrite:        afterChannelCategoriesWrite,
+	},
+	{
 		Name:              "channel_permissions",
 		ReadAccess:        ProtectedRead,
 		ReadWildcard:      true,
@@ -263,6 +274,7 @@ var genericTables = []TableMeta{
 		GomosubVisibility: true,
 		PrepareBody:       stripChannelPermissionsBoardID,
 		InvalidateCache:   invalidateChannelPermissionsCache,
+		AfterWrite:        afterChannelPermissionsWrite,
 	},
 	{
 		Name:              "channels",
@@ -273,6 +285,7 @@ var genericTables = []TableMeta{
 		GomosubManagement: true,
 		GomosubVisibility: true,
 		InvalidateCache:   invalidateChannelsCache,
+		AfterWrite:        afterChannelsWrite,
 	}, {
 		Name: "custom_emojis",
 		// image_url is validated against the authenticated user's storage by
@@ -306,12 +319,32 @@ var genericTables = []TableMeta{
 		InvalidateCache: invalidateEmojiPacksCache,
 	},
 	{
+		Name: "gomosub_bans",
+		// No generic writes on purpose: bans go exclusively through the
+		// gomosub_ban/unban RPC, which enforces the hierarchy (a generic
+		// write would let any can_manage_members holder ban upwards).
+		ReadAccess:        ProtectedRead,
+		ReadWildcard:      true,
+		WriteDenied:       true,
+		GomosubManagement: true,
+	},
+	{
 		Name:              "gomosub_invites",
 		ReadAccess:        ProtectedRead,
 		ReadWildcard:      true,
 		ReadDenied:        true,
 		WriteDenied:       true,
 		GomosubManagement: false,
+	},
+	{
+		Name:              "gomosub_member_roles",
+		ReadAccess:        ProtectedRead,
+		ReadWildcard:      true,
+		Writes:            fullWrites(),
+		WriteGroup:        GenericWrite,
+		GomosubManagement: true,
+		AfterWrite:        afterGomosubMemberRolesWrite,
+		InvalidateCache:   invalidateMemberRolesCache,
 	},
 	{
 		Name:              "gomosub_memberships",
@@ -322,6 +355,7 @@ var genericTables = []TableMeta{
 		UserScopedRead:    true,
 		GomosubManagement: true,
 		PrepareBody:       prepareGomosubMembershipsBody,
+		AfterWrite:        afterGomosubMembershipsWrite,
 		InvalidateCache:   invalidateGomosubMembershipsCache,
 		EmitAchievements:  emitGomosubMembershipsAchievements,
 	},
@@ -334,6 +368,7 @@ var genericTables = []TableMeta{
 		GomosubManagement: true,
 		GomosubVisibility: true,
 		InvalidateCache:   invalidateGomosubRolesCache,
+		AfterWrite:        afterGomosubRolesWrite,
 	},
 	{
 		Name:             "gomosub_rules_acceptance",

@@ -33,8 +33,6 @@ func newMock(t *testing.T) (sqlmock.Sqlmock, func()) {
 var (
 	userProfilePattern = regexp.MustCompile(`SELECT EXISTS \(\s*SELECT 1 FROM users u`)
 	boardPattern       = regexp.MustCompile(`SELECT EXISTS \(\s*SELECT 1 FROM boards b`)
-	canPostPattern     = regexp.MustCompile(`SELECT EXISTS \(\s*SELECT 1 FROM boards b\s*WHERE b.id::text = \$2::text\s*AND \(b.owner_id::text = \$1::text`)
-	moderatePattern    = regexp.MustCompile(`SELECT EXISTS \(\s*SELECT 1 FROM boards b\s*WHERE b.id::text = \$2::text\s*AND \(b.owner_id::text = \$1::text`)
 	storyPattern       = regexp.MustCompile(`SELECT EXISTS \(\s*SELECT 1 FROM stories s`)
 	mediaPattern       = regexp.MustCompile(`SELECT s.id::text\s*FROM stories s\s*WHERE s.deleted_at IS NULL`)
 )
@@ -176,6 +174,27 @@ func TestCanViewBoardStories(t *testing.T) {
 	})
 }
 
+// expectServerGrant mocks checkBoardServerPerm's chain: owner lookup (not
+// the owner), no ban, no timeout, then the shared kernel union.
+func expectServerGrant(mock sqlmock.Sqlmock, perms string, pos int) {
+	mock.ExpectQuery(`SELECT owner_id::text FROM boards WHERE id::text = \$1::text`).
+		WithArgs(board).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(owner))
+	mock.ExpectQuery(`FROM gomosub_bans WHERE board_id`).
+		WithArgs(viewer, board).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`timed_out_until IS NOT NULL AND timed_out_until`).
+		WithArgs(viewer, board).
+		WillReturnRows(sqlmock.NewRows([]string{"timed_out"}).AddRow(false))
+	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs(board, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(board, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("r-1", "role", []byte(perms), pos, false))
+}
+
 func TestCanPostBoardStories(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -183,9 +202,7 @@ func TestCanPostBoardStories(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(canPostPattern.String()).
-		WithArgs(viewer, board).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectServerGrant(mock, `{"can_post_stories": true}`, 5)
 
 	ok, err := CanPostBoardStories(db, viewer, board)
 	if err != nil {
@@ -206,9 +223,7 @@ func TestCanModerateBoardStories_UsesDeletePermission(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(moderatePattern.String()).
-		WithArgs(viewer, board).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectServerGrant(mock, `{"can_delete_threads": true}`, 5)
 
 	ok, err := CanModerateBoardStories(db, viewer, board)
 	if err != nil || !ok {

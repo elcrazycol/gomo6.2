@@ -435,7 +435,8 @@ describe("Board (wall)", () => {
 
   it("opens the mobile channel drawer and keeps it open after picking a channel", async () => {
     mockParams.slug = "gsub";
-    mockPathname.current = "/g/gsub";
+    mockParams.channelSlug = "general";
+    mockPathname.current = "/g/gsub/c/general";
     const channels = [
       { id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false },
       { id: "ch-2", board_id: "g-3", slug: "news", name: "Новости", category: "Инфо", sort_order: 1, is_private: false },
@@ -488,7 +489,8 @@ describe("Board (wall)", () => {
 
   it("opens the create-post composer from the sheet header (+ button)", async () => {
     mockParams.slug = "gsub";
-    mockPathname.current = "/g/gsub";
+    mockParams.channelSlug = "general";
+    mockPathname.current = "/g/gsub/c/general";
     mockFetch.mockImplementation((url: string) => {
       if (url.startsWith("/api/v1/channels")) {
         return jsonResponse([
@@ -516,16 +518,17 @@ describe("Board (wall)", () => {
     expect(createBtn).toBeInTheDocument();
     await user.click(createBtn);
 
-    // No channel picked → composer opens for the sub as a whole, as an
-    // overlay keeping the board mounted underneath.
-    expect(mockNavigate).toHaveBeenCalledWith("/g/gsub/create", {
-      state: { backgroundLocation: { pathname: "/g/gsub" } },
+    // Creation always carries the channel now (bare /create links fall
+    // back to the default channel) — overlay keeps the board mounted.
+    expect(mockNavigate).toHaveBeenCalledWith("/g/gsub/c/general/create", {
+      state: { backgroundLocation: { pathname: "/g/gsub/c/general" } },
     });
   });
 
   it("locks the page scroll the moment the channel sheet opens and restores it on close", async () => {
     mockParams.slug = "gsub";
-    mockPathname.current = "/g/gsub";
+    mockParams.channelSlug = "general";
+    mockPathname.current = "/g/gsub/c/general";
     mockFetch.mockImplementation((url: string) => {
       if (url.startsWith("/api/v1/channels")) {
         return jsonResponse([{ id: "ch-1", board_id: "g-3", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false }]);

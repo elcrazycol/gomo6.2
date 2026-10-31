@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/testutil"
 )
@@ -15,7 +16,7 @@ import (
 func TestGetGomoSubsDirectory_Success(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
-	mock.ExpectQuery(`(?s)SELECT b\.id.*FROM boards b WHERE b\.is_gomosub = true AND b\.visibility = 'public'.*`).
+	mock.ExpectQuery(`(?s)SELECT b\.id.*FROM boards b WHERE b\.is_gomosub = true.*`).
 		WithArgs(nil, 200).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "slug", "name", "description", "cover_image_url",
@@ -56,6 +57,43 @@ func TestGetGomoSubsDirectory_Success(t *testing.T) {
 	}
 	if len(sub.Tags) != 1 || sub.Tags[0] != "anime" {
 		t.Errorf("expected tags [anime], got %v", sub.Tags)
+	}
+}
+
+func TestGetGomoSubsDirectory_PrivateVisibleToMember(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	viewer := "770e8400-e29b-41d4-a716-446655443333"
+	mock.ExpectQuery(`(?s)SELECT b\.id.*FROM boards b WHERE b\.is_gomosub = true.*`).
+		WithArgs(viewer, 200).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "slug", "name", "description", "cover_image_url",
+			"gomosub_avatar_url", "gomosub_tags", "visibility", "created_at",
+			"member_count", "channel_count", "joined",
+		}).AddRow(
+			"550e8400-e29b-41d4-a716-446655440000", "secret", "Секретный", "Только для своих", nil,
+			nil, `[]`, "private", "2026-01-01T00:00:00Z",
+			5, 2, true,
+		))
+
+	c, w := testutil.NewRPCGETContext(map[string]string{})
+	c.Set("claims", &auth.Claims{UserID: viewer})
+	h.GetGomoSubsDirectory(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data []GomoSubDirectoryItem `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].Visibility != "private" || !resp.Data[0].Joined {
+		t.Fatalf("member must see their private sub as joined, got %+v", resp.Data)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled: %v", err)
 	}
 }
 

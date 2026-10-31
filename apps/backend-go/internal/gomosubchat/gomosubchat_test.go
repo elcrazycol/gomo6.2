@@ -42,8 +42,110 @@ func decodeChat(t *testing.T, body []byte) chatResponse {
 	return r
 }
 
-const readAccessPattern = `SELECT EXISTS\(\s*SELECT 1 FROM channels ch`
-const writeAccessPattern = `SELECT b\.owner_id::text = \$2\s*OR\s*\(\s*EXISTS\(`
+const testBoard = "30000000-0000-0000-0000-0000000000cc"
+const testOwner = "40000000-0000-0000-0000-0000000000dd"
+
+// v2 access chains (see internal/channelaccess): scope → bans → membership →
+// role maps → (overwrites for private channels).
+
+func expectChatScope(mock sqlmock.Sqlmock, isPrivate bool) {
+	mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).
+		WithArgs(testChannel).
+		WillReturnRows(sqlmock.NewRows([]string{"board_id", "is_private", "owner_id", "visibility"}).
+			AddRow(testBoard, isPrivate, testOwner, "public"))
+}
+
+func expectChatNotBanned(mock sqlmock.Sqlmock, user string) {
+	mock.ExpectQuery(`FROM gomosub_bans`).
+		WithArgs(testBoard, user).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+}
+
+func expectChatMembership(mock sqlmock.Sqlmock, user string, isMember bool) {
+	rows := sqlmock.NewRows([]string{"timed_out_until"})
+	if isMember {
+		rows.AddRow(nil)
+	}
+	mock.ExpectQuery(`timed_out_until FROM gomosub_memberships`).
+		WithArgs(testBoard, user).
+		WillReturnRows(rows)
+}
+
+func expectChatMemberExists(mock sqlmock.Sqlmock, user string, member bool) {
+	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs(testBoard, user).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(member))
+}
+
+func expectChatRoles(mock sqlmock.Sqlmock, user string, perms ...string) {
+	rows := sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"})
+	for i, p := range perms {
+		rows.AddRow("r-chat-%d", "role", []byte(`{"`+p+`": true}`), i+1, false)
+	}
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(testBoard, user).
+		WillReturnRows(rows)
+}
+
+func expectChatNoOverwrites(mock sqlmock.Sqlmock, user string) {
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, user).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}))
+}
+
+// Public channel read: allowed for anyone (scope → bans → membership → roles).
+func expectChatReadOK(mock sqlmock.Sqlmock, user string) {
+	expectChatScope(mock, false)
+	expectChatNotBanned(mock, user)
+	expectChatMembership(mock, user, false)
+	expectChatMemberExists(mock, user, false)
+	expectChatRoles(mock, user)
+}
+
+// Private channel read without membership/overwrite: denied.
+func expectChatReadDenied(mock sqlmock.Sqlmock, user string) {
+	expectChatScope(mock, true)
+	expectChatNotBanned(mock, user)
+	expectChatMembership(mock, user, false)
+	expectChatMemberExists(mock, user, false)
+	expectChatRoles(mock, user)
+	expectChatNoOverwrites(mock, user)
+}
+
+// Member write to a public channel.
+func expectChatWriteOK(mock sqlmock.Sqlmock, user string) {
+	expectChatScope(mock, false)
+	expectChatNotBanned(mock, user)
+	expectChatMembership(mock, user, true)
+	expectChatMemberExists(mock, user, true)
+	expectChatRoles(mock, user)
+}
+
+// Non-member write: denied at the membership check.
+func expectChatWriteDenied(mock sqlmock.Sqlmock, user string) {
+	expectChatScope(mock, false)
+	expectChatNotBanned(mock, user)
+	expectChatMembership(mock, user, false)
+	expectChatMemberExists(mock, user, false)
+}
+
+// Moderator with the manage-messages grant.
+func expectChatModerateOK(mock sqlmock.Sqlmock, user string) {
+	expectChatScope(mock, false)
+	expectChatNotBanned(mock, user)
+	expectChatMembership(mock, user, true)
+	expectChatMemberExists(mock, user, true)
+	expectChatRoles(mock, user, "can_delete_threads")
+}
+
+// Member without the grant: denied.
+func expectChatModerateDenied(mock sqlmock.Sqlmock, user string) {
+	expectChatScope(mock, false)
+	expectChatNotBanned(mock, user)
+	expectChatMembership(mock, user, true)
+	expectChatMemberExists(mock, user, true)
+	expectChatRoles(mock, user)
+}
 
 // ─── GetMessages ─────────────────────────────────────────────────────────────
 
@@ -55,9 +157,7 @@ func TestGetMessages_Success(t *testing.T) {
 		nil, map[string]string{"id": testChannel})
 	c.Set("claims", &auth.Claims{UserID: testUser, Username: "tester"})
 
-	mock.ExpectQuery(readAccessPattern).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectChatReadOK(mock, testUser)
 
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
@@ -101,9 +201,7 @@ func TestGetMessages_BeforeCursor(t *testing.T) {
 		map[string]string{"before": "5", "limit": "10"}, map[string]string{"id": testChannel})
 	c.Set("claims", &auth.Claims{UserID: testUser, Username: "tester"})
 
-	mock.ExpectQuery(readAccessPattern).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectChatReadOK(mock, testUser)
 
 	mock.ExpectQuery(`SELECT m\.id, m\.channel_id.*AND m\.id < \$.*ORDER BY m\.id DESC`).
 		WithArgs(testChannel, int64(5)).
@@ -126,9 +224,7 @@ func TestGetMessages_NoAccess(t *testing.T) {
 		nil, map[string]string{"id": testChannel})
 	c.Set("claims", &auth.Claims{UserID: testUser2, Username: "bob"})
 
-	mock.ExpectQuery(readAccessPattern).
-		WithArgs(testChannel, testUser2).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	expectChatReadDenied(mock, testUser2)
 
 	h.GetMessages(c)
 	if w.Code != http.StatusForbidden {
@@ -162,9 +258,7 @@ func TestSendMessage_HappyPath(t *testing.T) {
 		WithArgs(testChannel).
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("text"))
 
-	mock.ExpectQuery(writeAccessPattern).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(true))
+	expectChatWriteOK(mock, testUser)
 
 	mock.ExpectQuery(`INSERT INTO channel_messages \(channel_id, user_id, content\) VALUES \(\$1, \$2, \$3\) RETURNING id, created_at`).
 		WithArgs(testChannel, testUser, "привет").
@@ -229,9 +323,7 @@ func TestSendMessage_NoWriteAccess(t *testing.T) {
 		WithArgs(testChannel).
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("text"))
 
-	mock.ExpectQuery(writeAccessPattern).
-		WithArgs(testChannel, testUser2).
-		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(false))
+	expectChatWriteDenied(mock, testUser2)
 
 	h.SendMessage(c)
 	if w.Code != http.StatusForbidden {
@@ -278,9 +370,7 @@ func TestEditMessage_Own(t *testing.T) {
 		WithArgs(int64(11), testChannel).
 		WillReturnRows(msgRow(testUser, true))
 
-	mock.ExpectQuery(writeAccessPattern).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(true))
+	expectChatWriteOK(mock, testUser)
 
 	mock.ExpectExec(`UPDATE channel_messages SET content = \$3, edited_at = NOW\(\) WHERE id = \$1 AND channel_id = \$2`).
 		WithArgs(int64(11), testChannel, "исправлено").
@@ -397,9 +487,7 @@ func TestDeleteMessage_ModeratorCan(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(testUser2)) // чужое
 
 	// Moderation predicate (owner or can_delete_threads role)
-	mock.ExpectQuery(readAccessPattern).
-		WithArgs(testChannel, testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectChatModerateOK(mock, testUser)
 
 	mock.ExpectExec(`UPDATE channel_messages SET deleted_at = NOW\(\)`).
 		WithArgs(int64(13), testChannel).
@@ -430,9 +518,7 @@ func TestDeleteMessage_ForeignForbidden(t *testing.T) {
 		WithArgs(int64(14), testChannel).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(testUser))
 
-	mock.ExpectQuery(readAccessPattern).
-		WithArgs(testChannel, testUser2).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	expectChatModerateDenied(mock, testUser2)
 
 	h.DeleteMessage(c)
 	if w.Code != http.StatusForbidden {

@@ -94,6 +94,15 @@ func prepareGomosubMembershipsBody(h *Engine, c *gin.Context, tableName, method 
 				c.JSON(http.StatusForbidden, models.ErrorResponse("Joining a board cannot assign a role"))
 				return false
 			}
+			// Banned users cannot rejoin through self-join (the ban row
+			// survives the membership delete by design).
+			if bid, _ := data["board_id"].(string); bid != "" {
+				var banned bool
+				if err := h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_bans WHERE board_id = $1 AND user_id = $2 AND (expires_at IS NULL OR expires_at > NOW()))`, bid, uid).Scan(&banned); err == nil && banned {
+					c.JSON(http.StatusForbidden, models.ErrorResponse("You are banned from this gomosub"))
+					return false
+				}
+			}
 		}
 		return true
 	}

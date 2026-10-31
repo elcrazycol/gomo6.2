@@ -125,6 +125,8 @@ func TestBackupExport_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT m\\.user_id, COALESCE\\(u\\.username").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "username", "email", "role", "role_id"}).
 			AddRow("u-1", "alice", nil, "member", nil))
+	mock.ExpectQuery("FROM \\(SELECT mr\\.user_id").
+		WillReturnRows(sqlmock.NewRows([]string{"row_to_json"}))
 	mock.ExpectQuery("FROM \\(SELECT \\* FROM gomosub_invites").
 		WillReturnRows(sqlmock.NewRows([]string{"row_to_json"}))
 	mock.ExpectQuery("FROM \\(SELECT \\* FROM gomosub_rules_acceptance").

@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/channelaccess"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/moderation"
@@ -76,6 +77,12 @@ func (h *ThreadsHandler) getUserIDFromRequest(c *gin.Context) string {
 
 // canAccessChannel checks if a user can access a channel.
 // checkWrite: if true checks write permission, if false checks read permission.
+//
+// Delegates to the canonical v2 predicates in internal/channelaccess (union
+// multi-roles, @everyone, allow/deny overwrites, bans, timeouts,
+// administrator) so the thread surface cannot drift from the chat surface.
+// Guests keep the legacy rule: public channels readable, private denied
+// (guests hold no roles, so overwrites can never apply to them).
 func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, checkWrite bool) (bool, error) {
 	if userID == "" {
 		var isPrivate bool
@@ -85,52 +92,10 @@ func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, check
 		}
 		return !isPrivate, nil
 	}
-	var isPrivate bool
-	var ownerID string
-	err := h.db.QueryRow(`
-		SELECT c.is_private, b.owner_id
-		FROM channels c JOIN boards b ON c.board_id = b.id
-		WHERE c.id = $1
-	`, channelID).Scan(&isPrivate, &ownerID)
-	if err != nil {
-		return false, err
-	}
-	if !isPrivate {
-		return true, nil
-	}
-	if ownerID == userID {
-		return true, nil
-	}
-	// Check if user is any member of this gomosub (basic read access even without a role)
-	if !checkWrite {
-		var isMember bool
-		memberErr := h.db.QueryRow(`
-			SELECT EXISTS(
-				SELECT 1 FROM gomosub_memberships
-				WHERE board_id = (SELECT board_id FROM channels WHERE id = $1)
-				AND user_id = $2
-			)
-		`, channelID, userID).Scan(&isMember)
-		if memberErr == nil && isMember {
-			return true, nil
-		}
-	}
-	permColumn := "cp.can_read"
 	if checkWrite {
-		permColumn = "cp.can_write"
+		return channelaccess.CanWriteChannel(h.db, userID, channelID)
 	}
-	var hasAccess bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM channel_permissions cp
-			JOIN gomosub_memberships gm ON gm.role_id = cp.role_id AND gm.user_id = $2 AND gm.board_id = (SELECT board_id FROM channels WHERE id = $1)
-			WHERE cp.channel_id = $1 AND `+permColumn+` = true
-		)
-	`, channelID, userID).Scan(&hasAccess)
-	if err != nil {
-		return false, err
-	}
-	return hasAccess, nil
+	return channelaccess.CanReadChannel(h.db, userID, channelID)
 }
 
 // canAccessBoard checks if a user can access a private board.
@@ -345,6 +310,48 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		args = append(args, userID, userID)
 	} else {
 		conditions = append(conditions, "(t.board_id IS NULL OR b.visibility != 'private')")
+	}
+
+	// Channel-level visibility (Discord lockdown model, set-based mirror of
+	// channelaccess.CanReadChannel): guests see threads of public channels
+	// only; members additionally need the server view grant or an explicit
+	// overwrite grant on public channels, while private channels stay
+	// members-visible (overwrites only add outsiders). Owners and admins
+	// bypass.
+	if userID == "" {
+		conditions = append(conditions, `(t.channel_id IS NULL OR EXISTS(
+			SELECT 1 FROM channels ch WHERE ch.id = t.channel_id
+			AND COALESCE(ch.is_private, false) = false))`)
+	} else {
+		u := "$" + strconv.Itoa(len(args)+1)
+		args = append(args, userID)
+		memberOf := `EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id = ` + u + `)`
+		roleGrants := `((COALESCE(gr.is_everyone, false) = TRUE AND ` + memberOf + `)` +
+			` OR EXISTS(SELECT 1 FROM gomosub_member_roles mr WHERE mr.role_id = gr.id AND mr.user_id = ` + u + ` AND mr.board_id = t.board_id)` +
+			` OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.role_id = gr.id AND gm.user_id = ` + u + ` AND gm.board_id = t.board_id))`
+		serverView := `EXISTS(SELECT 1 FROM gomosub_roles gr WHERE gr.board_id = t.board_id AND gr.permissions @> '{"view_channel": true}'::jsonb AND ` + roleGrants + `)`
+		isAdmin := `EXISTS(SELECT 1 FROM gomosub_roles gr WHERE gr.board_id = t.board_id AND gr.permissions @> '{"administrator": true}'::jsonb AND ` + roleGrants + `)`
+		allowView := `(cp.allow @> '{"view_channel": true}'::jsonb OR (cp.allow = '{}'::jsonb AND cp.deny = '{}'::jsonb AND cp.can_read = true))`
+		denyView := `(cp.deny @> '{"view_channel": true}'::jsonb)`
+		owRole := `EXISTS(SELECT 1 FROM channel_permissions cp JOIN gomosub_roles gr ON gr.id = cp.role_id` +
+			` WHERE cp.channel_id = t.channel_id AND gr.board_id = t.board_id AND COALESCE(gr.is_everyone, false) = FALSE AND ` + roleGrants + ` AND `
+		owEveryone := `EXISTS(SELECT 1 FROM channel_permissions cp JOIN gomosub_roles gr ON gr.id = cp.role_id` +
+			` WHERE cp.channel_id = t.channel_id AND gr.board_id = t.board_id AND COALESCE(gr.is_everyone, false) = TRUE AND ` + roleGrants + ` AND `
+		owRoleAllow := owRole + allowView + `)`
+		owEveryoneAllow := owEveryone + allowView + `)`
+		owRoleDeny := owRole + denyView + `)`
+		owEveryoneDeny := owEveryone + denyView + `)`
+		// Upheld deny in Discord tier order: a role deny always wins; an
+		// @everyone deny holds only when no role allow overrides it.
+		upheldDeny := `(` + owRoleDeny + ` OR (` + owEveryoneDeny + ` AND NOT ` + owRoleAllow + `))`
+		grantView := `(` + serverView + ` OR ` + owRoleAllow + ` OR ` + owEveryoneAllow + `)`
+		publicCh := `EXISTS(SELECT 1 FROM channels ch WHERE ch.id = t.channel_id AND COALESCE(ch.is_private, false) = false)`
+		privateCh := `EXISTS(SELECT 1 FROM channels ch WHERE ch.id = t.channel_id AND COALESCE(ch.is_private, false) = true)`
+		conditions = append(conditions, `(t.channel_id IS NULL`+
+			` OR b.owner_id = `+u+
+			` OR `+isAdmin+
+			` OR (`+publicCh+` AND (NOT `+memberOf+` OR (`+grantView+` AND NOT `+upheldDeny+`)))`+
+			` OR (`+privateCh+` AND ((`+memberOf+` OR `+grantView+`) AND NOT `+upheldDeny+`)))`)
 	}
 
 	// Determine ORDER BY (before cursor, since cursor direction depends on order)
@@ -580,6 +587,17 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	if boardID.Valid && boardID.String != "" {
 		userID := h.getUserIDFromRequest(c)
 		canAccess, accessErr := h.canAccessBoard(userID, boardID.String)
+		if accessErr == nil && !canAccess {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
+			return
+		}
+	}
+
+	// Check channel-level access (private channels and the view-grant
+	// lockdown hide the thread as if it did not exist).
+	if channelID.Valid && channelID.String != "" {
+		userID := h.getUserIDFromRequest(c)
+		canAccess, accessErr := h.canAccessChannel(userID, channelID.String, false)
 		if accessErr == nil && !canAccess {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return

@@ -76,6 +76,18 @@ const CreateGomoThread = () => {
         const channelsResult = await channelsResponse.json();
         const channelData = channelsResult.data?.[0];
         if (channelData) setChannelId(channelData.id);
+      } else {
+        // No channel in the URL (legacy /create link): fall back to the
+        // board's default channel instead of creating an orphan thread.
+        try {
+          const channelsResponse = await fetch(`/api/v1/channels?board_id=eq.${data.id}&order=sort_order.asc&limit=50`);
+          const channelsResult = await channelsResponse.json();
+          const list = (channelsResult.data || []) as { id: string; is_default?: boolean }[];
+          const fallback = list.find((c) => c.is_default) ?? list[0];
+          if (fallback) setChannelId(fallback.id);
+        } catch {
+          // Creation stays possible; the thread just lands channel-less.
+        }
       }
 
       // Restore an autosaved draft for this board.

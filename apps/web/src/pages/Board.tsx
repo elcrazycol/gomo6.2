@@ -21,7 +21,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Users, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -47,6 +47,8 @@ import { getDirectoryMemberCount } from "@/routes/data/gomosubData";
 import { STREAM_ITEM_VARIANTS, springFor, streamRowVariants } from "@/lib/motion";
 import { GomoSubHeader } from "@/components/gomosub/GomoSubHeader";
 import { GomoSubChannelsList } from "@/components/gomosub/GomoSubChannelsList";
+import { GomoSubMemberList } from "@/components/gomosub/GomoSubMemberList";
+import { groupChannels, type CategoryLike } from "@/components/gomosub/groupChannels";
 import { useGomoSubUnread } from "@/hooks/useGomoSubUnread";
 
 // Mobile channel sheet grab zone: bottom-left corner of the screen.
@@ -145,9 +147,14 @@ const Board = () => {
   
   // Channels state
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [categories, setCategories] = useState<CategoryLike[]>([]);
+  const [roster, setRoster] = useState<{ members: { user_id: string; username: string; role_ids: string[]; timed_out: boolean; is_owner: boolean }[]; roles: { id: string; name: string; color: string; position: number; is_everyone?: boolean }[] } | null>(null);
+  const [showMembers, setShowMembers] = useState(true);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
+  const [mobileShowMembers, setMobileShowMembers] = useState(false);
   // Tracks the channel sheet snap point (0.4 = compact, 1 = full screen) so we
   // can show a close button only when the sheet is fully expanded.
   const [channelSheetSnapPoint, setChannelSheetSnapPoint] = useState<number>(0.4);
@@ -197,35 +204,83 @@ const Board = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load channels for gomosub boards
+  // Load channels for gomosub boards (plus their categories, Discord-style).
   const loadChannels = useCallback(async (boardId: string, ownerId: string | null): Promise<string | null> => {
     try {
-      let channelsData = await loadBoardChannels(boardId);
+      const [channelsDataRaw, categoriesRes] = await Promise.all([
+        loadBoardChannels(boardId),
+        fetch(`/api/v1/channel_categories?board_id=eq.${boardId}&order=sort_order.asc`).then((r) => r.json()).catch(() => null),
+      ]);
+      let channelsData = channelsDataRaw;
+      setCategories(((categoriesRes?.data || []) as CategoryLike[]));
 
-      // Filter private channels based on user permissions
+      // Filter channels using the v2 permission model: owners and
+      // administrators see everything; members see a private channel only
+      // with a view_channel grant (or the legacy can_read) on any of their
+      // roles; outsiders only through an explicit overwrite. An explicit
+      // view deny hides the channel even when it is public.
       const isOwner = user?.id && ownerId && user.id === ownerId;
-      if (!isOwner && user?.id && channelsData.length > 0) {
-        // Fetch user's membership and channel_permissions
-        const privateChannelIds = channelsData.filter((ch) => ch.is_private).map((ch) => ch.id);
-        if (privateChannelIds.length > 0) {
-          const [membership, permissionsRes] = await Promise.all([
+      if (!isOwner && channelsData.length > 0) {
+        if (!user?.id) {
+          channelsData = channelsData.filter((ch) => !ch.is_private);
+        } else {
+          const allChannelIds = channelsData.map((ch) => ch.id);
+          const [membership, rolesRes, grantsRes, permissionsRes] = await Promise.all([
             getMyGomosubMembership(boardId, user.id),
-            fetch(`/api/v1/channel_permissions?channel_id=in.(${privateChannelIds.join(",")})`),
+            fetch(`/api/v1/gomosub_roles?board_id=eq.${boardId}`).then((r) => r.json()).catch(() => null),
+            fetch(`/api/v1/gomosub_member_roles?board_id=eq.${boardId}&user_id=eq.${user.id}`).then((r) => r.json()).catch(() => null),
+            fetch(`/api/v1/channel_permissions?channel_id=in.(${allChannelIds.join(",")})`).then((r) => r.json()).catch(() => null),
           ]);
-          const permissionsData = await permissionsRes.json();
-          const permissions = (permissionsData.data || []) as { channel_id: string; role_id: string; can_read: boolean }[];
-
-          channelsData = channelsData.filter((ch) => {
-            if (!ch.is_private) return true;
-            if (!membership?.role_id) return false;
-            return permissions.some(
-              (p) => p.channel_id === ch.id && p.role_id === membership.role_id && p.can_read
-            );
-          });
+          const roles = ((rolesRes?.data || []) as { id: string; permissions: unknown; is_everyone?: boolean }[]);
+          const parsePerms = (v: unknown): Record<string, boolean> => {
+            if (typeof v === "string") {
+              try { return JSON.parse(v) as Record<string, boolean>; } catch { return {}; }
+            }
+            return (v as Record<string, boolean>) || {};
+          };
+          const grants = ((grantsRes?.data || []) as { role_id: string }[]).map((g) => g.role_id);
+          if (membership?.role_id) grants.push(membership.role_id);
+          const myRoleIds = new Set(grants);
+          const isMember = membership !== null;
+          if (isMember) {
+            const everyone = roles.find((r) => r.is_everyone);
+            if (everyone) myRoleIds.add(everyone.id);
+          }
+          const isAdmin = roles.some((r) => myRoleIds.has(r.id) && parsePerms(r.permissions).administrator);
+          if (!isAdmin) {
+            const overwrites = ((permissionsRes?.data || []) as {
+              channel_id: string; role_id: string;
+              allow?: unknown; deny?: unknown; can_read?: boolean;
+            }[]);
+            const denied = (channelId: string) =>
+              overwrites.some((p) => {
+                if (p.channel_id !== channelId || !myRoleIds.has(p.role_id)) return false;
+                return parsePerms(p.deny).view_channel === true;
+              });
+            const granted = (channelId: string) =>
+              overwrites.some((p) => {
+                if (p.channel_id !== channelId || !myRoleIds.has(p.role_id)) return false;
+                const allow = parsePerms(p.allow);
+                const deny = parsePerms(p.deny);
+                if (deny.view_channel) return false;
+                if (allow.view_channel) return true;
+                return p.can_read === true;
+              });
+            // Server-wide view grant (usually from @everyone): members need
+            // it to see public channels (Discord lockdown rule).
+            const serverView = roles.some((r) => myRoleIds.has(r.id) && parsePerms(r.permissions).view_channel === true);
+            channelsData = channelsData.filter((ch) => {
+              // Explicit deny hides the channel from everyone but owners/admins.
+              if (denied(ch.id)) return false;
+              if (!ch.is_private) {
+                // Outsiders preview public channels; members need the view grant.
+                return !isMember || serverView || granted(ch.id);
+              }
+              // Private channels stay members-visible; overwrites add outsiders.
+              return isMember || granted(ch.id);
+            });
+          }
         }
-      } else if (!user?.id) {
-        // Unauthenticated users only see public channels
-        channelsData = channelsData.filter((ch) => !ch.is_private);
       }
 
       setChannels(channelsData);
@@ -236,9 +291,11 @@ const Board = () => {
         resolvedChannelId = foundChannel?.id || null;
       }
       setActiveChannelId(resolvedChannelId);
+      setChannelsLoaded(true);
       return resolvedChannelId;
     } catch {
       setChannels([]);
+      setChannelsLoaded(true);
       return null;
     }
   }, [channelSlug, user?.id]);
@@ -400,6 +457,7 @@ const Board = () => {
   loadChannelsRef.current = loadChannels;
   const loadThreadsRef = useRef(loadThreads);
   loadThreadsRef.current = loadThreads;
+  const loadRosterRef = useRef<() => Promise<void>>(async () => {});
   const activeChannelIdRef = useRef(activeChannelId);
   activeChannelIdRef.current = activeChannelId;
   // Tracks which board the loaded thread list belongs to, so a channel switch
@@ -555,6 +613,9 @@ const Board = () => {
     // Wait for a gomosub board's channels to settle before the first fetch
     // (avoids a double fetch when the channel list arrives mid-flight).
     if (isGomoRoute && channels.length === 0) return;
+    // Bare server URL has no union feed anymore: it redirects to the first
+    // visible channel (or renders the no-channels empty state).
+    if (isGomoRoute && !channelSlug) return;
 
     // Telegram-style channel switch: the previous list STAYS on screen until
     // the new one arrives (loadThreads replaces it in place). Clearing here
@@ -603,28 +664,29 @@ const Board = () => {
   // the join button renders a stable ghost, not a wrong "Вступить".
   const [membershipKnown, setMembershipKnown] = useState(false);
 
-  useEffect(() => {
-    const loadMembership = async () => {
-      const needsFetch = Boolean(board?.is_gomosub && user?.id);
-      // Ghost-button state ONLY while a real fetch is in flight; guests and
-      // non-gomosub boards know "not joined" immediately.
-      setMembershipKnown(!needsFetch);
-      if (!board?.is_gomosub) {
-        setIsJoined(false);
-        return;
-      }
-      if (!user?.id) {
-        setIsJoined(false);
-        return;
-      }
+  const refreshMyMembership = useCallback(async () => {
+    const needsFetch = Boolean(board?.is_gomosub && user?.id);
+    // Ghost-button state ONLY while a real fetch is in flight; guests and
+    // non-gomosub boards know "not joined" immediately.
+    setMembershipKnown(!needsFetch);
+    if (!board?.is_gomosub) {
+      setIsJoined(false);
+      return;
+    }
+    if (!user?.id) {
+      setIsJoined(false);
+      return;
+    }
 
-      const membership = await getMyGomosubMembership(board.id, user.id);
-      setIsJoined(membership !== null);
-      setMembershipKnown(true);
-    };
-
-    loadMembership();
+    if (board?.id && user?.id) invalidateGomosubMembership(board.id, user.id);
+    const membership = board?.id && user?.id ? await getMyGomosubMembership(board.id, user.id) : null;
+    setIsJoined(membership !== null);
+    setMembershipKnown(true);
   }, [board?.id, board?.is_gomosub, user?.id]);
+
+  useEffect(() => {
+    refreshMyMembership();
+  }, [refreshMyMembership]);
 
   // Real-time WebSocket subscription — replaces 30s polling
   useEffect(() => {
@@ -640,11 +702,24 @@ const Board = () => {
       }
     });
 
+    // Roster changes (join/leave/kick/ban/timeout/role grant) refetch the
+    // member rail live; events about the viewer also refresh join state so
+    // a kick/ban flips the join button without reload.
+    const unsubMembers = wsService.on('gomosub_member_changed', (message) => {
+      const data = message.data as { board_id?: string; user_id?: string } | undefined;
+      if (data?.board_id !== board.id) return;
+      if (data?.user_id && data.user_id === user?.id) {
+        refreshMyMembership();
+      }
+      loadRosterRef.current();
+    });
+
     return () => {
       unsub();
+      unsubMembers();
       wsService.unsubscribe(room);
     };
-  }, [board]);
+  }, [board, user?.id, refreshMyMembership]);
 
   // Infinite scroll for threads — IntersectionObserver on sentinel
   useEffect(() => {
@@ -668,27 +743,12 @@ const Board = () => {
     };
   }, [hasMoreThreads, loadingMoreThreads, board, pageLoading]);
 
-  // Group channels by category for sidebar
+  // Group channels: uncategorized first, then structured categories in
+  // order, then legacy free-text buckets (groupChannels helper, tested).
   const channelCategories = useMemo(() => {
     if (!channels.length) return [] as { category: string; channels: Channel[] }[];
-    const grouped = new Map<string, Channel[]>();
-    const uncategorized: Channel[] = [];
-    channels.forEach((ch) => {
-      const cat = (ch.category || "").trim();
-      if (cat) {
-        const existing = grouped.get(cat) || [];
-        existing.push(ch);
-        grouped.set(cat, existing);
-      } else {
-        uncategorized.push(ch);
-      }
-    });
-    const result = Array.from(grouped.entries()).map(([category, chs]) => ({ category, channels: chs }));
-    if (uncategorized.length) {
-      result.push({ category: "", channels: uncategorized });
-    }
-    return result;
-  }, [channels]);
+    return groupChannels(channels, categories).map((g) => ({ category: g.label, channels: g.channels }));
+  }, [channels, categories]);
 
   // gomosub header tags (from the board row's gomosub_tags array)
   const gomosubTags = useMemo(() => {
@@ -838,6 +898,35 @@ const Board = () => {
 
   const { unread, markSeen } = useGomoSubUnread(user?.id ?? null, board?.id ?? null, channels);
 
+  // Discord-like roster for the member rail (members + owner only; the RPC
+  // enforces it, failures simply hide the rail).
+  const loadRoster = useCallback(async () => {
+    if (!isGomoRoute || !board?.id || !user?.id) {
+      setRoster(null);
+      return;
+    }
+    try {
+      const { data: { session } } = await api.auth.getSession();
+      const r = await fetch(`/api/rpc/gomosub_members?_board_id=${board.id}`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
+      const d = await r.json();
+      if (r.ok && d?.success) setRoster(d.data);
+      else setRoster(null);
+    } catch {
+      // Roster is best-effort — the page works without it.
+    }
+  }, [isGomoRoute, board?.id, user?.id]);
+
+  useEffect(() => {
+    if (!isJoined) {
+      setRoster(null);
+      return;
+    }
+    loadRoster();
+  }, [isJoined, loadRoster]);
+  loadRosterRef.current = loadRoster;
+
   // Per-row entrance motion needs the reduced-motion gate (no parent cascade
   // anymore — see the thread list below).
   const prefersReducedMotion = useReducedMotion();
@@ -854,7 +943,6 @@ const Board = () => {
       boardSlug={slug ?? ""}
       groups={channelCategories}
       activeChannelSlug={activeChannelSlug}
-      generalLabel={t("board.general")}
       onNavigate={onSelect}
       unread={unread}
     />
@@ -866,6 +954,14 @@ const Board = () => {
   // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
   if (slug === "gomosubs") {
     return <Navigate to="/g" replace />;
+  }
+
+  // No "Общий" anymore: a bare server URL opens the first visible channel,
+  // exactly like a Discord server opens its default channel. Channel-less
+  // servers fall through to the empty state rendered in the content area.
+  const firstVisibleChannel = channelCategories.flatMap((g) => g.channels)[0] ?? null;
+  if (isGomoRoute && !channelSlug && board && channelsLoaded && firstVisibleChannel) {
+    return <Navigate to={`/g/${slug}/c/${firstVisibleChannel.slug}`} replace />;
   }
 
   const renderContent = (text: string) => {
@@ -1469,6 +1565,16 @@ const Board = () => {
                       <span>{t("board.settings")}</span>
                     </NavigationLink>
                   )}
+                  {roster && (
+                    <button
+                      onClick={() => setShowMembers((v) => !v)}
+                      className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                      title="Показать или скрыть участников"
+                    >
+                      <Users className="w-3.5 h-3.5 shrink-0" />
+                      <span>Участники · {roster.members.length}</span>
+                    </button>
+                  )}
                 </div>
                 </div>
               </div>
@@ -1526,8 +1632,19 @@ const Board = () => {
                       g/{board.slug}
                     </NavigationLink>
                   </div>
-                  {/* Compact actions: share + join */}
+                  {/* Compact actions: members, share + join */}
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {roster && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowMembers((v) => !v)}
+                        title="Участники"
+                      >
+                        <Users className="w-4 h-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1573,6 +1690,7 @@ const Board = () => {
               >
                 <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
+                  {channels.length > 0 && (
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
                     className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
@@ -1595,6 +1713,7 @@ const Board = () => {
                     )}
                     <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
                   </button>
+                  )}
                   {canCreateThread && !isTextChannel && (
                     <motion.div
                       className="shrink-0"
@@ -1634,6 +1753,24 @@ const Board = () => {
                     canPost={Boolean(user?.id && isJoined)}
                     canDeleteOthers={Boolean(isBoardOwner || boardPermissions.can_delete_threads)}
                   />
+                ) : isGomoRoute && !channelSlug && channelsLoaded && channelCategories.length === 0 ? (
+                <div className="rounded-2xl border border-border/60 bg-surface p-8 text-center space-y-3">
+                  <Hash className="w-8 h-8 mx-auto text-muted-foreground/50" />
+                  {channels.length === 0 ? (
+                    <div>
+                      <div className="font-semibold">В сообществе пока нет каналов</div>
+                      <p className="text-sm text-muted-foreground mt-1">Записи живут в каналах — создай первый в настройках.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="font-semibold">Нет доступных каналов</div>
+                      <p className="text-sm text-muted-foreground mt-1">У твоих ролей нет прав на просмотр каналов этого сообщества.</p>
+                    </div>
+                  )}
+                  {channels.length === 0 && (isBoardOwner || boardPermissions.can_manage_channels) && (
+                    <Button size="sm" className="rounded-lg" onClick={() => navigate(`/g/${slug}/settings`)}>К настройкам</Button>
+                  )}
+                </div>
                 ) : (
                 <>
                 {/* Thread content — same as non-gomosub version below.
@@ -1706,6 +1843,15 @@ const Board = () => {
                 )}
               </div>
             </div>
+
+            {/* Member roster rail — Discord-like right column. */}
+            {roster && showMembers && (
+              <aside className="hidden xl:block w-60 shrink-0 sticky top-2 self-start">
+                <div className="rounded-2xl border border-border/50 bg-surface/60 backdrop-blur-md shadow-sm max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-2">
+                  <GomoSubMemberList roles={roster.roles} members={roster.members} />
+                </div>
+              </aside>
+            )}
           </div>
 
           {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
@@ -1805,9 +1951,23 @@ const Board = () => {
               <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
                 {/* Switching a channel keeps the sheet open (like a native picker) — close via the X, swipe, or quick actions. */}
                 {renderChannelList(() => {})}
+                {mobileShowMembers && roster && (
+                  <div className="mt-3 pt-3 border-t border-border/40">
+                    <GomoSubMemberList roles={roster.roles} members={roster.members} />
+                  </div>
+                )}
               </div>
               {/* Quick actions */}
               <div className="px-3 py-3 border-t border-border/60 space-y-1 shrink-0">
+                {roster && (
+                  <button
+                    onClick={() => setMobileShowMembers((v) => !v)}
+                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                  >
+                    <Users className="w-4 h-4 shrink-0" />
+                    <span>Участники · {roster.members.length}</span>
+                  </button>
+                )}
                 {board.rules_markdown?.trim() && (
                   <button
                     onClick={() => { setMobileChannelsOpen(false); setShowRulesDialog(true); }}

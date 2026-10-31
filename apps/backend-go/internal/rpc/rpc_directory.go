@@ -120,11 +120,12 @@ type GomoSubDirectoryItem struct {
 	Joined       bool     `json:"joined"`
 }
 
-// GetGomoSubsDirectory returns the public gomosub catalog with member/channel
-// counts for the /g page. Counts are denormalized boards columns maintained by
-// DB triggers (migration 141) — no per-row aggregation. Anonymous callers get
-// the same rows with joined=false; with a token, joined reflects the viewer's
-// memberships.
+// GetGomoSubsDirectory returns the gomosub catalog with member/channel
+// counts for the /g page: public communities plus the private ones the viewer
+// owns or belongs to (so "Мои" lists private subs too). Counts are
+// denormalized boards columns maintained by DB triggers (migration 141) — no
+// per-row aggregation. Anonymous callers get the public rows with
+// joined=false; with a token, joined reflects the viewer's memberships.
 //
 // The catalog is bounded (default 200, max 500): the client caches the whole
 // page for 5 minutes and searches/sorts locally, so an unbounded scan would
@@ -155,7 +156,9 @@ func (h *RPCHandler) GetGomoSubsDirectory(c *gin.Context) {
 		       b.channel_count AS channel_count,
 		       EXISTS(SELECT 1 FROM gomosub_memberships jm WHERE jm.board_id = b.id AND jm.user_id = $1) AS joined
 		FROM boards b
-		WHERE b.is_gomosub = true AND b.visibility = 'public'
+		WHERE b.is_gomosub = true
+		  AND (b.visibility = 'public' OR b.owner_id = $1
+		       OR EXISTS(SELECT 1 FROM gomosub_memberships vm WHERE vm.board_id = b.id AND vm.user_id = $1))
 		ORDER BY b.created_at DESC
 		LIMIT $2
 	`

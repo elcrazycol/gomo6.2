@@ -626,6 +626,17 @@ func TestCreateGomoSub_Success(t *testing.T) {
 		}).AddRow("board-1", "my-test", "My Test", "A test gomosub", true, false,
 			"u1", "public", nil, nil, "[]", nil, nil, now))
 
+	// Owner membership, default #general channel, @everyone role.
+	mock.ExpectExec(`INSERT INTO gomosub_memberships`).
+		WithArgs("board-1", "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO channels`).
+		WithArgs("board-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO gomosub_roles`).
+		WithArgs("board-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
 		"name":        "My Test",
@@ -980,9 +991,10 @@ func TestCreatePostRPC_InvalidatesBoardCache(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Board lookup: thread belongs to board-1, and the board is public.
-	mock.ExpectQuery(`SELECT board_id FROM threads WHERE id = \$1`).
+	// The thread sits in no channel, so no channel write check runs.
+	mock.ExpectQuery(`SELECT board_id, channel_id FROM threads WHERE id = \$1`).
 		WithArgs(threadID).
-		WillReturnRows(sqlmock.NewRows([]string{"board_id"}).AddRow(boardID))
+		WillReturnRows(sqlmock.NewRows([]string{"board_id", "channel_id"}).AddRow(boardID, nil))
 	mock.ExpectQuery(`SELECT visibility, owner_id FROM boards WHERE id = \$1`).
 		WithArgs(boardID).
 		WillReturnRows(sqlmock.NewRows([]string{"visibility", "owner_id"}).AddRow("public", "owner-1"))
@@ -1318,6 +1330,46 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 
 // A thread body may be media-only (no text) as long as an attachment is sent;
 // only the title stays mandatory. Regression for issue #503.
+func TestCreateThreadRPC_TimedOutDenied(t *testing.T) {
+	h, mock := setupRPCHandlerWithSyncStats(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+	channelID := "660e8400-e29b-41d4-a716-446655441111"
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT visibility, owner_id FROM boards WHERE id = \$1`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"visibility", "owner_id"}).AddRow("public", "owner-9"))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM channels WHERE id = \$1\)`).
+		WithArgs(channelID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// canWriteChannel: private channel of someone else's board; the caller
+	// is timed out (the blocked EXISTS covers bans and timeouts).
+	mock.ExpectQuery(`SELECT COALESCE\(c\.is_private.*FROM channels c JOIN boards b`).
+		WithArgs(channelID).
+		WillReturnRows(sqlmock.NewRows([]string{"is_private", "board_id", "owner_id"}).
+			AddRow(true, boardID, "owner-9"))
+	mock.ExpectQuery(`FROM gomosub_bans`).
+		WithArgs(boardID, "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(true))
+
+	c, w := testutil.NewRPCPostContext(map[string]interface{}{
+		"board_id": boardID, "channel_id": channelID,
+		"title": "Test Title", "content": "Test Content",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for timed-out author, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled: %v", err)
+	}
+}
+
 func TestCreateThreadRPC_MediaOnlyNoContent(t *testing.T) {
 	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
