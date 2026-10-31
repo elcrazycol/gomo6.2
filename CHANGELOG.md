@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.39.0](https://github.com/elcrazycol/gomo6.2/compare/v2.38.0...v2.39.0) (2026-10-31)
+
+
+### Features
+
+* **quests:** daily quests, interactive chests, wallet payouts ([#601](https://github.com/elcrazycol/gomo6.2/issues/601)) ([599796d](https://github.com/elcrazycol/gomo6.2/commit/599796dffd50ffacd282e2b73fb559c26cedc45a))
+
 ## [2.38.0](https://github.com/elcrazycol/gomo6.2/compare/v2.37.0...v2.38.0) (2026-10-31)
 
 
