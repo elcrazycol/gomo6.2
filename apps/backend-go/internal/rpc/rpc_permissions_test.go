@@ -87,3 +87,58 @@ func TestGetBoardUserPermissions_MultiRoleUnion(t *testing.T) {
 		t.Fatal("administrator must not leak to regular members")
 	}
 }
+
+func TestCanWriteChannel_OwnerBypass(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	mock.ExpectQuery(`SELECT COALESCE\(c.is_private, false\), c.board_id, b.owner_id`).
+		WithArgs("ch-1").
+		WillReturnRows(sqlmock.NewRows([]string{"is_private", "board_id", "owner_id"}).
+			AddRow(false, modBoard, modActor))
+
+	ok, err := h.canWriteChannel(modActor, "ch-1")
+	if err != nil || !ok {
+		t.Fatalf("owner must bypass channel write checks, ok=%v err=%v", ok, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestCanWriteChannel_BlockedDenied(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	mock.ExpectQuery(`SELECT COALESCE\(c.is_private, false\), c.board_id, b.owner_id`).
+		WithArgs("ch-1").
+		WillReturnRows(sqlmock.NewRows([]string{"is_private", "board_id", "owner_id"}).
+			AddRow(false, modBoard, modOwner))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM gomosub_bans`).
+		WithArgs(modBoard, modTarget).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(true))
+
+	ok, err := h.canWriteChannel(modTarget, "ch-1")
+	if err != nil || ok {
+		t.Fatalf("banned/timed-out user must be denied, ok=%v err=%v", ok, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestCanWriteChannel_AdminBypass(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	mock.ExpectQuery(`SELECT COALESCE\(c.is_private, false\), c.board_id, b.owner_id`).
+		WithArgs("ch-1").
+		WillReturnRows(sqlmock.NewRows([]string{"is_private", "board_id", "owner_id"}).
+			AddRow(true, modBoard, modOwner))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM gomosub_bans`).
+		WithArgs(modBoard, modActor).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked"}).AddRow(false))
+	expectKernelGrant(mock, modActor, `{"administrator": true}`, 9, true, "")
+
+	ok, err := h.canWriteChannel(modActor, "ch-1")
+	if err != nil || !ok {
+		t.Fatalf("administrator must bypass channel write checks, ok=%v err=%v", ok, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}

@@ -351,3 +351,61 @@ func TestCanModerateChannel_Denied(t *testing.T) {
 		t.Error("expected no moderation rights")
 	}
 }
+
+func TestCanReadChannel_LegacyColumnsFeedGrants(t *testing.T) {
+	db, mock := newAccessDB(t)
+	// Pre-allow/deny rows (legacy can_read/can_write only): can_read=false
+	// must deny view even for a member holding the server-wide grant.
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectMemberExists(mock, true)
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("r-everyone", "@everyone", []byte(`{"view_channel": true}`), 0, true))
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}).
+			AddRow([]byte(`{}`), []byte(`{}`), false, true, false))
+
+	ok, err := CanReadChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("legacy can_read=false must deny the channel")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled: %v", err)
+	}
+}
+
+func TestCanReadChannel_EveryoneRowsSkippedForOutsiders(t *testing.T) {
+	db, mock := newAccessDB(t)
+	// Stranger on a private channel: the @everyone allow overwrite must NOT
+	// apply (everyone rows are members-only) — the channel stays hidden.
+	expectScope(mock, true, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, false)
+	expectMemberExists(mock, false)
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("r-everyone", "@everyone", []byte(`{}`), 0, true))
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}).
+			AddRow([]byte(`{"view_channel": true}`), []byte(`{}`), true, true, true))
+
+	ok, err := CanReadChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("@everyone overwrites must not leak private channels to outsiders")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled: %v", err)
+	}
+}

@@ -116,3 +116,44 @@ func TestHandleRedisEvent_ChannelChatEvents(t *testing.T) {
 		})
 	}
 }
+
+// PublishGomoSubMemberChanged builds the ids-only roster signal. Without
+// Redis it is a silent no-op (nil-safe); delivery to the board room happens
+// through handleRedisEvent (next test), the same path every publisher shares.
+func TestPublishGomoSubMemberChanged_ReachesBoardRoom(t *testing.T) {
+	const boardID = "30000000-0000-0000-0000-0000000000cc"
+
+	hub := NewHub(nil, nil)
+	if err := hub.PublishGomoSubMemberChanged(boardID, "user-9", "joined"); err != nil {
+		t.Fatalf("nil-redis publish must be a silent no-op, got: %v", err)
+	}
+}
+
+// The same signal arriving from Redis (multi-instance fan-out) must route
+// to the board room too.
+func TestHandleRedisEvent_MemberChangedRoutesToBoardRoom(t *testing.T) {
+	const boardID = "30000000-0000-0000-0000-0000000000cd"
+
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "board_"+boardID)
+
+	hub.handleRedisEvent(RealtimeEvent{
+		Type: MessageTypeGomoSubMemberChanged,
+		Payload: map[string]interface{}{
+			"board_id": boardID,
+			"user_id":  "user-9",
+			"action":   "roles_changed",
+		},
+	})
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "roles_changed") {
+			t.Errorf("expected roles_changed in %s", string(msg))
+		}
+	default:
+		t.Error("redis member-changed event must reach subscribers of board_<id>")
+	}
+}
