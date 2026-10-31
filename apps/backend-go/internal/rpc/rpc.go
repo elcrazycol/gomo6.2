@@ -79,6 +79,10 @@ func (h *RPCHandler) SetNotifier(n *notifications.Service) {
 // Denials are absolute: a ban, an active timeout or an explicit send_messages
 // deny block the write on public channels too. Owners and administrators
 // bypass everything.
+//
+// NOTE: every query below references all of its $n parameters — lib/pq
+// cannot infer the type of an unreferenced parameter and fails the whole
+// statement ("could not determine data type of parameter").
 func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, error) {
 	if userID == "" {
 		return false, nil
@@ -112,11 +116,35 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 	if blocked {
 		return false, nil
 	}
-	// Server-level grants shared by every check on this board: administrator
-	// bypass plus the allow/deny union for the user's roles.
-	const grantsCTE = `
+	// Union of the user's server-level roles on this board.
+	const rolesCTE = `
 		WITH my_roles AS (
 			SELECT gr.id, gr.permissions
+			FROM gomosub_roles gr
+			WHERE gr.board_id = $2 AND (
+				(COALESCE(gr.is_everyone, false) = TRUE
+					AND EXISTS(SELECT 1 FROM gomosub_memberships gm0
+						WHERE gm0.board_id = $2 AND gm0.user_id = $1))
+				OR EXISTS(SELECT 1 FROM gomosub_member_roles mr
+					WHERE mr.role_id = gr.id AND mr.user_id = $1 AND mr.board_id = $2)
+				OR EXISTS(SELECT 1 FROM gomosub_memberships gm
+					WHERE gm.role_id = gr.id AND gm.user_id = $1 AND gm.board_id = $2)
+			)
+		)`
+	var admin bool
+	err = h.db.QueryRow(rolesCTE+`
+		SELECT EXISTS(SELECT 1 FROM my_roles WHERE permissions @> '{"administrator": true}'::jsonb)
+	`, userID, boardID).Scan(&admin)
+	if err != nil {
+		return false, err
+	}
+	if admin {
+		return true, nil
+	}
+	var allowed, denied bool
+	err = h.db.QueryRow(`
+		WITH my_roles AS (
+			SELECT gr.id
 			FROM gomosub_roles gr
 			WHERE gr.board_id = $3 AND (
 				(COALESCE(gr.is_everyone, false) = TRUE
@@ -127,19 +155,7 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 				OR EXISTS(SELECT 1 FROM gomosub_memberships gm
 					WHERE gm.role_id = gr.id AND gm.user_id = $2 AND gm.board_id = $3)
 			)
-		)`
-	var admin bool
-	err = h.db.QueryRow(grantsCTE+`
-		SELECT EXISTS(SELECT 1 FROM my_roles WHERE permissions @> '{"administrator": true}'::jsonb)
-	`, channelID, userID, boardID).Scan(&admin)
-	if err != nil {
-		return false, err
-	}
-	if admin {
-		return true, nil
-	}
-	var allowed, denied bool
-	err = h.db.QueryRow(grantsCTE+`
+		)
 		SELECT
 			EXISTS(SELECT 1 FROM channel_permissions cp
 				WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)
