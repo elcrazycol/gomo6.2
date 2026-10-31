@@ -179,6 +179,17 @@ func membershipStatus(db *sql.DB, boardID, userID string) (isMember bool, timedO
 	return isMember, timedOut
 }
 
+// hasExplicitViewDeny reports whether any overwrite row explicitly denies
+// viewing (as opposed to the grant simply being absent).
+func hasExplicitViewDeny(denies []map[string]bool) bool {
+	for _, d := range denies {
+		if d[gomosubperms.PermViewChannel] {
+			return true
+		}
+	}
+	return false
+}
+
 // effectiveSet unions the user's server-level grants on a board.
 func effectiveSet(db *sql.DB, boardID, userID string, isMember bool) map[string]bool {
 	return gomosubperms.Union(loadRoleMaps(db, boardID, userID, isMember)...)
@@ -209,18 +220,24 @@ func CanReadChannel(db *sql.DB, userID, channelID string) (bool, error) {
 	if gomosubperms.IsAdmin(eff) {
 		return true, nil
 	}
+	allows, denies := loadOverwrites(db, channelID, scope.boardID, userID, isMember)
+	resolved := gomosubperms.ApplyOverwrites(eff, allows, denies)
+	// An explicit view deny hides the channel even when it is public
+	// (Discord semantics — a role scoped to one channel must actually hide
+	// the rest).
+	if !resolved[gomosubperms.PermViewChannel] && hasExplicitViewDeny(denies) {
+		return false, nil
+	}
 	if !scope.isPrivate && scope.visiblity != "private" {
 		return true, nil
 	}
 	if !isMember {
-		allows, denies := loadOverwrites(db, channelID, scope.boardID, userID, false)
-		return gomosubperms.ApplyOverwrites(eff, allows, denies)[gomosubperms.PermViewChannel], nil
+		return resolved[gomosubperms.PermViewChannel], nil
 	}
 	if !scope.isPrivate {
 		return true, nil
 	}
-	allows, denies := loadOverwrites(db, channelID, scope.boardID, userID, true)
-	return gomosubperms.ApplyOverwrites(eff, allows, denies)[gomosubperms.PermViewChannel], nil
+	return resolved[gomosubperms.PermViewChannel], nil
 }
 
 // CanWriteChannel reports whether userID may post into channelID: the board

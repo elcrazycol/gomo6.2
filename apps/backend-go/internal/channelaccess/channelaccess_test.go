@@ -57,6 +57,13 @@ func expectRoles(mock sqlmock.Sqlmock, perms ...string) {
 		WillReturnRows(rows)
 }
 
+func expectDenyOverwrite(mock sqlmock.Sqlmock, user string) {
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, user).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}).
+			AddRow([]byte(`{}`), []byte(`{"view_channel": true}`), true, true, false))
+}
+
 func expectNoOverwrites(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
 		WithArgs(testChannel, testBoard, testUser).
@@ -95,6 +102,25 @@ func TestCanReadChannel_Denied(t *testing.T) {
 	}
 	if ok {
 		t.Error("expected read denial")
+	}
+}
+
+func TestCanReadChannel_ExplicitDenyOnPublicDenied(t *testing.T) {
+	db, mock := newAccessDB(t)
+	// Public channel, but the member's role carries an explicit view deny:
+	// the channel must disappear (Discord semantics).
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectRoles(mock, "send_messages")
+	expectDenyOverwrite(mock, testUser)
+
+	ok, err := CanReadChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("explicit view deny on a public channel must hide it")
 	}
 }
 

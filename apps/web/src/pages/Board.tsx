@@ -214,55 +214,63 @@ const Board = () => {
       let channelsData = channelsDataRaw;
       setCategories(((categoriesRes?.data || []) as CategoryLike[]));
 
-      // Filter private channels using the v2 permission model: owners and
+      // Filter channels using the v2 permission model: owners and
       // administrators see everything; members see a private channel only
       // with a view_channel grant (or the legacy can_read) on any of their
-      // roles; outsiders only through an explicit overwrite.
+      // roles; outsiders only through an explicit overwrite. An explicit
+      // view deny hides the channel even when it is public.
       const isOwner = user?.id && ownerId && user.id === ownerId;
       if (!isOwner && channelsData.length > 0) {
-        const privateChannelIds = channelsData.filter((ch) => ch.is_private).map((ch) => ch.id);
-        if (privateChannelIds.length > 0) {
-          if (!user?.id) {
-            channelsData = channelsData.filter((ch) => !ch.is_private);
-          } else {
-            const [membership, rolesRes, grantsRes, permissionsRes] = await Promise.all([
-              getMyGomosubMembership(boardId, user.id),
-              fetch(`/api/v1/gomosub_roles?board_id=eq.${boardId}`).then((r) => r.json()).catch(() => null),
-              fetch(`/api/v1/gomosub_member_roles?board_id=eq.${boardId}&user_id=eq.${user.id}`).then((r) => r.json()).catch(() => null),
-              fetch(`/api/v1/channel_permissions?channel_id=in.(${privateChannelIds.join(",")})`).then((r) => r.json()).catch(() => null),
-            ]);
-            const roles = ((rolesRes?.data || []) as { id: string; permissions: unknown; is_everyone?: boolean }[]);
-            const parsePerms = (v: unknown): Record<string, boolean> => {
-              if (typeof v === "string") {
-                try { return JSON.parse(v) as Record<string, boolean>; } catch { return {}; }
-              }
-              return (v as Record<string, boolean>) || {};
-            };
-            const grants = ((grantsRes?.data || []) as { role_id: string }[]).map((g) => g.role_id);
-            if (membership?.role_id) grants.push(membership.role_id);
-            const myRoleIds = new Set(grants);
-            const isMember = membership !== null;
-            if (isMember) {
-              const everyone = roles.find((r) => r.is_everyone);
-              if (everyone) myRoleIds.add(everyone.id);
+        if (!user?.id) {
+          channelsData = channelsData.filter((ch) => !ch.is_private);
+        } else {
+          const allChannelIds = channelsData.map((ch) => ch.id);
+          const [membership, rolesRes, grantsRes, permissionsRes] = await Promise.all([
+            getMyGomosubMembership(boardId, user.id),
+            fetch(`/api/v1/gomosub_roles?board_id=eq.${boardId}`).then((r) => r.json()).catch(() => null),
+            fetch(`/api/v1/gomosub_member_roles?board_id=eq.${boardId}&user_id=eq.${user.id}`).then((r) => r.json()).catch(() => null),
+            fetch(`/api/v1/channel_permissions?channel_id=in.(${allChannelIds.join(",")})`).then((r) => r.json()).catch(() => null),
+          ]);
+          const roles = ((rolesRes?.data || []) as { id: string; permissions: unknown; is_everyone?: boolean }[]);
+          const parsePerms = (v: unknown): Record<string, boolean> => {
+            if (typeof v === "string") {
+              try { return JSON.parse(v) as Record<string, boolean>; } catch { return {}; }
             }
-            const isAdmin = roles.some((r) => myRoleIds.has(r.id) && parsePerms(r.permissions).administrator);
-            if (!isAdmin) {
-              const overwrites = ((permissionsRes?.data || []) as {
-                channel_id: string; role_id: string;
-                allow?: unknown; deny?: unknown; can_read?: boolean;
-              }[]);
-              const canView = (channelId: string) =>
-                overwrites.some((p) => {
-                  if (p.channel_id !== channelId || !myRoleIds.has(p.role_id)) return false;
-                  const allow = parsePerms(p.allow);
-                  const deny = parsePerms(p.deny);
-                  if (deny.view_channel) return false;
-                  if (allow.view_channel) return true;
-                  return p.can_read === true;
-                });
-              channelsData = channelsData.filter((ch) => !ch.is_private || canView(ch.id));
-            }
+            return (v as Record<string, boolean>) || {};
+          };
+          const grants = ((grantsRes?.data || []) as { role_id: string }[]).map((g) => g.role_id);
+          if (membership?.role_id) grants.push(membership.role_id);
+          const myRoleIds = new Set(grants);
+          const isMember = membership !== null;
+          if (isMember) {
+            const everyone = roles.find((r) => r.is_everyone);
+            if (everyone) myRoleIds.add(everyone.id);
+          }
+          const isAdmin = roles.some((r) => myRoleIds.has(r.id) && parsePerms(r.permissions).administrator);
+          if (!isAdmin) {
+            const overwrites = ((permissionsRes?.data || []) as {
+              channel_id: string; role_id: string;
+              allow?: unknown; deny?: unknown; can_read?: boolean;
+            }[]);
+            const denied = (channelId: string) =>
+              overwrites.some((p) => {
+                if (p.channel_id !== channelId || !myRoleIds.has(p.role_id)) return false;
+                return parsePerms(p.deny).view_channel === true;
+              });
+            const granted = (channelId: string) =>
+              overwrites.some((p) => {
+                if (p.channel_id !== channelId || !myRoleIds.has(p.role_id)) return false;
+                const allow = parsePerms(p.allow);
+                const deny = parsePerms(p.deny);
+                if (deny.view_channel) return false;
+                if (allow.view_channel) return true;
+                return p.can_read === true;
+              });
+            channelsData = channelsData.filter((ch) => {
+              if (denied(ch.id)) return false;
+              if (!ch.is_private) return true;
+              return granted(ch.id);
+            });
           }
         }
       }

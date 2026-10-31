@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/channelaccess"
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/moderation"
@@ -76,6 +77,12 @@ func (h *ThreadsHandler) getUserIDFromRequest(c *gin.Context) string {
 
 // canAccessChannel checks if a user can access a channel.
 // checkWrite: if true checks write permission, if false checks read permission.
+//
+// Delegates to the canonical v2 predicates in internal/channelaccess (union
+// multi-roles, @everyone, allow/deny overwrites, bans, timeouts,
+// administrator) so the thread surface cannot drift from the chat surface.
+// Guests keep the legacy rule: public channels readable, private denied
+// (guests hold no roles, so overwrites can never apply to them).
 func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, checkWrite bool) (bool, error) {
 	if userID == "" {
 		var isPrivate bool
@@ -85,52 +92,10 @@ func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, check
 		}
 		return !isPrivate, nil
 	}
-	var isPrivate bool
-	var ownerID string
-	err := h.db.QueryRow(`
-		SELECT c.is_private, b.owner_id
-		FROM channels c JOIN boards b ON c.board_id = b.id
-		WHERE c.id = $1
-	`, channelID).Scan(&isPrivate, &ownerID)
-	if err != nil {
-		return false, err
-	}
-	if !isPrivate {
-		return true, nil
-	}
-	if ownerID == userID {
-		return true, nil
-	}
-	// Check if user is any member of this gomosub (basic read access even without a role)
-	if !checkWrite {
-		var isMember bool
-		memberErr := h.db.QueryRow(`
-			SELECT EXISTS(
-				SELECT 1 FROM gomosub_memberships
-				WHERE board_id = (SELECT board_id FROM channels WHERE id = $1)
-				AND user_id = $2
-			)
-		`, channelID, userID).Scan(&isMember)
-		if memberErr == nil && isMember {
-			return true, nil
-		}
-	}
-	permColumn := "cp.can_read"
 	if checkWrite {
-		permColumn = "cp.can_write"
+		return channelaccess.CanWriteChannel(h.db, userID, channelID)
 	}
-	var hasAccess bool
-	err = h.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM channel_permissions cp
-			JOIN gomosub_memberships gm ON gm.role_id = cp.role_id AND gm.user_id = $2 AND gm.board_id = (SELECT board_id FROM channels WHERE id = $1)
-			WHERE cp.channel_id = $1 AND `+permColumn+` = true
-		)
-	`, channelID, userID).Scan(&hasAccess)
-	if err != nil {
-		return false, err
-	}
-	return hasAccess, nil
+	return channelaccess.CanReadChannel(h.db, userID, channelID)
 }
 
 // canAccessBoard checks if a user can access a private board.
