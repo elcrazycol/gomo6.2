@@ -72,16 +72,26 @@ func invalidateGomosubRolesCache(h *Engine, _ *gin.Context, result map[string]in
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_roles*board_id=eq.%s*", boardID))
 }
 
-// invalidateChannelPermissionsCache clears the channel's permission list.
+// invalidateChannelPermissionsCache clears the channel's permission list, in
+// both query shapes the clients use: per-channel reads
+// (channel_id=eq.X, settings) and board-wide reads
+// (channel_id=in.(...), board sidebar). Missing the latter left the sidebar
+// serving pre-edit overwrites until the data-cache TTL expired.
 func invalidateChannelPermissionsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	channelID := crud.WallResultString(result["channel_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_permissions*channel_id=eq.%s*", channelID))
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/channel_permissions*channel_id=in.*")
 }
 
-// invalidateGomosubMembershipsCache clears the board's memberships list.
+// invalidateGomosubMembershipsCache clears the board's memberships list and
+// the member's own membership lookups (user_id=eq. keys, e.g. the header's
+// "my subs" check), which carry no board_id filter.
 func invalidateGomosubMembershipsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	boardID := crud.WallResultString(result["board_id"])
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", boardID))
+	if userID := crud.WallResultString(result["user_id"]); userID != "" {
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*user_id=eq.%s*", userID))
+	}
 }
 
 // invalidateChannelCategoriesCache clears the board's category list (the

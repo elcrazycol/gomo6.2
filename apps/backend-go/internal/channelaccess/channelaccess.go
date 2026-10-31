@@ -198,6 +198,13 @@ func effectiveSet(db *sql.DB, boardID, userID string, isMember bool) map[string]
 // CanReadChannel reports whether userID may see the message history of the
 // text channel channelID. userID must be non-empty (the caller is responsible
 // for requiring authentication).
+//
+// Visibility model (Discord-like): owners and administrators see everything.
+// Guests and non-members preview public channels of public boards. Members
+// need a view grant — the server-wide view_channel (usually from @everyone)
+// or a channel overwrite — on top of which an explicit deny hides the channel
+// from anyone but owners and administrators. Private channels stay
+// members-visible (overwrites only add outsiders).
 func CanReadChannel(db *sql.DB, userID, channelID string) (bool, error) {
 	if userID == "" || channelID == "" {
 		return false, nil
@@ -222,19 +229,22 @@ func CanReadChannel(db *sql.DB, userID, channelID string) (bool, error) {
 	}
 	allows, denies := loadOverwrites(db, channelID, scope.boardID, userID, isMember)
 	resolved := gomosubperms.ApplyOverwrites(eff, allows, denies)
-	// An explicit view deny hides the channel even when it is public
-	// (Discord semantics — a role scoped to one channel must actually hide
-	// the rest).
 	if !resolved[gomosubperms.PermViewChannel] && hasExplicitViewDeny(denies) {
 		return false, nil
 	}
-	if !scope.isPrivate && scope.visiblity != "private" {
-		return true, nil
-	}
 	if !isMember {
+		// Outsiders preview public channels of public boards; anything else
+		// needs an explicit overwrite grant (e.g. an invited stranger).
+		if !scope.isPrivate && scope.visiblity != "private" {
+			return true, nil
+		}
 		return resolved[gomosubperms.PermViewChannel], nil
 	}
-	if !scope.isPrivate {
+	// Members: private channels are members-visible (legacy; overwrites only
+	// add outsiders), public channels require the view grant — the
+	// server-wide @everyone default or an overwrite. Turning the base grant
+	// off hides everything but granted channels (Discord lockdown).
+	if scope.isPrivate {
 		return true, nil
 	}
 	return resolved[gomosubperms.PermViewChannel], nil

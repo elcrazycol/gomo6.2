@@ -64,6 +64,14 @@ func expectDenyOverwrite(mock sqlmock.Sqlmock, user string) {
 			AddRow([]byte(`{}`), []byte(`{"view_channel": true}`), true, true, false))
 }
 
+func expectEveryoneGrant(mock sqlmock.Sqlmock, perms string) {
+	rows := sqlmock.NewRows([]string{"permissions", "is_everyone"})
+	rows.AddRow([]byte(perms), true)
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(rows)
+}
+
 func expectNoOverwrites(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
 		WithArgs(testChannel, testBoard, testUser).
@@ -121,6 +129,42 @@ func TestCanReadChannel_ExplicitDenyOnPublicDenied(t *testing.T) {
 	}
 	if ok {
 		t.Error("explicit view deny on a public channel must hide it")
+	}
+}
+
+func TestCanReadChannel_MemberPublicNoGrantDenied(t *testing.T) {
+	db, mock := newAccessDB(t)
+	// Member on a public channel with no view grant anywhere: hidden.
+	// This is the @everyone-view-off lockdown.
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectRoles(mock) // no grants at all
+	expectNoOverwrites(mock)
+
+	ok, err := CanReadChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("member without a view grant must not see the channel")
+	}
+}
+
+func TestCanReadChannel_MemberPublicEveryoneGrantAllowed(t *testing.T) {
+	db, mock := newAccessDB(t)
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectEveryoneGrant(mock, `{"view_channel": true}`)
+	expectNoOverwrites(mock)
+
+	ok, err := CanReadChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("expected read access via @everyone grant")
 	}
 }
 

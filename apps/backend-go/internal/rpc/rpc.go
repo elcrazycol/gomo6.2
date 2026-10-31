@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gomo6/backend/internal/channelaccess"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/notifications"
@@ -141,6 +142,18 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 	if admin {
 		return true, nil
 	}
+	// Must see the channel to write in it: members on public channels need
+	// the view grant (the Discord lockdown rule — @everyone off hides
+	// everything but granted channels). Outsiders keep the public preview.
+	// canWriteChannel and canReadChannel share the union semantics, so this
+	// reuses the canonical read gate instead of duplicating it.
+	canSee, err := channelaccess.CanReadChannel(h.db, userID, channelID)
+	if err != nil {
+		return false, err
+	}
+	if !canSee {
+		return false, nil
+	}
 	var allowed, denied bool
 	err = h.db.QueryRow(`
 		WITH my_roles AS (
@@ -168,8 +181,9 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	// An explicit deny wins everywhere (this is what let "no-write" roles
-	// keep posting on public channels before).
+	// An explicit send deny wins everywhere (this is what let "no-write"
+	// roles keep posting on public channels before). Visibility was already
+	// enforced by the read gate above.
 	if denied {
 		return false, nil
 	}

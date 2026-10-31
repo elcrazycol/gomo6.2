@@ -190,9 +190,9 @@ func TestGetThreads_PrivateProfile_MutualFriend_SeesThreads(t *testing.T) {
 		nil, nil, nil, false, nil, nil,
 	)
 
-	// user_id filter ($1) + private-board filter ($2, $3) + LIMIT/OFFSET ($4, $5).
-	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.user_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$4 OFFSET \$5`).
-		WithArgs("privateUser", "friend", "friend", 50, 0).
+	// user_id filter ($1) + private-board filter ($2, $3) + channel gate ($4) + LIMIT/OFFSET ($5, $6).
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.user_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$5 OFFSET \$6`).
+		WithArgs("privateUser", "friend", "friend", "friend", 50, 0).
 		WillReturnRows(rows)
 
 	handler.GetThreads(c)
@@ -231,8 +231,8 @@ func TestGetThreads_PublicProfile_AnyViewerSeesThreads(t *testing.T) {
 		nil, nil, nil, false, nil, nil,
 	)
 
-	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.user_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$4 OFFSET \$5`).
-		WithArgs("publicUser", "viewer", "viewer", 50, 0).
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.user_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$5 OFFSET \$6`).
+		WithArgs("publicUser", "viewer", "viewer", "viewer", 50, 0).
 		WillReturnRows(rows)
 
 	handler.GetThreads(c)

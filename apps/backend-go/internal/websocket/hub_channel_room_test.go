@@ -25,9 +25,14 @@ func TestCanAccessRoom_ChannelRoom(t *testing.T) {
 		mock.ExpectQuery(`timed_out_until FROM gomosub_memberships`).
 			WithArgs(boardID, "user-1").
 			WillReturnRows(sqlmock.NewRows([]string{"timed_out_until"}).AddRow(nil))
+		// Member with the @everyone base view grant (migration 149 default).
 		mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
 			WithArgs(boardID, "user-1").
-			WillReturnRows(sqlmock.NewRows([]string{"permissions", "is_everyone"}))
+			WillReturnRows(sqlmock.NewRows([]string{"permissions", "is_everyone"}).
+				AddRow([]byte(`{"view_channel": true}`), true))
+		mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+			WithArgs(chanID, boardID, "user-1").
+			WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}))
 
 		if !hub.canAccessRoom("user-1", "channel_"+chanID) {
 			t.Error("expected channel room access")

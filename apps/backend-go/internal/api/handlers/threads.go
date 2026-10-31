@@ -312,6 +312,38 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		conditions = append(conditions, "(t.board_id IS NULL OR b.visibility != 'private')")
 	}
 
+	// Channel-level visibility (Discord lockdown model, set-based mirror of
+	// channelaccess.CanReadChannel): guests see threads of public channels
+	// only; members additionally need the server view grant or an explicit
+	// overwrite grant on public channels, while private channels stay
+	// members-visible (overwrites only add outsiders). Owners and admins
+	// bypass.
+	if userID == "" {
+		conditions = append(conditions, `(t.channel_id IS NULL OR EXISTS(
+			SELECT 1 FROM channels ch WHERE ch.id = t.channel_id
+			AND COALESCE(ch.is_private, false) = false))`)
+	} else {
+		u := "$" + strconv.Itoa(len(args)+1)
+		args = append(args, userID)
+		memberOf := `EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id = ` + u + `)`
+		roleGrants := `((COALESCE(gr.is_everyone, false) = TRUE AND ` + memberOf + `)` +
+			` OR EXISTS(SELECT 1 FROM gomosub_member_roles mr WHERE mr.role_id = gr.id AND mr.user_id = ` + u + ` AND mr.board_id = t.board_id)` +
+			` OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.role_id = gr.id AND gm.user_id = ` + u + ` AND gm.board_id = t.board_id))`
+		serverView := `EXISTS(SELECT 1 FROM gomosub_roles gr WHERE gr.board_id = t.board_id AND gr.permissions @> '{"view_channel": true}'::jsonb AND ` + roleGrants + `)`
+		isAdmin := `EXISTS(SELECT 1 FROM gomosub_roles gr WHERE gr.board_id = t.board_id AND gr.permissions @> '{"administrator": true}'::jsonb AND ` + roleGrants + `)`
+		overwriteView := `EXISTS(SELECT 1 FROM channel_permissions cp JOIN gomosub_roles gr ON gr.id = cp.role_id` +
+			` WHERE cp.channel_id = t.channel_id AND gr.board_id = t.board_id AND ` + roleGrants +
+			` AND (cp.allow @> '{"view_channel": true}'::jsonb OR (cp.allow = '{}'::jsonb AND cp.deny = '{}'::jsonb AND cp.can_read = true))` +
+			` AND NOT (cp.deny @> '{"view_channel": true}'::jsonb))`
+		publicCh := `EXISTS(SELECT 1 FROM channels ch WHERE ch.id = t.channel_id AND COALESCE(ch.is_private, false) = false)`
+		privateCh := `EXISTS(SELECT 1 FROM channels ch WHERE ch.id = t.channel_id AND COALESCE(ch.is_private, false) = true)`
+		conditions = append(conditions, `(t.channel_id IS NULL`+
+			` OR b.owner_id = `+u+
+			` OR `+isAdmin+
+			` OR (`+publicCh+` AND (NOT `+memberOf+` OR `+serverView+` OR `+overwriteView+`))`+
+			` OR (`+privateCh+` AND (`+memberOf+` OR `+overwriteView+`)))`)
+	}
+
 	// Determine ORDER BY (before cursor, since cursor direction depends on order)
 	var orderClause string
 	orderDir := "DESC" // default
@@ -545,6 +577,17 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	if boardID.Valid && boardID.String != "" {
 		userID := h.getUserIDFromRequest(c)
 		canAccess, accessErr := h.canAccessBoard(userID, boardID.String)
+		if accessErr == nil && !canAccess {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
+			return
+		}
+	}
+
+	// Check channel-level access (private channels and the view-grant
+	// lockdown hide the thread as if it did not exist).
+	if channelID.Valid && channelID.String != "" {
+		userID := h.getUserIDFromRequest(c)
+		canAccess, accessErr := h.canAccessChannel(userID, channelID.String, false)
 		if accessErr == nil && !canAccess {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return

@@ -170,9 +170,13 @@ func (h *RPCHandler) publishMemberChanged(boardID, userID, action string) {
 	}
 }
 
-func (h *RPCHandler) invalidateMembershipsCache(boardID string) {
-	if h.redis != nil {
-		cache.InvalidateForTable(h.redis, "gomosub_memberships", map[string]string{"board_id": boardID})
+func (h *RPCHandler) invalidateMembershipsCache(boardID, userID string) {
+	if h.redis == nil {
+		return
+	}
+	cache.InvalidateForTable(h.redis, "gomosub_memberships", map[string]string{"board_id": boardID})
+	if userID != "" {
+		cache.InvalidateForTable(h.redis, "gomosub_memberships", map[string]string{"user_id": userID})
 	}
 }
 
@@ -217,7 +221,7 @@ func (h *RPCHandler) KickMember(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	h.invalidateMembershipsCache(req.BoardID)
+	h.invalidateMembershipsCache(req.BoardID, req.UserID)
 	h.publishMemberChanged(req.BoardID, req.UserID, "kicked")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "kicked"}))
 }
@@ -289,7 +293,7 @@ func (h *RPCHandler) BanMember(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	h.invalidateMembershipsCache(req.BoardID)
+	h.invalidateMembershipsCache(req.BoardID, req.UserID)
 	h.publishMemberChanged(req.BoardID, req.UserID, "banned")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "banned"}))
 }
@@ -359,7 +363,7 @@ func (h *RPCHandler) TimeoutMember(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("User is not a member of this gomosub"))
 		return
 	}
-	h.invalidateMembershipsCache(req.BoardID)
+	h.invalidateMembershipsCache(req.BoardID, req.UserID)
 	h.publishMemberChanged(req.BoardID, req.UserID, "timed_out")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "timed_out"}))
 }
@@ -384,7 +388,7 @@ func (h *RPCHandler) UntimeoutMember(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("User is not a member of this gomosub"))
 		return
 	}
-	h.invalidateMembershipsCache(req.BoardID)
+	h.invalidateMembershipsCache(req.BoardID, req.UserID)
 	h.publishMemberChanged(req.BoardID, req.UserID, "untimeout")
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "untimeout"}))
 }

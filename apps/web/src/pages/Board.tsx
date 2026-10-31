@@ -266,10 +266,18 @@ const Board = () => {
                 if (allow.view_channel) return true;
                 return p.can_read === true;
               });
+            // Server-wide view grant (usually from @everyone): members need
+            // it to see public channels (Discord lockdown rule).
+            const serverView = roles.some((r) => myRoleIds.has(r.id) && parsePerms(r.permissions).view_channel === true);
             channelsData = channelsData.filter((ch) => {
+              // Explicit deny hides the channel from everyone but owners/admins.
               if (denied(ch.id)) return false;
-              if (!ch.is_private) return true;
-              return granted(ch.id);
+              if (!ch.is_private) {
+                // Outsiders preview public channels; members need the view grant.
+                return !isMember || serverView || granted(ch.id);
+              }
+              // Private channels stay members-visible; overwrites add outsiders.
+              return isMember || granted(ch.id);
             });
           }
         }
@@ -1745,14 +1753,21 @@ const Board = () => {
                     canPost={Boolean(user?.id && isJoined)}
                     canDeleteOthers={Boolean(isBoardOwner || boardPermissions.can_delete_threads)}
                   />
-                ) : isGomoRoute && !channelSlug && channelsLoaded && channels.length === 0 ? (
+                ) : isGomoRoute && !channelSlug && channelsLoaded && channelCategories.length === 0 ? (
                 <div className="rounded-2xl border border-border/60 bg-surface p-8 text-center space-y-3">
                   <Hash className="w-8 h-8 mx-auto text-muted-foreground/50" />
-                  <div>
-                    <div className="font-semibold">В сообществе пока нет каналов</div>
-                    <p className="text-sm text-muted-foreground mt-1">Записи живут в каналах — создай первый в настройках.</p>
-                  </div>
-                  {(isBoardOwner || boardPermissions.can_manage_channels) && (
+                  {channels.length === 0 ? (
+                    <div>
+                      <div className="font-semibold">В сообществе пока нет каналов</div>
+                      <p className="text-sm text-muted-foreground mt-1">Записи живут в каналах — создай первый в настройках.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="font-semibold">Нет доступных каналов</div>
+                      <p className="text-sm text-muted-foreground mt-1">У твоих ролей нет прав на просмотр каналов этого сообщества.</p>
+                    </div>
+                  )}
+                  {channels.length === 0 && (isBoardOwner || boardPermissions.can_manage_channels) && (
                     <Button size="sm" className="rounded-lg" onClick={() => navigate(`/g/${slug}/settings`)}>К настройкам</Button>
                   )}
                 </div>
