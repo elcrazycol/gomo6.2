@@ -20,10 +20,8 @@ interface GomoSubChannelsListProps {
   /** Base slug of the community, e.g. `tech`. */
   boardSlug: string;
   groups: GroupedChannels[];
-  /** Slug of the active channel (null = the general feed). */
+  /** Slug of the active channel. */
   activeChannelSlug: string | null;
-  /** `board.general` label from i18n. */
-  generalLabel: string;
   /** Called after any channel navigation (closes the mobile drawer). */
   onNavigate?: () => void;
   /** Channel ids with unseen activity (unread dots). */
@@ -63,7 +61,6 @@ export const GomoSubChannelsList = memo(
     boardSlug,
     groups,
     activeChannelSlug,
-    generalLabel,
     onNavigate,
     unread,
     className,
@@ -75,21 +72,6 @@ export const GomoSubChannelsList = memo(
 
     return (
       <nav className={cn("space-y-0.5", className)} aria-label="Каналы сообщества">
-        <NavigationLink
-          to={`/g/${boardSlug}`}
-          onClick={onNavigate}
-          aria-current={!activeChannelSlug ? "page" : undefined}
-          className={cn("group flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm transition-colors", rowState(!activeChannelSlug))}
-        >
-          <Hash
-            className={cn(
-              "w-4 h-4 shrink-0",
-              !activeChannelSlug ? "text-primary" : "text-muted-foreground/80 group-hover:text-foreground",
-            )}
-          />
-          <span className="truncate">{generalLabel}</span>
-        </NavigationLink>
-
         {groups.map((group) => (
           <div key={group.category || "__uncategorized"} className="mt-2">
             {group.category && (

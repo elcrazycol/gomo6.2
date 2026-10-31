@@ -626,6 +626,17 @@ func TestCreateGomoSub_Success(t *testing.T) {
 		}).AddRow("board-1", "my-test", "My Test", "A test gomosub", true, false,
 			"u1", "public", nil, nil, "[]", nil, nil, now))
 
+	// Owner membership, default #general channel, @everyone role.
+	mock.ExpectExec(`INSERT INTO gomosub_memberships`).
+		WithArgs("board-1", "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO channels`).
+		WithArgs("board-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO gomosub_roles`).
+		WithArgs("board-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
 	c, w := testutil.NewRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
 		"name":        "My Test",

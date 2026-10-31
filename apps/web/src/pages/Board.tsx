@@ -151,6 +151,7 @@ const Board = () => {
   const [roster, setRoster] = useState<{ members: { user_id: string; username: string; role_ids: string[]; timed_out: boolean; is_owner: boolean }[]; roles: { id: string; name: string; color: string; position: number; is_everyone?: boolean }[] } | null>(null);
   const [showMembers, setShowMembers] = useState(true);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
   const [mobileShowMembers, setMobileShowMembers] = useState(false);
@@ -274,9 +275,11 @@ const Board = () => {
         resolvedChannelId = foundChannel?.id || null;
       }
       setActiveChannelId(resolvedChannelId);
+      setChannelsLoaded(true);
       return resolvedChannelId;
     } catch {
       setChannels([]);
+      setChannelsLoaded(true);
       return null;
     }
   }, [channelSlug, user?.id]);
@@ -594,6 +597,9 @@ const Board = () => {
     // Wait for a gomosub board's channels to settle before the first fetch
     // (avoids a double fetch when the channel list arrives mid-flight).
     if (isGomoRoute && channels.length === 0) return;
+    // Bare server URL has no union feed anymore: it redirects to the first
+    // visible channel (or renders the no-channels empty state).
+    if (isGomoRoute && !channelSlug) return;
 
     // Telegram-style channel switch: the previous list STAYS on screen until
     // the new one arrives (loadThreads replaces it in place). Clearing here
@@ -921,7 +927,6 @@ const Board = () => {
       boardSlug={slug ?? ""}
       groups={channelCategories}
       activeChannelSlug={activeChannelSlug}
-      generalLabel={t("board.general")}
       onNavigate={onSelect}
       unread={unread}
     />
@@ -933,6 +938,14 @@ const Board = () => {
   // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
   if (slug === "gomosubs") {
     return <Navigate to="/g" replace />;
+  }
+
+  // No "Общий" anymore: a bare server URL opens the first visible channel,
+  // exactly like a Discord server opens its default channel. Channel-less
+  // servers fall through to the empty state rendered in the content area.
+  const firstVisibleChannel = channelCategories.flatMap((g) => g.channels)[0] ?? null;
+  if (isGomoRoute && !channelSlug && board && channelsLoaded && firstVisibleChannel) {
+    return <Navigate to={`/g/${slug}/c/${firstVisibleChannel.slug}`} replace />;
   }
 
   const renderContent = (text: string) => {
@@ -1661,6 +1674,7 @@ const Board = () => {
               >
                 <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
                   {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
+                  {channels.length > 0 && (
                   <button
                     onClick={() => setMobileChannelsOpen(true)}
                     className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
@@ -1683,6 +1697,7 @@ const Board = () => {
                     )}
                     <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
                   </button>
+                  )}
                   {canCreateThread && !isTextChannel && (
                     <motion.div
                       className="shrink-0"
@@ -1722,6 +1737,17 @@ const Board = () => {
                     canPost={Boolean(user?.id && isJoined)}
                     canDeleteOthers={Boolean(isBoardOwner || boardPermissions.can_delete_threads)}
                   />
+                ) : isGomoRoute && !channelSlug && channelsLoaded && channels.length === 0 ? (
+                <div className="rounded-2xl border border-border/60 bg-surface p-8 text-center space-y-3">
+                  <Hash className="w-8 h-8 mx-auto text-muted-foreground/50" />
+                  <div>
+                    <div className="font-semibold">В сообществе пока нет каналов</div>
+                    <p className="text-sm text-muted-foreground mt-1">Записи живут в каналах — создай первый в настройках.</p>
+                  </div>
+                  {(isBoardOwner || boardPermissions.can_manage_channels) && (
+                    <Button size="sm" className="rounded-lg" onClick={() => navigate(`/g/${slug}/settings`)}>К настройкам</Button>
+                  )}
+                </div>
                 ) : (
                 <>
                 {/* Thread content — same as non-gomosub version below.

@@ -160,6 +160,14 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		INSERT INTO gomosub_memberships (board_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
 	`, board.ID, claims.UserID)
 
+	// Every server opens with one real channel (the old "Общий" pseudo-view
+	// is gone — see migration 148). Fresh boards always land here.
+	_, _ = h.db.Exec(`
+		INSERT INTO channels (board_id, slug, name, kind, sort_order, is_private, is_default)
+		VALUES ($1, 'general', 'Основной', 'forum', 0, FALSE, TRUE)
+		ON CONFLICT DO NOTHING
+	`, board.ID)
+
 	// Every board gets its @everyone base role (idempotent).
 	_, _ = h.db.Exec(`
 		INSERT INTO gomosub_roles (board_id, name, color, position, permissions, is_everyone)
