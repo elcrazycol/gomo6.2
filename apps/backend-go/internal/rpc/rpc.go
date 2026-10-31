@@ -139,7 +139,7 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 	if !canSee {
 		return false, nil
 	}
-	var allowed, denied bool
+	var allowed, roleAllow, everyoneDeny, roleDeny bool
 	err = h.db.QueryRow(gomosubperms.RoleScopeCTE("$3", "$2")+`
 		SELECT
 			EXISTS(SELECT 1 FROM channel_permissions cp
@@ -147,16 +147,28 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 				AND (cp.allow @> '{"send_messages": true}'::jsonb
 				     OR (cp.allow = '{}'::jsonb AND cp.deny = '{}'::jsonb AND cp.can_write = true))),
 			EXISTS(SELECT 1 FROM channel_permissions cp
+				JOIN gomosub_roles gr ON gr.id = cp.role_id
 				WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)
-				AND cp.deny @> '{"send_messages": true}'::jsonb)
-	`, channelID, userID, boardID).Scan(&allowed, &denied)
+				AND COALESCE(gr.is_everyone, false) = FALSE
+				AND cp.deny @> '{"send_messages": true}'::jsonb),
+			EXISTS(SELECT 1 FROM channel_permissions cp
+				JOIN gomosub_roles gr ON gr.id = cp.role_id
+				WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)
+				AND COALESCE(gr.is_everyone, false) = TRUE
+				AND cp.deny @> '{"send_messages": true}'::jsonb),
+			EXISTS(SELECT 1 FROM channel_permissions cp
+				JOIN gomosub_roles gr ON gr.id = cp.role_id
+				WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)
+				AND COALESCE(gr.is_everyone, false) = FALSE
+				AND cp.allow @> '{"send_messages": true}'::jsonb)
+	`, channelID, userID, boardID).Scan(&allowed, &roleDeny, &everyoneDeny, &roleAllow)
 	if err != nil {
 		return false, err
 	}
-	// An explicit send deny wins everywhere (this is what let "no-write"
-	// roles keep posting on public channels before). Visibility was already
-	// enforced by the read gate above.
-	if denied {
+	// Tiered deny (Discord order): a role deny always wins; an @everyone
+	// deny holds only when no role allow overrides it. A role allow is what
+	// lets a lockdown-server member post in their granted channel.
+	if roleDeny || (everyoneDeny && !roleAllow) {
 		return false, nil
 	}
 	if !isPrivate {

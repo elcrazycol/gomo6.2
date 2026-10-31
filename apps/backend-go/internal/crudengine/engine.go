@@ -223,7 +223,7 @@ func genericGomosubVisibility(c *gin.Context, tableName string, argIndex int) (s
 	var args []interface{}
 
 	switch tableName {
-	case "channels", "gomosub_roles", "channel_categories":
+	case "channels", "gomosub_roles", "channel_categories", "gomosub_bans":
 		clause = "board_id IN (SELECT b.id FROM boards b WHERE b.visibility IS DISTINCT FROM 'private'"
 	case "channel_permissions":
 		clause = "channel_id IN (SELECT ch.id FROM channels ch JOIN boards b ON b.id = ch.board_id WHERE b.visibility IS DISTINCT FROM 'private'"

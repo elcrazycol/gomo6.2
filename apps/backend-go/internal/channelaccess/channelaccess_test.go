@@ -215,7 +215,94 @@ func TestCanWriteChannel_Allowed(t *testing.T) {
 	}
 }
 
-// A channel that vanished between route and check must deny — never panic.
+func TestCanReadChannel_RoleAllowOverridesEveryoneDeny(t *testing.T) {
+	db, mock := newAccessDB(t)
+	// Lockdown recipe: @everyone is denied view on a public channel, the
+	// member's extra role explicitly allows it — the channel must be
+	// visible (Discord tier order).
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectMemberExists(mock, true)
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("r-everyone", "@everyone", []byte(`{}`), 0, true).
+			AddRow("r-extra", "granted", []byte(`{}`), 5, false))
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}).
+			AddRow([]byte(`{}`), []byte(`{"view_channel": true}`), true, true, true).
+			AddRow([]byte(`{"view_channel": true}`), []byte(`{}`), true, true, false))
+
+	ok, err := CanReadChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("role allow must override an @everyone deny")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled: %v", err)
+	}
+}
+
+func TestCanReadChannel_RoleDenyWinsOverRoleAllow(t *testing.T) {
+	db, mock := newAccessDB(t)
+	// Two extra roles: one allows view, another denies it — deny wins.
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectMemberExists(mock, true)
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
+			AddRow("r-everyone", "@everyone", []byte(`{"view_channel": true}`), 0, true))
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}).
+			AddRow([]byte(`{"view_channel": true}`), []byte(`{}`), true, true, false).
+			AddRow([]byte(`{}`), []byte(`{"view_channel": true}`), true, true, false))
+
+	ok, err := CanReadChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("role deny must hide the channel even with a role allow")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled: %v", err)
+	}
+}
+
+func TestCanWriteChannel_RoleAllowOverridesEveryoneDeny(t *testing.T) {
+	db, mock := newAccessDB(t)
+	// Public channel: @everyone denied send, extra role allowed — write
+	// must be permitted.
+	expectScope(mock, false, "public")
+	expectNotBanned(mock)
+	expectMembership(mock, true)
+	expectMemberExists(mock, true)
+	expectRoles(mock)
+	mock.ExpectQuery(`(?s)FROM channel_permissions cp.*`).
+		WithArgs(testChannel, testBoard, testUser).
+		WillReturnRows(sqlmock.NewRows([]string{"allow", "deny", "can_read", "can_write", "is_everyone"}).
+			AddRow([]byte(`{}`), []byte(`{"send_messages": true}`), true, true, true).
+			AddRow([]byte(`{"send_messages": true}`), []byte(`{}`), true, true, false))
+
+	ok, err := CanWriteChannel(db, testUser, testChannel)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("role send allow must override an @everyone send deny")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled: %v", err)
+	}
+}
+
 func TestCanWriteChannel_MissingChannelDenies(t *testing.T) {
 	db, mock := newAccessDB(t)
 	mock.ExpectQuery(`SELECT ch\.board_id.*FROM channels ch JOIN boards b`).

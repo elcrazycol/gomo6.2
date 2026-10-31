@@ -9,8 +9,10 @@
 //   - Board owner and administrator holders bypass all checks.
 //   - Server permission = union of @everyone + all assigned roles
 //     (gomosub_member_roles plus the legacy gomosub_memberships.role_id).
-//   - Channel overwrites (channel_permissions.allow/deny, JSONB) apply on top;
-//     any deny wins. Legacy can_read/can_write booleans are the fallback when
+//   - Channel overwrites (channel_permissions.allow/deny, JSONB) apply on top
+//     in Discord tier order: @everyone overwrites first, role overwrites
+//     override them (a role allow beats an @everyone deny; a role deny always
+//     wins). Legacy can_read/can_write booleans are the fallback when
 //     allow/deny are both empty.
 //   - Read: a public channel of a public board is readable by any
 //     authenticated user; otherwise membership (or a view_channel overwrite)
@@ -96,11 +98,17 @@ func isRoleMember(db *sql.DB, boardID, userID string) bool {
 	return eff.IsMember
 }
 
-// loadOverwrites returns the union of allow/deny maps for the user's roles on
-// one channel (role-level only, no per-member overwrites yet). Legacy
-// can_read/can_write feed view_channel/send_messages when allow/deny are
-// empty for that row.
-func loadOverwrites(db *sql.DB, channelID, boardID, userID string, isMember bool) (allows, denies []map[string]bool) {
+// loadOverwrites returns the channel's allow/deny maps split by tier:
+// @everyone rows vs role rows (role-level only, no per-member overwrites
+// yet). Legacy can_read/can_write feed view_channel/send_messages when
+// allow/deny are both empty for that row.
+func loadOverwrites(db *sql.DB, channelID, boardID, userID string, isMember bool) gomosubperms.ChannelOverwrites {
+	ow := gomosubperms.ChannelOverwrites{
+		EveryoneAllow: map[string]bool{},
+		EveryoneDeny:  map[string]bool{},
+		RoleAllow:     map[string]bool{},
+		RoleDeny:      map[string]bool{},
+	}
 	rows, err := db.Query(gomosubperms.RoleScopeCTE("$2", "$3")+`
 		SELECT cp.allow, cp.deny, COALESCE(cp.can_read, true), COALESCE(cp.can_write, true),
 		       COALESCE(gr.is_everyone, false)
@@ -108,7 +116,7 @@ func loadOverwrites(db *sql.DB, channelID, boardID, userID string, isMember bool
 		JOIN gomosub_roles gr ON gr.id = cp.role_id
 		WHERE cp.channel_id = $1 AND cp.role_id IN (SELECT id FROM my_roles)`, channelID, boardID, userID)
 	if err != nil {
-		return nil, nil
+		return ow
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -140,10 +148,23 @@ func loadOverwrites(db *sql.DB, channelID, boardID, userID string, isMember bool
 				deny[gomosubperms.PermSendMessages] = true
 			}
 		}
-		allows = append(allows, allow)
-		denies = append(denies, deny)
+		if everyone {
+			for k := range allow {
+				ow.EveryoneAllow[k] = true
+			}
+			for k := range deny {
+				ow.EveryoneDeny[k] = true
+			}
+		} else {
+			for k := range allow {
+				ow.RoleAllow[k] = true
+			}
+			for k := range deny {
+				ow.RoleDeny[k] = true
+			}
+		}
 	}
-	return allows, denies
+	return ow
 }
 
 func membershipStatus(db *sql.DB, boardID, userID string) (isMember bool, timedOut bool) {
@@ -159,17 +180,6 @@ func membershipStatus(db *sql.DB, boardID, userID string) (isMember bool, timedO
 		timedOut = true
 	}
 	return isMember, timedOut
-}
-
-// hasExplicitViewDeny reports whether any overwrite row explicitly denies
-// viewing (as opposed to the grant simply being absent).
-func hasExplicitViewDeny(denies []map[string]bool) bool {
-	for _, d := range denies {
-		if d[gomosubperms.PermViewChannel] {
-			return true
-		}
-	}
-	return false
 }
 
 // CanReadChannel reports whether userID may see the message history of the
@@ -204,9 +214,9 @@ func CanReadChannel(db *sql.DB, userID, channelID string) (bool, error) {
 	if gomosubperms.IsAdmin(eff) {
 		return true, nil
 	}
-	allows, denies := loadOverwrites(db, channelID, scope.boardID, userID, isMember)
-	resolved := gomosubperms.ApplyOverwrites(eff, allows, denies)
-	if !resolved[gomosubperms.PermViewChannel] && hasExplicitViewDeny(denies) {
+	ow := loadOverwrites(db, channelID, scope.boardID, userID, isMember)
+	resolved, _ := ow.Resolve(eff)
+	if ow.Denies(gomosubperms.PermViewChannel) {
 		return false, nil
 	}
 	if !isMember {
@@ -255,15 +265,14 @@ func CanWriteChannel(db *sql.DB, userID, channelID string) (bool, error) {
 	if gomosubperms.IsAdmin(eff) {
 		return true, nil
 	}
-	allows, denies := loadOverwrites(db, channelID, scope.boardID, userID, true)
-	resolved := gomosubperms.ApplyOverwrites(eff, allows, denies)
+	ow := loadOverwrites(db, channelID, scope.boardID, userID, true)
+	resolved, _ := ow.Resolve(eff)
+	if ow.Denies(gomosubperms.PermSendMessages) {
+		return false, nil
+	}
 	if !scope.isPrivate {
-		// Public channel: membership suffices unless explicitly denied.
-		for _, d := range denies {
-			if d[gomosubperms.PermSendMessages] {
-				return false, nil
-			}
-		}
+		// Public channel: membership suffices unless an upheld deny blocks
+		// it (role deny, or @everyone deny no role allow overrides).
 		return true, nil
 	}
 	return resolved[gomosubperms.PermSendMessages], nil

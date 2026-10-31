@@ -27,16 +27,57 @@ func TestAdminBypass(t *testing.T) {
 	}
 }
 
-func TestApplyOverwritesDenyWins(t *testing.T) {
-	base := map[string]bool{PermViewChannel: true, PermSendMessages: true}
-	out := ApplyOverwrites(base,
-		[]map[string]bool{{PermSendMessages: true}},
-		[]map[string]bool{{PermSendMessages: true}})
-	if !out[PermViewChannel] {
-		t.Fatal("unrelated grant must survive")
+func TestTieredRoleAllowOverridesEveryoneDeny(t *testing.T) {
+	// The lockdown-server recipe: @everyone is denied view, one role is
+	// explicitly allowed — the member must see the channel.
+	base := map[string]bool{}
+	ow := ChannelOverwrites{
+		EveryoneAllow: map[string]bool{},
+		EveryoneDeny:  map[string]bool{PermViewChannel: true},
+		RoleAllow:     map[string]bool{PermViewChannel: true},
+		RoleDeny:      map[string]bool{},
 	}
-	if out[PermSendMessages] {
-		t.Fatal("deny must win over allow")
+	resolved, _ := ow.Resolve(base)
+	if !resolved[PermViewChannel] {
+		t.Fatal("role allow must override an @everyone deny")
+	}
+	if ow.Denies(PermViewChannel) {
+		t.Fatal("upheld-deny must be false when a role allow overrides it")
+	}
+}
+
+func TestTieredRoleDenyAlwaysWins(t *testing.T) {
+	// An explicit role deny beats everything: base grant + role allow.
+	base := map[string]bool{PermViewChannel: true, PermSendMessages: true}
+	ow := ChannelOverwrites{
+		EveryoneAllow: map[string]bool{},
+		EveryoneDeny:  map[string]bool{},
+		RoleAllow:     map[string]bool{PermViewChannel: true, PermSendMessages: true},
+		RoleDeny:      map[string]bool{PermViewChannel: true, PermSendMessages: true},
+	}
+	resolved, denied := ow.Resolve(base)
+	if resolved[PermViewChannel] || resolved[PermSendMessages] {
+		t.Fatal("role deny must strip the grant")
+	}
+	if !denied[PermViewChannel] || !ow.Denies(PermSendMessages) {
+		t.Fatal("role deny must be reported as upheld")
+	}
+}
+
+func TestTieredEveryoneDenyHoldsWithoutRoleAllow(t *testing.T) {
+	base := map[string]bool{PermViewChannel: true}
+	ow := ChannelOverwrites{
+		EveryoneAllow: map[string]bool{},
+		EveryoneDeny:  map[string]bool{PermViewChannel: true},
+		RoleAllow:     map[string]bool{},
+		RoleDeny:      map[string]bool{},
+	}
+	resolved, _ := ow.Resolve(base)
+	if resolved[PermViewChannel] {
+		t.Fatal("unopposed @everyone deny must hide the channel")
+	}
+	if !ow.Denies(PermViewChannel) {
+		t.Fatal("unopposed @everyone deny must be upheld")
 	}
 }
 

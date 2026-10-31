@@ -17,6 +17,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/crud"
+	"github.com/gomo6/backend/internal/gomosubperms"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/search"
 	"github.com/gomo6/backend/internal/websocket"
@@ -532,6 +533,27 @@ func (h *BoardsHandler) fetchBoardByID(boardID string) (models.Board, error) {
 // @Failure      403 {object} models.APIResponse
 // @Router       /boards/{id}/invites [post]
 // @Security     BearerAuth
+// canManageInvites reports whether userID may manage a board's invites: the
+// owner always, otherwise a member holding can_manage_members (or an
+// administrator) via the shared permission kernel.
+func (h *BoardsHandler) canManageInvites(boardID, userID string) (bool, error) {
+	if boardID == "" || userID == "" {
+		return false, nil
+	}
+	var ownerID sql.NullString
+	if err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&ownerID); err != nil {
+		return false, err
+	}
+	if ownerID.Valid && ownerID.String == userID {
+		return true, nil
+	}
+	eff, err := gomosubperms.LoadEffective(h.db, boardID, userID)
+	if err != nil || eff == nil || !eff.IsMember {
+		return false, err
+	}
+	return eff.IsAdmin() || eff.Perms()[gomosubperms.PermManageMembers], nil
+}
+
 func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 	boardID := c.Param("id")
 
@@ -542,9 +564,8 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var boardOwner sql.NullString
 	var boardVisibility string
-	err := h.db.QueryRow(`SELECT owner_id, COALESCE(visibility, 'public') FROM boards WHERE id = $1`, boardID).Scan(&boardOwner, &boardVisibility)
+	err := h.db.QueryRow(`SELECT COALESCE(visibility, 'public') FROM boards WHERE id = $1`, boardID).Scan(&boardVisibility)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 		return
@@ -553,8 +574,13 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can create invites"))
+	canManage, err := h.canManageInvites(boardID, userClaims.UserID)
+	if err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	if !canManage {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Managing invites requires the owner or the manage-members permission"))
 		return
 	}
 	if boardVisibility != "private" {
@@ -630,8 +656,7 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var boardOwner sql.NullString
-	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&boardOwner)
+	canManage, err := h.canManageInvites(boardID, userClaims.UserID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 		return
@@ -640,8 +665,8 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can view invites"))
+	if !canManage {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Managing invites requires the owner or the manage-members permission"))
 		return
 	}
 
@@ -695,8 +720,7 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	var boardOwner sql.NullString
-	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&boardOwner)
+	canManage, err := h.canManageInvites(boardID, userClaims.UserID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 		return
@@ -705,8 +729,8 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 		httpx.ServerError(c, "handler error", err)
 		return
 	}
-	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can delete invites"))
+	if !canManage {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Managing invites requires the owner or the manage-members permission"))
 		return
 	}
 

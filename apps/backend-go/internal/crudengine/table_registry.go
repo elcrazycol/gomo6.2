@@ -262,6 +262,7 @@ var genericTables = []TableMeta{
 		GomosubManagement: true,
 		GomosubVisibility: true,
 		InvalidateCache:   invalidateChannelCategoriesCache,
+		AfterWrite:        afterChannelCategoriesWrite,
 	},
 	{
 		Name:              "channel_permissions",
@@ -273,6 +274,7 @@ var genericTables = []TableMeta{
 		GomosubVisibility: true,
 		PrepareBody:       stripChannelPermissionsBoardID,
 		InvalidateCache:   invalidateChannelPermissionsCache,
+		AfterWrite:        afterChannelPermissionsWrite,
 	},
 	{
 		Name:              "channels",
@@ -283,6 +285,7 @@ var genericTables = []TableMeta{
 		GomosubManagement: true,
 		GomosubVisibility: true,
 		InvalidateCache:   invalidateChannelsCache,
+		AfterWrite:        afterChannelsWrite,
 	}, {
 		Name: "custom_emojis",
 		// image_url is validated against the authenticated user's storage by
@@ -365,6 +368,7 @@ var genericTables = []TableMeta{
 		GomosubManagement: true,
 		GomosubVisibility: true,
 		InvalidateCache:   invalidateGomosubRolesCache,
+		AfterWrite:        afterGomosubRolesWrite,
 	},
 	{
 		Name:             "gomosub_rules_acceptance",

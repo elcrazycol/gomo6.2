@@ -332,15 +332,37 @@ func TestRecordView_ReopenDoesNotInflateCounter(t *testing.T) {
 	}
 }
 
+// expectBoardServerGrant mocks checkBoardServerPerm: another owner, no ban,
+// no timeout, membership as given, and one role carrying `perms`.
+func expectBoardServerGrant(mock sqlmock.Sqlmock, member bool, perms string) {
+	mock.ExpectQuery(`SELECT owner_id::text FROM boards WHERE id::text`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("00000000-0000-0000-0000-0000000000aa"))
+	mock.ExpectQuery(`FROM gomosub_bans WHERE board_id`).
+		WithArgs(viewerID, boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`timed_out_until IS NOT NULL AND timed_out_until`).
+		WithArgs(viewerID, boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"timed_out"}))
+	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs(boardID, viewerID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(member))
+	rows := sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"})
+	if perms != "" {
+		rows.AddRow("r-1", "mods", []byte(perms), 5, false)
+	}
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(boardID, viewerID).
+		WillReturnRows(rows)
+}
+
 // ─── Publish ────────────────────────────────────────────────────────────────
 
 func TestCreateStory_GosubStoresBoardAudience(t *testing.T) {
 	h, mock := newHandler(t)
 	key := viewerID + "/abc.jpg"
 
-	mock.ExpectQuery(`SELECT EXISTS \(\s*SELECT 1 FROM boards b\s*WHERE b.id::text = \$2::text\s*AND \(b.owner_id::text = \$1::text`).
-		WithArgs(viewerID, boardID).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectBoardServerGrant(mock, true, `{"can_post_stories": true}`)
 	mock.ExpectQuery(`INSERT INTO stories`).
 		WithArgs(OwnerGosub, nil, boardID, viewerID, KindPhoto,
 			key, nil, nil, nil, nil, nil, nil, "", nil, PrivacyEveryone, sqlmock.AnyArg()).
@@ -388,9 +410,7 @@ func TestCreateStory_RequiresPostingRightsInGomoSub(t *testing.T) {
 	h, mock := newHandler(t)
 	key := viewerID + "/abc.jpg"
 
-	mock.ExpectQuery(`SELECT EXISTS \(\s*SELECT 1 FROM boards b`).
-		WithArgs(viewerID, boardID).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	expectBoardServerGrant(mock, false, "")
 
 	c, w := testutil.NewPOSTContext("/api/v1/stories", map[string]interface{}{
 		"owner_type": OwnerGosub,
@@ -454,9 +474,7 @@ func TestDeleteStory_BoardModeratorMayDelete(t *testing.T) {
 		WithArgs(storyID).
 		WillReturnRows(sqlmock.NewRows([]string{"author_id", "owner_type", "owner_id", "media_key", "preview_key"}).
 			AddRow(otherID, OwnerGosub, boardID, nil, nil))
-	mock.ExpectQuery(`SELECT EXISTS \(\s*SELECT 1 FROM boards b`).
-		WithArgs(viewerID, boardID).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectBoardServerGrant(mock, true, `{"can_delete_threads": true}`)
 	mock.ExpectExec(`UPDATE stories SET deleted_at = NOW\(\)`).
 		WithArgs(storyID).
 		WillReturnResult(sqlmock.NewResult(0, 1))

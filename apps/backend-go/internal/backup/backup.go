@@ -158,6 +158,13 @@ func (h *BackupHandler) Export(c *gin.Context) {
 		return
 	}
 
+	// 6b. Multi-role grants (user_id + role_id pairs, remapped on import).
+	if err := h.writeJSONArray(tw, ctx, "member_roles.json",
+		`SELECT row_to_json(t) FROM (SELECT mr.user_id, mr.role_id, mr.board_id FROM gomosub_member_roles mr WHERE mr.board_id = $1) t`, boardID); err != nil {
+		log.Printf("backup export: member_roles: %v", err)
+		return
+	}
+
 	// 7. Invites
 	if err := h.writeJSONArray(tw, ctx, "invites.json",
 		`SELECT row_to_json(t) FROM (SELECT * FROM gomosub_invites WHERE board_id = $1) t`, boardID); err != nil {
@@ -341,7 +348,11 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 		return nil, err
 	}
 
-	if err := importMemberships(tx, ctx, archiveData, userMapping, newBoardID); err != nil {
+	if err := importMemberships(tx, ctx, archiveData, userMapping, roleMapping, newBoardID); err != nil {
+		return nil, err
+	}
+
+	if err := importMemberRoles(tx, ctx, archiveData, userMapping, roleMapping, newBoardID); err != nil {
 		return nil, err
 	}
 
@@ -449,10 +460,10 @@ func importRoles(tx *sql.Tx, ctx context.Context, boardID string, archiveData ma
 			newID := uuid.New().String()
 			roleMapping[oldID] = newID
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO gomosub_roles (id, board_id, name, color, position, permissions)
-				VALUES ($1, $2, $3, $4, $5, $6)
+				INSERT INTO gomosub_roles (id, board_id, name, color, position, permissions, is_everyone)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
 			`, newID, boardID, jsonStr(rMap, "name"), jsonStr(rMap, "color"),
-				jsonInt(rMap, "position"), jsonRaw(rMap, "permissions")); err != nil {
+				jsonInt(rMap, "position"), jsonRaw(rMap, "permissions"), jsonBool(rMap, "is_everyone")); err != nil {
 				return nil, fmt.Errorf("import role %q: %w", jsonStr(rMap, "name"), err)
 			}
 		}
@@ -476,11 +487,18 @@ func importChannelPermissions(tx *sql.Tx, ctx context.Context, archiveData map[s
 			if newChannelID == "" || newRoleID == "" {
 				continue
 			}
+			allowJSON, denyJSON := jsonRaw(pMap, "allow"), jsonRaw(pMap, "deny")
+			if len(allowJSON) == 0 {
+				allowJSON = json.RawMessage("{}")
+			}
+			if len(denyJSON) == 0 {
+				denyJSON = json.RawMessage("{}")
+			}
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO channel_permissions (id, channel_id, role_id, can_read, can_write)
-				VALUES ($1, $2, $3, $4, $5)
+				INSERT INTO channel_permissions (id, channel_id, role_id, can_read, can_write, allow, deny)
+				VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)
 			`, uuid.New().String(), newChannelID, newRoleID,
-				jsonBool(pMap, "can_read"), jsonBool(pMap, "can_write")); err != nil {
+				jsonBool(pMap, "can_read"), jsonBool(pMap, "can_write"), string(allowJSON), string(denyJSON)); err != nil {
 				log.Printf("backup import: channel_permission: %v", err)
 			}
 		}
@@ -491,7 +509,32 @@ func importChannelPermissions(tx *sql.Tx, ctx context.Context, archiveData map[s
 // importMemberships joins the previously known members to the imported board;
 // locally unknown users are skipped (their content is attributed to the ghost
 // user by mapUserID).
-func importMemberships(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping map[string]string, boardID string) error {
+// importMemberRoles restores the multi-role grants, remapping both user and
+// role IDs. Unknown users or roles are skipped (same policy as memberships).
+func importMemberRoles(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping, roleMapping map[string]string, boardID string) error {
+	if grants, ok := archiveData["member_roles.json"].([]interface{}); ok {
+		for _, g := range grants {
+			gMap, ok := g.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			localUserID := userMapping[jsonStr(gMap, "user_id")]
+			newRoleID := roleMapping[jsonStr(gMap, "role_id")]
+			if localUserID == "" || newRoleID == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO gomosub_member_roles (board_id, user_id, role_id)
+				VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
+			`, boardID, localUserID, newRoleID); err != nil {
+				log.Printf("backup import: member_roles: %v", err)
+			}
+		}
+	}
+	return nil
+}
+
+func importMemberships(tx *sql.Tx, ctx context.Context, archiveData map[string]interface{}, userMapping, roleMapping map[string]string, boardID string) error {
 	if mems, ok := archiveData["memberships.json"].([]interface{}); ok {
 		for _, m := range mems {
 			mMap, ok := m.(map[string]interface{})
@@ -507,10 +550,14 @@ func importMemberships(tx *sql.Tx, ctx context.Context, archiveData map[string]i
 			if role == "" {
 				role = "member"
 			}
+			var legacyRoleID interface{}
+			if newRoleID := roleMapping[jsonStr(mMap, "role_id")]; newRoleID != "" {
+				legacyRoleID = newRoleID
+			}
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO gomosub_memberships (user_id, board_id, role)
-				VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
-			`, localUserID, boardID, role); err != nil {
+				INSERT INTO gomosub_memberships (user_id, board_id, role, role_id)
+				VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
+			`, localUserID, boardID, role, legacyRoleID); err != nil {
 				log.Printf("backup import: membership: %v", err)
 			}
 		}

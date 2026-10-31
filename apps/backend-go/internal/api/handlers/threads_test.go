@@ -94,6 +94,34 @@ func TestGetThreads_Success_WithBoardFilter(t *testing.T) {
 	}
 }
 
+func TestGetThreads_ChannelGatePresentForMembers(t *testing.T) {
+	// A member without the server view grant must get the channel-visibility
+	// predicate in the list query (the DB enforces it; here we lock the
+	// wiring: the gate and the viewer bind parameter for it).
+	handler, mock := setupThreadsHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/threads", map[string]string{
+		"board_id": "eq.b1",
+	}, &auth.Claims{UserID: "viewer"})
+
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*t\.channel_id IS NULL.*LIMIT \$5 OFFSET \$6`).
+		WithArgs("b1", "viewer", "viewer", "viewer", 50, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "public_id", "board_id", "channel_id", "section_id", "subsection_id", "user_id", "title", "content", "content_json",
+			"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
+			"created_at", "updated_at", "is_remote", "username", "user_public_id", "avatar_url", "is_anonymous",
+			"display_name", "nickname_emoji_id",
+			"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
+			"section_slug", "section_name", "section_icon", "section_is_nsfw",
+			"subsection_slug", "subsection_name",
+		}))
+
+	handler.GetThreads(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestGetThreads_DBError(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
 	c, w := newGETContext("/api/v1/threads", nil)

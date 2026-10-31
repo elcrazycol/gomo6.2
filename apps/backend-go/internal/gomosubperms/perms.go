@@ -10,8 +10,9 @@
 //   - Effective server permission = union of @everyone + all assigned roles.
 //     "administrator" grants everything (owner always counts as admin).
 //   - Channel overwrites (channel_permissions.allow/deny, JSONB maps) apply
-//     on top: any deny wins over allows (Discord semantics, simplified —
-//     no separate member-level overwrites yet).
+//     on top in Discord tier order: @everyone overwrites first, then role
+//     overwrites (a role allow overrides an @everyone deny; a role deny
+//     always wins).
 //   - Legacy can_read/can_write booleans are a fallback when allow/deny are
 //     both empty.
 package gomosubperms
@@ -193,24 +194,62 @@ func IsAdmin(effective map[string]bool) bool {
 	return effective[PermAdministrator]
 }
 
-// ApplyOverwrites applies channel allow/deny maps on top of a server-level
-// effective set. Deny always wins (Discord rule, simplified to role-level).
-func ApplyOverwrites(base map[string]bool, allows, denies []map[string]bool) map[string]bool {
-	out := map[string]bool{}
+// ChannelOverwrites is one channel's allow/deny maps split by tier:
+// @everyone overwrites apply first, role overwrites override them.
+type ChannelOverwrites struct {
+	EveryoneAllow map[string]bool
+	EveryoneDeny  map[string]bool
+	RoleAllow     map[string]bool
+	RoleDeny      map[string]bool
+}
+
+// ResolveChannel applies channel overwrites in Discord order on top of a
+// server-level base set: @everyone overwrites first, then role overwrites,
+// deny winning within each tier. A role-level allow therefore overrides an
+// @everyone deny (the lockdown-server recipe), while an explicit role deny
+// always wins.
+func ResolveChannel(base map[string]bool, ow ChannelOverwrites) map[string]bool {
+	resolved, _ := ow.Resolve(base)
+	return resolved
+}
+
+// Resolve folds the tiered overwrites into the base set, returning the
+// effective grants plus the set of permissions blocked by an upheld deny
+// (a role deny, or an @everyone deny no role allow overrides).
+func (ow ChannelOverwrites) Resolve(base map[string]bool) (resolved, denied map[string]bool) {
+	resolved = map[string]bool{}
+	denied = map[string]bool{}
 	for k, v := range base {
-		out[k] = v
+		if v {
+			resolved[k] = true
+		}
 	}
-	for _, a := range Union(allows...) {
-		_ = a
+	for k := range ow.EveryoneAllow {
+		resolved[k] = true
 	}
-	allowed := Union(allows...)
-	for k := range allowed {
-		out[k] = true
+	for k := range ow.EveryoneDeny {
+		delete(resolved, k)
+		if !ow.RoleAllow[k] {
+			denied[k] = true
+		}
 	}
-	for k := range Union(denies...) {
-		out[k] = false
+	for k := range ow.RoleAllow {
+		resolved[k] = true
+		delete(denied, k)
 	}
-	return out
+	for k := range ow.RoleDeny {
+		delete(resolved, k)
+		denied[k] = true
+	}
+	return resolved, denied
+}
+
+// Denies reports whether key carries an upheld deny.
+func (ow ChannelOverwrites) Denies(key string) bool {
+	if ow.RoleDeny[key] {
+		return true
+	}
+	return ow.EveryoneDeny[key] && !ow.RoleAllow[key]
 }
 
 // CanManageRole enforces hierarchy: owner/admin bypass; otherwise the actor's
