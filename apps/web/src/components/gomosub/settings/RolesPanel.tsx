@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ALL_PERM_KEYS, PERMISSION_GROUPS, roleMemberCount } from "./permissions";
 import { inputCls, settingsFormCard, settingsSectionTitle } from "./ui";
-import { TriStateControl } from "./TriStateControl";
 import { csrfHeaders, parsePerms, type Member, type MemberRoleGrant, type Role } from "./types";
 
 type Props = {
@@ -168,35 +167,23 @@ const RolesPanel = ({ boardId, roles, members, grants, canManage, onChanged }: P
           </div>
         </div>
       )}
-      <div className="px-4 pt-2 text-[11px] text-muted-foreground">✓ разрешить · – наследовать · ✕ запретить. Запрет побеждает, администратор — мимо всего.</div>
       <div className="py-1">
         {PERMISSION_GROUPS.map((g) => (
           <div key={g.title}>
             <div className="px-4 pt-3 pb-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{g.title}</div>
             {g.items.map((perm) => (
-              <div key={perm.key} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40">
+              <label key={perm.key} className={cn("flex items-center gap-3 px-4 py-2.5", canManage ? "cursor-pointer hover:bg-muted/40" : "opacity-80")}>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium">{perm.label}</span>
                   <span className="block text-xs text-muted-foreground">{perm.desc}</span>
                 </span>
-                {(() => {
-                  const v = draft?.perms[perm.key];
-                  const state = v === true ? "allow" : v === false ? "deny" : "inherit";
-                  return (
-                    <TriStateControl
-                      state={state}
-                      disabled={!canManage}
-                      onPick={(next) => setDraft((p) => {
-                        if (!p) return p;
-                        const perms = { ...p.perms };
-                        if (next === "inherit") delete perms[perm.key];
-                        else perms[perm.key] = next === "allow";
-                        return { ...p, perms };
-                      })}
-                    />
-                  );
-                })()}
-              </div>
+                <Switch
+                  checked={!!draft?.perms[perm.key]}
+                  disabled={!canManage}
+                  onCheckedChange={(v) => setDraft((p) => (p ? { ...p, perms: { ...p.perms, [perm.key]: v } } : p))}
+                  className="shrink-0"
+                />
+              </label>
             ))}
           </div>
         ))}

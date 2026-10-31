@@ -52,47 +52,16 @@ func OwnerPermissions() map[string]bool {
 	}
 }
 
-// Union merges role permission maps: any true wins. A nil map is skipped.
-// Kept for callers that only need the allow side; prefer Partition+Resolve
-// so explicit denies are honored.
+// Union merges role permission maps: any true wins, explicit false counts
+// as absent (Discord parity: role permissions are binary, deny lives only
+// on channel overwrites). A nil map is skipped.
 func Union(roles ...map[string]bool) map[string]bool {
-	allow, _ := Partition(roles...)
-	return allow
-}
-
-// Partition splits role permission maps into explicit allows and explicit
-// denies: true = allow, false = deny, absent = inherit (neutral). This is the
-// tri-state model behind the role editor (deny left, neutral center, allow
-// right): a deny on any of the holder's roles wins over allows, except for
-// the administrator grant, which bypasses everything and is never denied.
-func Partition(roles ...map[string]bool) (allow, deny map[string]bool) {
-	allow = map[string]bool{}
-	deny = map[string]bool{}
+	out := map[string]bool{}
 	for _, r := range roles {
 		for k, v := range r {
 			if v {
-				allow[k] = true
-			} else {
-				deny[k] = true
+				out[k] = true
 			}
-		}
-	}
-	return allow, deny
-}
-
-// Resolve folds an allow/deny pair into the effective grant set: deny wins
-// over allow for the same key. The administrator key is special: an allow
-// is honored, a deny is ignored (you cannot un-admin through a deny).
-// Callers check IsAdmin on the allow side first for the full bypass.
-func Resolve(allow, deny map[string]bool) map[string]bool {
-	out := map[string]bool{}
-	for k := range allow {
-		if k == PermAdministrator {
-			out[k] = true
-			continue
-		}
-		if !deny[k] {
-			out[k] = true
 		}
 	}
 	return out

@@ -32,7 +32,6 @@ const (
 // modProfile is one user's server-level standing on a board.
 type modProfile struct {
 	perms    map[string]bool
-	denied   map[string]bool
 	top      int
 	isMember bool
 }
@@ -41,7 +40,7 @@ type modProfile struct {
 // roles, plus the top position. @everyone sits at the implicit bottom:
 // members holding only it get top 0, outsiders get -1.
 func loadModProfile(db *sql.DB, boardID, userID string) (*modProfile, error) {
-	p := &modProfile{perms: map[string]bool{}, denied: map[string]bool{}, top: -1}
+	p := &modProfile{perms: map[string]bool{}, top: -1}
 	_ = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)`,
 		boardID, userID).Scan(&p.isMember)
 	rows, err := db.Query(`
@@ -79,8 +78,6 @@ func loadModProfile(db *sql.DB, boardID, userID string) (*modProfile, error) {
 			for k, v := range m {
 				if v {
 					p.perms[k] = true
-				} else {
-					p.denied[k] = true
 				}
 			}
 			continue
@@ -95,20 +92,11 @@ func loadModProfile(db *sql.DB, boardID, userID string) (*modProfile, error) {
 		for k, v := range m {
 			if v {
 				p.perms[k] = true
-			} else {
-				p.denied[k] = true
 			}
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-	// Explicit denies win over allows from other roles (administrator is
-	// never denied — it bypasses everything).
-	for k := range p.denied {
-		if k != "administrator" {
-			delete(p.perms, k)
-		}
 	}
 	return p, nil
 }

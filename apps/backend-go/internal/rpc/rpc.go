@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gomo6/backend/internal/gomosubperms"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/notifications"
@@ -141,19 +140,6 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 	}
 	if admin {
 		return true, nil
-	}
-	// A server-level role deny on writing beats every channel grant (this
-	// is the "muted role" switch: one deny, and the role writes nowhere).
-	// Unset (neutral) changes nothing — only explicit false denies.
-	var serverDeny bool
-	err = h.db.QueryRow(rolesCTE+`
-		SELECT EXISTS(SELECT 1 FROM my_roles WHERE permissions @> '{"send_messages": false}'::jsonb)
-	`, userID, boardID).Scan(&serverDeny)
-	if err != nil {
-		return false, err
-	}
-	if serverDeny {
-		return false, nil
 	}
 	var allowed, denied bool
 	err = h.db.QueryRow(`
@@ -922,8 +908,7 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-	allowGrants := map[string]bool{}
-	denyGrants := map[string]bool{}
+	perms := map[string]bool{}
 	roles := []interface{}{}
 	for rows.Next() {
 		var id, name string
@@ -941,14 +926,11 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 		}
 		for k, v := range m {
 			if v {
-				allowGrants[k] = true
-			} else {
-				denyGrants[k] = true
+				perms[k] = true
 			}
 		}
 		roles = append(roles, map[string]interface{}{"id": id, "name": name})
 	}
-	perms := gomosubperms.Resolve(allowGrants, denyGrants)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
 		"is_owner":    false,
