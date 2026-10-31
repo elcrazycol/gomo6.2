@@ -1,6 +1,8 @@
 package rpc
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +11,8 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/testutil"
 )
+
+var errBoomMod = errors.New("boom")
 
 const (
 	modBoard  = "550e8400-e29b-41d4-a716-446655440000"
@@ -38,10 +42,6 @@ func expectKernelGrant(mock sqlmock.Sqlmock, user, perms string, pos int, member
 		WithArgs(modBoard, user).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "permissions", "position", "is_everyone"}).
 			AddRow("role-1", name, []byte(perms), pos, false))
-}
-
-func expectModRoles(mock sqlmock.Sqlmock, user, perms string, pos int) {
-	expectKernelGrant(mock, user, perms, pos, true, "")
 }
 
 // expectModGateOK mocks a passing gate: actor (kick-capable, top 5) vs target (top 2).
@@ -196,5 +196,189 @@ func TestListBans_OwnerSeesBans(t *testing.T) {
 	h.ListBans(c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnbanMember_Success(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	expectModGateOK(mock, "ban_members")
+	mock.ExpectExec(`DELETE FROM gomosub_bans WHERE board_id`).
+		WithArgs(modBoard, modTarget).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	h.UnbanMember(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestUnbanMember_NotBanned(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	expectModGateOK(mock, "ban_members")
+	mock.ExpectExec(`DELETE FROM gomosub_bans WHERE board_id`).
+		WithArgs(modBoard, modTarget).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	h.UnbanMember(c)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUntimeoutMember_Success(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	expectModGateOK(mock, "timeout_members")
+	mock.ExpectExec(`UPDATE gomosub_memberships SET timed_out_until = NULL`).
+		WithArgs(modBoard, modTarget).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	h.UntimeoutMember(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestUntimeoutMember_NotMember(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	expectModGateOK(mock, "timeout_members")
+	mock.ExpectExec(`UPDATE gomosub_memberships SET timed_out_until = NULL`).
+		WithArgs(modBoard, modTarget).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	h.UntimeoutMember(c)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAuthorizeMod_Guards(t *testing.T) {
+	// No claims: 401 without touching the DB.
+	h, mock := setupRPCHandler(t)
+	c, w := testutil.NewRPCGETContext(nil)
+	if h.authorizeMod(c, modBoard, modTarget, "kick_members") {
+		t.Fatal("expected denial without claims")
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+
+	// Missing ids: 400.
+	h2, _ := setupRPCHandler(t)
+	c2, w2 := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard}, modClaims())
+	if h2.authorizeMod(c2, "", modTarget, "kick_members") {
+		t.Fatal("expected denial without board_id")
+	}
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w2.Code)
+	}
+
+	// Self-target: 400.
+	h3, _ := setupRPCHandler(t)
+	c3, w3 := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modActor}, modClaims())
+	if h3.authorizeMod(c3, modBoard, modActor, "kick_members") {
+		t.Fatal("expected denial for self-target")
+	}
+	if w3.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w3.Code)
+	}
+
+	// Unknown board: 404.
+	h4, mock4 := setupRPCHandler(t)
+	mock4.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs(modBoard).
+		WillReturnError(sql.ErrNoRows)
+	c4, w4 := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	if h4.authorizeMod(c4, modBoard, modTarget, "kick_members") {
+		t.Fatal("expected denial for unknown board")
+	}
+	if w4.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w4.Code)
+	}
+
+	// Owner target: 403.
+	h5, mock5 := setupRPCHandler(t)
+	expectModOwner(mock5, modTarget)
+	c5, w5 := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	if h5.authorizeMod(c5, modBoard, modTarget, "kick_members") {
+		t.Fatal("expected denial for owner target")
+	}
+	if w5.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w5.Code)
+	}
+
+	// Actor is owner: allowed with no further queries.
+	h6, mock6 := setupRPCHandler(t)
+	expectModOwner(mock6, modActor)
+	c6, _ := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget},
+		&auth.Claims{UserID: modActor, Username: "owner"})
+	if !h6.authorizeMod(c6, modBoard, modTarget, "kick_members") {
+		t.Fatal("expected owner bypass")
+	}
+
+	// Non-member actor: 403.
+	h7, mock7 := setupRPCHandler(t)
+	expectModOwner(mock7, modOwner)
+	expectKernelGrant(mock7, modActor, `{}`, 0, false, "")
+	c7, w7 := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	if h7.authorizeMod(c7, modBoard, modTarget, "kick_members") {
+		t.Fatal("expected denial for non-member")
+	}
+	if w7.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w7.Code)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestAuthorizeMod_MemberWithoutPermDenied(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	expectModOwner(mock, modOwner)
+	// Actor is a member but holds no kick grant: denied before the target
+	// profile is even loaded.
+	expectKernelGrant(mock, modActor, `{"send_messages": true}`, 5, true, "")
+
+	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	if h.authorizeMod(c, modBoard, modTarget, "kick_members") {
+		t.Fatal("expected denial without the needed permission")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestAuthorizeMod_UnionErrorSurfaces(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	expectModOwner(mock, modOwner)
+	mock.ExpectQuery(`EXISTS\(SELECT 1 FROM gomosub_memberships WHERE board_id`).
+		WithArgs(modBoard, modActor).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`(?s)FROM gomosub_roles gr.*`).
+		WithArgs(modBoard, modActor).
+		WillReturnError(errBoomMod)
+
+	c, w := testutil.NewRPCPostContext(map[string]string{"board_id": modBoard, "user_id": modTarget}, modClaims())
+	if h.authorizeMod(c, modBoard, modTarget, "kick_members") {
+		t.Fatal("expected denial on kernel error")
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }

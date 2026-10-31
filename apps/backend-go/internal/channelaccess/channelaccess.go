@@ -79,25 +79,6 @@ func effectiveSet(db *sql.DB, boardID, userID string) map[string]bool {
 	return eff.Perms()
 }
 
-// effectiveTop returns the user's top role position (see LoadEffective).
-func effectiveTop(db *sql.DB, boardID, userID string) int {
-	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
-	if err != nil || eff == nil {
-		return -1
-	}
-	return eff.Top()
-}
-
-// isRoleMember reports board membership (used to skip the @everyone grant
-// for outsiders in overwrite resolution).
-func isRoleMember(db *sql.DB, boardID, userID string) bool {
-	eff, err := gomosubperms.LoadEffective(db, boardID, userID)
-	if err != nil || eff == nil {
-		return false
-	}
-	return eff.IsMember
-}
-
 // loadOverwrites returns the channel's allow/deny maps split by tier:
 // @everyone rows vs role rows (role-level only, no per-member overwrites
 // yet). Legacy can_read/can_write feed view_channel/send_messages when

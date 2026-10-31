@@ -91,7 +91,6 @@ func (h *RPCHandler) ListGomoSubMembers(c *gin.Context) {
 	}
 	defer rows.Close()
 	members := []GomoSubMemberRow{}
-	userIDs := []string{}
 	for rows.Next() {
 		var r GomoSubMemberRow
 		if err := rows.Scan(&r.UserID, &r.Username, &r.AvatarURL, &r.LegacyRoleID, &r.TimedOut, &r.TimedOutUntil); err != nil {
@@ -101,7 +100,6 @@ func (h *RPCHandler) ListGomoSubMembers(c *gin.Context) {
 		r.IsOwner = r.UserID == ownerID
 		r.RoleIDs = []string{}
 		members = append(members, r)
-		userIDs = append(userIDs, r.UserID)
 	}
 	if err := rows.Err(); err != nil {
 		httpx.ServerError(c, "handler error", err)

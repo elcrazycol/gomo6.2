@@ -213,9 +213,10 @@ func afterGomosubMembershipsWrite(h *Engine, c *gin.Context, method string, resu
 		return
 	}
 	action := "joined"
-	if method == "DELETE" {
+	switch method {
+	case "DELETE":
 		action = "left"
-	} else if method == "PUT" {
+	case "PUT":
 		action = "roles_changed"
 	}
 	if err := h.hub.PublishGomoSubMemberChanged(boardID, uid, action); err != nil {
