@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.38.0](https://github.com/elcrazycol/gomo6.2/compare/v2.37.0...v2.38.0) (2026-10-31)
+
+
+### Features
+
+* **quests:** expanded catalog, recalc-safe rewards, ladder cards and ink fix ([#599](https://github.com/elcrazycol/gomo6.2/issues/599)) ([1c399a7](https://github.com/elcrazycol/gomo6.2/commit/1c399a75c77b6ac7eae7458b87b2d587097a71b4))
+
 ## [2.37.0](https://github.com/elcrazycol/gomo6.2/compare/v2.36.2...v2.37.0) (2026-10-30)
 
 
