@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -11,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/pquerna/otp/totp"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ─── SetupTOTP ───────────────────────────────────────────────────────────────
@@ -26,6 +25,11 @@ func TestSetupTOTP_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"password_hash", "totp_enabled"}).
 			AddRow(nil, false))
 
+	// ... and it holds no passkeys, so no reauth ceremony is required either.
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_webauthn_credentials WHERE user_id`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
 	mock.ExpectExec(`(?s).*UPDATE users SET totp_secret.*WHERE id.*`).
 		WithArgs(sqlmock.AnyArg(), "u1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -35,6 +39,28 @@ func TestSetupTOTP_Success(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSetupTOTP_PasskeyAccountRequiresReauth(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	// No password, but the account holds passkeys → the session alone is not
+	// enough; a fresh ceremony (reauth_token) is required.
+	mock.ExpectQuery(`(?s).*SELECT password_hash, totp_enabled FROM users WHERE id.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash", "totp_enabled"}).
+			AddRow(nil, false))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_webauthn_credentials WHERE user_id`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+
+	c, w := newPOSTContext("/auth/v1/setup-totp", nil, claims, nil)
+	h.SetupTOTP(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 without reauth_token, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -59,8 +85,10 @@ func TestDisableTOTP_Success(t *testing.T) {
 	// M1: disabling 2FA requires a current TOTP code or recovery code. Use a
 	// recovery code (>10 chars) to avoid TOTP time-window flakiness.
 	recoveryCode := "abcd-ef01-2345-test"
-	codeHashBytes := sha256.Sum256([]byte(recoveryCode))
-	codeHash := hex.EncodeToString(codeHashBytes[:])
+	bcryptHash, err := bcrypt.GenerateFromPassword([]byte(recoveryCode), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
 
 	secret := "JBSWY3DPEHPK3PXP"
 	mock.ExpectQuery(`(?s).*SELECT totp_secret, totp_enabled FROM users WHERE id.*`).
@@ -68,9 +96,13 @@ func TestDisableTOTP_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"totp_secret", "totp_enabled"}).
 			AddRow(secret, true))
 
-	// Recovery code found and marked used
+	// Recovery code found (bcrypt hash) and marked used
+	mock.ExpectQuery(`(?s).*SELECT.*FROM user_recovery_codes.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "code_hash"}).
+			AddRow("rc-1", string(bcryptHash)))
 	mock.ExpectQuery(`(?s).*UPDATE user_recovery_codes.*RETURNING id.*`).
-		WithArgs("u1", codeHash).
+		WithArgs("u1", "rc-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("rc-1"))
 
 	mock.ExpectExec(`(?s).*UPDATE users SET totp_secret.*WHERE id.*`).
@@ -225,8 +257,10 @@ func TestVerify2FA_WithRecoveryCode(t *testing.T) {
 	}
 
 	recoveryCode := "abcd-ef01-2345-test" // > 10 chars → recovery code path
-	codeHashBytes := sha256.Sum256([]byte(recoveryCode))
-	codeHash := hex.EncodeToString(codeHashBytes[:])
+	bcryptHash, err := bcrypt.GenerateFromPassword([]byte(recoveryCode), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
 
 	secret := "JBSWY3DPEHPK3PXP"
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE id.*`).
@@ -234,9 +268,13 @@ func TestVerify2FA_WithRecoveryCode(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"totp_secret", "totp_enabled"}).
 			AddRow(secret, true))
 
-	// Mock recovery code found
+	// Mock recovery code found (bcrypt hash, single-use claim)
+	mock.ExpectQuery(`(?s).*SELECT.*FROM user_recovery_codes.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "code_hash"}).
+			AddRow("rc-1", string(bcryptHash)))
 	mock.ExpectQuery(`(?s).*UPDATE user_recovery_codes.*RETURNING id.*`).
-		WithArgs("u1", codeHash).
+		WithArgs("u1", "rc-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("rc-1"))
 
 	c, w := newPOSTContext("/auth/v1/verify-2fa", map[string]string{
@@ -262,8 +300,10 @@ func TestVerify2FA_WithRecoveryCode(t *testing.T) {
 	if resp.Data.Token == "" {
 		t.Fatal("expected non-empty access token")
 	}
-	if resp.Data.RefreshToken == "" {
-		t.Fatal("expected non-empty refresh token")
+	// The refresh token travels in the HttpOnly cookie only — it must NOT
+	// appear in the JSON body by default (include_tokens opt-in).
+	if resp.Data.RefreshToken != "" {
+		t.Fatal("refresh token must not leak into the JSON body")
 	}
 	if resp.Data.ExpiresIn != 3600 {
 		t.Fatalf("expected expires_in=3600, got %d", resp.Data.ExpiresIn)

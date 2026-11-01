@@ -38,11 +38,15 @@ func (s *OAuthService) GenerateClientID() string {
 	return hex.EncodeToString(b)
 }
 
-// GenerateClientSecret generates a cryptographically random client secret
-func (s *OAuthService) GenerateClientSecret() string {
+// GenerateClientSecret generates a cryptographically random client secret.
+// Fail-closed: a predictable client secret compromises every token minted
+// for the application.
+func (s *OAuthService) GenerateClientSecret() (string, error) {
 	b := make([]byte, 40)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("crypto/rand unavailable: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // HashClientSecret hashes a client secret with SHA-256 first, then bcrypt
@@ -74,7 +78,10 @@ func (s *OAuthService) CreateApplication(ownerID, name, description string, redi
 	}
 
 	clientID := s.GenerateClientID()
-	clientSecret := s.GenerateClientSecret()
+	clientSecret, err := s.GenerateClientSecret()
+	if err != nil {
+		return nil, "", err
+	}
 
 	secretHash, err := s.HashClientSecret(clientSecret)
 	if err != nil {
@@ -356,7 +363,10 @@ func normalizeRedirectURIs(redirectURIs []string) ([]string, error) {
 
 // RegenerateClientSecret generates a new client secret for an app
 func (s *OAuthService) RegenerateClientSecret(appID, ownerID string) (string, error) {
-	newSecret := s.GenerateClientSecret()
+	newSecret, err := s.GenerateClientSecret()
+	if err != nil {
+		return "", err
+	}
 	hash, err := s.HashClientSecret(newSecret)
 	if err != nil {
 		return "", err

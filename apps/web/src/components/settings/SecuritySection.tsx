@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { Fingerprint } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { reauthWithPasskey } from "@/services/passkeys";
+import { apiClient } from "@/integrations/api/client";
 import { useNavigate } from "react-router-dom";
-import { Fingerprint, KeyRound, Loader2, MonitorSmartphone, Scale, ShieldCheck } from "lucide-react";
+import { KeyRound, Loader2, MonitorSmartphone, Scale, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
@@ -40,17 +43,35 @@ export const SecuritySection = ({ userId }: SecuritySectionProps) => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changing, setChanging] = useState(false);
+  // Fresh passkey ceremony as a substitute for the current password.
+  const [reauthToken, setReauthToken] = useState<string | null>(null);
 
   const closeDialog = () => {
     setPasswordOpen(false);
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
+    setReauthToken(null);
+  };
+
+  const handleReauthWithPasskey = async () => {
+    try {
+      const token = await reauthWithPasskey(
+        () => apiClient.beginPasskeyReauth(),
+        (cred) => apiClient.finishPasskeyReauth(cred),
+      );
+      setReauthToken(token);
+      toast.success(t("settings.reauthConfirmed"));
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg === "passkeysUnsupported") toast.error(t("settings.passkeysUnsupported"));
+      else if (msg && msg !== "passkeyReauthCancelled") toast.error(t("settings.passkeyReauthFailed"));
+    }
   };
 
   const handlePasswordChange = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!currentPassword || !newPassword || !confirmPassword) {
+    if ((!currentPassword && !reauthToken) || !newPassword || !confirmPassword) {
       toast.error(t("settings.passwordFieldsRequired"));
       return;
     }
@@ -65,7 +86,10 @@ export const SecuritySection = ({ userId }: SecuritySectionProps) => {
 
     setChanging(true);
     try {
-      const { error } = await api.auth.updateUser({ password: newPassword, current_password: currentPassword });
+      const { error } = await api.auth.updateUser({
+        password: newPassword,
+        ...(reauthToken ? { reauth_token: reauthToken } : { current_password: currentPassword }),
+      });
       if (error) throw error;
       toast.success(t("settings.passwordChanged"));
       closeDialog();
@@ -185,16 +209,34 @@ export const SecuritySection = ({ userId }: SecuritySectionProps) => {
             <DialogDescription>{t("settings.passwordDescription")}</DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handlePasswordChange}>
-            <div className="space-y-2">
-              <Label htmlFor="current-password">{t("auth.currentPassword")}</Label>
-              <Input
-                id="current-password"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-              />
-            </div>
+            {reauthToken ? (
+              <p className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                <Fingerprint className="h-4 w-4 text-primary" />
+                {t("settings.reauthConfirmed")}
+              </p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="current-password">{t("auth.currentPassword")}</Label>
+                  <Input
+                    id="current-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleReauthWithPasskey}
+                >
+                  <Fingerprint className="h-4 w-4" />
+                  {t("settings.usePasskeyInstead")}
+                </Button>
+              </>
+            )}
             <div className="space-y-2">
               <Label htmlFor="new-password">{t("auth.newPassword")}</Label>
               <Input

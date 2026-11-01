@@ -18,7 +18,6 @@ import (
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/sanctions"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
@@ -76,8 +75,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Hash password (cost=12, ~250ms on modern hardware)
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
+	// Hash password (SHA-256 pre-hash + bcrypt cost 12 — see hashPassword)
+	hashedPassword, err := hashPassword(req.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to hash password"))
 		return
@@ -139,17 +138,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
-	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
+	if err := middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to establish session"))
+		return
+	}
 
 	metrics.App.RegistrationCreated()
 	// Index the new profile (best-effort, off the request path).
 	h.searchIndexer.SyncUser(user.ID)
-	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
-		"user":          user,
-		"token":         tokenPair.AccessToken,
-		"refresh_token": tokenPair.RefreshToken,
-		"expires_in":    tokenPair.ExpiresIn,
-	}))
+	// The refresh token lives in the HttpOnly cookie only — see authTokensResponse.
+	c.JSON(http.StatusCreated, models.SuccessResponse(authTokensResponse(tokenPair, user, req.IncludeTokens)))
 }
 
 // Login checks password and returns either a full token (no 2FA) or
@@ -174,6 +172,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		DeviceToken    string `json:"device_token,omitempty"`
 		Website        string `json:"website,omitempty"`               // Honeypot field — must be empty
 		TurnstileToken string `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token
+		IncludeTokens  bool   `json:"include_tokens,omitempty"`        // Cookieless API clients: echo raw tokens in JSON
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -205,7 +204,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Get user from database
 	query := `
-		SELECT id, username, display_name, email, domain, password_hash, totp_enabled, totp_secret, trusted_devices, created_at
+		SELECT id, username, display_name, email, domain, password_hash, totp_enabled, totp_secret, trusted_devices, created_at,
+			COALESCE(is_service, false)
 		FROM users
 		WHERE username = $1 OR email = $1
 	`
@@ -215,16 +215,30 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	var totpEnabled bool
 	var totpSecret *string
 	var trustedDevicesJSON *string
+	var isService bool
 	err := h.db.QueryRow(query, loginIdentifier).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain, &passwordHash,
-		&totpEnabled, &totpSecret, &trustedDevicesJSON, &user.CreatedAt,
+		&totpEnabled, &totpSecret, &trustedDevicesJSON, &user.CreatedAt, &isService,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			// Timing-oracle defense: a real password check costs ~250ms of
+			// hash. Answering "no such user" instantly would let anyone
+			// enumerate registered usernames/emails by response time, so burn
+			// the same CPU before the generic 401.
+			dummyPasswordCompare(req.Password)
 			c.JSON(http.StatusUnauthorized, models.ErrorResponseWithCode(models.ErrInvalidCredentials, "Invalid credentials", nil))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
+		return
+	}
+
+	// The service account never logs in interactively — it operates through
+	// the admin panel only. Refusing here (rather than failing auth) keeps the
+	// reason explicit in logs without leaking it to the caller.
+	if isService {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Service account login is disabled"))
 		return
 	}
 
@@ -234,7 +248,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// non-existent one) and revealed which identifiers had been locked via the
 	// 429/401 difference — i.e. username enumeration.
 	if h.redis != nil {
-		lockKey := fmt.Sprintf("lockout:%s", loginIdentifier)
+		lockKey := normalizeLockoutKey(loginIdentifier)
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		attempts, err := h.redis.Get(ctx, lockKey).Int()
 		cancel()
@@ -244,21 +258,30 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		}
 	}
 
-	// Check password
-	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
+	// Check password (SHA-256 pre-hash scheme with transparent upgrade from
+	// legacy plain-bcrypt hashes — see verifyPassword).
+	err = verifyPassword(passwordHash, req.Password)
 	if err != nil {
 		// Record failed attempt
 		if h.redis != nil {
-			h.recordFailedAttempt(loginIdentifier)
+			h.recordFailedAttempt(normalizeLockoutKey(loginIdentifier))
 		}
 		c.JSON(http.StatusUnauthorized, models.ErrorResponseWithCode(models.ErrInvalidCredentials, "Invalid credentials", nil))
 		return
 	}
 
+	// Transparent upgrade: legacy plain-bcrypt rows are re-hashed to the
+	// pre-hash scheme on first successful login (best-effort, never fails auth).
+	if isLegacyPasswordHash(passwordHash, req.Password) {
+		if upgraded, err := hashPassword(req.Password); err == nil {
+			h.db.Exec(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, upgraded, user.ID)
+		}
+	}
+
 	// Reset lockout counter on successful password verification
 	if h.redis != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		h.redis.Del(ctx, fmt.Sprintf("lockout:%s", loginIdentifier))
+		h.redis.Del(ctx, normalizeLockoutKey(loginIdentifier))
 		cancel()
 	}
 
@@ -291,15 +314,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 							c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 							return
 						}
-						middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
+						if err := middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600); err != nil {
+							c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to establish session"))
+							return
+						}
 
-						c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-							"user":          user,
-							"token":         tokenPair.AccessToken,
-							"refresh_token": tokenPair.RefreshToken,
-							"expires_in":    tokenPair.ExpiresIn,
-							"needs_2fa":     false,
-						}))
+						resp := authTokensResponse(tokenPair, user, req.IncludeTokens)
+						resp["needs_2fa"] = false
+						c.JSON(http.StatusOK, models.SuccessResponse(resp))
 						return
 					}
 				}
@@ -327,13 +349,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
-	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
+	if err := middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to establish session"))
+		return
+	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"user":          user,
-		"token":         tokenPair.AccessToken,
-		"refresh_token": tokenPair.RefreshToken,
-		"expires_in":    tokenPair.ExpiresIn,
-		"needs_2fa":     false,
-	}))
+	resp := authTokensResponse(tokenPair, user, req.IncludeTokens)
+	resp["needs_2fa"] = false
+	c.JSON(http.StatusOK, models.SuccessResponse(resp))
 }

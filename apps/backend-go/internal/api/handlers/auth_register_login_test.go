@@ -207,8 +207,8 @@ func TestLogin_Success_No2FA(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("test@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
-			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", hashedPassword, false, nil, nil, time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at", "is_service"}).
+			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", hashedPassword, false, nil, nil, time.Now(), false))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "test@example.com",
@@ -233,7 +233,7 @@ func TestLogin_InvalidCredentials_NoUser(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("unknown@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at", "is_service"}))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "unknown@example.com",
@@ -286,8 +286,8 @@ func TestLogin_WrongPassword(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("test@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
-			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), false, nil, nil, time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at", "is_service"}).
+			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), false, nil, nil, time.Now(), false))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "test@example.com",
@@ -312,8 +312,8 @@ func TestLogin_With2FA_NoTrustedDevice(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("test@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
-			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, nil, time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at", "is_service"}).
+			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, nil, time.Now(), false))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "test@example.com",
@@ -365,8 +365,8 @@ func TestLogin_With2FA_TrustedDevice(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("test@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
-			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at", "is_service"}).
+			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now(), false))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":        "test@example.com",
@@ -414,8 +414,8 @@ func TestLogin_With2FA_ExpiredTrustedDevice(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("test@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
-			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at", "is_service"}).
+			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now(), false))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":        "test@example.com",

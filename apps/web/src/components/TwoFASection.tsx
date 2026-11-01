@@ -1,8 +1,11 @@
 import { useState, useEffect } from "react";
 import { api } from "@/integrations/api/compat";
+import { apiClient } from "@/integrations/api/client";
+import { reauthWithPasskey } from "@/services/passkeys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Fingerprint } from "lucide-react";
 import { toast } from "sonner";
 
 interface TwoFASectionProps {
@@ -43,6 +46,29 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
       console.error("Failed to load 2FA status:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSetupWithPasskey = async () => {
+    try {
+      const token = await reauthWithPasskey(
+        () => apiClient.beginPasskeyReauth(),
+        (cred) => apiClient.finishPasskeyReauth(cred),
+      );
+      const { data, error } = await api.auth.setupTOTP(undefined, token);
+      if (error) throw error;
+      if (data) {
+        setSetupUri(data.uri);
+        setSetupSecret(data.secret);
+        setHasPendingSecret(true);
+        setShowRecoveryCodes(false);
+        setSetupPassword("");
+        setShowSetupPassword(false);
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg === "passkeysUnsupported") toast.error("Ваш браузер не поддерживает Passkeys");
+      else if (msg && msg !== "passkeyReauthCancelled") toast.error("Ошибка настройки 2FA: " + msg);
     }
   };
 
@@ -293,7 +319,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
         </div>
       )}
 
-      {/* Confirm setup with the current password (M1) */}
+      {/* Confirm setup with the current password (M1) or a passkey ceremony */}
       {showSetupPassword && (
         <div className="bg-surface border border-border p-3 rounded space-y-2">
           <Label htmlFor="setup-password" className="text-xs">
@@ -314,6 +340,15 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
               Отмена
             </Button>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-2"
+            onClick={handleSetupWithPasskey}
+          >
+            <Fingerprint className="h-4 w-4" />
+            Использовать паскей вместо пароля
+          </Button>
         </div>
       )}
     </div>

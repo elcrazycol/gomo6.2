@@ -37,10 +37,11 @@ import (
 // @Router       /auth/verify-2fa [post]
 func (h *AuthHandler) Verify2FA(c *gin.Context) {
 	var req struct {
-		Token       string `json:"token"`
-		Code        string `json:"code"`
-		DeviceID    string `json:"device_id,omitempty"`
-		TrustDevice bool   `json:"trust_device,omitempty"`
+		Token         string `json:"token"`
+		Code          string `json:"code"`
+		DeviceID      string `json:"device_id,omitempty"`
+		TrustDevice   bool   `json:"trust_device,omitempty"`
+		IncludeTokens bool   `json:"include_tokens,omitempty"` // Cookieless API clients: echo raw tokens in JSON
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -78,9 +79,14 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("2FA is not enabled for this account"))
 		return
 	}
+	plainSecret, err := h.openTOTP(*totpSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("2FA is not available"))
+		return
+	}
 
 	// Validate TOTP code (also try recovery codes)
-	valid, err := h.validateTOTPWithRecovery(claims.UserID, *totpSecret, req.Code)
+	valid, err := h.validateTOTPWithRecovery(claims.UserID, plainSecret, req.Code)
 	if err != nil || !valid {
 		// M4: count this failed attempt against the partial token's lockout key.
 		if h.redis != nil && claims.ID != "" {
@@ -109,12 +115,17 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
-	middleware.SetAuthCookies(c, claims.UserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
+	if err := middleware.SetAuthCookies(c, claims.UserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to establish session"))
+		return
+	}
 
 	resp := gin.H{
-		"token":         tokenPair.AccessToken,
-		"refresh_token": tokenPair.RefreshToken,
-		"expires_in":    tokenPair.ExpiresIn,
+		"token":      tokenPair.AccessToken,
+		"expires_in": tokenPair.ExpiresIn,
+	}
+	if req.IncludeTokens {
+		resp["refresh_token"] = tokenPair.RefreshToken
 	}
 
 	// H2 (security audit): trusted devices are opaque tokens issued by the
@@ -154,10 +165,13 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 	// M1 (security audit): enrolling a new authenticator must prove knowledge of
 	// the current password when the account has one, and must not silently
 	// replace an already-enabled 2FA with an unverified secret.
+	// A fresh passkey ceremony (reauth_token) substitutes for the password.
 	var req struct {
-		Password string `json:"password"`
+		Password    string `json:"password"`
+		ReauthToken string `json:"reauth_token"`
 	}
 	_ = c.ShouldBindJSON(&req)
+	reauthOK := consumeReauthToken(h.authService, userClaims.UserID, req.ReauthToken)
 
 	var storedHash sql.NullString
 	var totpEnabled bool
@@ -174,16 +188,21 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 	if storedHash.Valid && storedHash.String != "" {
 		// M1 (security audit): the enrollment password check is a password
 		// oracle for a session holder — throttle per account like login.
-		if h.isAuthActionLocked(userClaims.UserID) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
-			return
+		if !reauthOK {
+			if h.isAuthActionLocked(userClaims.UserID) {
+				c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
+				return
+			}
+			if verifyPassword(storedHash.String, req.Password) != nil {
+				h.recordAuthActionFailure(userClaims.UserID)
+				c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
+				return
+			}
+			h.clearAuthActionLock(userClaims.UserID)
 		}
-		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(req.Password)) != nil {
-			h.recordAuthActionFailure(userClaims.UserID)
-			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
-			return
-		}
-		h.clearAuthActionLock(userClaims.UserID)
+	} else if userHasPasskeys(h.db, userClaims.UserID) && !reauthOK {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("reauth_token is required"))
+		return
 	}
 
 	// Generate a new TOTP key
@@ -196,10 +215,16 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 		return
 	}
 
-	// Store the secret temporarily (not enabled until verified)
+	// Store the secret sealed (AES-GCM at rest) temporarily — not enabled
+	// until verified. Fail closed: never persist a less-protected value.
+	sealed, err := h.sealTOTP(key.Secret())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to store TOTP secret"))
+		return
+	}
 	_, err = h.db.Exec(
 		`UPDATE users SET totp_secret = $1, totp_enabled = false WHERE id = $2`,
-		key.Secret(), userClaims.UserID,
+		sealed, userClaims.UserID,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to store TOTP secret"))
@@ -258,8 +283,13 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid code. Please try again.", nil))
 		return
 	}
+	plainSecret, err := h.openTOTP(*totpSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("2FA setup is not available"))
+		return
+	}
 	// Validate the TOTP code
-	valid, err := h.validateTOTP(*totpSecret, req.Code)
+	valid, err := h.validateTOTP(plainSecret, req.Code)
 	if err != nil || !valid {
 		h.recordAuthActionFailure(userClaims.UserID)
 		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid code. Please try again.", nil))
@@ -328,6 +358,11 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("2FA is not enabled for this account"))
 		return
 	}
+	plainSecret, err := h.openTOTP(*totpSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("2FA is not available"))
+		return
+	}
 	// M1 (security audit): same per-account throttle as the other sensitive
 	// auth actions — a stolen session must not be able to brute-force the TOTP
 	// or recovery code needed to strip 2FA.
@@ -335,7 +370,7 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrInvalid2FACode, "Invalid 2FA code", nil))
 		return
 	}
-	valid, err := h.validateTOTPWithRecovery(userClaims.UserID, *totpSecret, req.Code)
+	valid, err := h.validateTOTPWithRecovery(userClaims.UserID, plainSecret, req.Code)
 	if err != nil {
 		// A DB failure inside recovery-code lookup is not a wrong code — do not
 		// burn a lockout attempt on infrastructure errors.
@@ -408,9 +443,13 @@ func (h *AuthHandler) validateTOTP(secret, code string) (bool, error) {
 
 // validateTOTPWithRecovery verifies a TOTP code or a recovery code for the given user.
 func (h *AuthHandler) validateTOTPWithRecovery(userID, secret, code string) (bool, error) {
+	return validateTOTPWithRecoveryDB(h.db, userID, secret, code)
+}
+
+func validateTOTPWithRecoveryDB(db *sql.DB, userID, secret, code string) (bool, error) {
 	// Try recovery code first if it looks like one (longer format)
 	if len(code) > 10 {
-		valid, err := h.validateRecoveryCode(userID, code)
+		valid, err := validateRecoveryCodeDB(db, userID, code)
 		if err != nil {
 			return false, err
 		}
@@ -472,6 +511,10 @@ func (h *AuthHandler) trustDevice(userID string) (string, error) {
 	return token, nil
 }
 
+// recoveryCodeBcryptCost is deliberately lower than the password cost (12):
+// enabling 2FA hashes 8 codes at once, and 8×250ms would be a 2s stall.
+const recoveryCodeBcryptCost = 10
+
 // generateAndStoreRecoveryCodes creates 8 recovery codes, stores their hashes in the DB,
 // and returns the plaintext codes (only time they're shown).
 func (h *AuthHandler) generateAndStoreRecoveryCodes(userID string) []string {
@@ -480,33 +523,76 @@ func (h *AuthHandler) generateAndStoreRecoveryCodes(userID string) []string {
 		code := fmt.Sprintf("%s-%s-%s", randomHex(4), randomHex(4), randomHex(4))
 		codes[i] = code
 
-		// Hash and store
-		hash := sha256.Sum256([]byte(code))
-		codeHash := hex.EncodeToString(hash[:])
+		// Slow salted hash (bcrypt): a DB leak must not turn recovery codes
+		// into a fast offline dictionary — the old plain SHA-256 was.
+		hashed, err := bcrypt.GenerateFromPassword([]byte(code), recoveryCodeBcryptCost)
+		if err != nil {
+			continue
+		}
 		h.db.Exec(`
 			INSERT INTO user_recovery_codes (user_id, code_hash, used)
 			VALUES ($1, $2, FALSE)
-		`, userID, codeHash)
+		`, userID, string(hashed))
 	}
 	return codes
 }
 
-// validateRecoveryCode checks a recovery code against the database.
+// validateRecoveryCodeDB checks a recovery code against the database.
 // If valid, marks it as used so it cannot be reused.
-func (h *AuthHandler) validateRecoveryCode(userID, code string) (bool, error) {
-	hash := sha256.Sum256([]byte(code))
-	codeHash := hex.EncodeToString(hash[:])
-
-	var id string
-	err := h.db.QueryRow(`
-		UPDATE user_recovery_codes
-		SET used = TRUE
-		WHERE user_id = $1 AND code_hash = $2 AND used = FALSE
-		RETURNING id
-	`, userID, codeHash).Scan(&id)
-
-	if err == sql.ErrNoRows {
-		return false, nil
+func validateRecoveryCodeDB(db *sql.DB, userID, code string) (bool, error) {
+	// Bcrypt hashes are salted, so matching cannot happen in SQL: load the
+	// handful of unused codes (capped at generation time) and compare.
+	rows, err := db.Query(`
+		SELECT id, code_hash FROM user_recovery_codes
+		WHERE user_id = $1 AND used = FALSE
+	`, userID)
+	if err != nil {
+		return false, err
 	}
-	return err == nil, err
+	defer rows.Close()
+
+	type candidate struct {
+		id   string
+		hash string
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var cnd candidate
+		if err := rows.Scan(&cnd.id, &cnd.hash); err != nil {
+			continue
+		}
+		candidates = append(candidates, cnd)
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	for _, cnd := range candidates {
+		matched := bcrypt.CompareHashAndPassword([]byte(cnd.hash), []byte(code)) == nil
+		if !matched && strings.HasPrefix(cnd.hash, "$2") {
+			continue
+		}
+		if !matched {
+			// Legacy pre-bcrypt rows (plain SHA-256 hex): accept once, then
+			// consume. The presented code is single-use either way.
+			sum := sha256.Sum256([]byte(code))
+			if hex.EncodeToString(sum[:]) != cnd.hash {
+				continue
+			}
+		}
+		// Atomically claim the code — concurrent uses race on used=FALSE and
+		// exactly one wins.
+		var claimed string
+		err := db.QueryRow(`
+			UPDATE user_recovery_codes
+			SET used = TRUE
+			WHERE user_id = $1 AND id = $2 AND used = FALSE
+			RETURNING id
+		`, userID, cnd.id).Scan(&claimed)
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return err == nil, err
+	}
+	return false, nil
 }

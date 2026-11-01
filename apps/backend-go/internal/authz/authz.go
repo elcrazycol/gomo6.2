@@ -64,6 +64,21 @@ func IsAdmin(ctx context.Context, db *sql.DB, userID string) (bool, error) {
 	return hasRole(ctx, db, userID, isAdminQuery)
 }
 
+// IsServiceAccount reports whether userID is the official notification
+// account. Its messenger is cut off entirely and interactive login is refused;
+// it operates only through the admin panel and server-side notifications.
+func IsServiceAccount(ctx context.Context, db *sql.DB, userID string) (bool, error) {
+	if db == nil || userID == "" {
+		return false, nil
+	}
+	var ok bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(is_service, false) FROM users WHERE id = $1`, userID).Scan(&ok); err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
 // IsAwardManager reports whether userID may manage awards (curator or admin).
 func IsAwardManager(ctx context.Context, db *sql.DB, userID string) (bool, error) {
 	return hasRole(ctx, db, userID, isAwardManagerQuery)

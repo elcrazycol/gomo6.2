@@ -16,9 +16,12 @@ import (
 
 // GenerateAuthorizationCode creates a short-lived authorization code
 func (s *OAuthService) GenerateAuthorizationCode(clientID, userID, redirectURI, codeChallenge, codeChallengeMethod, scopes, nonce string) (string, error) {
-	// Generate random code
+	// Generate random code — fail closed: a predictable code is an account
+	// takeover via the OAuth flow, so CSPRNG failure aborts the authorize call.
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("crypto/rand unavailable: %w", err)
+	}
 	code := base64.RawURLEncoding.EncodeToString(b)
 
 	var scopesArray string
@@ -40,19 +43,26 @@ func (s *OAuthService) GenerateAuthorizationCode(clientID, userID, redirectURI, 
 	return code, nil
 }
 
-// ValidateAuthorizationCode validates and consumes an authorization code
+// ValidateAuthorizationCode validates and consumes an authorization code.
+//
+// The consume is ATOMIC (single UPDATE ... WHERE used=false RETURNING): the
+// old SELECT-then-UPDATE allowed two concurrent /token calls with the same
+// code to both pass validation before either marked it used — a classic
+// double-redeem. Now exactly one UPDATE wins a row; the loser gets "invalid
+// code". Consumed-but-rejected codes (expired/PKCE mismatch) stay burned:
+// retrying verification guesses is not allowed.
 func (s *OAuthService) ValidateAuthorizationCode(code, clientID, redirectURI, codeVerifier string) (userID string, scopes []string, nonce string, err error) {
 	var authCode AuthorizationCode
 	var scopesStr string
 
 	err = s.db.QueryRow(`
-		SELECT id, code, client_id, user_id, redirect_uri, code_challenge, code_challenge_method, scopes, nonce, expires_at, used
-		FROM oauth_authorization_codes
+		UPDATE oauth_authorization_codes SET used = true
 		WHERE code = $1 AND client_id = $2 AND used = false
+		RETURNING id, code, client_id, user_id, redirect_uri, code_challenge, code_challenge_method, scopes, nonce, expires_at
 	`, code, clientID).Scan(
 		&authCode.ID, &authCode.Code, &authCode.ClientID, &authCode.UserID,
 		&authCode.RedirectURI, &authCode.CodeChallenge, &authCode.CodeChallengeMethod,
-		&scopesStr, &authCode.Nonce, &authCode.ExpiresAt, &authCode.Used,
+		&scopesStr, &authCode.Nonce, &authCode.ExpiresAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -83,12 +93,6 @@ func (s *OAuthService) ValidateAuthorizationCode(code, clientID, redirectURI, co
 	}
 	if err := verifyPKCE(authCode.CodeChallenge, authCode.CodeChallengeMethod, codeVerifier); err != nil {
 		return "", nil, "", err
-	}
-
-	// Mark code as used
-	_, err = s.db.Exec(`UPDATE oauth_authorization_codes SET used = true WHERE id = $1`, authCode.ID)
-	if err != nil {
-		return "", nil, "", fmt.Errorf("failed to consume authorization code")
 	}
 
 	// Parse scopes
@@ -243,9 +247,11 @@ func (s *OAuthService) ValidateAccessToken(tokenString string) (*OAuthClaims, er
 
 // GenerateRefreshToken creates a refresh token and stores its hash
 func (s *OAuthService) GenerateRefreshToken(accessTokenID, clientID, userID string, scopes []string) (string, error) {
-	// Generate opaque refresh token
+	// Generate opaque refresh token — fail closed (see above).
 	b := make([]byte, 40)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("crypto/rand unavailable: %w", err)
+	}
 	refreshToken := base64.RawURLEncoding.EncodeToString(b)
 
 	// Hash the refresh token for storage

@@ -7,6 +7,7 @@ import DeveloperApps from "./pages/Apps";
 import CreateApp from "./pages/CreateApp";
 import AppDetail from "./pages/AppDetail";
 import GiftAdmin from "./pages/Gifts";
+import Service from "./pages/Service";
 import Awards from "./pages/Awards";
 import Chests from "./pages/Chests";
 import Login from "./pages/Login";
@@ -179,6 +180,16 @@ const App = () => {
                 <AuthGuard>
                   <AppLayout>
                     <GiftAdmin />
+                  </AppLayout>
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/service"
+              element={
+                <AuthGuard>
+                  <AppLayout>
+                    <Service />
                   </AppLayout>
                 </AuthGuard>
               }

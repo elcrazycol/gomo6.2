@@ -16,6 +16,7 @@ import {
   Bot,
   Package,
   Trophy,
+  Megaphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logout } from "@/lib/oauth";
@@ -25,6 +26,7 @@ const navItems = [
   { label: "OAuth приложения", path: "/apps", icon: Shield },
   { label: "Боты", path: "/bots", icon: Bot },
   { label: "Подарки", path: "/gifts", icon: Gift },
+  { label: "Официалка", path: "/service", icon: Megaphone },
   { label: "Сундуки", path: "/chests", icon: Package },
   { label: "Награды", path: "/awards", icon: Trophy },
 ];

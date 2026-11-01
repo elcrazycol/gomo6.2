@@ -4,17 +4,22 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/search"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
@@ -22,6 +27,15 @@ type AuthHandler struct {
 	authService   *auth.AuthService
 	redis         *redis.Client // optional — enables lockout and token blacklist
 	searchIndexer *search.Indexer
+	// serviceNotifier delivers login alerts through the @gomo6 thread.
+	// Best-effort: failures are swallowed by the notifier itself.
+	serviceNotifier func(userID, text string)
+}
+
+// SetServiceNotifier injects the login-alert sender (see messenger
+// SendServiceNotification). Nil disables the alerts.
+func (h *AuthHandler) SetServiceNotifier(fn func(userID, text string)) {
+	h.serviceNotifier = fn
 }
 
 func NewAuthHandler(db *sql.DB) *AuthHandler {
@@ -42,17 +56,115 @@ func (h *AuthHandler) SetSearchIndexer(idx *search.Indexer) { h.searchIndexer = 
 
 // ─── Internal helpers shared across auth modules ─────────────────────────────
 
-// recordFailedAttempt increments the failed login counter in Redis.
-func (h *AuthHandler) recordFailedAttempt(email string) {
+// recordFailedAttempt increments the failed login counter in Redis. The key
+// must be built with normalizeLockoutKey (it already carries the "lockout:"
+// prefix).
+func (h *AuthHandler) recordFailedAttempt(lockKey string) {
 	if h.redis == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	lockKey := fmt.Sprintf("lockout:%s", email)
 	h.redis.Incr(ctx, lockKey)
 	h.redis.Expire(ctx, lockKey, 15*time.Minute)
+}
+
+// normalizeLockoutKey maps a login identifier to its brute-force counter key.
+// Usernames are case-sensitive in the DB, but lockout is a DoS-adjacent
+// defense: normalizing case/whitespace keeps "Alice", "alice " and " ALICE"
+// on one budget instead of three independent ones.
+func normalizeLockoutKey(identifier string) string {
+	return "lockout:" + strings.ToLower(strings.TrimSpace(identifier))
+}
+
+// dummyPasswordHash is a valid bcrypt hash of an unguessable value, used only
+// to equalize Login timing for nonexistent identifiers (see Login). It is
+// generated once per process — the ~250ms cost is paid on the first
+// nonexistent-user login only, not on startup.
+var (
+	dummyHashOnce sync.Once
+	dummyHash     []byte
+)
+
+func dummyPasswordHash() []byte {
+	dummyHashOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword(
+			[]byte("gomo6-dummy-timing-mitigation-c6f9a1e4b2d8"), bcrypt.DefaultCost)
+		if err == nil {
+			dummyHash = h
+		}
+	})
+	return dummyHash
+}
+
+// dummyPasswordCompare burns ~the same CPU as a real password check so the
+// nonexistent-user path (instant 401) is indistinguishable in timing from the
+// wrong-password path (bcrypt ~250ms). Without it, response time alone
+// enumerates registered usernames/emails.
+func dummyPasswordCompare(password string) {
+	if h := dummyPasswordHash(); h != nil {
+		_ = bcrypt.CompareHashAndPassword(h, []byte(password))
+	}
+}
+
+// ─── Password hashing ────────────────────────────────────────────────────────
+// bcrypt truncates inputs at 72 bytes, so a naive bcrypt(password) silently
+// equates all long passwords sharing a 72-byte prefix. Every password is
+// SHA-256 pre-hashed (hex) before bcrypt — the same scheme as OAuth client
+// secrets (oauth.HashClientSecret) — so passphrases of any length keep their
+// full entropy. Cost 12 (~250ms) matches the existing login budget.
+func hashPassword(password string) (string, error) {
+	sum := sha256.Sum256([]byte(password))
+	prehashed := hex.EncodeToString(sum[:])
+	h, err := bcrypt.GenerateFromPassword([]byte(prehashed), 12)
+	if err != nil {
+		return "", err
+	}
+	return string(h), nil
+}
+
+// verifyPassword checks a password against a stored hash. New hashes use the
+// SHA-256 pre-hash scheme; legacy rows (plain bcrypt, created before the
+// migration) are still accepted so existing users keep logging in — Login
+// transparently re-hashes them to the new scheme on success.
+func verifyPassword(storedHash, password string) error {
+	sum := sha256.Sum256([]byte(password))
+	prehashed := hex.EncodeToString(sum[:])
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(prehashed)); err == nil {
+		return nil
+	}
+	// Legacy fallback: plain bcrypt(password). Only reached for old rows.
+	return bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password))
+}
+
+// isLegacyPasswordHash reports whether the stored hash verifies ONLY via the
+// legacy plain-bcrypt scheme (i.e. the row still needs a transparent upgrade).
+func isLegacyPasswordHash(storedHash, password string) bool {
+	sum := sha256.Sum256([]byte(password))
+	prehashed := hex.EncodeToString(sum[:])
+	if bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(prehashed)) == nil {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)) == nil
+}
+
+// authTokensResponse builds the login/register JSON payload. The access token
+// is returned for the in-memory Bearer compatibility path; the refresh token
+// is returned ONLY for cookieless API clients that explicitly opt in via
+// include_tokens. Browser flows keep it false, so page JS (and any XSS) can
+// never harvest the long-lived session from a response body — it travels in
+// the HttpOnly cookie set by SetAuthCookies.
+func authTokensResponse(pair *auth.TokenPair, user models.User, includeTokens bool) gin.H {
+	resp := gin.H{
+		"user":       user,
+		"token":      pair.AccessToken,
+		"expires_in": pair.ExpiresIn,
+	}
+	if includeTokens {
+		resp["refresh_token"] = pair.RefreshToken
+	}
+	return resp
 }
 
 // maxAuthActionAttempts bounds wrong-password/wrong-code guesses on sensitive
@@ -65,35 +177,17 @@ const maxAuthActionAttempts = 5
 // isAuthActionLocked reports whether the per-account throttle for sensitive
 // auth actions has been exhausted.
 func (h *AuthHandler) isAuthActionLocked(userID string) bool {
-	if h.redis == nil {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	n, err := h.redis.Get(ctx, fmt.Sprintf("auth_action_lock:%s", userID)).Int()
-	return err == nil && n >= maxAuthActionAttempts
+	return isAuthActionLockedRDB(h.redis, userID)
 }
 
 // recordAuthActionFailure increments the per-account counter.
 func (h *AuthHandler) recordAuthActionFailure(userID string) {
-	if h.redis == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	key := fmt.Sprintf("auth_action_lock:%s", userID)
-	h.redis.Incr(ctx, key)
-	h.redis.Expire(ctx, key, 15*time.Minute)
+	recordAuthActionFailureRDB(h.redis, userID)
 }
 
 // clearAuthActionLock resets the counter after a successful verification.
 func (h *AuthHandler) clearAuthActionLock(userID string) {
-	if h.redis == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	h.redis.Del(ctx, fmt.Sprintf("auth_action_lock:%s", userID))
+	clearAuthActionLockRDB(h.redis, userID)
 }
 
 // randRead is the crypto/rand seam. Tests replace it to exercise the failure

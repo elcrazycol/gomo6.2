@@ -18,6 +18,7 @@ import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "
 import { apiErrorMessage } from "@/utils/apiErrors";
 import { Eye, EyeOff, Loader2, Shield } from "lucide-react";
 import TurnstileWidget, { isTurnstileEnabled, type TurnstileWidgetHandle } from "@/components/TurnstileWidget";
+import { isSafeRedirect } from "@/utils/safeRedirect";
 
 /** Shared standalone shell: full-height gradient backdrop + brand mark + a
  *  single centred card, matching the other layout-less pages (e.g. OAuthConsent). */
@@ -61,10 +62,12 @@ const Auth = () => {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
 
-  // Get redirect URL from query params (set by AuthGuard or auth:expired handler)
-  // Only allow same-origin paths to prevent open redirect attacks
+  // Get redirect URL from query params (set by AuthGuard or auth:expired handler).
+  // Only allow same-origin absolute paths. A naive startsWith("/") check lets
+  // "//evil.com" (protocol-relative → external) and backslash variants through,
+  // which turns every login link into a phishing primitive.
   const rawRedirect = searchParams.get("redirect") || "/";
-  const redirectTo = rawRedirect.startsWith("/") ? rawRedirect : "/";
+  const redirectTo = isSafeRedirect(rawRedirect) ? rawRedirect : "/";
 
   // 2FA state
   const [needs2FA, setNeeds2FA] = useState(false);

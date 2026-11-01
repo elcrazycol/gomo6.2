@@ -128,7 +128,25 @@ function escapeHtml(text: string) {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Emoji image URLs come from the DB (admin/upload controlled). Only same-origin
+// or https: URLs may become <img src>: a `"` or `javascript:` payload must
+// degrade to literal text instead of breaking out of the attribute (XSS in the
+// author's own editor session).
+function sanitizeEmojiUrl(url: string): string | null {
+  const trimmed = (url || "").trim();
+  if (trimmed.startsWith("/")) return trimmed.includes('"') || trimmed.includes("'") ? null : trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    if ((parsed.protocol === "https:" || parsed.protocol === "http:") && !/["'<>]/.test(trimmed)) return trimmed;
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
@@ -187,9 +205,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     return withBreaks.replace(/:([^:\s]+):/g, (m, code) => {
       const url = emojiIndexRef.current[code];
       if (!url) return m;
+      const safeUrl = sanitizeEmojiUrl(url);
+      // Untrusted URL: render the literal code so nothing executable is emitted.
+      if (!safeUrl) return m;
       const original = `:${code}:`;
+      // Attribute values below are escaped (escapeHtml covers quotes) and the
+      // URL passed sanitizeEmojiUrl, so interpolation cannot break out.
       // Add a zero-width-space after the non-editable span so caret & arrow keys work reliably.
-      return `<span class="gomo-emoji" data-emoji-original="${original}" contenteditable="false"><img src="${url}" alt="${original}" title="${original}" /></span><span data-zws="1">${ZWS}</span>`;
+      return `<span class="gomo-emoji" data-emoji-original="${original}" contenteditable="false"><img src="${safeUrl}" alt="${original}" title="${original}" /></span><span data-zws="1">${ZWS}</span>`;
     });
   }, []);
 

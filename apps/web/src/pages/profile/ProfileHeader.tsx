@@ -257,6 +257,14 @@ export function ProfileHeader({
                   </span>
                 )}
                 <AdminBadge userId={profile.id} />
+                {profile.is_service && (
+                  <span
+                    className="px-2 py-1 rounded text-xs font-medium ml-2 bg-primary/10 text-primary"
+                    title={t("profile.serviceNoMessages")}
+                  >
+                    {t("profile.serviceBadge")}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -309,7 +317,7 @@ export function ProfileHeader({
 
       {/* Message + subscribe + actions (other profiles). In forum mode the whole
           cluster moves to the side panel. */}
-      {!isOwnProfile && currentUser && !forumMode && (
+      {!isOwnProfile && currentUser && !forumMode && !profile.is_service && (
         <motion.div
           variants={item}
           transition={itemTransition}

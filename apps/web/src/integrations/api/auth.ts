@@ -108,9 +108,9 @@ export const apiAuth = {
       return { data: null, error: toAuthError(error) };
     }
   },
-  setupTOTP: async (password: string) => {
+  setupTOTP: async (password?: string, reauthToken?: string) => {
     try {
-      const result = await apiClient.setupTOTP(password);
+      const result = await apiClient.setupTOTP(password, reauthToken);
       return { data: result, error: null };
     } catch (error) {
       return { data: null, error: toAuthError(error) };
@@ -140,10 +140,10 @@ export const apiAuth = {
       return { data: null, error: toAuthError(error) };
     }
   },
-  updateUser: async (attrs: { password?: string; current_password?: string }) => {
+  updateUser: async (attrs: { password?: string; current_password?: string; reauth_token?: string }) => {
     try {
       if (attrs?.password) {
-        await apiClient.updatePassword(attrs.password, attrs.current_password);
+        await apiClient.updatePassword(attrs.password, attrs.current_password, attrs.reauth_token);
         const user = await apiClient.getCurrentUser();
         return { data: { user }, error: null };
       }

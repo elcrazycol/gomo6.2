@@ -12,7 +12,6 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // UpdatePassword sets a new password for the authenticated user (auth.updateUser compatibility).
@@ -40,17 +39,22 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	var body struct {
 		Password        string `json:"password"`
 		CurrentPassword string `json:"current_password"`
+		// Fresh passkey ceremony ("use passkey instead of password"): a
+		// single-use reauth token from /webauthn/reauth/finish.
+		ReauthToken string `json:"reauth_token"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
-	// Changing a password without proving knowledge of the current one would
-	// let a stolen session permanently lock the owner out. Require the current
-	// password whenever the account already has one.
-	if body.CurrentPassword == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("current_password is required"))
+	reauthOK := consumeReauthToken(h.authService, userClaims.UserID, body.ReauthToken)
+
+	// Changing a password without fresh proof would let a stolen session
+	// permanently lock the owner out. Require the current password (or a
+	// reauth token) whenever the account already has one.
+	if body.CurrentPassword == "" && !reauthOK {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("current_password or reauth_token is required"))
 		return
 	}
 
@@ -68,8 +72,14 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	}
 
 	// Accounts without a password (OAuth / passkey-only) may set a first
-	// password; accounts with one must prove knowledge of it first.
-	if storedHash.Valid && storedHash.String != "" {
+	// password — but if the account holds passkeys, the session alone is not
+	// enough: require the fresh ceremony then as well.
+	if !storedHash.Valid || storedHash.String == "" {
+		if userHasPasskeys(h.db, userClaims.UserID) && !reauthOK {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("reauth_token is required"))
+			return
+		}
+	} else if !reauthOK {
 		// M1 (security audit): this endpoint is a password oracle for a session
 		// holder — bound the guesses per account like the login path so a stolen
 		// session cannot brute-force the current password.
@@ -77,7 +87,7 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
 			return
 		}
-		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(body.CurrentPassword)) != nil {
+		if verifyPassword(storedHash.String, body.CurrentPassword) != nil {
 			h.recordAuthActionFailure(userClaims.UserID)
 			c.JSON(http.StatusBadRequest, models.ErrorResponseWithCode(models.ErrWrongPassword, "Current password is incorrect", nil))
 			return
@@ -85,7 +95,7 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 		h.clearAuthActionLock(userClaims.UserID)
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.Password), 12)
+	hashedPassword, err := hashPassword(body.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to hash password"))
 		return
@@ -137,6 +147,11 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 func validatePassword(password string) error {
 	if len(password) < 8 {
 		return fmt.Errorf("password must be at least 8 characters")
+	}
+	// 128 chars is generous for a passphrase; beyond that the request is
+	// either a mistake or a CPU-amplification attempt (HIBP + bcrypt).
+	if len(password) > 128 {
+		return fmt.Errorf("password must be at most 128 characters")
 	}
 
 	hasLetter := false

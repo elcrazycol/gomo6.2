@@ -362,7 +362,7 @@ func TestLogout_WithoutSessionIdentity_RevokesEverything(t *testing.T) {
 	}
 }
 
-// ─── Refresh (stable session, no token rotation) ─────────────────────────────
+// ─── Refresh (stable session, refresh token rotation) ───────────────────────
 
 func TestRefresh_KeepsSessionAndRefreshToken(t *testing.T) {
 	h, mock, mr := setupAuthHandlerWithRedis(t)
@@ -425,31 +425,46 @@ func TestRefresh_KeepsSessionAndRefreshToken(t *testing.T) {
 		t.Fatalf("refresh must preserve the session id, got %q", newClaims.SessionID)
 	}
 
-	// No rotation: the SAME refresh token stays valid for its full 3-day
-	// lifetime, so parallel refreshes (multiple tabs/components on reload) all
-	// succeed instead of racing each other into a 401. It dies only on logout
-	// or session revocation.
+	// ROTATION: the presented refresh token dies on use — a stolen token is
+	// usable at most until the victim's next refresh. The replacement lives in
+	// the HttpOnly cookie, never in the JSON body.
 	oldKey := "refresh:u1:" + oldHash
-	if !mr.Exists(oldKey) {
-		t.Error("refresh token must stay valid after refresh (no rotation)")
+	if mr.Exists(oldKey) {
+		t.Error("presented refresh token must be consumed by rotation")
+	}
+	var liveKeys []string
+	for _, key := range mr.Keys() {
+		if strings.HasPrefix(key, "refresh:u1:") {
+			liveKeys = append(liveKeys, key)
+		}
+	}
+	if len(liveKeys) != 1 {
+		t.Fatalf("exactly one live refresh token must remain, got %v", liveKeys)
 	}
 	// The access token presented with THIS request (claims.ID) is superseded
 	// and blacklisted so a session can never hold two live access tokens once.
 	if !mr.Exists("blacklist:" + pair1.AccessJTI) {
 		t.Error("presented (superseded) access token must be blacklisted on refresh")
 	}
+	// The response body must not carry the refresh token (HttpOnly cookie only).
+	var rawResp struct {
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &rawResp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if _, ok := rawResp.Data["refresh_token"]; ok {
+		t.Error("refresh token must not leak into the JSON body")
+	}
 }
 
 func TestRefresh_BrowserCookieFlow_DoesNotBlacklistConcurrentTabToken(t *testing.T) {
-	// Regression for the production logout loop: the client logged users out at
-	// random moments even though every /auth/refresh returned 200. Two tabs
-	// share the same cookie session (same refresh token, same session row).
-	// When both refresh at token expiry:
-	//   tab A refresh -> issues JTI_A, writes access_jti=JTI_A to the row
-	//   tab B refresh -> reads the row (now JTI_A!) and blacklisted it
-	//   tab A retries with its fresh JTI_A -> 401 -> client force-logs out
-	// Browser cookie refreshes present no access token (claims.ID == ""), so the
-	// handler must NOT blacklist whatever JTI sits in the shared session row.
+	// Rotation-era version of the production logout-loop regression: two tabs
+	// share one cookie session (same refresh token). Tab A wins the race and
+	// rotates (row hash R1→R2, access J0→JA). Tab B presents the same stale R1
+	// a millisecond later: the grace window converges it onto R2/JB instead of
+	// forking the session — and crucially JA (the other tab's fresh access
+	// token) must NOT be blacklisted.
 	h, mock, mr := setupAuthHandlerWithRedis(t)
 
 	pair1, err := h.authService.GenerateTokenPair("u1", "testuser", "localhost:8080", "sess-1")
@@ -462,12 +477,11 @@ func TestRefresh_BrowserCookieFlow_DoesNotBlacklistConcurrentTabToken(t *testing
 	// NO access-token JTI.
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
-	// The shared session row already holds the JTI issued by ANOTHER tab's
-	// concurrent refresh (JTI-A). This refresh must not touch it.
+	// Tab A (winner): row still holds the presented token.
 	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
 		WithArgs("u1", oldHash).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
-			AddRow("sess-1", oldHash, "JTI-from-other-tab"))
+			AddRow("sess-1", oldHash, pair1.AccessJTI))
 	mock.ExpectExec(`UPDATE user_sessions`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "sess-1", "u1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -476,17 +490,70 @@ func TestRefresh_BrowserCookieFlow_DoesNotBlacklistConcurrentTabToken(t *testing
 		"refresh_token": pair1.RefreshToken,
 	}, claims, nil)
 	h.Refresh(c)
-
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("tab A: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	var first struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &first); err != nil {
+		t.Fatalf("tab A: failed to parse response: %v", err)
+	}
+	tabAClaims, err := h.authService.ValidateToken(first.Data.Token)
+	if err != nil {
+		t.Fatalf("tab A token invalid: %v", err)
+	}
+
+	// Tab B (loser): same stale token. Row lookup by the rotated-out hash
+	// misses; the grace window resolves the session by the replacement.
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+		WithArgs("u1", oldHash).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}))
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+		WithArgs("u1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
+			AddRow("sess-1", "rotated-hash", tabAClaims.ID))
+	mock.ExpectExec(`UPDATE user_sessions`).
+		WithArgs(sqlmock.AnyArg(), "sess-1", "u1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	c2, w2 := newPOSTContext("/auth/v1/refresh", map[string]string{
+		"refresh_token": pair1.RefreshToken,
+	}, claims, nil)
+	h.Refresh(c2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("tab B: expected 200 via grace window, got %d: %s", w2.Code, w2.Body.String())
+	}
+
 	// The other tab's fresh access token must survive this refresh untouched.
-	if mr.Exists("blacklist:JTI-from-other-tab") {
+	if mr.Exists("blacklist:" + tabAClaims.ID) {
 		t.Error("cookie refresh must NOT blacklist a concurrent tab's fresh access token")
+	}
+	// Both tabs end up in the same session.
+	var second struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w2.Body.Bytes(), &second); err != nil {
+		t.Fatalf("tab B: failed to parse response: %v", err)
+	}
+	tabBClaims, err := h.authService.ValidateToken(second.Data.Token)
+	if err != nil {
+		t.Fatalf("tab B token invalid: %v", err)
+	}
+	if tabBClaims.SessionID != "sess-1" {
+		t.Fatalf("grace refresh must preserve the session id, got %q", tabBClaims.SessionID)
 	}
 }
 
 func TestRefresh_TwoSequentialRefreshes_BothSucceed(t *testing.T) {
+	// The exact sequence that raced on page load (getSession + multiple 401
+	// fallbacks): two refreshes presenting the SAME cookie value. The first
+	// rotates, the second converges via the grace window. Both must succeed
+	// and the session must never fork.
 	h, mock, mr := setupAuthHandlerWithRedis(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
@@ -496,32 +563,46 @@ func TestRefresh_TwoSequentialRefreshes_BothSucceed(t *testing.T) {
 	}
 	oldHash := sha256hex(pair1.RefreshToken)
 
-	// Two refreshes with the SAME refresh token — the exact sequence that raced
-	// on page load (getSession + multiple 401 fallbacks) and logged users out
-	// while refresh tokens were rotated. Both must succeed and the shared token
-	// must stay alive for the whole exchange.
-	for i := 0; i < 2; i++ {
-		mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
-			WithArgs("u1", oldHash).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
-				AddRow("sess-1", oldHash, pair1.AccessJTI))
-		mock.ExpectExec(`UPDATE user_sessions`).
-			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "sess-1", "u1").
-			WillReturnResult(sqlmock.NewResult(1, 1))
+	// Refresh #1 (winner): row still holds the presented token.
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+		WithArgs("u1", oldHash).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
+			AddRow("sess-1", oldHash, pair1.AccessJTI))
+	mock.ExpectExec(`UPDATE user_sessions`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "sess-1", "u1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
-		c, w := newPOSTContext("/auth/v1/refresh", map[string]string{
-			"refresh_token": pair1.RefreshToken,
-		}, claims, nil)
-		h.Refresh(c)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("refresh #%d: expected 200, got %d: %s", i+1, w.Code, w.Body.String())
-		}
+	c, w := newPOSTContext("/auth/v1/refresh", map[string]string{
+		"refresh_token": pair1.RefreshToken,
+	}, claims, nil)
+	h.Refresh(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("refresh #1: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// The shared refresh token must still be alive in Redis after both refreshes.
-	if !mr.Exists("refresh:u1:" + oldHash) {
-		t.Error("refresh token must survive multiple sequential refreshes")
+	// Refresh #2 (same stale token → grace window, NOT a fork).
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+		WithArgs("u1", oldHash).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}))
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+		WithArgs("u1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
+			AddRow("sess-1", "rotated-hash", "jti-after-first-refresh"))
+	mock.ExpectExec(`UPDATE user_sessions`).
+		WithArgs(sqlmock.AnyArg(), "sess-1", "u1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	c2, w2 := newPOSTContext("/auth/v1/refresh", map[string]string{
+		"refresh_token": pair1.RefreshToken,
+	}, claims, nil)
+	h.Refresh(c2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("refresh #2: expected 200 via grace window, got %d: %s", w2.Code, w2.Body.String())
+	}
+
+	// The rotated-out token is dead in Redis (only grace + tombstone remain).
+	if mr.Exists("refresh:u1:" + oldHash) {
+		t.Error("presented refresh token must be consumed by rotation")
 	}
 }
 

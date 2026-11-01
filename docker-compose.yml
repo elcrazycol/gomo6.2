@@ -230,6 +230,9 @@ services:
       # WebAuthn / Passkeys
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-${DOMAIN:-localhost}}
       WEBAUTHN_RP_ORIGIN: ${WEBAUTHN_RP_ORIGIN:-https://${DOMAIN:-localhost}}
+      # All origins allowed to run ceremonies (main app + dev-dashboard, where
+      # admin passkey re-auth for official posts happens). Comma-separated.
+      WEBAUTHN_RP_ORIGINS: ${WEBAUTHN_RP_ORIGINS:-https://${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-gomo6}
       ISSUER_URL: https://${DOMAIN:-localhost}
       FRONTEND_URL: https://${DOMAIN:-localhost}

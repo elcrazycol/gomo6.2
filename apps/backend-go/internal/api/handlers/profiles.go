@@ -155,7 +155,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
 		SELECT u.id, u.public_id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
-		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,
+		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous, u.is_service,
 		       COALESCE(pc.background_url, '') AS background_url,
 		       COALESCE(pc.background_variant, 'banner') AS background_variant,
 		       COALESCE(pc.theme_enabled, false) AS theme_enabled,
@@ -284,7 +284,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 			&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 			&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
-			&profile.IsRemote, &profile.IsAnonymous,
+			&profile.IsRemote, &profile.IsAnonymous, &profile.IsService,
 			&backgroundURL,
 			&profile.BackgroundVariant,
 			&profile.ThemeEnabled,
@@ -419,7 +419,8 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	query := `
 		SELECT u.id, u.public_id, u.username, u.display_name, u.nickname_emoji_id, u.email, u.domain, u.avatar_url, u.avatar_animated, u.bio, u.bio_json, u.garma, u.post_count,
 		       u.thread_count, u.wall_post_count, u.comment_count, u.likes_received_count, u.likes_given_count, u.views_received_count,
-		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous,	       COALESCE(pc.background_url, '') AS background_url,
+		       u.is_online, u.last_seen_at, u.created_at, u.is_remote, u.is_anonymous, u.is_service,
+	       COALESCE(pc.background_url, '') AS background_url,
 	       COALESCE(pc.background_variant, 'banner') AS background_variant,
 	       COALESCE(pc.theme_enabled, false) AS theme_enabled,
 	       COALESCE(pc.theme_tokens, '{}') AS theme_tokens
@@ -437,7 +438,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		&profile.AvatarURL, &profile.AvatarAnimated, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 		&profile.ThreadCount, &profile.WallPostCount, &profile.CommentCount, &profile.LikesReceivedCount, &profile.LikesGivenCount, &profile.ViewsReceivedCount,
 		&profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
-		&profile.IsRemote, &profile.IsAnonymous,
+		&profile.IsRemote, &profile.IsAnonymous, &profile.IsService,
 		&backgroundURL,
 		&profile.BackgroundVariant,
 		&profile.ThemeEnabled,

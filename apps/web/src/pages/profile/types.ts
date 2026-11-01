@@ -10,6 +10,8 @@ export interface Profile {
   bio: string | null;
   bio_json?: unknown;
   is_anonymous: boolean;
+  /** Official notification account: no DMs, read-only thread. */
+  is_service?: boolean;
   thread_count: number;
   post_count: number;
   wall_post_count: number;

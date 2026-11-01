@@ -182,9 +182,9 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\),`).
 		WithArgs(testUser2).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		WillReturnRows(sqlmock.NewRows([]string{"exists", "is_service"}).AddRow(true, false))
 
 	// Atomic find-or-create via DB function
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
@@ -214,9 +214,9 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\),`).
 		WithArgs(testUser2).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		WillReturnRows(sqlmock.NewRows([]string{"exists", "is_service"}).AddRow(true, false))
 
 	// Atomic find-or-create via DB function — returns new conversation
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
@@ -246,9 +246,9 @@ func TestGetOrCreateConversation_UserNotFound(t *testing.T) {
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists — nope
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\),`).
 		WithArgs(testUser999).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		WillReturnRows(sqlmock.NewRows([]string{"exists", "is_service"}).AddRow(false, false))
 
 	handler.GetOrCreateConversation(c)
 

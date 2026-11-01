@@ -124,9 +124,10 @@ func (a *AuthService) GenerateTokenPair(userID, username, domain, sessionID stri
 		return nil, err
 	}
 
-	// Store refresh token hash in Redis with 3-day TTL. Refresh tokens are NOT
-	// rotated (see RefreshAccessToken), so a short lifetime bounds the theft
-	// window of a captured token — 3 days is the deliberate tradeoff.
+	// Store refresh token hash in Redis with 3-day TTL. Refresh tokens ARE
+	// rotated on every /refresh (see RefreshAccessToken), so a captured token
+	// dies at the victim's next refresh at the latest; reuse past the grace
+	// window revokes everything.
 	if a.redis != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -149,6 +150,117 @@ func (a *AuthService) GenerateTokenPair(userID, username, domain, sessionID stri
 // after finding the token" (potential theft).
 var ErrRefreshTokenNotFound = fmt.Errorf("refresh token not found")
 
+// ─── Passkey re-authentication tokens ──────────────────────────────────────
+// A reauth token proves the user completed a FRESH passkey ceremony within the
+// last 5 minutes. Sensitive account actions (password change without knowing
+// the current password, 2FA enrollment, passkey deletion) accept it as an
+// alternative to the current password — "use passkey instead of password".
+// Single-use (burned on first consume) and bound to the user id, so a leaked
+// token cannot be replayed and cannot be retargeted at another account.
+
+// ReauthClaims is the purpose-bound claim set for re-authentication tokens.
+// It is deliberately separate from Claims: purpose confusion between a session
+// token and a reauth token must be impossible by construction.
+type ReauthClaims struct {
+	UserID  string `json:"user_id"`
+	Purpose string `json:"purpose"`
+	jwt.RegisteredClaims
+}
+
+const (
+	reauthPurpose = "webauthn-reauth-v1"
+	reauthTTL     = 5 * time.Minute
+)
+
+// ReauthTTLSeconds reports the re-authentication token lifetime for API responses.
+func ReauthTTLSeconds() int {
+	return int(reauthTTL.Seconds())
+}
+
+// GenerateReauthToken mints a 5-minute single-use re-authentication token.
+func (a *AuthService) GenerateReauthToken(userID string) (string, error) {
+	now := time.Now()
+	claims := ReauthClaims{
+		UserID:  userID,
+		Purpose: reauthPurpose,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(reauthTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        uuid.New().String(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(a.jwtSecret)
+}
+
+// ConsumeReauthToken validates a re-authentication token for the given user
+// and burns it (single-use via Redis SETNX). Fail-closed: without Redis the
+// burn cannot be recorded, so every token is rejected.
+func (a *AuthService) ConsumeReauthToken(userID, tokenString string) error {
+	if a.redis == nil || userID == "" || tokenString == "" {
+		return fmt.Errorf("re-auth unavailable")
+	}
+	token, err := jwt.ParseWithClaims(tokenString, &ReauthClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return a.jwtSecret, nil
+	})
+	if err != nil {
+		return fmt.Errorf("invalid re-auth token: %w", err)
+	}
+	claims, ok := token.Claims.(*ReauthClaims)
+	if !ok || !token.Valid {
+		return fmt.Errorf("invalid re-auth token")
+	}
+	if claims.Purpose != reauthPurpose {
+		return fmt.Errorf("invalid re-auth token")
+	}
+	if claims.UserID == "" || claims.UserID != userID {
+		return fmt.Errorf("invalid re-auth token")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	key := fmt.Sprintf("reauth_used:%s", claims.ID)
+	set, err := a.redis.SetNX(ctx, key, "1", reauthTTL).Result()
+	if err != nil {
+		return fmt.Errorf("re-auth unavailable: %w", err)
+	}
+	if !set {
+		return fmt.Errorf("re-auth token already used")
+	}
+	return nil
+}
+
+// ErrRefreshTokenReused is returned when a refresh token is presented that was
+// already rotated out (its tombstone exists and the grace window has passed).
+// This is the signature of token theft — two parties holding the same refresh
+// token — and the handler must revoke ALL sessions of the user.
+var ErrRefreshTokenReused = fmt.Errorf("refresh token reuse detected")
+
+const (
+	// refreshGraceTTL is how long a rotated-out refresh token still maps to
+	// its replacement. Concurrent refreshes (multiple tabs firing /refresh at
+	// once with the same pre-rotation value) converge on the current token
+	// instead of forking the session or tripping reuse-detection.
+	refreshGraceTTL = 90 * time.Second
+	// refreshReuseTTL bounds the theft-detection window: a rotated-out token
+	// presented after the grace window is treated as stolen.
+	refreshReuseTTL = 3 * 24 * time.Hour
+)
+
+func refreshKey(userID, tokenHash string) string {
+	return fmt.Sprintf("refresh:%s:%s", userID, tokenHash)
+}
+
+func refreshGraceKey(userID, oldHash string) string {
+	return fmt.Sprintf("refresh_grace:%s:%s", userID, oldHash)
+}
+
+func refreshReusedKey(userID, oldHash string) string {
+	return fmt.Sprintf("refresh_reused:%s:%s", userID, oldHash)
+}
+
 // ValidateRefreshToken reports whether an opaque refresh token is currently
 // valid for the supplied user. It never rotates or consumes the token.
 // A missing Redis backend is fail-closed because refresh-token validity cannot
@@ -157,27 +269,140 @@ func (a *AuthService) ValidateRefreshToken(userID, refreshToken string) bool {
 	return userID != "" && refreshToken != "" && a.refreshTokenExists(userID, refreshToken)
 }
 
-// RefreshAccessToken validates a refresh token and issues a fresh ACCESS token
-// only. The opaque refresh token is deliberately NOT rotated: it stays valid for
-// its whole 3-day lifetime (bounded by the Redis TTL and the HttpOnly cookie
-// MaxAge) and is killed only on logout/session revocation.
+// ResolveRefreshToken maps a presented refresh token to the CURRENT raw token
+// of the session: the token itself when live, or its rotation replacement when
+// presented inside the grace window (concurrent-tab refresh). Used by logout
+// so a tab holding a just-rotated cookie can still kill its own session.
+// Returns ("", false) when the token is unknown.
+func (a *AuthService) ResolveRefreshToken(userID, refreshToken string) (string, bool) {
+	if a.redis == nil || userID == "" || refreshToken == "" {
+		return "", false
+	}
+	if a.refreshTokenExists(userID, refreshToken) {
+		return refreshToken, true
+	}
+	if replacement, ok := a.graceReplacement(userID, refreshToken); ok {
+		return replacement, true
+	}
+	return "", false
+}
+
+// IsRefreshTokenReused reports whether the token was rotated out longer than
+// the grace window ago — i.e. somebody is replaying a dead token.
+func (a *AuthService) IsRefreshTokenReused(userID, refreshToken string) bool {
+	if a.redis == nil || userID == "" || refreshToken == "" {
+		return false
+	}
+	hash := sha256.Sum256([]byte(refreshToken))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	exists, err := a.redis.Exists(ctx, refreshReusedKey(userID, hex.EncodeToString(hash[:]))).Result()
+	return err == nil && exists > 0
+}
+
+// GraceReplacement returns the rotation replacement for a recently rotated
+// token (concurrent-refresh convergence), or ("", false).
+func (a *AuthService) GraceReplacement(userID, refreshToken string) (string, bool) {
+	if a.redis == nil || userID == "" || refreshToken == "" {
+		return "", false
+	}
+	return a.graceReplacement(userID, refreshToken)
+}
+
+// graceReplacement returns the rotation replacement for a recently rotated
+// token (concurrent-refresh convergence), or ("", false).
+func (a *AuthService) graceReplacement(userID, refreshToken string) (string, bool) {
+	hash := sha256.Sum256([]byte(refreshToken))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	val, err := a.redis.Get(ctx, refreshGraceKey(userID, hex.EncodeToString(hash[:]))).Result()
+	if err != nil || val == "" {
+		return "", false
+	}
+	return val, true
+}
+
+// IssueAccessToken mints a fresh access token bound to an existing session
+// without touching any refresh token. Used for the grace-window path where
+// the session already rotated and only the access token needs re-issuing.
+func (a *AuthService) IssueAccessToken(userID, username, domain, sessionID string) (*TokenPair, error) {
+	accessToken, accessJTI, err := a.generateAccessToken(userID, username, domain, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate new access token: %w", err)
+	}
+	return &TokenPair{
+		AccessToken: accessToken,
+		SessionID:   sessionID,
+		AccessJTI:   accessJTI,
+		ExpiresIn:   3600, // 1 hour
+	}, nil
+}
+
+// RefreshAccessToken validates a refresh token, ROTATES it, and issues a
+// fresh access token bound to the same session.
 //
-// Why no rotation? The browser fires several /auth/refresh calls concurrently
-// on page load (getSession + auth/me 401 fallbacks from multiple components).
-// With rotation, the first request consumes the shared refresh cookie and every
-// parallel request that read the same pre-rotation value gets a 401, which the
-// frontend treats as "session expired" — logging the user out on reload. A
-// stable refresh token makes concurrent refreshes all succeed; it is a 256-bit
-// random in an HttpOnly SameSite=Strict cookie, so the only way to obtain it is
-// from the browser itself. Access tokens still rotate on every refresh and the
-// previous access jti is blacklisted, so revocation stays instant.
+// Why rotation with a grace window? A stable refresh token means a stolen
+// token is silently usable for its whole 3-day lifetime by both parties.
+// Rotation bounds theft: the first use after the steal forks the session and
+// the loser's token dies. Naive rotation breaks concurrent refreshes (N tabs
+// read the same cookie value; the losers get 401 and the frontend logs the
+// user out), so:
+//   - the rotated-out token maps to its replacement for refreshGraceTTL
+//     (grace path: same pair re-issued, no fork, no logout);
+//   - past the grace window a rotated-out token carries a tombstone for
+//     refreshReuseTTL and its presentation returns ErrRefreshTokenReused —
+//     the theft signature — so the handler can revoke EVERYTHING.
 func (a *AuthService) RefreshAccessToken(userID, username, domain, sessionID, refreshToken string) (*TokenPair, error) {
-	// Step 1: Check the refresh token still exists
+	if a.redis == nil {
+		return nil, ErrRefreshTokenNotFound
+	}
+	oldHash := sha256.Sum256([]byte(refreshToken))
+	oldHashHex := hex.EncodeToString(oldHash[:])
+
+	// Step 1: live token → rotate. Grace-window replay → re-issue same pair.
 	if !a.refreshTokenExists(userID, refreshToken) {
+		if replacement, ok := a.graceReplacement(userID, refreshToken); ok {
+			accessToken, accessJTI, err := a.generateAccessToken(userID, username, domain, sessionID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate new access token: %w", err)
+			}
+			return &TokenPair{
+				AccessToken:  accessToken,
+				RefreshToken: replacement,
+				SessionID:    sessionID,
+				AccessJTI:    accessJTI,
+				ExpiresIn:    3600,
+			}, nil
+		}
+		if a.IsRefreshTokenReused(userID, refreshToken) {
+			return nil, ErrRefreshTokenReused
+		}
 		return nil, ErrRefreshTokenNotFound
 	}
 
-	// Step 2: Generate a new access token bound to the same session
+	// Step 2: mint the replacement and publish the rotation atomically-ish.
+	// The new key is written BEFORE the old key is deleted so a crash between
+	// the two can never lock the session out; the tombstone + grace keys make
+	// the rotation observable to concurrent requests either way.
+	newRaw, err := generateRefreshToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	newHash := sha256.Sum256([]byte(newRaw))
+	newHashHex := hex.EncodeToString(newHash[:])
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	pipe := a.redis.Pipeline()
+	pipe.Set(ctx, refreshKey(userID, newHashHex), "1", 3*24*time.Hour)
+	pipe.Set(ctx, refreshGraceKey(userID, oldHashHex), newRaw, refreshGraceTTL)
+	pipe.Set(ctx, refreshReusedKey(userID, oldHashHex), "1", refreshReuseTTL)
+	pipe.Del(ctx, refreshKey(userID, oldHashHex))
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("failed to rotate refresh token: %w", err)
+	}
+
+	// Step 3: fresh access token bound to the same session.
 	accessToken, accessJTI, err := a.generateAccessToken(userID, username, domain, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate new access token: %w", err)
@@ -185,7 +410,7 @@ func (a *AuthService) RefreshAccessToken(userID, username, domain, sessionID, re
 
 	return &TokenPair{
 		AccessToken:  accessToken,
-		RefreshToken: refreshToken, // unchanged — the session identity is stable
+		RefreshToken: newRaw, // rotated — the presented token is now dead
 		SessionID:    sessionID,
 		AccessJTI:    accessJTI,
 		ExpiresIn:    3600, // 1 hour

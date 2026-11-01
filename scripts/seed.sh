@@ -352,6 +352,10 @@ else
     die "cannot open the demo↔alice conversation"
 fi
 
+# ── Official service account (@gomo6) ──────────────────────────────────────
+# Standalone script: no demo data, idempotent. See scripts/seed-service-account.sh.
+bash scripts/seed-service-account.sh || true
+
 # ── Done ────────────────────────────────────────────────────────────────────
 echo ""
 ok "seed complete"
