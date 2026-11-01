@@ -1202,6 +1202,7 @@ const Board = () => {
                 stories={boardStories}
                 boardId={board.id}
                 canPostStories={Boolean(isBoardOwner || boardPermissions.can_post_stories)}
+                onOpenRules={board.rules_markdown?.trim() ? () => setShowRulesDialog(true) : undefined}
               />
             </RecedeOnScroll>
           ) : (
@@ -1744,6 +1745,7 @@ const Board = () => {
                           currentUserColor={currentUserColor}
                           boardPath={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`}
                           sourceLabel={activeChannelName || board?.name || undefined}
+                          hideSourceChip
                           onImageClick={(items, idx) => {
                             setGalleryItems(items);
                             setGalleryIndex(idx);
@@ -1867,7 +1869,7 @@ const Board = () => {
                     </button>
                     <span className="font-bold truncate">Участники · {roster.members.length}</span>
                   </div>
-                  <div className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
+                  <div className="flex-1 overflow-y-auto px-3 py-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] min-h-0">
                     <GomoSubMemberList roles={roster.roles} members={roster.members} />
                   </div>
                 </>
@@ -1928,23 +1930,9 @@ const Board = () => {
                     {/* Picking a channel navigates and closes the sheet (Discord behaviour). */}
                     {renderChannelList(() => setMobileChannelsOpen(false), channelQuery)}
                   </div>
-                  {/* Quick actions */}
-                  <div className="px-3 py-3 border-t border-border/60 space-y-1 shrink-0">
-                    {canCreateThread && (
-                      <button
-                        onClick={() => {
-                          setMobileChannelsOpen(false);
-                          navigate(activeChannelSlug ? `/g/${slug}/c/${activeChannelSlug}/create` : `/g/${slug}/create`, {
-                            state: { backgroundLocation: location },
-                          });
-                        }}
-                        aria-label={t("board.createThread")}
-                        className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-primary hover:bg-primary/10 active:scale-[0.99] transition-colors"
-                      >
-                        <Plus className="w-4 h-4 shrink-0" />
-                        <span>{t("board.createThread")}</span>
-                      </button>
-                    )}
+                  {/* Quick actions — pinned; safe-area padding keeps the last
+                      row tappable above the home indicator. */}
+                  <div className="px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border/60 space-y-1 shrink-0">
                     {roster && (
                       <button
                         onClick={() => setSheetView("members")}
@@ -1953,16 +1941,6 @@ const Board = () => {
                         <Users className="w-4 h-4 shrink-0" />
                         <span>Участники · {roster.members.length}</span>
                         <ChevronRight className="w-4 h-4 ml-auto shrink-0" />
-                      </button>
-                    )}
-                    {board.rules_markdown?.trim() && (
-                      <button
-                        onClick={() => { setMobileChannelsOpen(false); setShowRulesDialog(true); }}
-                        disabled={checkingRules}
-                        className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-                      >
-                        <BookOpenText className="w-4 h-4 shrink-0" />
-                        <span>{t("board.rules")}</span>
                       </button>
                     )}
                     {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (

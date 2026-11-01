@@ -489,7 +489,7 @@ describe("Board (wall)", () => {
     });
   });
 
-  it("opens the create-post composer from the sheet quick actions (+ button)", async () => {
+  it("opens the create-post composer from the channel bar", async () => {
     mockParams.slug = "gsub";
     mockParams.channelSlug = "general";
     mockPathname.current = "/g/gsub/c/general";
@@ -511,12 +511,8 @@ describe("Board (wall)", () => {
 
     render(<BoardComponent />);
 
-    const pill = await screen.findByTitle("Каналы");
-    await user.click(pill);
-    const dialog = await screen.findByRole("dialog");
-
-    // Compact sheet: a + button in the quick actions, below the channel list.
-    const createBtn = within(dialog).getByRole("button", { name: "Создать запись" });
+    // The channel bar carries the create action (the sheet has none).
+    const createBtn = await screen.findByTitle("Создать запись");
     expect(createBtn).toBeInTheDocument();
     await user.click(createBtn);
 

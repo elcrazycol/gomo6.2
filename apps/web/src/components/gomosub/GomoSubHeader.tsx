@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Lock, Share2, UserCheck, UserPlus, Users } from "lucide-react";
+import { BookOpenText, Lock, Share2, UserCheck, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -22,6 +22,7 @@ interface BoardLike {
   gomosub_avatar_url?: string | null;
   gomosub_tags?: string[] | null;
   owner_id?: string | null;
+  rules_markdown?: string | null;
 }
 
 interface GomoSubHeaderProps {
@@ -47,6 +48,8 @@ interface GomoSubHeaderProps {
   boardId: string;
   /** Owner or a can_post_stories role: empty ring opens the composer. */
   canPostStories: boolean;
+  /** Opens the rules dialog (rules icon left of share). */
+  onOpenRules?: () => void;
   /** i18n labels from the caller (Board). */
   joinLabel?: string;
   joinedLabel?: string;
@@ -75,6 +78,7 @@ export const GomoSubHeader = memo(
     stories,
     boardId,
     canPostStories,
+    onOpenRules,
   }: GomoSubHeaderProps) => {
     const cover = board.cover_image_url ? storageUrl("post-images", board.cover_image_url) : null;
     const avatar = board.gomosub_avatar_url ? storageUrl("post-images", board.gomosub_avatar_url) : null;
@@ -165,7 +169,19 @@ export const GomoSubHeader = memo(
                   </div>
                 )}
               </StorySquareRing>
-              <div className="flex items-center gap-2 pb-0.5">
+              <div className="flex items-center gap-1.5 pb-0.5">
+                {board.rules_markdown?.trim() && onOpenRules && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+                    onClick={onOpenRules}
+                    title="Правила"
+                    disabled={checkingRules}
+                  >
+                    <BookOpenText className="w-4 h-4" />
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="icon"
@@ -203,15 +219,6 @@ export const GomoSubHeader = memo(
                     </>
                   )}
                 </Button>
-                {viewerId && board.owner_id !== viewerId && (
-                  <PostActionsMenu
-                    targetType="gomosub"
-                    targetId={board.id}
-                    reportLabel="Пожаловаться на саб"
-                    reportTargetLabel="на саб"
-                    triggerTitle="Действия"
-                  />
-                )}
               </div>
             </div>
 
@@ -237,6 +244,16 @@ export const GomoSubHeader = memo(
                 )}
               </span>
               {board.visibility === "private" && <Lock className="h-3.5 w-3.5 text-amber-500" />}
+              {viewerId && board.owner_id !== viewerId && (
+                <PostActionsMenu
+                  targetType="gomosub"
+                  targetId={board.id}
+                  reportLabel="Пожаловаться на саб"
+                  reportTargetLabel="на саб"
+                  triggerTitle="Действия"
+                  triggerClassName="h-6 w-6 rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 [&_svg]:h-3.5 [&_svg]:w-3.5"
+                />
+              )}
             </div>
 
             {board.description && (
