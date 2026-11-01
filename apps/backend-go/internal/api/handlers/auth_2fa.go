@@ -537,12 +537,8 @@ func (h *AuthHandler) generateAndStoreRecoveryCodes(userID string) []string {
 	return codes
 }
 
-// validateRecoveryCode checks a recovery code against the database.
+// validateRecoveryCodeDB checks a recovery code against the database.
 // If valid, marks it as used so it cannot be reused.
-func (h *AuthHandler) validateRecoveryCode(userID, code string) (bool, error) {
-	return validateRecoveryCodeDB(h.db, userID, code)
-}
-
 func validateRecoveryCodeDB(db *sql.DB, userID, code string) (bool, error) {
 	// Bcrypt hashes are salted, so matching cannot happen in SQL: load the
 	// handful of unused codes (capped at generation time) and compare.

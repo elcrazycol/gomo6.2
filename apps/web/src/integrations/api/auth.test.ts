@@ -378,7 +378,7 @@ describe("apiAuth", () => {
 
       const result = await apiAuth.setupTOTP("current-pass");
 
-      expect(mockSetupTOTP).toHaveBeenCalledWith("current-pass");
+      expect(mockSetupTOTP).toHaveBeenCalledWith("current-pass", undefined);
       expect(result.data?.secret).toBe("JBSWY3DPEHPK3PXP");
       expect(result.error).toBeNull();
     });
@@ -482,7 +482,7 @@ describe("apiAuth", () => {
 
       const result = await apiAuth.updateUser({ password: "newpass123" });
 
-      expect(mockUpdatePassword).toHaveBeenCalledWith("newpass123", undefined);
+      expect(mockUpdatePassword).toHaveBeenCalledWith("newpass123", undefined, undefined);
       expect(mockGetCurrentUser).toHaveBeenCalledOnce();
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.error).toBeNull();
