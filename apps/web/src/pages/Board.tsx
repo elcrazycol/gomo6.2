@@ -1567,7 +1567,7 @@ const Board = () => {
                 opacity: sidebarCollapsed ? 0 : 1,
               }}
               transition={springFor("soft", prefersReducedMotion)}
-              className="hidden md:block shrink-0 z-20 sticky top-2 self-start overflow-hidden"
+              className="hidden md:block shrink-0 z-20 sticky top-[calc(var(--app-header-pad,0px)+0.5rem)] self-start overflow-hidden"
             >
               <div className="mx-2 w-[224px] rounded-2xl border border-border/50 bg-surface/60 backdrop-blur-md shadow-sm flex flex-col max-h-[calc(100dvh-1.5rem)] overflow-hidden">
                 {/* Sidebar header with collapse button */}
@@ -1648,7 +1648,7 @@ const Board = () => {
             {sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="hidden md:flex shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-surface items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
+                className="hidden md:flex shrink-0 sticky top-[calc(var(--app-header-pad,0px)+1rem)] self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-surface items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
                 title={t("board.showChannels")}
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1821,7 +1821,7 @@ const Board = () => {
                 exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97, x: 12 }}
                 transition={morphTransition(prefersReducedMotion)}
                 style={{ transformOrigin: "100% 0%" }}
-                className="hidden xl:block w-60 shrink-0 sticky top-2 self-start"
+                className="hidden xl:block w-60 shrink-0 sticky top-[calc(var(--app-header-pad,0px)+0.5rem)] self-start"
               >
                 <div className="rounded-2xl border border-border/50 bg-surface/60 backdrop-blur-md shadow-sm max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-2">
                   <GomoSubMemberList roles={roster.roles} members={roster.members} />

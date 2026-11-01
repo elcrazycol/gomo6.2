@@ -84,7 +84,7 @@ export const GomoSubChannelBar = memo(
     const Glyph = kind === "text" ? MessageSquare : Hash;
 
     return (
-      <div className="sticky top-2 z-20 flex items-center gap-2 h-12 px-3 rounded-xl border border-border/60 bg-background/80 backdrop-blur-sm mb-3">
+      <div className="sticky top-[calc(var(--app-header-pad,0px)+0.5rem)] z-20 flex items-center gap-2 h-12 px-3 rounded-xl border border-border/60 bg-background/80 backdrop-blur-sm mb-3">
         {/* Mobile channel switcher — opens the bottom sheet */}
         <button
           onClick={onOpenChannels}
