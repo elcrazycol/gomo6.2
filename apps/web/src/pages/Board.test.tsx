@@ -408,10 +408,10 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getByText("Вступить")).toBeInTheDocument();
+      expect(screen.getAllByText("Вступить").length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByText("Вступить"));
+    await user.click(screen.getAllByText("Вступить")[0]);
 
     await waitFor(() => {
       expect(mockToast.success).toHaveBeenCalledWith("Вы вступили в саб");
@@ -433,7 +433,7 @@ describe("Board (wall)", () => {
     expect(screen.queryByText("Записей пока нет")).not.toBeInTheDocument();
   });
 
-  it("opens the mobile channel drawer and keeps it open after picking a channel", async () => {
+  it("opens the mobile channel drawer and closes it after picking a channel", async () => {
     mockParams.slug = "gsub";
     mockParams.channelSlug = "general";
     mockPathname.current = "/g/gsub/c/general";
@@ -480,11 +480,13 @@ describe("Board (wall)", () => {
     expect(dialog).toHaveTextContent("Модерация");
     expect(dialog).toHaveTextContent("Основной");
 
-    // Picking a channel keeps the sheet open (native-picker behaviour) —
+    // Picking a channel navigates and closes the sheet (Discord behaviour) —
     // scoped to the dialog to avoid the desktop sidebar copy, which jsdom
     // still renders.
     await user.click(within(dialog).getByRole("link", { name: "Новости" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 
   it("opens the create-post composer from the sheet header (+ button)", async () => {
@@ -554,16 +556,12 @@ describe("Board (wall)", () => {
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.documentElement.style.overflow).toBe("hidden");
 
-    // Picking a channel keeps the sheet open, so close via the drawer mock's
-    // close button (the real overlay click is mocked away in jsdom).
+    // Picking a channel navigates and closes the sheet, releasing the
+    // scroll lock after the close animation (0.5s) to avoid a background flash.
     await user.click(within(dialog).getByRole("link", { name: "Основной" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Закрыть" }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
-    // The scroll lock is released only after the close animation (0.5s) to
-    // avoid a background flash — so wait for the release.
     await waitFor(() => {
       expect(document.body.style.overflow).not.toBe("hidden");
     }, { timeout: 1500 });

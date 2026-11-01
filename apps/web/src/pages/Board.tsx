@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
-import { motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { NavigationLink } from "@/components/NavigationLink";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
@@ -21,7 +21,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Users, Plus, Share2, ChevronLeft, ChevronRight, ChevronDown, Hash, Lock, Settings } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, Users, Plus, Search, ChevronLeft, ChevronRight, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -44,8 +44,10 @@ import {
   type ChannelRow as Channel,
 } from "@/routes/data/boardData";
 import { getDirectoryMemberCount } from "@/routes/data/gomosubData";
-import { STREAM_ITEM_VARIANTS, springFor, streamRowVariants } from "@/lib/motion";
+import { SPRING, EASE_OUT_EXPO, morphTransition, springFor, streamRowVariants, travelDirection } from "@/lib/motion";
+import { RecedeOnScroll } from "@/components/profile/RecedeOnScroll";
 import { GomoSubHeader } from "@/components/gomosub/GomoSubHeader";
+import { GomoSubChannelBar } from "@/components/gomosub/GomoSubChannelBar";
 import { GomoSubChannelsList } from "@/components/gomosub/GomoSubChannelsList";
 import { GomoSubMemberList } from "@/components/gomosub/GomoSubMemberList";
 import { groupChannels, type CategoryLike } from "@/components/gomosub/groupChannels";
@@ -158,6 +160,12 @@ const Board = () => {
   // Tracks the channel sheet snap point (0.4 = compact, 1 = full screen) so we
   // can show a close button only when the sheet is fully expanded.
   const [channelSheetSnapPoint, setChannelSheetSnapPoint] = useState<number>(0.4);
+  // Channel search shared by the desktop sidebar and the mobile sheet.
+  const [channelQuery, setChannelQuery] = useState("");
+  // Directional travel between channels (+1 forward / -1 back in list order)
+  // so the content slides the way you moved, Discord-style.
+  const [travelDir, setTravelDir] = useState<1 | -1>(1);
+  const prevActiveChannelRef = useRef<string | null>(null);
   // Timers for the sheet close animation (vaul slides it out over 0.5s): the
   // scroll lock and the snap point must outlive the animation, otherwise the
   // background flashes and the sheet jumps back to 40% while closing.
@@ -776,6 +784,29 @@ const Board = () => {
     return Boolean(channels.find((ch) => ch.id === activeChannelId)?.is_private);
   }, [activeChannelId, channels]);
 
+  const activeChannelKind = useMemo(() => {
+    if (!activeChannelId) return undefined;
+    return channels.find((ch) => ch.id === activeChannelId)?.kind;
+  }, [activeChannelId, channels]);
+
+  const activeChannelTopic = useMemo(() => {
+    if (!activeChannelId) return null;
+    return channels.find((ch) => ch.id === activeChannelId)?.description ?? null;
+  }, [activeChannelId, channels]);
+
+  // Direction of travel between channels in list order — the content slides
+  // the way you moved (ProfileTabs pattern).
+  useEffect(() => {
+    const prev = prevActiveChannelRef.current;
+    if (prev && activeChannelId && prev !== activeChannelId) {
+      const order = channelCategories.flatMap((g) => g.channels);
+      const from = order.findIndex((c) => c.id === prev);
+      const to = order.findIndex((c) => c.id === activeChannelId);
+      if (from !== -1 && to !== -1 && from !== to) setTravelDir(travelDirection(from, to));
+    }
+    prevActiveChannelRef.current = activeChannelId;
+  }, [activeChannelId, channelCategories]);
+
   // While a text channel is open, request chrome-less full-bleed mode from
   // AppLayout (the site header is dropped — Discord-style) via the same
   // body-class + event contract the messenger mobile chat uses.
@@ -937,14 +968,15 @@ const Board = () => {
     markSeen(activeChannelId);
   }, [isGomoRoute, activeChannelId, markSeen]);
 
-  // The channel drawer (mobile) and the desktop sidebar share GomoSubChannelsList.
-  const renderChannelList = (onSelect: () => void) => (
+  // The channel drawer (mobile sheet) and the desktop sidebar share GomoSubChannelsList.
+  const renderChannelList = (onSelect: () => void, query?: string) => (
     <GomoSubChannelsList
       boardSlug={slug ?? ""}
       groups={channelCategories}
       activeChannelSlug={activeChannelSlug}
       onNavigate={onSelect}
       unread={unread}
+      query={query}
     />
   );
 
@@ -1156,20 +1188,22 @@ const Board = () => {
             Discord-style channel bar above the chat carries name + actions) */}
         {!isTextChannel && (<div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
-            <GomoSubHeader
-              board={board}
-              tags={gomosubTags}
-              viewerId={user?.id ?? null}
-              isJoined={isJoined}
-              membershipPending={!membershipKnown}
-              memberCount={memberCount}
-              membershipLoading={membershipLoading}
-              checkingRules={checkingRules}
-              onToggleJoin={handleToggleJoin}
-              joinLabel={t("board.join")}
-              joinedLabel={t("board.member")}
-              shareTitle={t("board.share")}
-            />
+            <RecedeOnScroll exitAt={0.75} leadPx={120}>
+              <GomoSubHeader
+                board={board}
+                tags={gomosubTags}
+                viewerId={user?.id ?? null}
+                isJoined={isJoined}
+                membershipPending={!membershipKnown}
+                memberCount={memberCount}
+                membershipLoading={membershipLoading}
+                checkingRules={checkingRules}
+                onToggleJoin={handleToggleJoin}
+                joinLabel={t("board.join")}
+                joinedLabel={t("board.member")}
+                shareTitle={t("board.share")}
+              />
+            </RecedeOnScroll>
           ) : (
             <div className="text-center">
               <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
@@ -1526,23 +1560,53 @@ const Board = () => {
           <div
             className={`flex gap-0 ${isTextChannel ? "w-full" : "flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5"}`}
           >
-            <aside className={`hidden md:block shrink-0 transition-all duration-300 z-20 sticky top-2 self-start ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
-              <div className={`mx-2 rounded-2xl border border-border/50 bg-surface/60 backdrop-blur-md shadow-sm flex flex-col max-h-[calc(100dvh-1.5rem)] overflow-hidden ${sidebarCollapsed ? 'hidden' : ''}`}>
+            <motion.aside
+              initial={false}
+              animate={{
+                width: sidebarCollapsed ? 0 : 240,
+                opacity: sidebarCollapsed ? 0 : 1,
+              }}
+              transition={springFor("soft", prefersReducedMotion)}
+              className="hidden md:block shrink-0 z-20 sticky top-2 self-start overflow-hidden"
+            >
+              <div className="mx-2 w-[224px] rounded-2xl border border-border/50 bg-surface/60 backdrop-blur-md shadow-sm flex flex-col max-h-[calc(100dvh-1.5rem)] overflow-hidden">
                 {/* Sidebar header with collapse button */}
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
                   <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest select-none">{t("board.channels")}</h3>
                   <button
                     onClick={() => setSidebarCollapsed(true)}
-                    className="w-5 h-5 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
+                    className="w-5 h-5 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 active:scale-90 transition"
                     title={t("board.hideChannels")}
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </button>
                 </div>
+                {/* Channel search — filters the list below */}
+                <div className="px-3 pb-2">
+                  <div className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-muted/50 border border-transparent focus-within:border-primary/40 transition-colors">
+                    <Search className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60" />
+                    <input
+                      value={channelQuery}
+                      onChange={(e) => setChannelQuery(e.target.value)}
+                      placeholder="Поиск каналов"
+                      aria-label="Поиск каналов"
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+                    />
+                    {channelQuery && (
+                      <button
+                        onClick={() => setChannelQuery("")}
+                        aria-label="Очистить поиск"
+                        className="shrink-0 text-muted-foreground/60 hover:text-foreground active:scale-90 transition"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
                 {/* Channel list — scrollable (fills the card inside the chat surface) */}
                 <div className="overflow-y-auto px-3 pb-3 flex-1 min-h-0">
-                
-                {renderChannelList(() => {})}
+
+                {renderChannelList(() => {}, channelQuery)}
                 
                 {/* Quick actions at bottom of sidebar */}
                 <div className="mt-3 pt-3 border-t border-border/40 px-2 space-y-1">
@@ -1578,7 +1642,7 @@ const Board = () => {
                 </div>
                 </div>
               </div>
-            </aside>
+            </motion.aside>
             
             {/* Expand button — only visible when sidebar is collapsed */}
             {sidebarCollapsed && (
@@ -1591,159 +1655,62 @@ const Board = () => {
               </button>
             )}
             
-            {/* Content area — scrolls independently (no padding for text
-                channels: the chat fills the whole area, Discord-style) */}
+            {/* Content area — scrolls independently. The unified channel bar
+                above stays pinned while the page (window) scrolls. */}
             <div className={`min-w-0 flex flex-col flex-1 ${isTextChannel ? "" : "p-2 sm:p-4 md:p-5"}`}>
-              {/* Discord-style channel bar — replaces the board header card
-                  for text channels: name, lock, board link and compact join.
-                  sticky so it stays pinned while the page (window) scrolls */}
-              {isTextChannel ? (
-              <div className="sticky top-0 z-20 flex items-center gap-2 h-12 px-3 sm:px-4 border-b border-border/60 bg-background/80 backdrop-blur-sm">
-                  {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
-                  <button
-                    onClick={() => setMobileChannelsOpen(true)}
-                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
-                    title={t("board.channels")}
-                  >
-                    {activeChannelId ? (
-                      <>
-                        {activeChannelPrivate ? (
-                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                        ) : (
-                          <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="truncate">{activeChannelName || activeChannelSlug}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{t("board.general")}</span>
-                      </>
-                    )}
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
-                  </button>
-                  {/* Desktop: Discord-style channel name */}
-                  <div className="hidden md:flex items-center gap-2 min-w-0 flex-1">
-                    <Hash className="w-5 h-5 shrink-0 text-muted-foreground/70" />
-                    <h1 className="text-[15px] font-bold truncate">{activeChannelName || activeChannelSlug}</h1>
-                    {activeChannelPrivate && <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
-                    <div className="w-px h-5 bg-border/70 mx-1" />
-                    <NavigationLink to={`/g/${board.slug}`} className="text-sm text-muted-foreground hover:text-foreground truncate">
-                      g/{board.slug}
-                    </NavigationLink>
-                  </div>
-                  {/* Compact actions: members, share + join */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {roster && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                        onClick={() => setShowMembers((v) => !v)}
-                        title="Участники"
-                      >
-                        <Users className="w-4 h-4" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="hidden sm:inline-flex h-8 w-8 text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        const url = `${window.location.origin}/g/${board.slug}`;
-                        navigator.clipboard.writeText(url).then(() => {
-                          toast.success(t("board.linkCopied"));
-                        }).catch(() => {
-                          toast.error(t("board.linkCopyError"));
-                        });
-                      }}
-                      title={t("board.share")}
-                    >
-                      <Share2 className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant={isJoined ? "secondary" : "default"}
-                      onClick={handleToggleJoin}
-                      className={`h-8 px-3 text-xs ${isJoined ? "bg-primary/12 text-primary hover:bg-primary/20 border border-primary/35" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}
-                      disabled={membershipLoading || checkingRules}
-                    >
-                      {isJoined ? (
-                        <>
-                          <UserCheck className="w-3.5 h-3.5 sm:mr-1.5" />
-                          <span className="hidden sm:inline">{t("board.member")}</span>
-                        </>
-                      ) : (
-                        <>
-                          <UserPlus className="w-3.5 h-3.5 sm:mr-1.5" />
-                          <span className="hidden sm:inline">{t("board.join")}</span>
-                        </>
-                      )}
-                    </Button>
-                  </div>
-              </div>
-              ) : (
-              <motion.div
-                className="mb-3 sm:mb-4"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={springFor("soft", prefersReducedMotion)}
-              >
-                <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  {/* Mobile channel switcher — opens the channel sheet (bottom, Discord-style) */}
-                  {channels.length > 0 && (
-                  <button
-                    onClick={() => setMobileChannelsOpen(true)}
-                    className="md:hidden flex items-center gap-1.5 flex-1 min-w-0 h-8 px-2 rounded-lg border border-border/50 bg-surface text-sm text-foreground hover:bg-muted/60 transition-colors"
-                    title={t("board.channels")}
-                  >
-                    {activeChannelId ? (
-                      <>
-                        {channels.find((ch) => ch.id === activeChannelId)?.is_private ? (
-                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
-                        ) : (
-                          <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="truncate">{activeChannelName || activeChannelSlug}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Hash className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{t("board.general")}</span>
-                      </>
-                    )}
-                    <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground ml-auto" />
-                  </button>
-                  )}
-                  {canCreateThread && !isTextChannel && (
-                    <motion.div
-                      className="shrink-0"
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={springFor("standard", prefersReducedMotion)}
-                    >
-                      <Button
-                        onClick={() =>
-                          navigate(
-                            isGomoRoute
-                              ? activeChannelSlug
-                                ? `/g/${slug}/c/${activeChannelSlug}/create`
-                                : `/g/${slug}/create`
-                              : `/create?board=${slug}`,
-                            { state: { backgroundLocation: location } }
-                          )
-                        }
-                        className="h-8 w-8 p-0 rounded-lg sm:h-10 sm:w-auto sm:px-4 sm:text-sm"
-                      >
-                        <Plus className="h-4 w-4 sm:mr-2" />
-                        <span className="hidden sm:inline">{t("board.createThread")}</span>
-                      </Button>
-                    </motion.div>
-                  )}
-                </div>
-              </motion.div>
-              )}
+              <GomoSubChannelBar
+                channelKey={activeChannelId ?? "none"}
+                direction={travelDir}
+                channelName={activeChannelName || activeChannelSlug || ""}
+                channelTopic={activeChannelTopic}
+                isPrivate={activeChannelPrivate}
+                kind={activeChannelKind}
+                boardSlug={slug ?? ""}
+                onOpenChannels={() => setMobileChannelsOpen(true)}
+                channelsTitle={t("board.channels")}
+                generalLabel={t("board.general")}
+                membersCount={roster ? roster.members.length : null}
+                membersActive={showMembers}
+                onToggleMembers={() => setShowMembers((v) => !v)}
+                onShare={() => {
+                  const url = `${window.location.origin}/g/${board.slug}`;
+                  navigator.clipboard.writeText(url).then(() => {
+                    toast.success(t("board.linkCopied"));
+                  }).catch(() => {
+                    toast.error(t("board.linkCopyError"));
+                  });
+                }}
+                shareTitle={t("board.share")}
+                joinVisible
+                isJoined={isJoined}
+                joinDisabled={membershipLoading || checkingRules}
+                onToggleJoin={handleToggleJoin}
+                joinLabel={t("board.join")}
+                memberLabel={t("board.member")}
+                canCreate={Boolean(canCreateThread && !isTextChannel)}
+                onCreate={() =>
+                  navigate(
+                    isGomoRoute
+                      ? activeChannelSlug
+                        ? `/g/${slug}/c/${activeChannelSlug}/create`
+                        : `/g/${slug}/create`
+                      : `/create?board=${slug}`,
+                    { state: { backgroundLocation: location } }
+                  )
+                }
+                createLabel={t("board.createThread")}
+                hasRules={Boolean(board.rules_markdown?.trim())}
+                onOpenRules={() => setShowRulesDialog(true)}
+                canManage={Boolean(user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members))}
+                onOpenSettings={() => navigate(`/g/${slug}/settings`)}
+              />
 
-              <div className={`relative flex-1 ${isTextChannel ? "flex flex-col min-h-0" : "space-y-2"}`}>
+              <motion.div
+                key={activeChannelId ?? "all"}
+                initial={prefersReducedMotion ? false : { opacity: 0, x: travelDir * 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { ...SPRING.standard, opacity: { duration: 0.16, ease: EASE_OUT_EXPO } }}
+                className={`relative flex-1 ${isTextChannel ? "flex flex-col min-h-0" : "space-y-2"}`}>
                 {/* Text channels replace the thread list with a Discord-style chat */}
                 {isTextChannel && activeChannelId ? (
                   <ChannelChat
@@ -1822,7 +1789,7 @@ const Board = () => {
                 )}
                 </>
                 )}
-              </div>
+              </motion.div>
 
               {!isTextChannel && threads.length === 0 && threadsSettled && !pageLoading && !threadsLoading && (
                 <div className="text-center text-muted-foreground p-8">
@@ -1845,22 +1812,30 @@ const Board = () => {
             </div>
 
             {/* Member roster rail — Discord-like right column. */}
+            <AnimatePresence initial={false}>
             {roster && showMembers && (
-              <aside className="hidden xl:block w-60 shrink-0 sticky top-2 self-start">
+              <motion.aside
+                key="roster"
+                initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.97, x: 12 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97, x: 12 }}
+                transition={morphTransition(prefersReducedMotion)}
+                style={{ transformOrigin: "100% 0%" }}
+                className="hidden xl:block w-60 shrink-0 sticky top-2 self-start"
+              >
                 <div className="rounded-2xl border border-border/50 bg-surface/60 backdrop-blur-md shadow-sm max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-2">
                   <GomoSubMemberList roles={roster.roles} members={roster.members} />
                 </div>
-              </aside>
+              </motion.aside>
             )}
+            </AnimatePresence>
           </div>
 
-          {/* Mobile channel sheet — Discord-style. Draggable bottom sheet:
-              opens at 40% height (compact but usable), dragging the handle
-              up expands it further, a fast flick up snaps it open to the
-              full screen as a full menu (where a close X appears), dragging
-              down closes it. Background stays locked while it's open.
-              The drawer must be full-height (h-full) for vaul's snap-point
-              transform math to work — with h-auto the snap geometry breaks. */}
+          {/* Mobile channel sheet — Discord-style server drawer as a bottom
+              sheet: server header, channel search, sectioned channels with
+              unread dots, members and quick actions. Picking a channel
+              navigates and closes the sheet; the drawer must be full-height
+              (h-full) for vaul's snap-point transform math to work. */}
           <Drawer
             open={mobileChannelsOpen}
             onOpenChange={(open) => {
@@ -1875,7 +1850,9 @@ const Board = () => {
               } else if (snapResetTimer.current === null) {
                 // Reset after the close animation, so the sheet slides down
                 // from its current snap point instead of snapping back to 40%
-                // mid-animation (a visible blink).
+                // mid-animation (a visible blink). The search resets too so a
+                // filtered sheet never reopens filtered.
+                setChannelQuery("");
                 snapResetTimer.current = window.setTimeout(() => {
                   snapResetTimer.current = null;
                   setChannelSheetSnapPoint(0.4);
@@ -1917,9 +1894,12 @@ const Board = () => {
                     <span>{(board.name?.[0] || "g").toUpperCase()}</span>
                   )}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="font-bold text-primary truncate">g/{board.slug}</div>
-                  <div className="text-xs text-muted-foreground truncate">{board.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {board.name}
+                    {memberCount != null && ` · ${memberCount}`}
+                  </div>
                 </div>
                 {/* Full sheet: close button. Compact sheet: a + to write a
                     post in the active channel (or general) without leaving
@@ -1947,10 +1927,32 @@ const Board = () => {
                   </button>
                 ) : null}
               </div>
+              {/* Channel search — same filter as the desktop sidebar */}
+              <div className="px-4 pt-2 shrink-0">
+                <div className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-muted/50 border border-transparent focus-within:border-primary/40 transition-colors">
+                  <Search className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60" />
+                  <input
+                    value={channelQuery}
+                    onChange={(e) => setChannelQuery(e.target.value)}
+                    placeholder="Поиск каналов"
+                    aria-label="Поиск каналов"
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+                  />
+                  {channelQuery && (
+                    <button
+                      onClick={() => setChannelQuery("")}
+                      aria-label="Очистить поиск"
+                      className="shrink-0 text-muted-foreground/60 hover:text-foreground active:scale-90 transition"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
               {/* Channel list */}
               <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
-                {/* Switching a channel keeps the sheet open (like a native picker) — close via the X, swipe, or quick actions. */}
-                {renderChannelList(() => {})}
+                {/* Picking a channel navigates and closes the sheet (Discord behaviour). */}
+                {renderChannelList(() => setMobileChannelsOpen(false), channelQuery)}
                 {mobileShowMembers && roster && (
                   <div className="mt-3 pt-3 border-t border-border/40">
                     <GomoSubMemberList roles={roster.roles} members={roster.members} />
