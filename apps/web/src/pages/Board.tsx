@@ -1820,10 +1820,12 @@ const Board = () => {
             </AnimatePresence>
           </div>
 
-          {/* Mobile sheet — Discord-style server drawer: opens near-full-height
-              with a small top offset, draggable by the header block, with
-              channels plus a separate members screen. Picking a channel
-              navigates and closes the sheet. */}
+          {/* Mobile sheet — Discord-style server drawer: fixed 92dvh height so
+              the flex column (search, scrolling channel list, pinned quick
+              actions) always fits and the last row stays reachable. Opens at
+              the single snap point (near-full with a top offset), draggable
+              by the header block, with channels plus a separate members
+              screen. Picking a channel navigates and closes the sheet. */}
           <Drawer
             open={mobileChannelsOpen}
             onOpenChange={(open) => {
@@ -1835,10 +1837,10 @@ const Board = () => {
                 setChannelQuery("");
               }
             }}
-            snapPoints={[0.92]}
+            snapPoints={[1]}
             shouldScaleBackground={false}
           >
-            <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex h-full flex-col">
+            <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex h-[92dvh] flex-col">
               {/* Visual grip. No `handleOnly`: the whole header block below is
                   draggable too; the channel list keeps scrolling because vaul
                   yields to scrollable content. */}
