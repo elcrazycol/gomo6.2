@@ -509,18 +509,25 @@ class ApiClient {
     }
   }
 
-  async updatePassword(password: string, currentPassword?: string): Promise<void> {
+  async updatePassword(password: string, currentPassword?: string, reauthToken?: string): Promise<void> {
     await this.request<unknown>('/api/v1/auth/password', {
       method: 'POST',
-      body: JSON.stringify({ password, current_password: currentPassword || '' }),
+      body: JSON.stringify({
+        password,
+        current_password: currentPassword || '',
+        ...(reauthToken ? { reauth_token: reauthToken } : {}),
+      }),
     });
   }
 
   // 2FA Methods
-  async setupTOTP(password: string): Promise<TOTPSetupResponse> {
+  async setupTOTP(password?: string, reauthToken?: string): Promise<TOTPSetupResponse> {
     const response = await this.request<TOTPSetupResponse>('/api/v1/auth/2fa/setup', {
       method: 'POST',
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({
+        ...(password ? { password } : {}),
+        ...(reauthToken ? { reauth_token: reauthToken } : {}),
+      }),
     });
     return response.data as TOTPSetupResponse;
   }
@@ -817,9 +824,12 @@ class ApiClient {
   }
 
   async finishPasskeyLogin(sessionToken: string, credential: Record<string, unknown>): Promise<AuthResponse> {
-    const resp = await this.request<Record<string, unknown>>(`/api/v1/auth/webauthn/login/finish?session_token=${encodeURIComponent(sessionToken)}`, {
+    // session_token rides the JSON body, not the URL: query strings land in
+    // access logs, history and Referer headers. The backend keeps the query
+    // param as a fallback during rollout.
+    const resp = await this.request<Record<string, unknown>>('/api/v1/auth/webauthn/login/finish', {
       method: 'POST',
-      body: JSON.stringify(credential),
+      body: JSON.stringify({ ...credential, session_token: sessionToken }),
     });
     const data = resp.data as Record<string, unknown> & { token?: string; refresh_token?: string } | null;
     if (data?.token) {
@@ -828,14 +838,30 @@ class ApiClient {
     return data as unknown as AuthResponse;
   }
 
-  async listPasskeys(): Promise<Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string }>> {
-    const resp = await this.request<{ credentials: Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string }> }>('/api/v1/auth/webauthn/credentials');
-    return (resp.data as { credentials: Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string }> })?.credentials ?? [];
+  async listPasskeys(): Promise<Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string; user_agent?: string }>> {
+    const resp = await this.request<{ credentials: Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string; user_agent?: string }> }>('/api/v1/auth/webauthn/credentials');
+    return (resp.data as { credentials: Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string; user_agent?: string }> })?.credentials ?? [];
   }
 
-  async deletePasskey(credentialId: string): Promise<{ ok: boolean }> {
-    const resp = await this.request<{ ok: boolean }>(`/api/v1/auth/webauthn/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
+  async deletePasskey(credentialId: string, reauth?: { current_password?: string; code?: string; reauth_token?: string }): Promise<{ ok: boolean }> {
+    const resp = await this.request<{ ok: boolean }>(`/api/v1/auth/webauthn/credentials/${encodeURIComponent(credentialId)}`, {
+      method: 'DELETE',
+      body: JSON.stringify(reauth ?? {}),
+    });
     return resp.data as { ok: boolean };
+  }
+
+  async beginPasskeyReauth(): Promise<{ options: Record<string, unknown> }> {
+    const resp = await this.request<Record<string, unknown>>('/api/v1/auth/webauthn/reauth/begin', { method: 'POST' });
+    return resp.data as { options: Record<string, unknown> };
+  }
+
+  async finishPasskeyReauth(credential: Record<string, unknown>): Promise<{ reauth_token?: string }> {
+    const resp = await this.request<Record<string, unknown>>('/api/v1/auth/webauthn/reauth/finish', {
+      method: 'POST',
+      body: JSON.stringify(credential),
+    });
+    return resp.data as { reauth_token?: string };
   }
 
   // ─── Session management ───────────────────────────────────────────────────

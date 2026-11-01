@@ -757,6 +757,15 @@ func (h *Hub) autoSubscribeBotsToChat(conversationID, chatRoom string) {
 	}
 }
 
+// isServiceAccount reports whether the user is the notification account.
+// Only consulted for chat-room gates (rare: once per subscription).
+func (h *Hub) isServiceAccount(userID string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	ok, err := authz.IsServiceAccount(ctx, h.db, userID)
+	return err == nil && ok
+}
+
 // isMemberOfConversation checks if a user is a member of a chat conversation.
 // The query runs inside a transaction scoped to userID so the chat_members RLS
 // policy (which reads app.current_user_id) admits the row without leaking the
@@ -785,6 +794,11 @@ func (h *Hub) isMemberOfConversation(userID, conversationID string) bool {
 func (h *Hub) canAccessRoom(userID, room string) bool {
 	room = strings.TrimSpace(room)
 	if room == "" || userID == "" {
+		return false
+	}
+	// The notification account never holds a chat subscription — even with a
+	// hypothetically valid session, no chat room may be joined by it.
+	if strings.HasPrefix(room, "chat_") && h.isServiceAccount(userID) {
 		return false
 	}
 	switch {

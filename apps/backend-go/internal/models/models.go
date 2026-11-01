@@ -61,6 +61,8 @@ type User struct {
 	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
 	IsRemote           bool            `json:"is_remote" db:"is_remote"`
 	IsAnonymous        bool            `json:"is_anonymous" db:"is_anonymous"`
+	// Official notification account: messenger cut off, login via admin panel only.
+	IsService bool `json:"is_service,omitempty" db:"is_service"`
 }
 
 // Board (local boards)
@@ -425,6 +427,9 @@ type RegisterRequest struct {
 	Password       string  `json:"password"`
 	Website        string  `json:"website,omitempty"`               // Honeypot field — must be empty
 	TurnstileToken string  `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token
+	// Cookieless API clients: echo raw tokens in the JSON body. Browsers must
+	// leave this false — the refresh token stays in the HttpOnly cookie only.
+	IncludeTokens bool `json:"include_tokens,omitempty"`
 }
 
 type LoginRequest struct {

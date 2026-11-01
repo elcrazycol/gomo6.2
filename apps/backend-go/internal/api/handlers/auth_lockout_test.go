@@ -20,7 +20,7 @@ import (
 func TestRecordFailedAttempt_SetsLockoutKey(t *testing.T) {
 	h, _, mr := setupAuthHandlerWithRedis(t)
 
-	h.recordFailedAttempt("victim@example.com")
+	h.recordFailedAttempt(normalizeLockoutKey("victim@example.com"))
 
 	if !mr.Exists("lockout:victim@example.com") {
 		t.Fatal("failed-attempt counter must be written to Redis")
@@ -96,7 +96,7 @@ func TestClearAuthActionLock_Removes(t *testing.T) {
 
 // ─── Login: account lockout ──────────────────────────────────────────────────
 
-const lockoutUserColumns = "id, username, display_name, email, domain, password_hash, totp_enabled, totp_secret, trusted_devices, created_at"
+const lockoutUserColumns = "id, username, display_name, email, domain, password_hash, totp_enabled, totp_secret, trusted_devices, created_at, is_service"
 
 func TestLogin_AccountLockout_BlocksAfterFiveAttempts(t *testing.T) {
 	h, mock, mr := setupAuthHandlerWithRedis(t)
@@ -108,7 +108,7 @@ func TestLogin_AccountLockout_BlocksAfterFiveAttempts(t *testing.T) {
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("victim@example.com").
 		WillReturnRows(sqlmock.NewRows(strings.Split(lockoutUserColumns, ", ")).
-			AddRow("u1", "victim", "Victim", "victim@example.com", "localhost:8080", "hash", false, nil, nil, time.Now()))
+			AddRow("u1", "victim", "Victim", "victim@example.com", "localhost:8080", "hash", false, nil, nil, time.Now(), false))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "victim@example.com",
@@ -139,7 +139,7 @@ func TestLogin_UnderLockoutThreshold_Proceeds(t *testing.T) {
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("victim@example.com").
 		WillReturnRows(sqlmock.NewRows(strings.Split(lockoutUserColumns, ", ")).
-			AddRow("u1", "victim", "Victim", "victim@example.com", "localhost:8080", string(realHash), false, nil, nil, time.Now()))
+			AddRow("u1", "victim", "Victim", "victim@example.com", "localhost:8080", string(realHash), false, nil, nil, time.Now(), false))
 	mock.ExpectExec(`INSERT INTO user_sessions`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -172,7 +172,7 @@ func TestLogin_WrongPassword_RecordsFailedAttempt(t *testing.T) {
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE username.*`).
 		WithArgs("victim@example.com").
 		WillReturnRows(sqlmock.NewRows(strings.Split(lockoutUserColumns, ", ")).
-			AddRow("u1", "victim", "Victim", "victim@example.com", "localhost:8080", string(realHash), false, nil, nil, time.Now()))
+			AddRow("u1", "victim", "Victim", "victim@example.com", "localhost:8080", string(realHash), false, nil, nil, time.Now(), false))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "victim@example.com",

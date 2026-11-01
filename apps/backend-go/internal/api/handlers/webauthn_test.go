@@ -261,7 +261,9 @@ func TestPasskeyLogin_SetsSessionCookies(t *testing.T) {
 
 	userID := uuid.New().String()
 	// Same call the passkey FinishLogin handler makes after minting tokens.
-	middleware.SetAuthCookies(c, userID, "access-token", "refresh-token", 3600)
+	if err := middleware.SetAuthCookies(c, userID, "access-token", "refresh-token", 3600); err != nil {
+		t.Fatalf("SetAuthCookies failed: %v", err)
+	}
 
 	cookies := w.Result().Cookies()
 	byName := map[string]*http.Cookie{}

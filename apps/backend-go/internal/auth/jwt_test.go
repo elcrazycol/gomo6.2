@@ -523,6 +523,44 @@ func TestIsTokenBlacklisted_EmptyJTI(t *testing.T) {
 	}
 }
 
+func TestReauthToken_SingleUseAndBinding(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	token, err := svc.GenerateReauthToken("user-123")
+	if err != nil {
+		t.Fatalf("GenerateReauthToken failed: %v", err)
+	}
+
+	// First consume succeeds.
+	if err := svc.ConsumeReauthToken("user-123", token); err != nil {
+		t.Fatalf("first consume failed: %v", err)
+	}
+	// Replay fails (single-use burn).
+	if err := svc.ConsumeReauthToken("user-123", token); err == nil {
+		t.Fatal("replayed reauth token must be rejected")
+	}
+	// Retargeting at another user fails.
+	token2, _ := svc.GenerateReauthToken("user-123")
+	if err := svc.ConsumeReauthToken("user-456", token2); err == nil {
+		t.Fatal("retargeted reauth token must be rejected")
+	}
+	// Garbage fails.
+	if err := svc.ConsumeReauthToken("user-123", "garbage"); err == nil {
+		t.Fatal("garbage reauth token must be rejected")
+	}
+}
+
+func TestReauthToken_NoRedis_FailClosed(t *testing.T) {
+	svc := NewAuthService() // no Redis
+	token, err := svc.GenerateReauthToken("user-123")
+	if err != nil {
+		t.Fatalf("generation needs no Redis: %v", err)
+	}
+	if err := svc.ConsumeReauthToken("user-123", token); err == nil {
+		t.Fatal("consume without Redis must fail closed")
+	}
+}
+
 func TestRevokeAllRefreshTokens_NoRedis(t *testing.T) {
 	svc := NewAuthService()
 
@@ -724,25 +762,38 @@ func TestRefreshAccessToken_WithRedis_Success(t *testing.T) {
 		t.Fatal("access token must rotate on refresh")
 	}
 
-	// The refresh token is stable: NOT rotated. Concurrent refreshes from
-	// multiple tabs must never invalidate each other (that race logged users
-	// out on page reload).
-	if newPair.RefreshToken != oldRefreshToken {
-		t.Fatalf("refresh token must stay stable across refreshes, got a new one")
+	// The refresh token MUST rotate: the presented token dies, a new one is
+	// issued. A stolen token is usable at most until the victim's next refresh.
+	if newPair.RefreshToken == "" {
+		t.Fatal("new refresh token should not be empty")
+	}
+	if newPair.RefreshToken == oldRefreshToken {
+		t.Fatal("refresh token must rotate on refresh")
 	}
 
-	// The old refresh key must still exist after refresh
-	if !mr.Exists(oldKey) {
-		t.Fatal("refresh token key should survive refresh (no rotation)")
+	// The old refresh key must be gone after rotation
+	if mr.Exists(oldKey) {
+		t.Fatal("old refresh token key must be deleted on rotation")
 	}
 
-	// A second concurrent refresh with the same token must also succeed.
+	// A second concurrent refresh with the SAME (now rotated-out) token must
+	// still succeed via the grace window — converging on the current token
+	// instead of forking the session or logging the user out.
 	secondPair, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", oldRefreshToken)
 	if err != nil {
 		t.Fatalf("second concurrent refresh failed: %v", err)
 	}
-	if secondPair.RefreshToken != oldRefreshToken {
-		t.Fatal("second refresh must keep the same refresh token")
+	if secondPair.RefreshToken != newPair.RefreshToken {
+		t.Fatal("grace-window refresh must converge on the rotated token")
+	}
+
+	// The current token itself rotates again when presented.
+	thirdPair, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", newPair.RefreshToken)
+	if err != nil {
+		t.Fatalf("refresh with current token failed: %v", err)
+	}
+	if thirdPair.RefreshToken == newPair.RefreshToken {
+		t.Fatal("presenting the current token must rotate it again")
 	}
 }
 
@@ -755,6 +806,49 @@ func TestRefreshAccessToken_WithRedis_InvalidToken(t *testing.T) {
 	}
 	if !errors.Is(err, ErrRefreshTokenNotFound) {
 		t.Errorf("expected ErrRefreshTokenNotFound, got %v", err)
+	}
+}
+
+// A rotated-out token presented after the grace window is theft: it must come
+// back as ErrRefreshTokenReused (the handler revokes everything on this).
+// miniredis has no time-travel, so the grace key is deleted to simulate an
+// expired grace window.
+func TestRefreshAccessToken_ReuseDetection(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
+	old := pair.RefreshToken
+
+	rotated, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", old)
+	if err != nil {
+		t.Fatalf("initial rotation failed: %v", err)
+	}
+
+	// Inside the grace window: converges, no reuse error.
+	if _, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", old); err != nil {
+		t.Fatalf("grace-window refresh must succeed, got: %v", err)
+	}
+
+	// Simulate grace expiry.
+	oldHash := sha256.Sum256([]byte(old))
+	mr.Del(fmt.Sprintf("refresh_grace:user-123:%x", oldHash))
+
+	// Past grace: reuse detected.
+	if _, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", old); !errors.Is(err, ErrRefreshTokenReused) {
+		t.Fatalf("expected ErrRefreshTokenReused, got %v", err)
+	}
+
+	// The current token still works.
+	if _, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", rotated.RefreshToken); err != nil {
+		t.Fatalf("current token must stay valid, got: %v", err)
+	}
+
+	// ResolveRefreshToken maps live and grace-window tokens, rejects unknown.
+	if _, ok := svc.ResolveRefreshToken("user-123", rotated.RefreshToken); !ok {
+		t.Fatal("live token must resolve")
+	}
+	if _, ok := svc.ResolveRefreshToken("user-123", "nonexistent"); ok {
+		t.Fatal("unknown token must not resolve")
 	}
 }
 

@@ -13,12 +13,22 @@ import (
 	"github.com/gomo6/backend/internal/models"
 )
 
-// Refresh exchanges a valid refresh token for a new token pair.
+// Refresh exchanges a valid refresh token for a ROTATED token pair.
 // POST /api/v1/auth/refresh
+//
+// Rotation (see auth.RefreshAccessToken): every refresh mints a new opaque
+// refresh token and kills the presented one. Concurrent refreshes from several
+// tabs converge via a 90s grace window; a rotated-out token presented past the
+// grace window is treated as theft and revokes ALL sessions of the user.
+//
+// The fresh refresh token is delivered in the HttpOnly cookie ONLY — never in
+// the JSON body (an XSS reading a login/refresh response must not harvest a
+// 3-day session). Cookieless API clients may opt into JSON tokens with
+// {"include_tokens": true} in the refresh body.
 //
 // Refresh godoc
 // @Summary      Refresh access token
-// @Description  Exchange a valid refresh token for a new token pair
+// @Description  Exchange a valid refresh token for a rotated token pair
 // @Tags         Auth
 // @Accept       json
 // @Produce      json
@@ -35,7 +45,8 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	}
 
 	var req struct {
-		RefreshToken string `json:"refresh_token"`
+		RefreshToken  string `json:"refresh_token"`
+		IncludeTokens bool   `json:"include_tokens,omitempty"`
 	}
 	// Browser clients use the HttpOnly refresh cookie. Keep the JSON field as a
 	// compatibility path for non-browser API clients during the migration.
@@ -76,82 +87,154 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		}
 	}
 
-	// Compute the hash of the refresh token so the session row can be located
-	// and updated in place (stable device identity). The refresh token itself is
-	// NOT rotated — see RefreshAccessToken.
 	oldHash := sha256hex(req.RefreshToken)
 	row, rowErr := findSessionByRefreshHash(h.db, claims.UserID, oldHash)
-	hasSession := rowErr == nil
-	sessionID := ""
-	if hasSession {
-		sessionID = row.ID
-	} else {
-		// Legacy session without a row — mint a fresh identity.
-		sessionID = newSessionID()
+
+	// presentedAccessJTI is the access token the caller authenticated with
+	// (Bearer/API clients). Cookie refreshes present none (claims.ID == "") —
+	// the superseded cookie is replaced below and dies with its short TTL.
+	presentedJTI := ""
+	if claims.ID != "" {
+		presentedJTI = claims.ID
 	}
 
-	// Validate and issue a fresh access token. The opaque refresh token is NOT
-	// rotated (stable session identity): concurrent refreshes from multiple
-	// tabs/components all succeed instead of racing each other into a 401.
-	tokenPair, err := h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, sessionID, req.RefreshToken)
-	if err != nil {
-		// Only revoke all sessions if the refresh token was found but generation
-		// failed (potential token theft). "Not found" is benign (already used, expired).
-		if !errors.Is(err, auth.ErrRefreshTokenNotFound) {
-			h.authService.RevokeAllRefreshTokens(claims.UserID)
-			middleware.InvalidateAuthCache(h.redis, claims.UserID)
-			// Also clean up all sessions from DB
-			h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
-		}
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
-		return
+	revokeEverything := func() {
+		h.authService.RevokeAllRefreshTokens(claims.UserID)
+		middleware.InvalidateAuthCache(h.redis, claims.UserID)
+		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
 	}
 
-	if hasSession {
-		// Blacklist the access token that was actually presented with THIS
-		// request (claims.ID, populated for Bearer/API clients) — never the JTI
-		// read from the shared session row. The row's JTI is overwritten by
-		// every refresh of this session, so concurrent refreshes from multiple
-		// tabs race on it: tab B's refresh can read tab A's just-issued JTI from
-		// the row and blacklist it, making tab A's retry fail with 401 and the
-		// frontend force-logout a perfectly healthy session (observed on prod:
-		// refresh always 200, yet the client kept getting logged out).
-		// Browser cookie refreshes present no access token (claims.ID == ""), so
-		// nothing is blacklisted here — the superseded access cookie is replaced
-		// by SetAuthCookies below and expires within its short TTL. Instant
-		// revocation still works: Logout/DeleteSession blacklist the row's
-		// current JTI when the session is explicitly killed.
-		if claims.ID != "" {
-			h.authService.BlacklistToken(claims.ID, time.Now().Add(time.Hour))
+	var pair *auth.TokenPair
+	if rowErr == nil {
+		// Winner path: this session still holds the presented token — rotate.
+		var err error
+		pair, err = h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, row.ID, req.RefreshToken)
+		if err != nil {
+			if errors.Is(err, auth.ErrRefreshTokenReused) {
+				// Theft signature: a dead token replayed past the grace
+				// window. Kill every session; the legitimate owner re-logs in.
+				revokeEverything()
+			} else if !errors.Is(err, auth.ErrRefreshTokenNotFound) {
+				// Rotation failed after the token was found (Redis died
+				// mid-rotation) — fail closed on everything, like theft.
+				revokeEverything()
+			}
+			// ErrRefreshTokenNotFound with a matching row means the Redis record
+			// is gone (flush/restart) but possession of the token preimage is
+			// proven by the row match itself: re-mint instead of bricking the
+			// session.
+			if pair == nil && errors.Is(err, auth.ErrRefreshTokenNotFound) {
+				fresh, genErr := h.authService.GenerateTokenPair(claims.UserID, claims.Username, claims.Domain, row.ID)
+				if genErr != nil {
+					c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+					return
+				}
+				pair = fresh
+			} else if pair == nil {
+				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+				return
+			}
 		}
-		// Rotate the session row in place — the id NEVER changes.
+		// Blacklist the superseded access token captured BEFORE the row update.
+		// Both concurrent winners (if any) blacklist the same old JTI — never
+		// each other's fresh one (see the race note in auth.RefreshAccessToken).
+		if row.AccessJTI != "" {
+			h.authService.BlacklistToken(row.AccessJTI, time.Now().Add(time.Hour))
+		}
+		if presentedJTI != "" && presentedJTI != row.AccessJTI {
+			h.authService.BlacklistToken(presentedJTI, time.Now().Add(time.Hour))
+		}
 		res, execErr := h.db.Exec(`UPDATE user_sessions
 			SET refresh_hash = $1, access_jti = $2, user_agent = $3,
 				ip_address = NULLIF($4, '')::inet, last_active_at = NOW()
 			WHERE id = $5 AND user_id = $6`,
-			sha256hex(tokenPair.RefreshToken), tokenPair.AccessJTI, c.GetHeader("User-Agent"), c.ClientIP(), row.ID, claims.UserID)
+			sha256hex(pair.RefreshToken), pair.AccessJTI, c.GetHeader("User-Agent"), c.ClientIP(), row.ID, claims.UserID)
 		if execErr == nil {
 			if n, _ := res.RowsAffected(); n == 0 {
 				// The row vanished between lookup and rotation — the session was
 				// revoked concurrently. Fail closed instead of handing out a fresh
 				// identity for a dead device.
-				h.authService.DeleteRefreshTokenByHash(claims.UserID, sha256hex(tokenPair.RefreshToken))
+				h.authService.DeleteRefreshTokenByHash(claims.UserID, sha256hex(pair.RefreshToken))
 				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Session has been revoked. Please log in again."))
 				return
 			}
 		}
 	} else {
-		// Legacy session whose row predates stable session ids — mint a fresh one.
-		insertSessionRow(h.db, claims.UserID, tokenPair.SessionID, sha256hex(tokenPair.RefreshToken), tokenPair.AccessJTI, c.GetHeader("User-Agent"), c.ClientIP())
-		cleanupOldSessions(h.db, h.redis, h.authService, claims.UserID)
+		// No session holds the presented token. Three sub-cases:
+		//  1. grace window (concurrent tab): converge on the current token;
+		//  2. tombstone (replay past grace): theft → revoke everything;
+		//  3. legacy rowless session or unknown token.
+		if current, ok := h.authService.GraceReplacement(claims.UserID, req.RefreshToken); ok {
+			currentHash := sha256hex(current)
+			grow, growErr := findSessionByRefreshHash(h.db, claims.UserID, currentHash)
+			if growErr != nil {
+				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+				return
+			}
+			issued, err := h.authService.IssueAccessToken(claims.UserID, claims.Username, claims.Domain, grow.ID)
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+				return
+			}
+			pair = &auth.TokenPair{
+				AccessToken:  issued.AccessToken,
+				RefreshToken: current,
+				SessionID:    grow.ID,
+				AccessJTI:    issued.AccessJTI,
+				ExpiresIn:    issued.ExpiresIn,
+			}
+			// Never blacklist the row's current JTI here: it may have been
+			// written by the winning concurrent refresh a millisecond ago —
+			// blacklisting it would kill a live session (the exact race the
+			// old code hit on prod). Only the presented Bearer token dies.
+			if presentedJTI != "" {
+				h.authService.BlacklistToken(presentedJTI, time.Now().Add(time.Hour))
+			}
+			h.db.Exec(`UPDATE user_sessions
+				SET access_jti = $1, last_active_at = NOW()
+				WHERE id = $2 AND user_id = $3`, pair.AccessJTI, grow.ID, claims.UserID)
+		} else if h.authService.IsRefreshTokenReused(claims.UserID, req.RefreshToken) {
+			revokeEverything()
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+			return
+		} else {
+			// Legacy rowless session (Redis record exists, DB row predates
+			// stable session ids): possession MUST be proven by the Redis
+			// record for the PRESENTED token — minting a session for an
+			// unknown token would be session forging via the user cookie.
+			if !h.authService.ValidateRefreshToken(claims.UserID, req.RefreshToken) {
+				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+				return
+			}
+			rotated, err := h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, newSessionID(), req.RefreshToken)
+			if err != nil {
+				if errors.Is(err, auth.ErrRefreshTokenReused) {
+					revokeEverything()
+				}
+				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+				return
+			}
+			pair = rotated
+			insertSessionRow(h.db, claims.UserID, pair.SessionID, sha256hex(pair.RefreshToken), pair.AccessJTI, c.GetHeader("User-Agent"), c.ClientIP())
+			cleanupOldSessions(h.db, h.redis, h.authService, claims.UserID)
+		}
 	}
-	middleware.SetAuthCookies(c, claims.UserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
+	if err := middleware.SetAuthCookies(c, claims.UserID, pair.AccessToken, pair.RefreshToken, 3600); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to establish session"))
+		return
+	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"token":         tokenPair.AccessToken,
-		"refresh_token": tokenPair.RefreshToken,
-		"expires_in":    tokenPair.ExpiresIn,
-	}))
+	// The refresh token travels in the HttpOnly cookie only. It is echoed in
+	// JSON solely for cookieless API clients that explicitly opt in — browser
+	// JS must never see it (XSS would harvest a 3-day session).
+	resp := gin.H{
+		"token":      pair.AccessToken,
+		"expires_in": pair.ExpiresIn,
+	}
+	if req.IncludeTokens {
+		resp["refresh_token"] = pair.RefreshToken
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(resp))
 }
 
 // Logout blacklists the access token and revokes the CURRENT session (this
@@ -193,9 +276,13 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		// to the opaque refresh token that exists server-side in Redis.
 		refreshToken, refreshErr := c.Cookie(middleware.RefreshTokenCookie)
 		userID, userErr := c.Cookie(middleware.RefreshUserCookie)
-		if refreshErr == nil && userErr == nil &&
-			h.authService.ValidateRefreshToken(userID, refreshToken) {
-			claims = &auth.Claims{UserID: userID}
+		// ResolveRefreshToken also accepts a just-rotated cookie inside the
+		// grace window (the other tab already rotated): without it a stale
+		// tab could not log its own session out.
+		if refreshErr == nil && userErr == nil {
+			if _, ok := h.authService.ResolveRefreshToken(userID, refreshToken); ok {
+				claims = &auth.Claims{UserID: userID}
+			}
 		}
 	}
 	if claims == nil {

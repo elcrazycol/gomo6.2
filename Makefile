@@ -56,6 +56,9 @@ web: ## Run frontend dev servers (web :8081, docs :3001, dev-dashboard :3002)
 mobile: ## Print the LAN URL to open the running dev site on a phone (same Wi-Fi)
 	@bash scripts/mobile-url.sh
 
+seed-service: ## Create only the official @gomo6 service account (idempotent)
+	@bash scripts/seed-service-account.sh
+
 seed: ## Populate the local DB with demo data (idempotent; backend must be running)
 	@bash scripts/seed.sh
 

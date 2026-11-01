@@ -106,11 +106,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	devDashboardHandler := handlers.NewDevDashboardHandler(db, oauthService)
 
 	// Initialize rate limiters (Redis-backed for distributed deployment)
-	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute)     // 100 req/min for auth/me
-	loginRateLimiter := middleware.NewAuthRateLimiter(redis, 10, time.Minute)     // 10/min per IP for login (anti brute-force)
-	registerRateLimiter := middleware.NewAuthRateLimiter(redis, 5, time.Minute)   // 5/min per IP for register (anti abuse)
-	verify2FARateLimiter := middleware.NewAuthRateLimiter(redis, 20, time.Minute) // 20/min per IP for the 2FA step
-	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)       // 20/min token, 10/min revoke
+	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute) // 100 req/min for auth/me
+	// Pre-auth limiters are fail-CLOSED (strict): without Redis there is no
+	// distributed budget, and silently allowing unlimited password/TOTP
+	// guesses is worse than a 503. Keyed by IP by the middleware (no claims).
+	loginRateLimiter := middleware.NewStrictAuthRateLimiterWithPrefix("login", redis, 10, time.Minute)              // 10/min per IP for login (anti brute-force)
+	registerRateLimiter := middleware.NewStrictAuthRateLimiterWithPrefix("register", redis, 5, time.Minute)         // 5/min per IP for register (anti abuse)
+	verify2FARateLimiter := middleware.NewStrictAuthRateLimiterWithPrefix("verify2fa", redis, 20, time.Minute)      // 20/min per IP for the 2FA step
+	webauthnLoginLimiter := middleware.NewStrictAuthRateLimiterWithPrefix("webauthn_login", redis, 20, time.Minute) // 20/min per IP for passkey login
+	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)                                         // 20/min token, 10/min revoke
 	// Audio metadata extraction is a disk-touching parse (multipart spool + temp
 	// file), so it gets its own per-user budget on top of auth — the frontend
 	// calls it once per audio attachment only when client-side parsing fails.
@@ -249,6 +253,21 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	sidebarTabsHandler := handlers.NewSidebarTabsHandler(db)
 	userSettingsHandler := handlers.NewUserSettingsHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
+	// Login alerts through the @gomo6 service thread (phase 1 notifications).
+	// Wired here because messengerHandler is created at this point.
+	// Best-effort: SendServiceNotification logs its own failures, never fatal.
+	authHandler.SetServiceNotifier(func(userID, text string) {
+		var svcID string
+		if err := db.QueryRow(
+			`SELECT id FROM users WHERE username = $1 AND COALESCE(is_service, false)`,
+			handlers.ServiceAccountName(),
+		).Scan(&svcID); err != nil {
+			return // not seeded yet — stay silent
+		}
+		if err := messengerHandler.SendServiceNotification(svcID, userID, text); err != nil {
+			logsafe.Printf("[ADMIN-SERVICE] login notify failed for user %s: %v", userID, err)
+		}
+	})
 	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
 	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
@@ -389,9 +408,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			if webauthnHandler != nil {
 				webauthnGroup := authGroup.Group("/webauthn")
 				{
-					// Login with passkey (no auth required upfront)
-					webauthnGroup.GET("/login/begin", webauthnHandler.BeginLogin)
-					webauthnGroup.POST("/login/finish", webauthnHandler.FinishLogin)
+					// Login with passkey (no auth required upfront). Pre-auth IP
+					// rate limiting: without it the 5-minute session window allows
+					// unbounded assertion attempts.
+					webauthnGroup.GET("/login/begin", middleware.AuthRateLimitMiddleware(webauthnLoginLimiter), webauthnHandler.BeginLogin)
+					webauthnGroup.POST("/login/finish", middleware.AuthRateLimitMiddleware(webauthnLoginLimiter), webauthnHandler.FinishLogin)
 
 					// Manage passkeys (requires auth)
 					webauthnProtected := webauthnGroup.Group("")
@@ -401,6 +422,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 						webauthnProtected.POST("/register/finish", webauthnHandler.FinishRegistration)
 						webauthnProtected.GET("/credentials", webauthnHandler.ListCredentials)
 						webauthnProtected.DELETE("/credentials/:credentialId", webauthnHandler.DeleteCredential)
+						// Fresh passkey ceremony ("use passkey instead of password")
+						// for sensitive account actions. Per-user limited like /me.
+						webauthnProtected.POST("/reauth/begin", middleware.AuthRateLimitMiddleware(authRateLimiter), webauthnHandler.BeginReauth)
+						webauthnProtected.POST("/reauth/finish", middleware.AuthRateLimitMiddleware(authRateLimiter), webauthnHandler.FinishReauth)
 					}
 				}
 			}
@@ -706,6 +731,33 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/moderation/staff", adminOnlyMiddleware(db), moderationHandler.GrantRole)
 			protected.DELETE("/moderation/staff/:userId/:role", adminOnlyMiddleware(db), moderationHandler.RevokeRole)
 
+			// ── Official service account (@gomo6), admin-operated ─────────
+			// The account itself can never log in and its messenger is cut
+			// off; everything published in its name goes through here with a
+			// fresh passkey re-auth per action (X-Reauth-Token) + audit log.
+			adminServiceHandler := handlers.NewAdminServiceHandler(db, engine, storiesHandler, storageHandler, profilesHandler)
+			adminSvcRead := protected.Group("/admin/service")
+			adminSvcRead.Use(adminOnlyMiddleware(db))
+			{
+				adminSvcRead.GET("/account", adminServiceHandler.ServiceAccountInfo)
+			}
+			adminSvcWrite := protected.Group("/admin/service")
+			adminSvcWrite.Use(
+				adminOnlyMiddleware(db),
+				handlers.RequireFreshReauth(authService),
+				adminServiceHandler.ServiceSudoMiddleware(),
+			)
+			{
+				adminSvcWrite.POST("/wall", adminServiceHandler.ServiceWall)
+				adminSvcWrite.PUT("/wall", adminServiceHandler.ServiceWall)
+				adminSvcWrite.DELETE("/wall", adminServiceHandler.ServiceWall)
+				adminSvcWrite.POST("/customization", adminServiceHandler.ServiceCustomization)
+				adminSvcWrite.PUT("/customization", adminServiceHandler.ServiceCustomization)
+				adminSvcWrite.POST("/stories", adminServiceHandler.ServiceStory)
+				adminSvcWrite.POST("/upload", adminServiceHandler.ServiceUpload)
+				adminSvcWrite.PUT("/profile", adminServiceHandler.ServiceProfile)
+			}
+
 			// Sanction appeals: any user appeals their own sanction; the queue is
 			// moderator-readable and decisions are moderator-only.
 			protected.POST("/moderation/appeals", moderationHandler.SubmitAppeal)
@@ -760,6 +812,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// -- Messenger (clean API) --
 			// Read-only endpoints — higher rate limit (300 req/min)
 			messengerRead := protected.Group("")
+			messengerRead.Use(middleware.DenyServiceAccount(db, redis))
 			messengerRead.Use(middleware.MessengerTransactionMiddleware(db))
 			messengerRead.Use(middleware.MessengerRateLimitMiddleware(
 				middleware.NewMessengerRateLimiter(redis, 300, 1*time.Minute)))
@@ -772,6 +825,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 			// Write endpoints — lower rate limit (60 req/min for sends/edits/deletes)
 			messengerWrite := protected.Group("")
+			messengerWrite.Use(middleware.DenyServiceAccount(db, redis))
 			messengerWrite.Use(middleware.MessengerTransactionMiddleware(db))
 			messengerWrite.Use(middleware.MessengerRateLimitMiddleware(
 				middleware.NewMessengerRateLimiter(redis, 120, 1*time.Minute)))

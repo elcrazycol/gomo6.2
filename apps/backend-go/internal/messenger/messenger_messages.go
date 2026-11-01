@@ -340,6 +340,16 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
+	// Service threads are read-only: the notification account never reads
+	// replies and recipients must not write into the void.
+	var convIsService bool
+	if err := h.dbFor(c).QueryRow(
+		`SELECT COALESCE(is_service, false) FROM chat_conversations WHERE id = $1`,
+		conversationID).Scan(&convIsService); err == nil && convIsService {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("This is a notification thread and does not accept messages"))
+		return
+	}
+
 	// The personal notes conversation carries client-side E2E ciphertext: the
 	// server stores the opaque blob verbatim and never holds the key. Regular
 	// conversations keep the server-side AES-GCM encryption.

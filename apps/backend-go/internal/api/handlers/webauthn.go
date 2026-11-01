@@ -9,15 +9,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/authz"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
@@ -39,13 +42,38 @@ type WebAuthnHandler struct {
 // NewWebAuthnHandler creates a WebAuthn handler. Returns nil if RP config is invalid.
 // redisClient may be nil for single-instance deployments (sessions will be unavailable).
 func NewWebAuthnHandler(db *sql.DB, redisClient *redis.Client, authService *auth.AuthService) *WebAuthnHandler {
+	// In production the RP identity MUST come from the environment. Falling
+	// back to localhost origins in prod would mint ceremonies bound to the
+	// wrong RP ID/origin (passkeys silently break — or worse, a misconfigured
+	// origin widens where assertions are accepted). Fail closed: no handler,
+	// no passkey routes.
+	if env := os.Getenv("ENVIRONMENT"); env == "production" || env == "prod" {
+		if os.Getenv("WEBAUTHN_RP_ID") == "" || (os.Getenv("WEBAUTHN_RP_ORIGIN") == "" && os.Getenv("WEBAUTHN_RP_ORIGINS") == "") {
+			log.Println("WebAuthn: WEBAUTHN_RP_ID/WEBAUTHN_RP_ORIGIN(S) are required in production — passkeys disabled")
+			return nil
+		}
+	}
 	rpID := os.Getenv("WEBAUTHN_RP_ID")
 	if rpID == "" {
 		rpID = "localhost"
 	}
-	rpOrigin := os.Getenv("WEBAUTHN_RP_ORIGIN")
-	if rpOrigin == "" {
-		rpOrigin = "http://localhost:8080"
+	// Multiple origins (comma-separated WEBAUTHN_RP_ORIGINS): the main app and
+	// the dev-dashboard are different origins sharing one RP ID, and admin
+	// passkey ceremonies (re-auth for official posts) run from the dashboard.
+	var rpOrigins []string
+	if plural := os.Getenv("WEBAUTHN_RP_ORIGINS"); plural != "" {
+		for _, o := range strings.Split(plural, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				rpOrigins = append(rpOrigins, o)
+			}
+		}
+	}
+	if len(rpOrigins) == 0 {
+		rpOrigin := os.Getenv("WEBAUTHN_RP_ORIGIN")
+		if rpOrigin == "" {
+			rpOrigin = "http://localhost:8080"
+		}
+		rpOrigins = []string{rpOrigin}
 	}
 	rpName := os.Getenv("WEBAUTHN_RP_NAME")
 	if rpName == "" {
@@ -55,7 +83,7 @@ func NewWebAuthnHandler(db *sql.DB, redisClient *redis.Client, authService *auth
 	wconfig := &webauthn.Config{
 		RPDisplayName: rpName,
 		RPID:          rpID,
-		RPOrigins:     []string{rpOrigin},
+		RPOrigins:     rpOrigins,
 	}
 
 	wa, err := webauthn.New(wconfig)
@@ -174,7 +202,23 @@ func (h *WebAuthnHandler) BeginRegistration(c *gin.Context) {
 		displayName: claims.Username,
 	}
 
-	creation, session, err := h.wa.BeginRegistration(user)
+	// Enforce passkey-grade creation: a discoverable (resident-key) credential
+	// with user verification. Without this the browser may create a
+	// non-discoverable credential (e.g. on older security keys) that our
+	// discoverable-only login flow can never use — a passkey that bricks itself.
+	// Exclusions keep the same authenticator from being registered twice.
+	existing, err := h.loadCredentials(claims.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to begin registration"))
+		return
+	}
+	creation, session, err := h.wa.BeginRegistration(user,
+		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
+			ResidentKey:      protocol.ResidentKeyRequirementRequired,
+			UserVerification: protocol.VerificationRequired,
+		}),
+		webauthn.WithExclusions(webauthn.Credentials(existing).CredentialDescriptors()),
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to begin registration"))
 		return
@@ -209,15 +253,38 @@ func (h *WebAuthnHandler) FinishRegistration(c *gin.Context) {
 	}
 	claims := claimsI.(*auth.Claims)
 
-	// Read name from query param.
+	// Read name from query param. Rendered in settings UIs: cap the length so
+	// a hostile/comical 10KB name cannot become a stored-blob annoyance.
 	name := c.Query("name")
 	if name == "" {
 		name = "Passkey"
+	}
+	if len(name) > 64 {
+		name = name[:64]
 	}
 
 	sessionData, ok := h.loadSession(claims.UserID, "register")
 	if !ok {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("No registration in progress"))
+		return
+	}
+
+	// One device, one passkey: true per-device identity is not attestable
+	// server-side (same model shares AAGUID, UA/IP collide behind NAT), so the
+	// enforceable bound is per account. Ten covers phones/tablets/laptops plus
+	// spare security keys; beyond that the user is hoarding duplicates — make
+	// them delete one first instead of piling an unbounded list.
+	const maxCredentialsPerUser = 10
+	var existing int
+	if err := h.db.QueryRow(
+		`SELECT COUNT(*) FROM user_webauthn_credentials WHERE user_id = $1`, claims.UserID,
+	).Scan(&existing); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load credentials"))
+		return
+	}
+	if existing >= maxCredentialsPerUser {
+		h.deleteSession(claims.UserID, "register")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Passkey limit reached (10). Remove an old one first."))
 		return
 	}
 
@@ -241,10 +308,11 @@ func (h *WebAuthnHandler) FinishRegistration(c *gin.Context) {
 	_, err = h.db.Exec(`
 		INSERT INTO user_webauthn_credentials
 			(user_id, credential_id, public_key, attestation_type, attestation_format,
-			 transport, flags, authenticator, attestation, name)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			 transport, flags, authenticator, attestation, name, user_agent, ip_address)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, '')::inet)
 	`, claims.UserID, credential.ID, credential.PublicKey, credential.AttestationType,
-		credential.AttestationFormat, transportJSON, flagsJSON, authJSON, attJSON, name)
+		credential.AttestationFormat, transportJSON, flagsJSON, authJSON, attJSON, name,
+		c.GetHeader("User-Agent"), c.ClientIP())
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to store credential"))
@@ -273,15 +341,25 @@ func (h *WebAuthnHandler) FinishRegistration(c *gin.Context) {
 // @Failure      500 {object} models.APIResponse
 // @Router       /auth/webauthn/login/begin [get]
 func (h *WebAuthnHandler) BeginLogin(c *gin.Context) {
-	assertion, session, err := h.wa.BeginDiscoverableLogin()
+	// Require user verification: a passkey login must prove a human unlocked
+	// the authenticator (biometric/PIN), not merely that somebody holds a key
+	// whose UV was skipped. The library default is "preferred" (not enforced).
+	assertion, session, err := h.wa.BeginDiscoverableLogin(
+		webauthn.WithUserVerification(protocol.VerificationRequired),
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to begin login"))
 		return
 	}
 
 	// Generate a unique session token to prevent collisions between concurrent logins.
+	// Fail closed: a predictable (zeroed) session token lets an attacker ride
+	// another user's ceremony and finish a passkey login as them.
 	sessionToken := make([]byte, 16)
-	rand.Read(sessionToken)
+	if _, err := rand.Read(sessionToken); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to begin login"))
+		return
+	}
 	tokenStr := hex.EncodeToString(sessionToken)
 
 	h.storeSession(tokenStr, "login", session)
@@ -306,9 +384,24 @@ func (h *WebAuthnHandler) BeginLogin(c *gin.Context) {
 // @Failure      401 {object} models.APIResponse
 // @Router       /auth/webauthn/login/finish [post]
 func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
-	sessionToken := c.Query("session_token")
+	// The ceremony token rides the JSON body, not the URL: query strings land
+	// in access logs, browser history and Referer headers, and this token is a
+	// login capability for 5 minutes. The query param stays as a fallback for
+	// older clients during rollout.
+	// NOTE: the body is restored after peeking — FinishPasskeyLogin parses the
+	// same body for the credential, and a consumed body would break it.
+	rawBody, _ := io.ReadAll(c.Request.Body)
+	c.Request.Body = io.NopCloser(bytes.NewReader(rawBody))
+	var finishBody struct {
+		SessionToken string `json:"session_token"`
+	}
+	_ = json.Unmarshal(rawBody, &finishBody)
+	sessionToken := finishBody.SessionToken
 	if sessionToken == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("session_token query parameter is required"))
+		sessionToken = c.Query("session_token")
+	}
+	if sessionToken == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("session_token is required"))
 		return
 	}
 
@@ -316,6 +409,20 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 	if !ok {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("No login in progress or session expired"))
 		return
+	}
+
+	// Bound assertion attempts per ceremony: without this, the 5-minute
+	// session window allows unbounded credential guesses.
+	const maxWebAuthnLoginAttempts = 10
+	if h.redis != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		n, _ := h.redis.Get(ctx, "webauthn:login_attempts:"+sessionToken).Int()
+		cancel()
+		if n >= maxWebAuthnLoginAttempts {
+			h.deleteSession(sessionToken, "login")
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Too many attempts. Please start a new login."))
+			return
+		}
 	}
 
 	// DiscoverableUserHandler looks up the user by credential rawID + userHandle.
@@ -353,11 +460,52 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 
 	_, credential, err := h.wa.FinishPasskeyLogin(handler, *sessionData, c.Request)
 	if err != nil {
+		// Count the failure; burn the ceremony once the budget is spent so a
+		// stolen session_token cannot be guessed forever.
+		if h.redis != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			n, _ := h.redis.Incr(ctx, "webauthn:login_attempts:"+sessionToken).Result()
+			if n == 1 {
+				h.redis.Expire(ctx, "webauthn:login_attempts:"+sessionToken, webauthnSessionTTL)
+			}
+			if n >= maxWebAuthnLoginAttempts {
+				h.deleteSession(sessionToken, "login")
+			}
+			cancel()
+		} else {
+			// No Redis backend: sessions are not tracked anyway, but never
+			// leave a failed ceremony reusable in-process caches.
+			h.deleteSession(sessionToken, "login")
+		}
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authentication failed"))
 		return
 	}
 
 	h.deleteSession(sessionToken, "login")
+	if h.redis != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		h.redis.Del(ctx, "webauthn:login_attempts:"+sessionToken)
+		cancel()
+	}
+
+	// Belt and braces: the service account must never complete a login
+	// ceremony even if a credential row somehow existed for it. authedUserID
+	// is resolved by the DiscoverableUserHandler inside FinishPasskeyLogin.
+	if svc, serr := authz.IsServiceAccount(c.Request.Context(), h.db, authedUserID); serr == nil && svc {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Service account login is disabled"))
+		return
+	}
+
+	// Clone detection (spec step 17): a regressed signature counter means the
+	// private key exists in two places — the credential may be cloned. Failing
+	// the login outright would lock out legitimate users on authenticator
+	// quirks (synced passkeys often report 0), so the ceremony still succeeds
+	// but the event is impossible to miss: loud security log with everything
+	// needed to identify and revoke the credential.
+	if credential.Authenticator.CloneWarning {
+		log.Printf("[SECURITY] WebAuthn clone warning: user=%s credential=%x sign_count=%d — possible cloned authenticator",
+			authedUserID, credential.ID, credential.Authenticator.SignCount)
+	}
 
 	// Update credential counters and last_used_at.
 	flagsJSON, _ := json.Marshal(credential.Flags)
@@ -398,13 +546,122 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 	// incognito the loss is immediate). SetAuthCookies is also what the client
 	// uses to detect the session after a reload (the readable CSRF cookie) and
 	// to restore it via /auth/refresh (the HttpOnly refresh cookie).
-	middleware.SetAuthCookies(c, authedUserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
+	if err := middleware.SetAuthCookies(c, authedUserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to establish session"))
+		return
+	}
+
+	// The refresh token lives in the HttpOnly cookie only. A passkey login is
+	// always a browser flow, so there is no include_tokens opt-in here.
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"user":       authedUser,
+		"token":      tokenPair.AccessToken,
+		"expires_in": tokenPair.ExpiresIn,
+	}))
+}
+
+// ─── Re-authentication ("use passkey instead of password") ───────────────────
+// Sensitive account actions (password change, 2FA enrollment, passkey
+// deletion) accept EITHER the current password OR a fresh passkey ceremony.
+// These two endpoints run that ceremony and mint a 5-minute single-use reauth
+// token the action endpoints consume. The ceremony is non-discoverable and
+// scoped to the caller's own credentials (the user is already authenticated),
+// user verification is required, and the session binds ceremony to account.
+
+// BeginReauth starts a passkey re-authentication ceremony for the caller.
+// POST /api/v1/auth/webauthn/reauth/begin
+func (h *WebAuthnHandler) BeginReauth(c *gin.Context) {
+	claimsI, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+	claims := claimsI.(*auth.Claims)
+
+	creds, err := h.loadCredentials(claims.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load credentials"))
+		return
+	}
+	if len(creds) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("No passkeys registered"))
+		return
+	}
+
+	user := &webAuthnUser{
+		userID:      claims.UserID,
+		username:    claims.Username,
+		displayName: claims.Username,
+		credentials: creds,
+	}
+
+	assertion, session, err := h.wa.BeginLogin(user,
+		webauthn.WithUserVerification(protocol.VerificationRequired),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to begin re-authentication"))
+		return
+	}
+
+	h.storeSession(claims.UserID, "reauth", session)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"user":          authedUser,
-		"token":         tokenPair.AccessToken,
-		"refresh_token": tokenPair.RefreshToken,
-		"expires_in":    tokenPair.ExpiresIn,
+		"options": assertion,
+	}))
+}
+
+// FinishReauth completes the ceremony and returns a single-use reauth token.
+// POST /api/v1/auth/webauthn/reauth/finish
+func (h *WebAuthnHandler) FinishReauth(c *gin.Context) {
+	claimsI, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+	claims := claimsI.(*auth.Claims)
+
+	sessionData, ok := h.loadSession(claims.UserID, "reauth")
+	if !ok {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("No re-authentication in progress"))
+		return
+	}
+
+	// Throttle like the other auth oracles: a stolen session must not get
+	// unlimited assertion guesses (the ceremony itself already bounds them).
+	if isAuthActionLockedRDB(h.redis, claims.UserID) {
+		c.JSON(http.StatusTooManyRequests, models.ErrorResponse("Too many attempts. Please try again later."))
+		return
+	}
+
+	creds, err := h.loadCredentials(claims.UserID)
+	if err != nil || len(creds) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("No passkeys registered"))
+		return
+	}
+	user := &webAuthnUser{
+		userID:      claims.UserID,
+		username:    claims.Username,
+		displayName: claims.Username,
+		credentials: creds,
+	}
+
+	if _, err := h.wa.FinishLogin(user, *sessionData, c.Request); err != nil {
+		recordAuthActionFailureRDB(h.redis, claims.UserID)
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Re-authentication failed"))
+		return
+	}
+	clearAuthActionLockRDB(h.redis, claims.UserID)
+	h.deleteSession(claims.UserID, "reauth")
+
+	token, err := h.authService.GenerateReauthToken(claims.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to issue re-auth token"))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"reauth_token": token,
+		"expires_in":   auth.ReauthTTLSeconds(),
 	}))
 }
 
@@ -431,7 +688,8 @@ func (h *WebAuthnHandler) ListCredentials(c *gin.Context) {
 	claims := claimsI.(*auth.Claims)
 
 	rows, err := h.db.Query(`
-		SELECT credential_id, name, attestation_type, created_at, last_used_at
+		SELECT credential_id, name, attestation_type, created_at, last_used_at,
+			COALESCE(user_agent, '')
 		FROM user_webauthn_credentials
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -448,6 +706,7 @@ func (h *WebAuthnHandler) ListCredentials(c *gin.Context) {
 		AttestationType string  `json:"attestation_type"`
 		CreatedAt       string  `json:"created_at"`
 		LastUsedAt      *string `json:"last_used_at,omitempty"`
+		UserAgent       string  `json:"user_agent,omitempty"`
 	}
 
 	var credentials []credInfo
@@ -455,7 +714,7 @@ func (h *WebAuthnHandler) ListCredentials(c *gin.Context) {
 		var ci credInfo
 		var lastUsed sql.NullTime
 		var rawCredID []byte
-		if err := rows.Scan(&rawCredID, &ci.Name, &ci.AttestationType, &ci.CreatedAt, &lastUsed); err != nil {
+		if err := rows.Scan(&rawCredID, &ci.Name, &ci.AttestationType, &ci.CreatedAt, &lastUsed, &ci.UserAgent); err != nil {
 			continue
 		}
 		ci.CredentialID = base64.RawURLEncoding.EncodeToString(rawCredID)
@@ -477,9 +736,15 @@ func (h *WebAuthnHandler) ListCredentials(c *gin.Context) {
 // DeleteCredential removes a passkey for the authenticated user.
 // DELETE /api/v1/auth/webauthn/credentials/:credentialId
 //
+// Removing a passkey with a stolen session alone would silently strip the
+// account's strongest factor, so this endpoint requires RE-AUTHENTICATION:
+// the current password (when the account has one) and a current 2FA code
+// (when 2FA is enabled). Passkey-only accounts have no other factor — the
+// session itself is the proof — and may delete directly.
+//
 // DeleteCredential godoc
 // @Summary      Delete passkey
-// @Description  Remove a registered passkey
+// @Description  Remove a registered passkey (requires re-authentication)
 // @Tags         WebAuthn
 // @Produce      json
 // @Param        credentialId path string true "Credential ID (base64url)"
@@ -495,6 +760,89 @@ func (h *WebAuthnHandler) DeleteCredential(c *gin.Context) {
 		return
 	}
 	claims := claimsI.(*auth.Claims)
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		Code            string `json:"code"`
+		// Fresh passkey ceremony as an alternative to password/code below.
+		ReauthToken string `json:"reauth_token"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	reauthOK := consumeReauthToken(h.authService, claims.UserID, req.ReauthToken)
+
+	var passwordHash sql.NullString
+	var totpSecret *string
+	var totpEnabled bool
+	if err := h.db.QueryRow(
+		`SELECT password_hash, totp_secret, totp_enabled FROM users WHERE id = $1`, claims.UserID,
+	).Scan(&passwordHash, &totpSecret, &totpEnabled); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load account state"))
+		return
+	}
+
+	hasPassword := passwordHash.Valid && passwordHash.String != ""
+	if hasPassword || totpEnabled {
+		// Re-auth attempts are throttled per account like the other
+		// password/code oracles, so a stolen session cannot brute-force them.
+		if isAuthActionLockedRDB(h.redis, claims.UserID) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Too many attempts. Please try again later."))
+			return
+		}
+	}
+	if hasPassword && !reauthOK {
+		if strings.TrimSpace(req.CurrentPassword) == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Current password or re-authentication is required"))
+			return
+		}
+		if verifyPassword(passwordHash.String, req.CurrentPassword) != nil {
+			recordAuthActionFailureRDB(h.redis, claims.UserID)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Current password is incorrect"))
+			return
+		}
+	}
+	if totpEnabled && !reauthOK {
+		if strings.TrimSpace(req.Code) == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Current 2FA code or re-authentication is required"))
+			return
+		}
+		plain := ""
+		if totpSecret != nil && *totpSecret != "" {
+			var err error
+			plain, err = openTOTPSecret(h.authService, *totpSecret)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse("2FA is not available"))
+				return
+			}
+		}
+		valid, err := validateTOTPWithRecoveryDB(h.db, claims.UserID, plain, strings.TrimSpace(req.Code))
+		if err != nil || !valid {
+			if err == nil {
+				recordAuthActionFailureRDB(h.redis, claims.UserID)
+			}
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid 2FA code"))
+			return
+		}
+	}
+	if hasPassword || totpEnabled {
+		clearAuthActionLockRDB(h.redis, claims.UserID)
+	}
+
+	// Footgun guard: a passkey-only account (no password, no 2FA) whose last
+	// passkey is deleted is locked out permanently — there is no password
+	// reset flow. Refuse; the user must set a password first.
+	if !hasPassword && !totpEnabled {
+		var remaining int
+		if err := h.db.QueryRow(
+			`SELECT COUNT(*) FROM user_webauthn_credentials WHERE user_id = $1`, claims.UserID,
+		).Scan(&remaining); err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load credentials"))
+			return
+		}
+		if remaining <= 1 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot remove your last passkey without setting a password first"))
+			return
+		}
+	}
 
 	credB64 := c.Param("credentialId")
 	credBytes, err := base64.RawURLEncoding.DecodeString(credB64)

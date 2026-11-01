@@ -188,6 +188,9 @@ DEV_ENV_FILE=".dev.env"
     echo "export TURNSTILE_DISABLED=1"
     echo "export WEBAUTHN_RP_ID=localhost"
     echo "export WEBAUTHN_RP_ORIGIN=http://localhost:8081"
+    # Main web (8081) + dev-dashboard (3002): admin passkey re-auth for
+    # official posts runs from the dashboard origin.
+    echo "export WEBAUTHN_RP_ORIGINS=http://localhost:8081,http://localhost:3002"
     echo "export WEBAUTHN_RP_NAME=gomo6-dev"
     echo "export GARAGE_S3_ENDPOINT=http://127.0.0.1:3900"
     echo "export GARAGE_S3_PUBLIC_ENDPOINT=http://127.0.0.1:3900"

@@ -438,15 +438,16 @@ func (h *OAuthHandler) Introspect(c *gin.Context) {
 		}
 	}
 
+	// Only confidential clients (client_id + client_secret) or a valid Bearer
+	// token may introspect. Public clients authenticating with a bare
+	// client_id could otherwise probe arbitrary tokens (active/scopes) — a
+	// token oracle for anyone who knows the public client_id.
 	if !authenticated && req.ClientID != "" {
 		app, err := h.oauthSvc.GetApplicationByClientID(req.ClientID)
 		if err == nil && app != nil && app.IsConfidential {
 			if req.ClientSecret != "" && h.oauthSvc.VerifyClientSecret(req.ClientSecret, app.ClientSecretHash) {
 				authenticated = true
 			}
-		}
-		if err == nil && app != nil && !app.IsConfidential {
-			authenticated = true
 		}
 	}
 

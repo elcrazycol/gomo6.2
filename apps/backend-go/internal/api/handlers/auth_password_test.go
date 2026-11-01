@@ -132,6 +132,11 @@ func TestUpdatePassword_NoStoredHash_AllowsFirstPassword(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(nil))
 
+	// ... and with no passkeys on the account no reauth ceremony is required.
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_webauthn_credentials WHERE user_id`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
 	mock.ExpectExec(`(?s).*UPDATE users SET password_hash.*WHERE id.*`).
 		WithArgs(sqlmock.AnyArg(), "u1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -144,6 +149,45 @@ func TestUpdatePassword_NoStoredHash_AllowsFirstPassword(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdatePassword_ReauthTokenSubstitutesPassword(t *testing.T) {
+	h, mock, mr := setupAuthHandlerWithRedis(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	// Account WITH a password — but the caller brings a fresh reauth token
+	// instead of the current password ("use passkey instead of password").
+	stored, err := hashPassword("OldPass123")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	mock.ExpectQuery(`SELECT password_hash FROM users WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash"}).AddRow(stored))
+	mock.ExpectExec(`(?s).*UPDATE users SET password_hash.*WHERE id.*`).
+		WithArgs(sqlmock.AnyArg(), "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Password change revokes other sessions: no rows.
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions WHERE user_id`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}))
+
+	reauth, err := h.authService.GenerateReauthToken("u1")
+	if err != nil {
+		t.Fatalf("GenerateReauthToken: %v", err)
+	}
+	_ = mr // consumed via handler redis
+
+	c, w := newPOSTContext("/auth/v1/update-password", map[string]string{
+		"password":     "Xq9vLm4zRw7tB2nK5",
+		"reauth_token": reauth,
+	}, claims, nil)
+	// Wire Redis into the handler (setupAuthHandlerWithRedis does it).
+	h.UpdatePassword(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with reauth_token, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

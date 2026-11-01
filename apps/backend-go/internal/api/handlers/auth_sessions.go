@@ -192,7 +192,35 @@ func findSessionByRefreshHash(db *sql.DB, userID, refreshHash string) (sessionRo
 // ─── AuthHandler convenience wrappers ────────────────────────────────────────
 
 func (h *AuthHandler) createLoginSession(userID, username, domain, userAgent, ip string) (*auth.TokenPair, error) {
-	return createLoginSession(h.db, h.redis, h.authService, userID, username, domain, userAgent, ip)
+	pair, err := createLoginSession(h.db, h.redis, h.authService, userID, username, domain, userAgent, ip)
+	if err != nil {
+		return nil, err
+	}
+	// Phase 1 service notification: every new session announces itself to ALL
+	// of the account's devices through the @gomo6 thread. A login the owner
+	// did not make is visible immediately; revoking it is one tap in
+	// Settings → Devices. Best-effort and never fatal to the login itself.
+	if h.serviceNotifier != nil {
+		osName, browserName, deviceType := parseUserAgent(userAgent)
+		var parts []string
+		for _, p := range []string{browserName, osName, deviceType} {
+			if p != "" && p != "Unknown" {
+				parts = append(parts, p)
+			}
+		}
+		device := strings.Join(parts, " · ")
+		if device == "" {
+			device = "unknown device"
+		}
+		location := strings.TrimSpace(ip)
+		if location == "" {
+			location = "unknown IP"
+		}
+		h.serviceNotifier(userID, fmt.Sprintf(
+			"Новый вход в аккаунт: %s · %s · %s. Если это были не вы — завершите эту сессию в Настройки → Устройства и смените пароль.",
+			device, location, time.Now().UTC().Format("02.01.2006 15:04 UTC")))
+	}
+	return pair, nil
 }
 
 func (h *AuthHandler) revokeSessions(userID string, rows []sessionRow) {

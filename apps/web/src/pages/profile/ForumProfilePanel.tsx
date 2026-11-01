@@ -85,6 +85,10 @@ export function ForumProfilePanel({
                 <Edit2 className="h-3.5 w-3.5" />
                 {t("common.edit")}
               </Button>
+            ) : profile.is_service ? (
+              <p className="rounded-lg border border-border/60 bg-muted px-3 py-2 text-center text-xs text-muted-foreground">
+                {t("profile.serviceNoMessages")}
+              </p>
             ) : (
               <Button
                 variant="default"

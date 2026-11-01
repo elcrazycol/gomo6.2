@@ -3,6 +3,7 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -42,10 +43,40 @@ func ValidateCSRFMiddleware() gin.HandlerFunc {
 	}
 }
 
-func SetAuthCookies(c *gin.Context, userID, accessToken, refreshToken string, maxAge int) {
-	secure := os.Getenv("ENVIRONMENT") == "production" || os.Getenv("ENVIRONMENT") == "prod" || c.Request.TLS != nil
+// isSecureRequest reports whether the original client-facing request used
+// HTTPS. Behind Caddy/Nginx TLS is terminated at the reverse proxy, so
+// r.TLS is always nil there — the proxy signals the original scheme via
+// X-Forwarded-Proto. Relying on r.TLS alone (or on ENVIRONMENT) silently
+// drops the Secure flag in production and exposes session cookies to network
+// theft, so all three signals are honored.
+func isSecureRequest(c *gin.Context) bool {
+	if os.Getenv("ENVIRONMENT") == "production" || os.Getenv("ENVIRONMENT") == "prod" {
+		return true
+	}
+	if c.Request != nil && c.Request.TLS != nil {
+		return true
+	}
+	if c == nil || c.Request == nil {
+		return false
+	}
+	if proto := c.GetHeader("X-Forwarded-Proto"); strings.EqualFold(strings.TrimSpace(strings.Split(proto, ",")[0]), "https") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Ssl")), "on")
+}
+
+// SetAuthCookies issues the session cookie set. It FAILS CLOSED: when the
+// system CSPRNG is unavailable no predictable CSRF token is minted (the old
+// code fell back to the constant "csrf-unavailable") — instead an error is
+// returned and the caller must abort the login with a 500 without creating a
+// half-authenticated session.
+func SetAuthCookies(c *gin.Context, userID, accessToken, refreshToken string, maxAge int) error {
+	secure := isSecureRequest(c)
 	sameSite := http.SameSiteStrictMode
-	csrf := randomCSRFToken()
+	csrf, err := randomCSRFToken()
+	if err != nil {
+		return err
+	}
 
 	http.SetCookie(c.Writer, &http.Cookie{Name: AccessTokenCookie, Value: accessToken, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: secure, SameSite: sameSite})
 	http.SetCookie(c.Writer, &http.Cookie{Name: RefreshTokenCookie, Value: refreshToken, Path: "/api/v1/auth", MaxAge: 3 * 24 * 60 * 60, HttpOnly: true, Secure: secure, SameSite: sameSite})
@@ -58,10 +89,11 @@ func SetAuthCookies(c *gin.Context, userID, accessToken, refreshToken string, ma
 	// though the 3-day refresh cookie is still valid. SameSite=Strict keeps the
 	// double-submit CSRF check effective across that extended lifetime.
 	http.SetCookie(c.Writer, &http.Cookie{Name: CSRFTokenCookie, Value: csrf, Path: "/", MaxAge: 3 * 24 * 60 * 60, HttpOnly: false, Secure: secure, SameSite: sameSite})
+	return nil
 }
 
 func ClearAuthCookies(c *gin.Context) {
-	secure := os.Getenv("ENVIRONMENT") == "production" || os.Getenv("ENVIRONMENT") == "prod" || c.Request.TLS != nil
+	secure := isSecureRequest(c)
 	sameSite := http.SameSiteStrictMode
 	http.SetCookie(c.Writer, &http.Cookie{Name: AccessTokenCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure, SameSite: sameSite})
 	http.SetCookie(c.Writer, &http.Cookie{Name: RefreshTokenCookie, Value: "", Path: "/api/v1/auth", MaxAge: -1, HttpOnly: true, Secure: secure, SameSite: sameSite})
@@ -81,10 +113,10 @@ func ValidateCSRF(c *gin.Context) bool {
 	return true
 }
 
-func randomCSRFToken() string {
+func randomCSRFToken() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		return "csrf-unavailable"
+		return "", fmt.Errorf("crypto/rand unavailable: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(buf)
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }

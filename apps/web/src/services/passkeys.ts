@@ -93,3 +93,47 @@ export function serializeAuthentication(
   }
   return result;
 }
+
+/** Run a fresh passkey ceremony and return a single-use reauth token for
+ * sensitive account actions ("use passkey instead of password").
+ * The caller injects the API functions to keep this module UI-agnostic. */
+export async function reauthWithPasskey(
+  begin: () => Promise<{ options: Record<string, unknown> }>,
+  finish: (credential: Record<string, unknown>) => Promise<{ reauth_token?: string }>,
+): Promise<string> {
+  if (!supportsWebAuthn()) {
+    throw new Error("passkeysUnsupported");
+  }
+  const optionsData = await begin();
+  const wrapped = optionsData.options as Record<string, unknown>;
+  if (!wrapped) throw new Error("passkeysNoOptions");
+  const options = (wrapped.publicKey ?? wrapped) as Record<string, unknown>;
+  const publicKey = prepareLoginOptions(options);
+  const credential = await navigator.credentials.get({ publicKey });
+  if (!credential) throw new Error("passkeyReauthCancelled");
+  const serialized = serializeAuthentication(credential as PublicKeyCredential);
+  const result = await finish(serialized);
+  if (!result?.reauth_token) throw new Error("passkeyReauthFailed");
+  return result.reauth_token;
+}
+
+/** Short human label for a stored User-Agent ("Chrome · iOS").
+ * The backend stores the raw UA at registration; this is display-only. */
+export function describeUserAgent(ua: string | undefined | null): string | null {
+  if (!ua) return null;
+  let os = "";
+  if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+  else if (/Android/i.test(ua)) os = "Android";
+  else if (/Windows/i.test(ua)) os = "Windows";
+  else if (/Mac OS/i.test(ua)) os = "macOS";
+  else if (/Linux/i.test(ua)) os = "Linux";
+  let browser = "";
+  if (/Edg\//i.test(ua)) browser = "Edge";
+  else if (/OPR\//i.test(ua) || /Opera/i.test(ua)) browser = "Opera";
+  else if (/YaBrowser/i.test(ua)) browser = "YaBrowser";
+  else if (/Chrome/i.test(ua) && !/Edg\//i.test(ua)) browser = "Chrome";
+  else if (/Firefox|FxiOS/i.test(ua)) browser = "Firefox";
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+  const parts = [browser, os].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}

@@ -14,6 +14,37 @@ import (
 	"github.com/gomo6/backend/internal/websocket"
 )
 
+// withoutServiceIDs drops service (notification) accounts from a candidate
+// member list. They can never read group chats, so inviting them only leaks
+// message existence into an unreadable void.
+func withoutServiceIDs(db dbExecutor, ids []string) []string {
+	if len(ids) == 0 || db == nil {
+		return ids
+	}
+	rows, err := db.Query(`SELECT id FROM users WHERE id = ANY($1) AND COALESCE(is_service, false)`, ids)
+	if err != nil {
+		return ids
+	}
+	defer rows.Close()
+	banned := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			banned[id] = struct{}{}
+		}
+	}
+	if len(banned) == 0 {
+		return ids
+	}
+	out := ids[:0]
+	for _, id := range ids {
+		if _, ok := banned[id]; !ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // ─── List Conversations ─────────────────────────────────────────────────────
 // GET /api/v1/messenger/conversations
 
@@ -206,15 +237,23 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 		return
 	}
 
-	// Verify the other user exists
-	var otherExists bool
-	err := h.dbFor(c).QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", req.UserID).Scan(&otherExists)
+	// Verify the other user exists (and is not the notification account:
+	// its dialogs are system threads, nobody writes to it).
+	var otherExists, otherIsService bool
+	err := h.dbFor(c).QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1),
+			COALESCE((SELECT is_service FROM users WHERE id = $1), false)`,
+		req.UserID).Scan(&otherExists, &otherIsService)
 	if err != nil {
 		httpx.ServerError(c, "check user exists", err)
 		return
 	}
 	if !otherExists {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("User not found"))
+		return
+	}
+	if otherIsService {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("This is a notification account and does not accept messages"))
 		return
 	}
 
@@ -419,6 +458,9 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 		memberIDs = append(memberIDs, id)
 	}
 
+	// The notification account can never read groups — drop it silently.
+	memberIDs = withoutServiceIDs(h.dbFor(c), memberIDs)
+
 	// Enforce the maximum group size (creator + initial members).
 	if len(memberIDs)+1 > maxGroupSize {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(fmt.Sprintf("Group member limit reached (max %d)", maxGroupSize)))
@@ -601,6 +643,9 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 		seen[id] = struct{}{}
 		newIDs = append(newIDs, id)
 	}
+
+	// The notification account can never read groups — drop it silently.
+	newIDs = withoutServiceIDs(h.dbFor(c), newIDs)
 
 	if len(newIDs) == 0 {
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": 0}))

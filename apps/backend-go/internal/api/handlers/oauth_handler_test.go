@@ -564,8 +564,8 @@ func TestToken_AuthorizationCode_InvalidCode(t *testing.T) {
 			`["http://localhost:3000/callback"]`, "{profile}", false, "", "",
 			true, time.Now(), time.Now()))
 
-	// The auth code lookup will fail
-	mock.ExpectQuery(`(?s).*SELECT.*FROM oauth_authorization_codes.*WHERE code.*`).
+	// The auth code consume will fail
+	mock.ExpectQuery(`(?s).*UPDATE oauth_authorization_codes SET used.*WHERE code.*`).
 		WithArgs("invalid-code", "test-client").
 		WillReturnError(sqlmock.ErrCancelled)
 
@@ -730,6 +730,31 @@ func TestIntrospect_NoAuth(t *testing.T) {
 	h.Introspect(c)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for unauthenticated introspect, got %d", w.Code)
+	}
+}
+
+// A bare public client_id (no secret, no Bearer) must NOT authenticate
+// introspection — otherwise anyone knowing the public client_id gets a token
+// oracle for arbitrary tokens.
+func TestIntrospect_PublicClientIDAloneRejected(t *testing.T) {
+	h, mock := setupOAuthHandler(t)
+	mock.ExpectQuery(`(?s).*SELECT.*FROM oauth_applications.*WHERE client_id.*`).
+		WithArgs("public-client").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "owner_id", "name", "description", "client_id", "client_secret_hash",
+			"redirect_uris", "allowed_scopes", "is_confidential", "logo_url", "homepage_url",
+			"is_active", "created_at", "updated_at",
+		}).AddRow("app-1", "user-1", "Test App", "desc", "public-client", "",
+			`["http://localhost:3000/callback"]`, "{profile}", false, "", "",
+			true, time.Now(), time.Now()))
+
+	c, w := newOAuthPOSTContext("/oauth/introspect", oauth.IntrospectRequest{
+		Token:    "some-token",
+		ClientID: "public-client",
+	})
+	h.Introspect(c)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for public client_id without secret, got %d", w.Code)
 	}
 }
 
@@ -947,19 +972,14 @@ func TestToken_AuthorizationCode_Success(t *testing.T) {
 			`["http://localhost:3000/callback"]`, "{profile}", false, "", "",
 			true, time.Now(), time.Now()))
 
-	// 2. ValidateAuthorizationCode: SELECT from oauth_authorization_codes
-	mock.ExpectQuery(`(?s).*SELECT.*FROM oauth_authorization_codes.*WHERE code.*AND client_id.*AND used.*`).
+	// 2. ValidateAuthorizationCode: atomic consume (UPDATE ... WHERE used=false RETURNING)
+	mock.ExpectQuery(`(?s).*UPDATE oauth_authorization_codes SET used.*WHERE code.*`).
 		WithArgs("valid-code", "test-client").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "code", "client_id", "user_id", "redirect_uri",
-			"code_challenge", "code_challenge_method", "scopes", "nonce", "expires_at", "used",
+			"code_challenge", "code_challenge_method", "scopes", "nonce", "expires_at",
 		}).AddRow("code-1", "valid-code", "test-client", "user-1", "http://localhost:3000/callback",
-			codeChallenge, "S256", "{profile}", "", time.Now().Add(5*time.Minute), false))
-
-	// 3. UPDATE oauth_authorization_codes SET used = true
-	mock.ExpectExec(`(?s).*UPDATE oauth_authorization_codes SET used.*WHERE id.*`).
-		WithArgs("code-1").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+			codeChallenge, "S256", "{profile}", "", time.Now().Add(5*time.Minute)))
 
 	// 4. SELECT username FROM users
 	mock.ExpectQuery(`(?s).*SELECT username FROM users WHERE id.*`).
@@ -1026,19 +1046,14 @@ func TestToken_AuthorizationCode_WithRefreshToken(t *testing.T) {
 			`["http://localhost:3000/callback"]`, "{profile,offline_access}", false, "", "",
 			true, time.Now(), time.Now()))
 
-	// 2. ValidateAuthorizationCode
-	mock.ExpectQuery(`(?s).*SELECT.*FROM oauth_authorization_codes.*WHERE code.*AND client_id.*AND used.*`).
+	// 2. ValidateAuthorizationCode: atomic consume
+	mock.ExpectQuery(`(?s).*UPDATE oauth_authorization_codes SET used.*WHERE code.*`).
 		WithArgs("valid-code", "test-client").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "code", "client_id", "user_id", "redirect_uri",
-			"code_challenge", "code_challenge_method", "scopes", "nonce", "expires_at", "used",
+			"code_challenge", "code_challenge_method", "scopes", "nonce", "expires_at",
 		}).AddRow("code-1", "valid-code", "test-client", "user-1", "http://localhost:3000/callback",
-			codeChallenge, "S256", "{profile,offline_access}", "", time.Now().Add(5*time.Minute), false))
-
-	// 3. UPDATE used
-	mock.ExpectExec(`(?s).*UPDATE oauth_authorization_codes SET used.*WHERE id.*`).
-		WithArgs("code-1").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+			codeChallenge, "S256", "{profile,offline_access}", "", time.Now().Add(5*time.Minute)))
 
 	// 4. SELECT username
 	mock.ExpectQuery(`(?s).*SELECT username FROM users WHERE id.*`).
@@ -1102,14 +1117,14 @@ func TestToken_AuthorizationCode_ExpiredCode(t *testing.T) {
 			`["http://localhost:3000/callback"]`, "{profile}", false, "", "",
 			true, time.Now(), time.Now()))
 
-	// 2. ValidateAuthorizationCode returns expired code row
-	mock.ExpectQuery(`(?s).*SELECT.*FROM oauth_authorization_codes.*WHERE code.*AND client_id.*AND used.*`).
+	// 2. ValidateAuthorizationCode atomically consumes, then rejects expiry
+	mock.ExpectQuery(`(?s).*UPDATE oauth_authorization_codes SET used.*WHERE code.*`).
 		WithArgs("expired-code", "test-client").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "code", "client_id", "user_id", "redirect_uri",
-			"code_challenge", "code_challenge_method", "scopes", "nonce", "expires_at", "used",
+			"code_challenge", "code_challenge_method", "scopes", "nonce", "expires_at",
 		}).AddRow("code-1", "expired-code", "test-client", "user-1", "http://localhost:3000/callback",
-			"challenge", "S256", "{profile}", "", time.Now().Add(-1*time.Hour), false))
+			"challenge", "S256", "{profile}", "", time.Now().Add(-1*time.Hour)))
 
 	c, w := newOAuthPOSTContext("/oauth/token", oauth.TokenRequest{
 		GrantType:    oauth.GrantTypeAuthorizationCode,

@@ -627,7 +627,7 @@ func TestGenerateClientID_Length(t *testing.T) {
 func TestGenerateClientSecret_Length(t *testing.T) {
 	svc := &OAuthService{}
 	for i := 0; i < 10; i++ {
-		secret := svc.GenerateClientSecret()
+		secret, _ := svc.GenerateClientSecret()
 		if len(secret) != 80 {
 			t.Errorf("Client secret length = %d, expected 80", len(secret))
 		}
@@ -650,7 +650,7 @@ func TestGenerateClientSecret_UniquenessBatch(t *testing.T) {
 	svc := &OAuthService{}
 	secrets := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		s := svc.GenerateClientSecret()
+		s, _ := svc.GenerateClientSecret()
 		if secrets[s] {
 			t.Errorf("Duplicate client secret: %s", s)
 		}

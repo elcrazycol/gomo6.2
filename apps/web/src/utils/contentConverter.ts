@@ -53,7 +53,17 @@ const escapeHtml = (text: string) =>
   text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+// Hex colors only (#rgb/#rrggbb, "#" optional) — mirrors messenger sanitizeColor.
+// Anything else renders as literal text instead of breaking out of style="".
+const sanitizeHexColor = (value: string): string | null => {
+  const trimmed = (value || "").trim();
+  const hex = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex) ? hex : null;
+};
 
 const bbSizeToPx = (value: string) => {
   const raw = Number.parseInt(value.trim(), 10);
@@ -85,7 +95,10 @@ const bbcodeToHtml = (content: string) => {
     html = html.replace(pattern, replacement);
   }
 
-  html = html.replace(/\[col=([^\]]+)\]/gi, (_match, color) => `<span style="color:${String(color).trim()}">`);
+  html = html.replace(/\[col=([^\]]+)\]/gi, (_match, color) => {
+    const safe = sanitizeHexColor(String(color));
+    return safe ? `<span style="color:${safe}">` : `[col=${escapeHtml(String(color))}]`;
+  });
   html = html.replace(/\[\/col\]/gi, "</span>");
   html = html.replace(/\[size=([^\]]+)\]/gi, (_match, value) => `<span style="font-size:${bbSizeToPx(String(value))}px">`);
   html = html.replace(/\[\/size\]/gi, "</span>");

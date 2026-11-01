@@ -1061,8 +1061,8 @@ func TestOAuthGenerateClientIDSecret(t *testing.T) {
 		t.Errorf("Expected client ID length 64, got %d", len(id1))
 	}
 
-	secret1 := svc.GenerateClientSecret()
-	secret2 := svc.GenerateClientSecret()
+	secret1, _ := svc.GenerateClientSecret()
+	secret2, _ := svc.GenerateClientSecret()
 	if secret1 == secret2 {
 		t.Fatal("Expected two generated client secrets to be different")
 	}

@@ -93,10 +93,12 @@ func (h *BoardsHandler) canAccessBoard(userID string, boardID string) (bool, err
 	return isMember, nil
 }
 
-func generateInviteCode() string {
+func generateInviteCode() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("crypto/rand unavailable: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // GetBoards godoc
@@ -576,7 +578,11 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 		expiresAt = &t
 	}
 
-	code := generateInviteCode()
+	code, err := generateInviteCode()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate invite code"))
+		return
+	}
 
 	var invite models.GomosubInvite
 	err = h.db.QueryRow(`
