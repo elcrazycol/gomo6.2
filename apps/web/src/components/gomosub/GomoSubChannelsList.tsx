@@ -1,9 +1,9 @@
-import { memo, useMemo } from "react";
-import { motion, useReducedMotion } from "motion/react";
-import { Hash, Lock, MessageSquare } from "lucide-react";
+import { memo, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ChevronDown, Hash, Lock, MessageSquare } from "lucide-react";
 import { NavigationLink } from "@/components/NavigationLink";
 import { cn } from "@/lib/utils";
-import { springFor } from "@/lib/motion";
+import { EASE_OUT_EXPO, SPRING, springFor } from "@/lib/motion";
 
 export interface ChannelLike {
   id: string;
@@ -56,13 +56,28 @@ const ChannelGlyph = ({
   );
 };
 
+const collapsedKey = (boardSlug: string) => `gomosub-collapsed:${boardSlug}`;
+
+function loadCollapsed(boardSlug: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(collapsedKey(boardSlug));
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    if (Array.isArray(arr)) return new Set(arr.filter((v): v is string => typeof v === "string"));
+  } catch {
+    // Corrupt or unavailable storage — start expanded.
+  }
+  return new Set();
+}
+
 /**
  * Grouped channel list shared by the desktop sidebar and the mobile sheet —
  * one markup for both so the two never drift.
  *
  * Discord reads: uppercase section headers, a sliding active pill (shared
  * layoutId on a spring, so switching channels glides instead of blinking),
- * and a spring-pop unread dot. Rows shrink on press for tactility.
+ * and spring-pop unread dots. Rows shrink on press for tactility. Sections
+ * collapse with a chevron (persisted per community); search and the active
+ * channel always force their groups open.
  */
 export const GomoSubChannelsList = memo(
   ({
@@ -76,6 +91,44 @@ export const GomoSubChannelsList = memo(
   }: GomoSubChannelsListProps) => {
     const reduce = useReducedMotion();
     const q = (query ?? "").trim().toLowerCase();
+    const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed(boardSlug));
+
+    useEffect(() => {
+      setCollapsed(loadCollapsed(boardSlug));
+    }, [boardSlug]);
+
+    // The active channel's group always opens — you never lose the pill.
+    useEffect(() => {
+      if (!activeChannelSlug) return;
+      const holder = groups.find((g) => g.channels.some((ch) => ch.slug === activeChannelSlug));
+      if (!holder?.category) return;
+      setCollapsed((prev) => {
+        if (!prev.has(holder.category)) return prev;
+        const next = new Set(prev);
+        next.delete(holder.category);
+        try {
+          localStorage.setItem(collapsedKey(boardSlug), JSON.stringify([...next]));
+        } catch {
+          // Storage unavailable — the group just opens for this session.
+        }
+        return next;
+      });
+    }, [activeChannelSlug, groups, boardSlug]);
+
+    const toggle = (category: string) => {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(category)) next.delete(category);
+        else next.add(category);
+        try {
+          localStorage.setItem(collapsedKey(boardSlug), JSON.stringify([...next]));
+        } catch {
+          // Storage unavailable — collapse lasts for this session.
+        }
+        return next;
+      });
+    };
+
     const visible = useMemo(() => {
       if (!q) return groups;
       return groups
@@ -85,6 +138,10 @@ export const GomoSubChannelsList = memo(
         }))
         .filter((g) => g.channels.length > 0);
     }, [groups, q]);
+
+    // Searching forces every group open — matches must never hide inside a
+    // collapsed section.
+    const isCollapsed = (category: string) => (q ? false : collapsed.has(category));
 
     const rowState = (active: boolean) =>
       active
@@ -101,49 +158,91 @@ export const GomoSubChannelsList = memo(
 
     return (
       <nav className={cn("space-y-0.5", className)} aria-label="Каналы сообщества">
-        {visible.map((group) => (
-          <div key={group.category || "__uncategorized"} className="mt-2 first:mt-0">
-            {group.category && (
-              <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 truncate">
-                {group.category}
-              </div>
-            )}
-            {group.channels.map((ch) => {
-              const active = activeChannelSlug === ch.slug;
-              return (
-                <NavigationLink
-                  key={ch.id}
-                  to={`/g/${boardSlug}/c/${ch.slug}`}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "group relative flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm transition-colors active:scale-[0.98]",
-                    rowState(active),
-                  )}
+        {visible.map((group) => {
+          const collapsedNow = group.category ? isCollapsed(group.category) : false;
+          const hasUnread = group.channels.some((ch) => unread?.has(ch.id));
+          return (
+            <div key={group.category || "__uncategorized"} className="mt-2 first:mt-0">
+              {group.category && (
+                <button
+                  type="button"
+                  onClick={() => toggle(group.category)}
+                  aria-expanded={!collapsedNow}
+                  className="flex w-full items-center gap-1 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 hover:text-muted-foreground active:scale-[0.99] transition-colors"
                 >
-                  {active && (
-                    <motion.span
-                      layoutId="gomosub-channel-active"
-                      transition={springFor("snappy", reduce)}
-                      className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-primary"
-                    />
-                  )}
-                  <ChannelGlyph channel={ch} active={active} />
-                  <span className="truncate">{ch.name}</span>
-                  {!active && unread?.has(ch.id) && (
+                  <motion.span
+                    animate={{ rotate: collapsedNow ? -90 : 0 }}
+                    transition={springFor("snappy", reduce)}
+                    className="grid shrink-0 place-items-center"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </motion.span>
+                  <span className="truncate">{group.category}</span>
+                  {collapsedNow && hasUnread && (
                     <motion.span
                       aria-label="Есть новое"
                       initial={reduce ? false : { scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={springFor("pop", reduce)}
-                      className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary"
+                      className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
                     />
                   )}
-                </NavigationLink>
-              );
-            })}
-          </div>
-        ))}
+                </button>
+              )}
+              <AnimatePresence initial={false}>
+                {!collapsedNow && (
+                  <motion.div
+                    key="channels"
+                    initial={reduce ? false : { height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={reduce ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                    transition={
+                      reduce
+                        ? { duration: 0 }
+                        : { ...SPRING.reveal, opacity: { duration: 0.16, ease: EASE_OUT_EXPO } }
+                    }
+                    className="overflow-hidden"
+                  >
+                    {group.channels.map((ch) => {
+                      const active = activeChannelSlug === ch.slug;
+                      return (
+                        <NavigationLink
+                          key={ch.id}
+                          to={`/g/${boardSlug}/c/${ch.slug}`}
+                          onClick={onNavigate}
+                          aria-current={active ? "page" : undefined}
+                          className={cn(
+                            "group relative flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm transition-colors active:scale-[0.98]",
+                            rowState(active),
+                          )}
+                        >
+                          {active && (
+                            <motion.span
+                              layoutId="gomosub-channel-active"
+                              transition={springFor("snappy", reduce)}
+                              className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-primary"
+                            />
+                          )}
+                          <ChannelGlyph channel={ch} active={active} />
+                          <span className="truncate">{ch.name}</span>
+                          {!active && unread?.has(ch.id) && (
+                            <motion.span
+                              aria-label="Есть новое"
+                              initial={reduce ? false : { scale: 0 }}
+                              animate={{ scale: 1 }}
+                              transition={springFor("pop", reduce)}
+                              className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary"
+                            />
+                          )}
+                        </NavigationLink>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
       </nav>
     );
   },
