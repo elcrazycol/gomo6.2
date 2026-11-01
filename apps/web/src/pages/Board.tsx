@@ -33,7 +33,6 @@ import { LikeButton } from "@/components/LikeButton";
 import { GomoThreadCard } from "@/components/GomoThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { ChannelChat } from "@/components/ChannelChat";
-import { BoardStoriesBar } from "@/components/stories/BoardStoriesBar";
 import { wsService } from "@/services/websocket";
 import { entityParam } from "@/utils/entityUrl";
 import {
@@ -48,6 +47,7 @@ import { SPRING, EASE_OUT_EXPO, morphTransition, springFor, streamRowVariants, t
 import { RecedeOnScroll } from "@/components/profile/RecedeOnScroll";
 import { GomoSubHeader } from "@/components/gomosub/GomoSubHeader";
 import { GomoSubChannelBar } from "@/components/gomosub/GomoSubChannelBar";
+import { useOwnerStories } from "@/components/stories/useOwnerStories";
 import { GomoSubChannelsList } from "@/components/gomosub/GomoSubChannelsList";
 import { GomoSubMemberList } from "@/components/gomosub/GomoSubMemberList";
 import { groupChannels, type CategoryLike } from "@/components/gomosub/groupChannels";
@@ -156,10 +156,8 @@ const Board = () => {
   const [channelsLoaded, setChannelsLoaded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileChannelsOpen, setMobileChannelsOpen] = useState(false);
-  const [mobileShowMembers, setMobileShowMembers] = useState(false);
-  // Tracks the channel sheet snap point (0.4 = compact, 1 = full screen) so we
-  // can show a close button only when the sheet is fully expanded.
-  const [channelSheetSnapPoint, setChannelSheetSnapPoint] = useState<number>(0.4);
+  // Tracks the channel sheet inner view (channels list vs members screen).
+  const [sheetView, setSheetView] = useState<"channels" | "members">("channels");
   // Channel search shared by the desktop sidebar and the mobile sheet.
   const [channelQuery, setChannelQuery] = useState("");
   // Directional travel between channels (+1 forward / -1 back in list order)
@@ -170,7 +168,6 @@ const Board = () => {
   // scroll lock and the snap point must outlive the animation, otherwise the
   // background flashes and the sheet jumps back to 40% while closing.
   const scrollLockReleaseTimer = useRef<number | null>(null);
-  const snapResetTimer = useRef<number | null>(null);
   const edgeSwipeStart = useRef<{ x: number; y: number } | null>(null);
   const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
   const [isBoardOwner, setIsBoardOwner] = useState(false);
@@ -917,10 +914,6 @@ const Board = () => {
         window.clearTimeout(scrollLockReleaseTimer.current);
         scrollLockReleaseTimer.current = null;
       }
-      if (snapResetTimer.current !== null) {
-        window.clearTimeout(snapResetTimer.current);
-        snapResetTimer.current = null;
-      }
       document.documentElement.style.overflow = "";
       document.body.style.overflow = "";
       document.documentElement.style.overscrollBehavior = "";
@@ -928,6 +921,10 @@ const Board = () => {
   }, []);
 
   const { unread, markSeen } = useGomoSubUnread(user?.id ?? null, board?.id ?? null, channels);
+
+  // Board stories feed the square avatar ring in the header (posting lives
+  // in the settings — the old stories bar below the header is gone).
+  const { stories: boardStories } = useOwnerStories("gosub", board?.is_gomosub ? board.id : null);
 
   // Discord-like roster for the member rail (members + owner only; the RPC
   // enforces it, failures simply hide the rail).
@@ -1202,27 +1199,15 @@ const Board = () => {
                 joinLabel={t("board.join")}
                 joinedLabel={t("board.member")}
                 shareTitle={t("board.share")}
+                stories={boardStories}
+                boardId={board.id}
+                canPostStories={Boolean(isBoardOwner || boardPermissions.can_post_stories)}
               />
             </RecedeOnScroll>
           ) : (
             <div className="text-center">
               <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
             </div>
-          )}
-
-          {board.is_gomosub && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={springFor("soft", prefersReducedMotion)}
-            >
-              <BoardStoriesBar
-                boardId={board.id}
-                boardName={board.name}
-                avatarUrl={board.gomosub_avatar_url}
-                canPost={Boolean(isBoardOwner || boardPermissions.can_post_stories)}
-              />
-            </motion.div>
           )}
 
           {!isGomoRoute && (
@@ -1671,7 +1656,15 @@ const Board = () => {
                 generalLabel={t("board.general")}
                 membersCount={roster ? roster.members.length : null}
                 membersActive={showMembers}
-                onToggleMembers={() => setShowMembers((v) => !v)}
+                onToggleMembers={() => {
+                  // Desktop toggles the right rail; on smaller screens the
+                  // rail doesn't exist — open the sheet's members screen.
+                  if (window.innerWidth >= 1280) setShowMembers((v) => !v);
+                  else {
+                    setSheetView("members");
+                    setMobileChannelsOpen(true);
+                  }
+                }}
                 onShare={() => {
                   const url = `${window.location.origin}/g/${board.slug}`;
                   navigator.clipboard.writeText(url).then(() => {
@@ -1681,12 +1674,6 @@ const Board = () => {
                   });
                 }}
                 shareTitle={t("board.share")}
-                joinVisible
-                isJoined={isJoined}
-                joinDisabled={membershipLoading || checkingRules}
-                onToggleJoin={handleToggleJoin}
-                joinLabel={t("board.join")}
-                memberLabel={t("board.member")}
                 canCreate={Boolean(canCreateThread && !isTextChannel)}
                 onCreate={() =>
                   navigate(
@@ -1831,166 +1818,167 @@ const Board = () => {
             </AnimatePresence>
           </div>
 
-          {/* Mobile channel sheet — Discord-style server drawer as a bottom
-              sheet: server header, channel search, sectioned channels with
-              unread dots, members and quick actions. Picking a channel
-              navigates and closes the sheet; the drawer must be full-height
-              (h-full) for vaul's snap-point transform math to work. */}
+          {/* Mobile sheet — Discord-style server drawer: opens near-full-height
+              with a small top offset, draggable by the header block, with
+              channels plus a separate members screen. Picking a channel
+              navigates and closes the sheet. */}
           <Drawer
             open={mobileChannelsOpen}
             onOpenChange={(open) => {
               setMobileChannelsOpen(open);
-              if (open) {
-                // Reopening — cancel any pending snap-point reset so the sheet
-                // doesn't jump to 40% mid-open.
-                if (snapResetTimer.current !== null) {
-                  window.clearTimeout(snapResetTimer.current);
-                  snapResetTimer.current = null;
-                }
-              } else if (snapResetTimer.current === null) {
-                // Reset after the close animation, so the sheet slides down
-                // from its current snap point instead of snapping back to 40%
-                // mid-animation (a visible blink). The search resets too so a
-                // filtered sheet never reopens filtered.
+              if (!open) {
+                // Reset the inner view and the search so the sheet always
+                // reopens on the channel list, unfiltered.
+                setSheetView("channels");
                 setChannelQuery("");
-                snapResetTimer.current = window.setTimeout(() => {
-                  snapResetTimer.current = null;
-                  setChannelSheetSnapPoint(0.4);
-                }, 500);
               }
             }}
-            snapPoints={[0.4, 1]}
-            activeSnapPoint={channelSheetSnapPoint}
-            setActiveSnapPoint={(sp) => setChannelSheetSnapPoint(sp as number)}
+            snapPoints={[0.92]}
             shouldScaleBackground={false}
-            handleOnly
           >
             <DrawerContent showDefaultHandle={false} className="rounded-t-2xl mt-0 flex h-full flex-col">
-              {/* Drag handle — thin pill. vaul's default handle is a fat
-                  full-width bar; inline styles neutralize it. */}
+              {/* Visual grip. No `handleOnly`: the whole header block below is
+                  draggable too; the channel list keeps scrolling because vaul
+                  yields to scrollable content. */}
               <DrawerHandle
                 style={{ background: "transparent", height: "auto" }}
-                className={`w-full shrink-0 flex justify-center cursor-grab active:cursor-grabbing touch-none ${
-                  channelSheetSnapPoint === 1
-                    ? // Full screen: the sheet's top edge touches the viewport
-                      // top, so push the handle below the status bar / notch.
-                      "pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-1.5"
-                    : "pt-2 pb-1.5"
-                }`}
+                className="w-full shrink-0 flex justify-center cursor-grab active:cursor-grabbing touch-none pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-1.5"
               >
                 <div className="h-1 w-10 rounded-full bg-muted-foreground/25" />
               </DrawerHandle>
-              <DrawerTitle className="sr-only">{t("board.channels")}</DrawerTitle>
-              {/* Board header */}
-              <div className="px-4 py-3 border-b border-border/60 flex items-center gap-3 shrink-0">
-                <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex items-center justify-center text-lg font-bold text-muted-foreground shrink-0">
-                  {board.gomosub_avatar_url ? (
-                    <img
-                      src={storageUrl("post-images", board.gomosub_avatar_url) || board.gomosub_avatar_url}
-                      alt={board.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span>{(board.name?.[0] || "g").toUpperCase()}</span>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-primary truncate">g/{board.slug}</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {board.name}
-                    {memberCount != null && ` · ${memberCount}`}
-                  </div>
-                </div>
-                {/* Full sheet: close button. Compact sheet: a + to write a
-                    post in the active channel (or general) without leaving
-                    the picker. */}
-                {channelSheetSnapPoint === 1 ? (
-                  <button
-                    onClick={() => setMobileChannelsOpen(false)}
-                    aria-label={t("common.close")}
-                    className="ml-auto shrink-0 p-2 -mr-2 rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 transition"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                ) : canCreateThread ? (
-                  <button
-                    onClick={() => {
-                      setMobileChannelsOpen(false);
-                      navigate(activeChannelSlug ? `/g/${slug}/c/${activeChannelSlug}/create` : `/g/${slug}/create`, {
-                        state: { backgroundLocation: location },
-                      });
-                    }}
-                    aria-label={t("board.createThread")}
-                    className="ml-auto shrink-0 p-2 -mr-2 rounded-full text-primary hover:bg-primary/10 active:scale-95 transition"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
-                ) : null}
-              </div>
-              {/* Channel search — same filter as the desktop sidebar */}
-              <div className="px-4 pt-2 shrink-0">
-                <div className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-muted/50 border border-transparent focus-within:border-primary/40 transition-colors">
-                  <Search className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60" />
-                  <input
-                    value={channelQuery}
-                    onChange={(e) => setChannelQuery(e.target.value)}
-                    placeholder="Поиск каналов"
-                    aria-label="Поиск каналов"
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-                  />
-                  {channelQuery && (
+              <DrawerTitle className="sr-only">{sheetView === "members" ? "Участники" : t("board.channels")}</DrawerTitle>
+              <motion.div
+                key={sheetView}
+                initial={prefersReducedMotion ? false : { opacity: 0, x: (sheetView === "members" ? 1 : -1) * 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { ...SPRING.standard, opacity: { duration: 0.16, ease: EASE_OUT_EXPO } }}
+                className="flex flex-col flex-1 min-h-0"
+              >
+              {sheetView === "members" && roster ? (
+                <>
+                  {/* Members screen — back to the channel list. */}
+                  <div className="px-2 py-2 border-b border-border/60 flex items-center gap-1 shrink-0">
                     <button
-                      onClick={() => setChannelQuery("")}
-                      aria-label="Очистить поиск"
-                      className="shrink-0 text-muted-foreground/60 hover:text-foreground active:scale-90 transition"
+                      onClick={() => setSheetView("channels")}
+                      aria-label="Назад к каналам"
+                      className="shrink-0 p-2 rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 transition"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <ChevronLeft className="w-5 h-5" />
                     </button>
-                  )}
-                </div>
-              </div>
-              {/* Channel list */}
-              <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
-                {/* Picking a channel navigates and closes the sheet (Discord behaviour). */}
-                {renderChannelList(() => setMobileChannelsOpen(false), channelQuery)}
-                {mobileShowMembers && roster && (
-                  <div className="mt-3 pt-3 border-t border-border/40">
+                    <span className="font-bold truncate">Участники · {roster.members.length}</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
                     <GomoSubMemberList roles={roster.roles} members={roster.members} />
                   </div>
-                )}
-              </div>
-              {/* Quick actions */}
-              <div className="px-3 py-3 border-t border-border/60 space-y-1 shrink-0">
-                {roster && (
-                  <button
-                    onClick={() => setMobileShowMembers((v) => !v)}
-                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-                  >
-                    <Users className="w-4 h-4 shrink-0" />
-                    <span>Участники · {roster.members.length}</span>
-                  </button>
-                )}
-                {board.rules_markdown?.trim() && (
-                  <button
-                    onClick={() => { setMobileChannelsOpen(false); setShowRulesDialog(true); }}
-                    disabled={checkingRules}
-                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-                  >
-                    <BookOpenText className="w-4 h-4 shrink-0" />
-                    <span>{t("board.rules")}</span>
-                  </button>
-                )}
-                {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
-                  <NavigationLink
-                    to={`/g/${slug}/settings`}
-                    onClick={() => setMobileChannelsOpen(false)}
-                    className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-                  >
-                    <Settings className="w-4 h-4 shrink-0" />
-                    <span>{t("board.settings")}</span>
-                  </NavigationLink>
-                )}
-              </div>
+                </>
+              ) : (
+                <>
+                  {/* Board header — draggable block: avatar, name, close. */}
+                  <div className="px-4 py-3 border-b border-border/60 flex items-center gap-3 shrink-0">
+                    <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex items-center justify-center text-lg font-bold text-muted-foreground shrink-0">
+                      {board.gomosub_avatar_url ? (
+                        <img
+                          src={storageUrl("post-images", board.gomosub_avatar_url) || board.gomosub_avatar_url}
+                          alt={board.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span>{(board.name?.[0] || "g").toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-primary truncate">g/{board.slug}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {board.name}
+                        {memberCount != null && ` · ${memberCount}`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setMobileChannelsOpen(false)}
+                      aria-label={t("common.close")}
+                      className="ml-auto shrink-0 p-2 -mr-2 rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 transition"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  {/* Channel search — same filter as the desktop sidebar */}
+                  <div className="px-4 pt-2 shrink-0">
+                    <div className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-muted/50 border border-transparent focus-within:border-primary/40 transition-colors">
+                      <Search className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60" />
+                      <input
+                        value={channelQuery}
+                        onChange={(e) => setChannelQuery(e.target.value)}
+                        placeholder="Поиск каналов"
+                        aria-label="Поиск каналов"
+                        className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+                      />
+                      {channelQuery && (
+                        <button
+                          onClick={() => setChannelQuery("")}
+                          aria-label="Очистить поиск"
+                          className="shrink-0 text-muted-foreground/60 hover:text-foreground active:scale-90 transition"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {/* Channel list */}
+                  <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0">
+                    {/* Picking a channel navigates and closes the sheet (Discord behaviour). */}
+                    {renderChannelList(() => setMobileChannelsOpen(false), channelQuery)}
+                  </div>
+                  {/* Quick actions */}
+                  <div className="px-3 py-3 border-t border-border/60 space-y-1 shrink-0">
+                    {canCreateThread && (
+                      <button
+                        onClick={() => {
+                          setMobileChannelsOpen(false);
+                          navigate(activeChannelSlug ? `/g/${slug}/c/${activeChannelSlug}/create` : `/g/${slug}/create`, {
+                            state: { backgroundLocation: location },
+                          });
+                        }}
+                        aria-label={t("board.createThread")}
+                        className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-primary hover:bg-primary/10 active:scale-[0.99] transition-colors"
+                      >
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span>{t("board.createThread")}</span>
+                      </button>
+                    )}
+                    {roster && (
+                      <button
+                        onClick={() => setSheetView("members")}
+                        className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                      >
+                        <Users className="w-4 h-4 shrink-0" />
+                        <span>Участники · {roster.members.length}</span>
+                        <ChevronRight className="w-4 h-4 ml-auto shrink-0" />
+                      </button>
+                    )}
+                    {board.rules_markdown?.trim() && (
+                      <button
+                        onClick={() => { setMobileChannelsOpen(false); setShowRulesDialog(true); }}
+                        disabled={checkingRules}
+                        className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                      >
+                        <BookOpenText className="w-4 h-4 shrink-0" />
+                        <span>{t("board.rules")}</span>
+                      </button>
+                    )}
+                    {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
+                      <NavigationLink
+                        to={`/g/${slug}/settings`}
+                        onClick={() => setMobileChannelsOpen(false)}
+                        className="flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                      >
+                        <Settings className="w-4 h-4 shrink-0" />
+                        <span>{t("board.settings")}</span>
+                      </NavigationLink>
+                    )}
+                  </div>
+                </>
+              )}
+              </motion.div>
             </DrawerContent>
           </Drawer>
           </>

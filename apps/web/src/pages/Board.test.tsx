@@ -489,7 +489,7 @@ describe("Board (wall)", () => {
     });
   });
 
-  it("opens the create-post composer from the sheet header (+ button)", async () => {
+  it("opens the create-post composer from the sheet quick actions (+ button)", async () => {
     mockParams.slug = "gsub";
     mockParams.channelSlug = "general";
     mockPathname.current = "/g/gsub/c/general";
@@ -515,7 +515,7 @@ describe("Board (wall)", () => {
     await user.click(pill);
     const dialog = await screen.findByRole("dialog");
 
-    // Compact sheet: a + button in the header, next to the board identity.
+    // Compact sheet: a + button in the quick actions, below the channel list.
     const createBtn = within(dialog).getByRole("button", { name: "Создать запись" });
     expect(createBtn).toBeInTheDocument();
     await user.click(createBtn);
@@ -565,5 +565,65 @@ describe("Board (wall)", () => {
     await waitFor(() => {
       expect(document.body.style.overflow).not.toBe("hidden");
     }, { timeout: 1500 });
+  });
+
+  it("opens the members screen from the sheet and goes back to channels", async () => {
+    mockParams.slug = "gsub";
+    mockParams.channelSlug = "general";
+    mockPathname.current = "/g/gsub/c/general";
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/channels")) {
+        return jsonResponse([{ id: "ch-1", board_id: "g-9", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false }]);
+      }
+      if (url.startsWith("/api/v1/boards/")) {
+        return jsonResponse({ id: "g-9", slug: "gsub", name: "G-Sub", description: "sub", is_rules_board: false, is_gomosub: true, owner_id: "owner-9" });
+      }
+      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
+      if (url.startsWith("/api/v1/gomosub_memberships")) {
+        return jsonResponse([{ id: "m-1", board_id: "g-9", user_id: "user-1", role_id: null }]);
+      }
+      if (url.startsWith("/api/v1/gomosub_roles?")) {
+        return jsonResponse([{ id: "r-every", name: "@everyone", permissions: { view_channel: true }, position: 0, is_everyone: true }]);
+      }
+      if (url.startsWith("/api/rpc/gomosub_members?")) {
+        return rawJsonResponse({
+          success: true,
+          data: {
+            members: [{ user_id: "user-1", username: "tester", role_ids: [], timed_out: false, is_owner: false }],
+            roles: [],
+          },
+        });
+      }
+      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
+      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    render(<BoardComponent />);
+
+    const pill = await screen.findByTitle("Каналы");
+    await user.click(pill);
+    const dialog = await screen.findByRole("dialog");
+
+    // Roster loads (viewer is a member) — the members row opens the screen.
+    // Generous timeout: the roster chain (board → membership → roster) is
+    // longer than the channel list's.
+    await waitFor(() => {
+      expect(within(dialog).getByRole("button", { name: /Участники · 1/ })).toBeInTheDocument();
+    }, { timeout: 5000 });
+    await user.click(within(dialog).getByRole("button", { name: /Участники · 1/ }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("tester")).toBeInTheDocument();
+    });
+    // The channel list is gone while the members screen is up.
+    expect(within(dialog).queryByRole("link", { name: "Основной" })).not.toBeInTheDocument();
+
+    // Back returns to the channel list.
+    await user.click(within(dialog).getByRole("button", { name: "Назад к каналам" }));
+    await waitFor(() => {
+      expect(within(dialog).getByRole("link", { name: "Основной" })).toBeInTheDocument();
+    });
   });
 });
