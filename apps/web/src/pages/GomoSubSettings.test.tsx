@@ -120,6 +120,9 @@ describe("GomoSubSettings", () => {
     expect(screen.getAllByText("Баны").length).toBeGreaterThan(0);
     // General tab shows the board name in its form.
     expect(screen.getByDisplayValue("Wiz")).toBeInTheDocument();
+    // Story posting lives here now (the board page shows only the avatar ring).
+    expect(screen.getByText("Истории сообщества")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить историю" })).toBeInTheDocument();
   });
 
   it("opens channel overwrites and toggles a grant without collapsing", async () => {

@@ -9,6 +9,9 @@ import { toast } from "sonner";
 import { renderPreviewContent } from "@/utils/emojiUtils";
 import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
+import { useOwnerStories } from "@/components/stories/useOwnerStories";
+import { useStoriesStore } from "@/stores/storiesStore";
+import { isStoryLive } from "@/types/stories";
 
 export type GeneralForm = {
   id: string;
@@ -39,7 +42,45 @@ type Props = {
   slug: string;
   saving: boolean;
   onSave: () => void;
+  /** Owner or a can_post_stories role: posting lives here now that the board
+      page shows stories only as the avatar ring. */
+  canPostStories: boolean;
 };
+
+/**
+ * Community stories live here now that the board page dropped its stories
+ * bar: live count plus the composer entry for owners / can_post_stories
+ * roles. Hidden for everyone else when there is nothing live.
+ */
+function StoriesCard({ boardId, boardName, canPost }: { boardId: string; boardName: string; canPost: boolean }) {
+  const { stories } = useOwnerStories("gosub", boardId || null);
+  const openComposer = useStoriesStore((s) => s.openComposer);
+  const live = stories.filter((s) => isStoryLive(s));
+  if (!canPost && live.length === 0) return null;
+  return (
+    <Card className="rounded-2xl border-border/70">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">Истории сообщества</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {live.length > 0 ? `Сейчас live: ${live.length}` : "Пока нет историй"}
+          </p>
+        </div>
+        {canPost && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openComposer({ ownerType: "gosub", ownerId: boardId, ownerName: boardName })}
+            className="shrink-0"
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            Добавить историю
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 const GeneralPanel = (p: Props) => {
   const { form, setForm } = p;
@@ -99,6 +140,7 @@ const GeneralPanel = (p: Props) => {
 
   return (
     <div className="space-y-4">
+      <StoriesCard boardId={form.id} boardName={form.name || form.id} canPost={p.canPostStories} />
       <Card className="overflow-hidden rounded-2xl border-border/70">
         <div className="h-24 sm:h-32 bg-muted/30 border-b border-border relative">
           <input ref={coverInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif" className="hidden"

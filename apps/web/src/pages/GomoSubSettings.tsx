@@ -416,6 +416,7 @@ const GomoSubSettings = () => {
               tagInput={tagInput} setTagInput={setTagInput} addTag={addTag} removeTag={removeTag}
               isOwner={isOwner} boardVisibility={boardVisibility} slug={slug ?? ""}
               saving={saving} onSave={handleSave}
+              canPostStories={isOwner || !!myPerms.administrator || !!myPerms.can_post_stories}
             />
           )}
           {!dataLoading && activeTab === "roles" && (

@@ -408,10 +408,10 @@ describe("Board (wall)", () => {
     render(<BoardComponent />);
 
     await waitFor(() => {
-      expect(screen.getByText("Вступить")).toBeInTheDocument();
+      expect(screen.getAllByText("Вступить").length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByText("Вступить"));
+    await user.click(screen.getAllByText("Вступить")[0]);
 
     await waitFor(() => {
       expect(mockToast.success).toHaveBeenCalledWith("Вы вступили в саб");
@@ -433,7 +433,7 @@ describe("Board (wall)", () => {
     expect(screen.queryByText("Записей пока нет")).not.toBeInTheDocument();
   });
 
-  it("opens the mobile channel drawer and keeps it open after picking a channel", async () => {
+  it("opens the mobile channel drawer and closes it after picking a channel", async () => {
     mockParams.slug = "gsub";
     mockParams.channelSlug = "general";
     mockPathname.current = "/g/gsub/c/general";
@@ -480,14 +480,16 @@ describe("Board (wall)", () => {
     expect(dialog).toHaveTextContent("Модерация");
     expect(dialog).toHaveTextContent("Основной");
 
-    // Picking a channel keeps the sheet open (native-picker behaviour) —
+    // Picking a channel navigates and closes the sheet (Discord behaviour) —
     // scoped to the dialog to avoid the desktop sidebar copy, which jsdom
     // still renders.
     await user.click(within(dialog).getByRole("link", { name: "Новости" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 
-  it("opens the create-post composer from the sheet header (+ button)", async () => {
+  it("opens the create-post composer from the channel bar", async () => {
     mockParams.slug = "gsub";
     mockParams.channelSlug = "general";
     mockPathname.current = "/g/gsub/c/general";
@@ -509,12 +511,8 @@ describe("Board (wall)", () => {
 
     render(<BoardComponent />);
 
-    const pill = await screen.findByTitle("Каналы");
-    await user.click(pill);
-    const dialog = await screen.findByRole("dialog");
-
-    // Compact sheet: a + button in the header, next to the board identity.
-    const createBtn = within(dialog).getByRole("button", { name: "Создать запись" });
+    // The channel bar carries the create action (the sheet has none).
+    const createBtn = await screen.findByTitle("Создать запись");
     expect(createBtn).toBeInTheDocument();
     await user.click(createBtn);
 
@@ -554,18 +552,74 @@ describe("Board (wall)", () => {
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.documentElement.style.overflow).toBe("hidden");
 
-    // Picking a channel keeps the sheet open, so close via the drawer mock's
-    // close button (the real overlay click is mocked away in jsdom).
+    // Picking a channel navigates and closes the sheet, releasing the
+    // scroll lock after the close animation (0.5s) to avoid a background flash.
     await user.click(within(dialog).getByRole("link", { name: "Основной" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Закрыть" }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
-    // The scroll lock is released only after the close animation (0.5s) to
-    // avoid a background flash — so wait for the release.
     await waitFor(() => {
       expect(document.body.style.overflow).not.toBe("hidden");
     }, { timeout: 1500 });
+  });
+
+  it("opens the members screen from the sheet and goes back to channels", async () => {
+    mockParams.slug = "gsub";
+    mockParams.channelSlug = "general";
+    mockPathname.current = "/g/gsub/c/general";
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/channels")) {
+        return jsonResponse([{ id: "ch-1", board_id: "g-9", slug: "general", name: "Основной", category: null, sort_order: 0, is_private: false }]);
+      }
+      if (url.startsWith("/api/v1/boards/")) {
+        return jsonResponse({ id: "g-9", slug: "gsub", name: "G-Sub", description: "sub", is_rules_board: false, is_gomosub: true, owner_id: "owner-9" });
+      }
+      if (url.startsWith("/api/v1/threads")) return jsonResponse([], { next_cursor: null });
+      if (url.startsWith("/api/v1/gomosub_memberships")) {
+        return jsonResponse([{ id: "m-1", board_id: "g-9", user_id: "user-1", role_id: null }]);
+      }
+      if (url.startsWith("/api/v1/gomosub_roles?")) {
+        return jsonResponse([{ id: "r-every", name: "@everyone", permissions: { view_channel: true }, position: 0, is_everyone: true }]);
+      }
+      if (url.startsWith("/api/rpc/gomosub_members?")) {
+        return rawJsonResponse({
+          success: true,
+          data: {
+            members: [{ user_id: "user-1", username: "tester", role_ids: [], timed_out: false, is_owner: false }],
+            roles: [],
+          },
+        });
+      }
+      if (url.startsWith("/api/v1/gomosub_rules_acceptance")) return jsonResponse([]);
+      if (url.startsWith("/api/rpc/get_board_user_permissions")) return jsonResponse(null);
+      return jsonResponse([]);
+    });
+    const user = userEvent.setup();
+
+    render(<BoardComponent />);
+
+    const pill = await screen.findByTitle("Каналы");
+    await user.click(pill);
+    const dialog = await screen.findByRole("dialog");
+
+    // Roster loads (viewer is a member) — the members row opens the screen.
+    // Generous timeout: the roster chain (board → membership → roster) is
+    // longer than the channel list's.
+    await waitFor(() => {
+      expect(within(dialog).getByRole("button", { name: /Участники · 1/ })).toBeInTheDocument();
+    }, { timeout: 5000 });
+    await user.click(within(dialog).getByRole("button", { name: /Участники · 1/ }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("tester")).toBeInTheDocument();
+    });
+    // The channel list is gone while the members screen is up.
+    expect(within(dialog).queryByRole("link", { name: "Основной" })).not.toBeInTheDocument();
+
+    // Back returns to the channel list.
+    await user.click(within(dialog).getByRole("button", { name: "Назад к каналам" }));
+    await waitFor(() => {
+      expect(within(dialog).getByRole("link", { name: "Основной" })).toBeInTheDocument();
+    });
   });
 });

@@ -71,6 +71,8 @@ interface GomoThreadCardProps {
   boardPath: string;
   /** Human label for the source chip (sub or channel name); falls back to the path. */
   sourceLabel?: string;
+  /** Hide the source chip (board page: the channel is obvious from context). */
+  hideSourceChip?: boolean;
   onImageClick: (items: LightboxItem[], index: number) => void;
 }
 
@@ -92,6 +94,7 @@ export const GomoThreadCard = ({
   currentUserColor,
   boardPath,
   sourceLabel,
+  hideSourceChip,
   onImageClick,
 }: GomoThreadCardProps) => {
   const navigate = useNavigate();
@@ -172,10 +175,12 @@ export const GomoThreadCard = ({
             avatarUrl={thread.profiles?.avatar_url}
             createdAt={thread.created_at}
             chips={
-              <PostSourceChip
-                to={boardPath}
-                label={sourceLabel ? `в ${sourceLabel}` : `в ${fallbackSource}/`}
-              />
+              hideSourceChip ? undefined : (
+                <PostSourceChip
+                  to={boardPath}
+                  label={sourceLabel ? `в ${sourceLabel}` : `в ${fallbackSource}/`}
+                />
+              )
             }
           />
 

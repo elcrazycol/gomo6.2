@@ -1,6 +1,6 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Lock, Share2, UserCheck, UserPlus, Users } from "lucide-react";
+import { BookOpenText, Lock, Share2, UserCheck, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,9 @@ import { PostActionsMenu } from "@/components/PostActionsMenu";
 import { storageUrl } from "@/utils/storage";
 import { formatCompactCount } from "@/utils/formatCount";
 import { springFor } from "@/lib/motion";
+import { useStoriesStore } from "@/stores/storiesStore";
+import { hasUnreadCloseFriends, isStoryLive, type Story } from "@/types/stories";
+import { StorySquareRing } from "@/components/stories/StorySquareRing";
 
 interface BoardLike {
   id: string;
@@ -19,6 +22,7 @@ interface BoardLike {
   gomosub_avatar_url?: string | null;
   gomosub_tags?: string[] | null;
   owner_id?: string | null;
+  rules_markdown?: string | null;
 }
 
 interface GomoSubHeaderProps {
@@ -38,6 +42,14 @@ interface GomoSubHeaderProps {
   membershipLoading: boolean;
   checkingRules: boolean;
   onToggleJoin: () => void;
+  /** Live board stories for the avatar ring (square outline). */
+  stories: Story[];
+  /** Board id + name for the story viewer/composer. */
+  boardId: string;
+  /** Owner or a can_post_stories role: empty ring opens the composer. */
+  canPostStories: boolean;
+  /** Opens the rules dialog (rules icon left of share). */
+  onOpenRules?: () => void;
   /** i18n labels from the caller (Board). */
   joinLabel?: string;
   joinedLabel?: string;
@@ -63,11 +75,33 @@ export const GomoSubHeader = memo(
     joinLabel = "Вступить",
     joinedLabel = "Вы участник",
     shareTitle = "Поделиться ссылкой",
+    stories,
+    boardId,
+    canPostStories,
+    onOpenRules,
   }: GomoSubHeaderProps) => {
     const cover = board.cover_image_url ? storageUrl("post-images", board.cover_image_url) : null;
     const avatar = board.gomosub_avatar_url ? storageUrl("post-images", board.gomosub_avatar_url) : null;
     const letter = board.name?.[0] || board.slug[0] || "g";
     const prefersReducedMotion = useReducedMotion();
+    const openViewer = useStoriesStore((s) => s.openViewer);
+    const openComposer = useStoriesStore((s) => s.openComposer);
+
+    // Avatar story ring (square): live slides open the viewer at the first
+    // unread, an empty ring with the post permission opens the composer.
+    const live = useMemo(() => stories.filter((story) => isStoryLive(story)), [stories]);
+    const readCount = live.filter((story) => story.is_viewed).length;
+    const closeFriends = hasUnreadCloseFriends(live);
+    const firstUnread = live.find((story) => !story.is_viewed) ?? live[0];
+    const interactive = live.length > 0 || canPostStories;
+
+    const openStories = () => {
+      if (live.length > 0 && firstUnread) {
+        openViewer({ ownerType: "gosub", ownerId: boardId, ownerName: board.name, storyId: firstUnread.id, origin: "board" });
+      } else if (canPostStories) {
+        openComposer({ ownerType: "gosub", ownerId: boardId, ownerName: board.name });
+      }
+    };
 
     const share = () => {
       const url = `${window.location.origin}/g/${board.slug}`;
@@ -106,16 +140,48 @@ export const GomoSubHeader = memo(
 
           <div className="relative -mt-8 sm:-mt-10 px-4 sm:px-5 pb-4 sm:pb-5">
             <div className="flex items-end justify-between gap-3">
-              <div className="h-16 w-16 sm:h-20 sm:w-20 shrink-0 overflow-hidden rounded-2xl border-[3px] border-background bg-muted shadow-md">
-                {avatar ? (
-                  <img src={avatar || undefined} alt={board.name} className="h-full w-full object-cover" />
+              <StorySquareRing total={live.length} read={readCount} closeFriends={closeFriends}>
+                {interactive ? (
+                  <button
+                    type="button"
+                    onClick={openStories}
+                    aria-label={live.length > 0 ? `Смотреть истории ${board.name}` : "Добавить историю"}
+                    title={live.length > 0 ? `Смотреть истории ${board.name}` : "Добавить историю"}
+                    className="h-16 w-16 sm:h-20 sm:w-20 shrink-0 overflow-hidden rounded-2xl border-[3px] border-background bg-muted shadow-md transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+                  >
+                    {avatar ? (
+                      <img src={avatar || undefined} alt={board.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/30 to-muted text-xl sm:text-2xl font-bold text-primary">
+                        {letter.toUpperCase()}
+                      </span>
+                    )}
+                  </button>
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/30 to-muted text-xl sm:text-2xl font-bold text-primary">
-                    {letter.toUpperCase()}
+                  <div className="h-16 w-16 sm:h-20 sm:w-20 shrink-0 overflow-hidden rounded-2xl border-[3px] border-background bg-muted shadow-md">
+                    {avatar ? (
+                      <img src={avatar || undefined} alt={board.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/30 to-muted text-xl sm:text-2xl font-bold text-primary">
+                        {letter.toUpperCase()}
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-              <div className="flex items-center gap-2 pb-0.5">
+              </StorySquareRing>
+              <div className="flex items-center gap-1.5 pb-0.5">
+                {board.rules_markdown?.trim() && onOpenRules && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+                    onClick={onOpenRules}
+                    title="Правила"
+                    disabled={checkingRules}
+                  >
+                    <BookOpenText className="w-4 h-4" />
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="icon"
@@ -153,15 +219,6 @@ export const GomoSubHeader = memo(
                     </>
                   )}
                 </Button>
-                {viewerId && board.owner_id !== viewerId && (
-                  <PostActionsMenu
-                    targetType="gomosub"
-                    targetId={board.id}
-                    reportLabel="Пожаловаться на саб"
-                    reportTargetLabel="на саб"
-                    triggerTitle="Действия"
-                  />
-                )}
               </div>
             </div>
 
@@ -187,6 +244,16 @@ export const GomoSubHeader = memo(
                 )}
               </span>
               {board.visibility === "private" && <Lock className="h-3.5 w-3.5 text-amber-500" />}
+              {viewerId && board.owner_id !== viewerId && (
+                <PostActionsMenu
+                  targetType="gomosub"
+                  targetId={board.id}
+                  reportLabel="Пожаловаться на саб"
+                  reportTargetLabel="на саб"
+                  triggerTitle="Действия"
+                  triggerClassName="h-6 w-6 rounded-full text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 [&_svg]:h-3.5 [&_svg]:w-3.5"
+                />
+              )}
             </div>
 
             {board.description && (
