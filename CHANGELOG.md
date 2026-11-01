@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.41.0](https://github.com/elcrazycol/gomo6.2/compare/v2.40.0...v2.41.0) (2026-11-01)
+
+
+### Features
+
+* **security:** service notification account, passkey hardening, auth fixes ([#605](https://github.com/elcrazycol/gomo6.2/issues/605)) ([de59467](https://github.com/elcrazycol/gomo6.2/commit/de59467cd409e946f7d0abafcaeea574ebdbea5f))
+
 ## [2.40.0](https://github.com/elcrazycol/gomo6.2/compare/v2.39.0...v2.40.0) (2026-10-31)
 
 
