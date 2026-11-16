@@ -432,7 +432,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		}
 	}
 
-	gifts, totalCount, err := h.listUserGifts(recipientID, limit, offset)
+	gifts, totalCount, err := h.listUserGifts(recipientID, viewerID, limit, offset)
 	if err != nil {
 		httpx.ServerError(c, "handler error", err)
 		return
@@ -444,7 +444,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 // listUserGifts queries the user_gifts ledger for recipientID with the layer
 // image/rarity enrichment and anonymous-sender masking, returning the page plus
 // the total count. Extracted from GetUserGifts so the handler stays thin.
-func (h *GiftsHandler) listUserGifts(recipientID string, limit, offset int) ([]models.UserGift, int, error) {
+func (h *GiftsHandler) listUserGifts(recipientID, viewerID string, limit, offset int) ([]models.UserGift, int, error) {
 	// Get total count
 	var totalCount int
 	h.db.QueryRow(`SELECT COUNT(*) FROM user_gifts WHERE recipient_id = $1`, recipientID).Scan(&totalCount)
@@ -531,12 +531,31 @@ func (h *GiftsHandler) listUserGifts(recipientID string, limit, offset int) ([]m
 			g.SymbolLayerRarity = &r
 		}
 
-		// Hide sender info for anonymous gifts
+		// Hide sender info for anonymous gifts. The avatar is identity too:
+		// an "anonymous" gift with the sender's photo is not anonymous.
 		if g.IsAnonymous {
 			g.SenderID = nil
 			g.SenderUsername = nil
+			g.SenderAvatarURL = nil
 		}
 		gifts = append(gifts, g.UserGift)
+	}
+
+	// Sender avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Fail-closed on resolution errors.
+	senderIDs := make([]string, len(gifts))
+	senderAvatars := make([]*string, len(gifts))
+	for i := range gifts {
+		if gifts[i].SenderID != nil {
+			senderIDs[i] = *gifts[i].SenderID
+		}
+		senderAvatars[i] = gifts[i].SenderAvatarURL
+	}
+	if err := privacy.StripHiddenAvatars(h.db, viewerID, senderIDs, senderAvatars); err != nil {
+		return nil, 0, err
+	}
+	for i := range gifts {
+		gifts[i].SenderAvatarURL = senderAvatars[i]
 	}
 
 	if gifts == nil {

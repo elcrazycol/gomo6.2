@@ -303,6 +303,9 @@ func TestGetFriends_Success(t *testing.T) {
 			AddRow("fs-1", friendReceiver, "bob", 42, "Bob", nil, "http://a/b.png", true),
 	)
 
+	// bob is public — his avatar stays.
+	expectPrivacyBatch(mock)
+
 	c, w := newGETContextWithClaims("/api/v1/friends", nil, claims)
 	handler.GetFriends(c)
 

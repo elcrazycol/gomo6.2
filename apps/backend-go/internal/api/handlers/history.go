@@ -295,6 +295,14 @@ func (h *HistoryHandler) GetHistory(c *gin.Context) {
 		items = append(items, it)
 	}
 
+	// Author avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike (shared helper with the unified feed).
+	// Fail-closed on resolution errors.
+	if err := stripFeedAuthorAvatars(h.db, userID, items); err != nil {
+		httpx.ServerError(c, "history avatar filter failed", err)
+		return
+	}
+
 	itemCount := len(items)
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: items, Count: &itemCount})
 }

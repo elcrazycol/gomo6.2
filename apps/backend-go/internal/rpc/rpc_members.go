@@ -7,6 +7,7 @@ import (
 
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -155,6 +156,23 @@ func (h *RPCHandler) ListGomoSubMembers(c *gin.Context) {
 		if ids, found := byUser[members[i].UserID]; found {
 			members[i].RoleIDs = ids
 		}
+	}
+
+	// Member avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Board co-membership is not friendship, so
+	// a hidden avatar stays hidden here. Fail-closed on resolution errors.
+	memberIDs := make([]string, len(members))
+	memberAvatars := make([]*string, len(members))
+	for i := range members {
+		memberIDs[i] = members[i].UserID
+		memberAvatars[i] = members[i].AvatarURL
+	}
+	if err := privacy.StripHiddenAvatars(h.db, claims.UserID, memberIDs, memberAvatars); err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	for i := range members {
+		members[i].AvatarURL = memberAvatars[i]
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(GomoSubMembersResponse{Members: members, Roles: roles}))

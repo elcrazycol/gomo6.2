@@ -416,6 +416,16 @@ func (s *Service) runSelectQuery(c *gin.Context, baseQuery, tableAlias string, a
 		}
 		results = append(results, row)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Author avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Fail-closed: a resolution error aborts
+	// instead of serving unfiltered rows.
+	if err := stripHiddenAuthorAvatars(s.db, viewerID, results); err != nil {
+		return nil, err
+	}
 	return results, nil
 }
 
@@ -443,10 +453,21 @@ LEFT JOIN users u ON u.id = p.author_id
 LEFT JOIN users ow ON ow.id = p.user_id
 WHERE p.id = $1`
 	query := strings.ReplaceAll(q, "{viewer}", viewerArg(viewerID, 2))
+	var row map[string]interface{}
+	var err error
 	if viewerID == "" {
-		return s.fetchOneRow(query, id)
+		row, err = s.fetchOneRow(query, id)
+	} else {
+		row, err = s.fetchOneRow(query, id, viewerID)
 	}
-	return s.fetchOneRow(query, id, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	// The embedded author honors private_hide_avatar (see runSelectQuery).
+	if err := stripHiddenAuthorAvatars(s.db, viewerID, []map[string]interface{}{row}); err != nil {
+		return nil, err
+	}
+	return row, nil
 }
 
 func (s *Service) fetchCommentWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
@@ -461,10 +482,21 @@ FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
 WHERE c.id = $1`
 	query := strings.ReplaceAll(q, "{viewer}", viewerArg(viewerID, 2))
+	var row map[string]interface{}
+	var err error
 	if viewerID == "" {
-		return s.fetchOneRow(query, id)
+		row, err = s.fetchOneRow(query, id)
+	} else {
+		row, err = s.fetchOneRow(query, id, viewerID)
 	}
-	return s.fetchOneRow(query, id, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	// The embedded author honors private_hide_avatar (see runSelectQuery).
+	if err := stripHiddenAuthorAvatars(s.db, viewerID, []map[string]interface{}{row}); err != nil {
+		return nil, err
+	}
+	return row, nil
 }
 
 func (s *Service) fetchOneRow(q string, args ...interface{}) (map[string]interface{}, error) {
@@ -503,6 +535,64 @@ func (s *Service) fetchOneRow(q string, args ...interface{}) (map[string]interfa
 		}
 	}
 	return row, nil
+}
+
+// stripHiddenAuthorAvatars nils out the embedded author.avatar_url of every
+// row whose author hides their avatar from the viewer (private_hide_avatar on
+// a public or private profile; the author and mutual friends are exempt).
+// Rows are keyed by their author_id (wall posts) or user_id (comments)
+// column; rows without an author avatar need no visibility lookup, so an
+// all-avatarless page issues no extra queries. Fail-closed: a resolution
+// error is returned and the caller must abort rather than serve unfiltered.
+func stripHiddenAuthorAvatars(db *sql.DB, viewerID string, rows []map[string]interface{}) error {
+	type authorRef struct {
+		author map[string]interface{}
+		id     string
+	}
+	var refs []authorRef
+	var ids []string
+	seen := make(map[string]struct{})
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		// Wall posts carry the author in author_id, comments in user_id
+		// (NULL for soft-deleted comments, whose author is already scrubbed).
+		var id string
+		if v, ok := row["author_id"].(string); ok {
+			id = v
+		} else if v, ok := row["user_id"].(string); ok {
+			id = v
+		}
+		if id == "" {
+			continue
+		}
+		author, _ := row["author"].(map[string]interface{})
+		if author == nil {
+			continue
+		}
+		if av, _ := author["avatar_url"].(string); av == "" {
+			continue
+		}
+		refs = append(refs, authorRef{author: author, id: id})
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	hidden, err := privacy.HiddenAvatarIDs(db, viewerID, ids)
+	if err != nil {
+		return err
+	}
+	for _, r := range refs {
+		if hidden[r.id] {
+			r.author["avatar_url"] = nil
+		}
+	}
+	return nil
 }
 
 // viewerArg returns the SQL expression referencing the viewer parameter for

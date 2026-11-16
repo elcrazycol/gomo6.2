@@ -402,19 +402,21 @@ func (h *Service) resolveThread(c *gin.Context, slug, threadID string) *ogMeta {
 	q := `
 SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
        COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
-       COALESCE(b.visibility, 'public')
+       COALESCE(b.visibility, 'public'), COALESCE(author_ps.private_hide_avatar, false)
 FROM threads t
 LEFT JOIN users u ON u.id = t.user_id
 LEFT JOIN boards b ON t.board_id = b.id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
 WHERE t.` + col + ` = $1 AND b.slug = $2`
 
 	var title, content, imageURL, authorAvatar sql.NullString
 	var imageURLs, attachments []byte
 	var displayName, username string
 	var boardVisibility string
+	var hideAuthorAvatar bool
 	err := h.db.QueryRowContext(c.Request.Context(), q, val, slug).Scan(
 		&title, &content, &imageURL, &imageURLs, &attachments,
-		&displayName, &username, &authorAvatar, &boardVisibility,
+		&displayName, &username, &authorAvatar, &boardVisibility, &hideAuthorAvatar,
 	)
 	if err != nil {
 		return nil
@@ -441,6 +443,11 @@ WHERE t.` + col + ` = $1 AND b.slug = $2`
 		BodyContent:  content.String,
 		CTA:          "Открыть обсуждение",
 		ImageBucket:  "content",
+	}
+	if hideAuthorAvatar {
+		// Respect the author's private_hide_avatar toggle (crawlers are
+		// guests, never the author or a friend).
+		meta.AuthorAvatar = ""
 	}
 	meta.ImageURL = firstImageCandidate(imageURL.String, imageURLs, attachments)
 	if meta.ImageURL == "" {

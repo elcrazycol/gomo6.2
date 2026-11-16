@@ -16,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/crud"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/moderation"
+	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/search"
 	"github.com/google/uuid"
@@ -358,6 +359,38 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		posts = append(posts, post)
 	}
 
+	// Author avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Only authors that actually carry an avatar
+	// need the visibility lookup. Fail-closed on resolution errors.
+	avatarAuthorIDs := make([]string, 0, len(posts))
+	seenAuthors := make(map[string]struct{}, len(posts))
+	postAuthorOf := func(i int) string {
+		if posts[i].AvatarURL == nil || posts[i].UserID == nil {
+			return ""
+		}
+		return *posts[i].UserID
+	}
+	for i := range posts {
+		if id := postAuthorOf(i); id != "" {
+			if _, ok := seenAuthors[id]; !ok {
+				seenAuthors[id] = struct{}{}
+				avatarAuthorIDs = append(avatarAuthorIDs, id)
+			}
+		}
+	}
+	if len(avatarAuthorIDs) > 0 {
+		hidden, err := privacy.HiddenAvatarIDs(h.db, viewerID, avatarAuthorIDs)
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			return
+		}
+		for i := range posts {
+			if hidden[postAuthorOf(i)] {
+				posts[i].AvatarURL = nil
+			}
+		}
+	}
+
 	postCount := len(posts)
 
 	// Build response with next_cursor for cursor-based pagination
@@ -453,6 +486,19 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	}
 	if avatarURL.Valid {
 		post.AvatarURL = &avatarURL.String
+	}
+	// The author hid their avatar from non-friends (private_hide_avatar on a
+	// public or private profile): strip it for everyone but the author and
+	// mutual friends. Fail-closed on resolution errors.
+	if post.AvatarURL != nil && post.UserID != nil {
+		hidden, err := privacy.HiddenAvatarIDs(h.db, viewerID, []string{*post.UserID})
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			return
+		}
+		if hidden[*post.UserID] {
+			post.AvatarURL = nil
+		}
 	}
 	if len(contentJSON) > 0 {
 		var decoded interface{}

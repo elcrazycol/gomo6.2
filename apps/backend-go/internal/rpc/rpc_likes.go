@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 	"github.com/google/uuid"
 )
 
@@ -516,6 +517,22 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 		likers = append(likers, liker)
 	}
 
+	// Liker avatars honor private_hide_avatar for non-friends (public and
+	// private profiles alike). Fail-closed on resolution errors.
+	likerIDs := make([]string, len(likers))
+	likerAvatars := make([]*string, len(likers))
+	for i := range likers {
+		likerIDs[i] = likers[i].ID
+		likerAvatars[i] = likers[i].AvatarURL
+	}
+	if err := privacy.StripHiddenAvatars(h.db, viewerID, likerIDs, likerAvatars); err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	for i := range likers {
+		likers[i].AvatarURL = likerAvatars[i]
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(likers))
 }
 
@@ -607,6 +624,22 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 		}
 
 		likers = append(likers, liker)
+	}
+
+	// Liker avatars honor private_hide_avatar for non-friends (public and
+	// private profiles alike). Fail-closed on resolution errors.
+	likerIDs := make([]string, len(likers))
+	likerAvatars := make([]*string, len(likers))
+	for i := range likers {
+		likerIDs[i] = likers[i].ID
+		likerAvatars[i] = likers[i].AvatarURL
+	}
+	if err := privacy.StripHiddenAvatars(h.db, viewerID, likerIDs, likerAvatars); err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+	for i := range likers {
+		likers[i].AvatarURL = likerAvatars[i]
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(likers))

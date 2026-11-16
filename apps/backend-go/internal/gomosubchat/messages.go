@@ -12,6 +12,7 @@ import (
 	"github.com/gomo6/backend/internal/channelaccess"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/websocket"
 )
 
@@ -127,6 +128,22 @@ func (h *Handler) GetMessages(c *gin.Context) {
 		page[i], page[j] = page[j], page[i]
 	}
 
+	// Message authors honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Fail-closed on resolution errors.
+	authorIDs := make([]string, len(page))
+	authorAvatars := make([]*string, len(page))
+	for i := range page {
+		authorIDs[i] = page[i].UserID
+		authorAvatars[i] = page[i].AvatarURL
+	}
+	if err := privacy.StripHiddenAvatars(h.db, claims.UserID, authorIDs, authorAvatars); err != nil {
+		httpx.ServerError(c, "filter message avatars", err)
+		return
+	}
+	for i := range page {
+		page[i].AvatarURL = authorAvatars[i]
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(page))
 }
 
@@ -223,10 +240,13 @@ func (h *Handler) SendMessage(c *gin.Context) {
 	// Author metadata comes from the same join the history uses so every
 	// client renders the row identically whether it came via REST or WS.
 	row := h.db.QueryRow(
-		`SELECT u.username, u.avatar_url FROM users u WHERE u.id = $1`, claims.UserID)
+		`SELECT u.username, u.avatar_url, COALESCE(ps.private_hide_avatar, false)
+		 FROM users u LEFT JOIN privacy_settings ps ON ps.user_id = u.id
+		 WHERE u.id = $1`, claims.UserID)
 	var username string
 	var avatarURL sql.NullString
-	if qerr := row.Scan(&username, &avatarURL); qerr == nil {
+	var hideAvatar bool
+	if qerr := row.Scan(&username, &avatarURL, &hideAvatar); qerr == nil {
 		msg.Username = username
 		if avatarURL.Valid {
 			a := avatarURL.String
@@ -234,12 +254,20 @@ func (h *Handler) SendMessage(c *gin.Context) {
 		}
 	}
 
+	// The broadcast payload is shared by every room member, so it cannot be
+	// stripped per viewer: when the author hides their avatar from
+	// non-friends it is omitted for everyone here (history, which is
+	// per-viewer, still serves it to the author and mutual friends).
+	broadcastAvatar := msg.AvatarURL
+	if hideAvatar {
+		broadcastAvatar = nil
+	}
 	h.publish(websocket.MessageTypeNewChannelMessage, map[string]interface{}{
 		"id":         msg.ID,
 		"channel_id": msg.ChannelID,
 		"user_id":    msg.UserID,
 		"username":   msg.Username,
-		"avatar_url": msg.AvatarURL,
+		"avatar_url": broadcastAvatar,
 		"content":    msg.Content,
 		"created_at": msg.CreatedAt.UTC(),
 	})

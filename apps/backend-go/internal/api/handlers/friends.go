@@ -368,6 +368,22 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 		friends = []models.FriendResponse{}
 	}
 
+	// Friend avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Fail-closed on resolution errors.
+	friendIDs := make([]string, len(friends))
+	friendAvatars := make([]*string, len(friends))
+	for i := range friends {
+		friendIDs[i] = friends[i].UserID
+		friendAvatars[i] = friends[i].AvatarURL
+	}
+	if err := privacy.StripHiddenAvatars(h.db, claims.UserID, friendIDs, friendAvatars); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+	for i := range friends {
+		friends[i].AvatarURL = friendAvatars[i]
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(friends))
 }
 
@@ -498,6 +514,23 @@ func (h *FriendsHandler) querySubscriptionUsers(c *gin.Context, query, targetUse
 		}
 		u.SubscribedAt = createdAt.Format(time.RFC3339)
 		users = append(users, u)
+	}
+
+	// Subscriber/subscription avatars honor private_hide_avatar for
+	// non-friends — on public and private profiles alike. Fail-closed on
+	// resolution errors.
+	subIDs := make([]string, len(users))
+	subAvatars := make([]*string, len(users))
+	for i := range users {
+		subIDs[i] = users[i].UserID
+		subAvatars[i] = users[i].AvatarURL
+	}
+	if err := privacy.StripHiddenAvatars(h.db, httpx.AuthenticatedUserID(c), subIDs, subAvatars); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+	for i := range users {
+		users[i].AvatarURL = subAvatars[i]
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(users))

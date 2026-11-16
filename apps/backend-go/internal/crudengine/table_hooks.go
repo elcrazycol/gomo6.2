@@ -138,7 +138,10 @@ func invalidateProfileCustomizationCache(h *Engine, _ *gin.Context, result map[s
 
 // invalidatePrivacySettingsCache clears the privacy keys and every response
 // whose visibility depends on them (profiles, walls, friends, the public
-// visibility-flags endpoint).
+// visibility-flags endpoint). Author avatars are also embedded in threads,
+// posts, the feed, wall comments, likes, friends lists, history, channel chat
+// and search hits, so a hide_avatar flip must drop those caches too —
+// otherwise the previous avatar keeps being served until the data-cache TTL.
 func invalidatePrivacySettingsCache(h *Engine, _ *gin.Context, result map[string]interface{}) {
 	userID := crud.WallResultString(result["user_id"])
 	if userID == "" {
@@ -146,8 +149,16 @@ func invalidatePrivacySettingsCache(h *Engine, _ *gin.Context, result map[string
 	}
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/privacy_settings*user_id=eq.%s*", userID))
 	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
-	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
-	cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/friends*user_id=%s*", userID))
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/threads*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/posts*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/feed*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_posts*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_comments*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/friends*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/history*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/gomosubchat*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/search*")
+	cache.InvalidateByPattern(h.redis, "data:/api/v1/user_gifts*")
 	// The public visibility-flags endpoint (GET /api/v1/users/:id/privacy)
 	// caches per viewer under data:/api/v1/users/<id>/privacy?|viewer=… —
 	// without this, a settings change would keep serving stale hide flags

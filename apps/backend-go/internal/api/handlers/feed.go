@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 )
 
 // FeedHandler serves the unified personalized feed (threads + wall posts).
@@ -380,6 +381,17 @@ func (h *FeedHandler) queryFeedPage(userID interface{}, limit int, sinceTS *time
 		return nil, err
 	}
 
+	// Author avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Only authors that actually carry an avatar
+	// need the visibility lookup. Fail-closed on resolution errors.
+	var feedViewerID string
+	if s, ok := userID.(string); ok {
+		feedViewerID = s
+	}
+	if err := stripFeedAuthorAvatars(h.db, feedViewerID, items); err != nil {
+		return nil, err
+	}
+
 	metrics.App.FeedSQLObserved(time.Since(start))
 	return items, nil
 }
@@ -389,4 +401,47 @@ func nullStringPtr(ns sql.NullString) *string {
 		return nil
 	}
 	return &ns.String
+}
+
+// stripFeedAuthorAvatars nils out the embedded author avatar of every feed
+// item whose author hides it from the viewer (private_hide_avatar on a public
+// or private profile; the author and mutual friends are exempt). Only items
+// that actually carry an avatar trigger the visibility lookup, so an
+// all-avatarless page issues no extra queries. Fail-closed: a resolution
+// error is returned and the caller must abort rather than serve unfiltered.
+func stripFeedAuthorAvatars(db *sql.DB, viewerID string, items []feedItem) error {
+	avatarAuthorIDs := make([]string, 0, len(items))
+	seenAuthors := make(map[string]struct{}, len(items))
+	for i := range items {
+		if items[i].Author == nil || items[i].Author.AvatarURL == nil {
+			continue
+		}
+		id := ""
+		if items[i].AuthorID != nil {
+			id = *items[i].AuthorID
+		}
+		if id == "" {
+			continue
+		}
+		if _, ok := seenAuthors[id]; !ok {
+			seenAuthors[id] = struct{}{}
+			avatarAuthorIDs = append(avatarAuthorIDs, id)
+		}
+	}
+	if len(avatarAuthorIDs) == 0 {
+		return nil
+	}
+	hidden, err := privacy.HiddenAvatarIDs(db, viewerID, avatarAuthorIDs)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if items[i].Author == nil || items[i].AuthorID == nil {
+			continue
+		}
+		if hidden[*items[i].AuthorID] {
+			items[i].Author.AvatarURL = nil
+		}
+	}
+	return nil
 }

@@ -171,6 +171,11 @@ func TestGetMessages_Success(t *testing.T) {
 		WithArgs(testChannel).
 		WillReturnRows(rows)
 
+	// The only avatar belongs to the viewer — the visibility lookup keeps it.
+	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"}))
+
 	h.GetMessages(c)
 
 	if w.Code != http.StatusOK {
@@ -264,9 +269,9 @@ func TestSendMessage_HappyPath(t *testing.T) {
 		WithArgs(testChannel, testUser, "привет").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(7), time.Now()))
 
-	mock.ExpectQuery(`SELECT u\.username, u\.avatar_url FROM users u WHERE u\.id = \$1`).
+	mock.ExpectQuery(`SELECT u\.username, u\.avatar_url, COALESCE\(ps\.private_hide_avatar, false\)`).
 		WithArgs(testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"username", "avatar_url"}).AddRow("tester", "pic.png"))
+		WillReturnRows(sqlmock.NewRows([]string{"username", "avatar_url", "private_hide_avatar"}).AddRow("tester", "pic.png", false))
 
 	h.SendMessage(c)
 
