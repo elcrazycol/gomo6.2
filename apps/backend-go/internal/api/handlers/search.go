@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/privacy"
@@ -146,6 +147,15 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		result = h.searchViaSQL(c.Request.Context(), q, sqlViewerID)
 	}
 
+	// Author avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike (the engine index is shared across viewers,
+	// so the strip happens here, per viewer, on both paths). Fail-closed on
+	// resolution errors.
+	if err := h.stripSearchAvatars(result, viewerID); err != nil {
+		httpx.ServerError(c, "handler error", err)
+		return
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
 
@@ -258,10 +268,11 @@ func (h *SearchHandler) searchViaSQL(ctx context.Context, q string, viewerID int
 	// themself or a mutual friend; anonymous visitors and non-friends never
 	// see them — mirroring the profiles endpoint, which hides the same rows.
 	// The avatar CASE additionally strips avatars of private_hide_avatar
-	// profiles from everyone but the owner or a mutual friend.
+	// users (public AND private profiles) from everyone but the owner or a
+	// mutual friend.
 	result.Users = h.searchTable(ctx,
 		`SELECT u.id, u.public_id, u.username, u.display_name,
-		        CASE WHEN ps.private_profile IS TRUE AND ps.private_hide_avatar IS TRUE
+		        CASE WHEN COALESCE(ps.private_hide_avatar, false)
 		                  AND ($2::uuid IS NULL OR (u.id <> $2::uuid AND NOT EXISTS (
 		                      SELECT 1 FROM friendships f
 		                      WHERE (f.user1_id = u.id AND f.user2_id = $2::uuid)
@@ -307,7 +318,7 @@ func (h *SearchHandler) searchViaSQL(ctx context.Context, q string, viewerID int
 		`SELECT p.id, p.content, p.created_at, p.thread_id,
 		        t.title AS thread_title, t.board_id, t.public_id AS thread_public_id,
 		        b.slug AS board_slug, b.name AS board_name, b.is_gomosub AS board_is_gomosub,
-		        u.username, u.avatar_url
+		        p.user_id AS author_id, u.username, u.avatar_url
 		 FROM posts p
 		 JOIN threads t ON t.id = p.thread_id
 		 LEFT JOIN boards b ON b.id = t.board_id
@@ -523,6 +534,7 @@ func normalisePosts(hits []map[string]interface{}) []map[string]interface{} {
 			"board_slug":       h["board_slug"],
 			"board_name":       h["board_name"],
 			"board_is_gomosub": h["board_is_gomosub"],
+			"author_id":        h["author_id"],
 			"username":         h["author_username"],
 			"avatar_url":       h["author_avatar_url"],
 		})
@@ -547,6 +559,59 @@ func normaliseWallPosts(hits []map[string]interface{}) []map[string]interface{} 
 		})
 	}
 	return out
+}
+
+// stripSearchAvatars nils out the avatar_url of every search hit whose
+// author hides it from the viewer (private_hide_avatar on a public or
+// private profile; the author and mutual friends are exempt). Users carry
+// their own id, posts carry author_id; threads and wall posts embed no avatar
+// and need nothing. Only hits that actually carry an avatar trigger the
+// visibility lookup. Fail-closed: a resolution error is returned and the
+// caller must abort rather than serve unfiltered rows.
+func (h *SearchHandler) stripSearchAvatars(result SearchResult, viewerID string) error {
+	type avatarSlot struct {
+		row map[string]interface{}
+		id  string
+	}
+	var slots []avatarSlot
+	var ids []string
+	seen := make(map[string]struct{})
+	collect := func(row map[string]interface{}, idKey string) {
+		if row == nil {
+			return
+		}
+		if av, _ := row["avatar_url"].(string); av == "" {
+			return
+		}
+		id, _ := row[idKey].(string)
+		if id == "" {
+			return
+		}
+		slots = append(slots, avatarSlot{row: row, id: id})
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	for _, row := range result.Users {
+		collect(row, "id")
+	}
+	for _, row := range result.Posts {
+		collect(row, "author_id")
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	hidden, err := privacy.HiddenAvatarIDs(h.db, viewerID, ids)
+	if err != nil {
+		return err
+	}
+	for _, s := range slots {
+		if hidden[s.id] {
+			s.row["avatar_url"] = nil
+		}
+	}
+	return nil
 }
 
 func unixToRFC3339(v interface{}) interface{} {

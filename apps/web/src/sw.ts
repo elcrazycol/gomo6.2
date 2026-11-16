@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute, cleanupOutdatedCaches, matchPrecache } from "workbox-precaching";
 import { registerRoute, NavigationRoute } from "workbox-routing";
-import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
+import { NetworkFirst, NetworkOnly, CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 
 declare let self: ServiceWorkerGlobalScope;
@@ -57,6 +57,20 @@ registerRoute(
   })
 );
 
+// ── Range requests bypass the SW ─────────────────────────────────────────
+// Video/audio seeking issues `Range` requests (206 Partial Content). Letting
+// them through CacheFirst/StaleWhileRevalidate breaks playback: a cached 200
+// served to a Range request (or a 206 pushed through a strategy that only
+// understands full responses) makes the strategy throw, and the browser
+// surfaces it as "ServiceWorker перехватил запрос и столкнулся с
+// неожиданной ошибкой". Media always goes straight to the network.
+// Registered before every caching route (first match wins); navigation
+// requests never carry Range, so the SPA fallback below is unaffected.
+registerRoute(
+  ({ request }) => request.headers.has("range"),
+  new NetworkOnly(),
+);
+
 // Messenger conversation list: NetworkFirst with a tiny single-entry cache
 // (decrypted previews are privacy-sensitive, never persisted beyond 5 min).
 registerRoute(
@@ -73,14 +87,18 @@ registerRoute(
   })
 );
 
-// Public read-only API: boards, threads, posts, search, invites, translations
-// and emoji data are the same for everyone, so they're safe to serve from
-// cache on a slow connection while the network refreshes them in the
-// background (stale-while-revalidate). Nothing user-specific or
-// privacy-filtered is matched — auth, messenger, notifications, feed, wall,
-// profiles, users, friends, likes and /api/rpc are all excluded. The cache is
-// tiny (100 entries, 10 min) so it can't grow unbounded.
-const PUBLIC_API_GET_PATTERN = /^\/api\/v1\/(boards|threads|posts|search|invites|translations|custom_emojis|emojis|emoji_packs)(\/|\?|$)/;
+// Public read-only API: identical for every viewer, so it is safe to serve
+// from cache on a slow connection while the network refreshes it in the
+// background (stale-while-revalidate). Only truly viewer-independent routes
+// are matched: boards/threads/posts/search are privacy-filtered per viewer
+// (private boards and channels, private profiles, hidden content) and must
+// never be served from the shared SW cache — the cache key carries no viewer
+// identity, so one viewer's filtered response would leak to (or hide content
+// from) the next viewer of this browser. Nothing user-specific is matched —
+// auth, messenger, notifications, feed, wall, profiles, users, friends, likes
+// and /api/rpc are all excluded. The cache is tiny (100 entries, 10 min) so
+// it can't grow unbounded.
+const PUBLIC_API_GET_PATTERN = /^\/api\/v1\/(invites|translations|custom_emojis|emojis|emoji_packs)(\/|\?|$)/;
 
 registerRoute(
   ({ url, request }) => request.method === "GET" && PUBLIC_API_GET_PATTERN.test(url.pathname),

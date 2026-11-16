@@ -234,7 +234,12 @@ func (h *RandomHandler) randomWallPosts(n int) []randomItem {
 
 func (h *RandomHandler) randomProfiles(n int) []randomItem {
 	rows, err := h.db.Query(`
-		SELECT u.id, u.public_id, COALESCE(u.username, ''), u.avatar_url
+		// The pool is shared across viewers (Redis-cached), so per-viewer
+	// filtering is impossible here: a hidden avatar is nulled for everyone,
+	// including the owner and friends. Discoverability of the profile itself
+	// is unaffected — only the photo is withheld.
+	SELECT u.id, u.public_id, COALESCE(u.username, ''),
+	       CASE WHEN COALESCE(ps.private_hide_avatar, false) THEN NULL ELSE u.avatar_url END
 		FROM users u
 		LEFT JOIN privacy_settings ps ON ps.user_id = u.id
 		WHERE NOT COALESCE(ps.private_profile, false)

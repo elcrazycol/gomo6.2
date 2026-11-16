@@ -509,6 +509,39 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		threads = append(threads, thread)
 	}
 
+	// Author avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Only authors that actually carry an avatar
+	// need the visibility lookup; rows without one are skipped entirely.
+	// Fail-closed: a resolution error aborts instead of serving unfiltered.
+	avatarAuthorIDs := make([]string, 0, len(threads))
+	seenAuthors := make(map[string]struct{}, len(threads))
+	threadAuthorOf := func(i int) string {
+		if threads[i].AvatarURL == nil || threads[i].UserID == nil {
+			return ""
+		}
+		return *threads[i].UserID
+	}
+	for i := range threads {
+		if id := threadAuthorOf(i); id != "" {
+			if _, ok := seenAuthors[id]; !ok {
+				seenAuthors[id] = struct{}{}
+				avatarAuthorIDs = append(avatarAuthorIDs, id)
+			}
+		}
+	}
+	if len(avatarAuthorIDs) > 0 {
+		hidden, err := privacy.HiddenAvatarIDs(h.db, h.getUserIDFromRequest(c), avatarAuthorIDs)
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			return
+		}
+		for i := range threads {
+			if hidden[threadAuthorOf(i)] {
+				threads[i].AvatarURL = nil
+			}
+		}
+	}
+
 	threadCount := len(threads)
 
 	resp := models.APIResponse{Success: true, Data: threads, Count: &threadCount}
@@ -612,6 +645,19 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	}
 	if avatarURL.Valid {
 		thread.AvatarURL = &avatarURL.String
+	}
+	// The author hid their avatar from non-friends (private_hide_avatar on a
+	// public or private profile): strip it for everyone but the author and
+	// mutual friends. Fail-closed on resolution errors.
+	if thread.AvatarURL != nil && thread.UserID != nil {
+		hidden, err := privacy.HiddenAvatarIDs(h.db, h.getUserIDFromRequest(c), []string{*thread.UserID})
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			return
+		}
+		if hidden[*thread.UserID] {
+			thread.AvatarURL = nil
+		}
 	}
 	if displayName.Valid {
 		thread.DisplayName = &displayName.String

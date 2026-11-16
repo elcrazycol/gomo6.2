@@ -471,6 +471,32 @@ describe("Profile", () => {
     });
   });
 
+  it("hides avatar and stats on a foreign public profile with hide toggles for a non-friend", async () => {
+    // Production case: public profile, private_hide_avatar + private_hide_stats,
+    // viewer is a non-friend. The server strips avatar_url and the counters, and
+    // the page must hide the sections instead of rendering a placeholder and
+    // zeros (the old code only gated sections on private profiles).
+    setupForeignPrivateProfile({
+      private_profile: false,
+      show_profile_stats: true,
+      private_hide_avatar: true,
+      private_hide_stats: true,
+    });
+
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("privateuser")).toBeInTheDocument();
+    });
+
+    // No stats row at all — neither counters nor labels.
+    expect(screen.queryByText("Просмотры")).not.toBeInTheDocument();
+    expect(screen.queryByText("Лайков")).not.toBeInTheDocument();
+    expect(screen.queryByText("Записей/комментариев")).not.toBeInTheDocument();
+    // No avatar element in the header (nothing else on this page renders one).
+    expect(document.querySelectorAll(".user-avatar")).toHaveLength(0);
+  });
+
   // ─── Forum layout (Settings-driven) ─────────────────────────────────────────
 
   it("renders no in-page mode controls — the mode comes from Settings only", async () => {

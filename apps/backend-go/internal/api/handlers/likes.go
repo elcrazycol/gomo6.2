@@ -13,6 +13,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/privacy"
 	"github.com/gomo6/backend/internal/profiles"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
@@ -470,6 +471,33 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 				return nil
 			}(),
 		})
+	}
+
+	// Liker avatars honor private_hide_avatar for non-friends — on public
+	// and private profiles alike. Only likers that actually carry an avatar
+	// need the visibility lookup. Fail-closed on resolution errors.
+	likerIDs := make([]string, 0, len(likes))
+	seenLikers := make(map[string]struct{}, len(likes))
+	for i := range likes {
+		if likes[i].AvatarURL == nil {
+			continue
+		}
+		if _, ok := seenLikers[likes[i].UserID]; !ok {
+			seenLikers[likes[i].UserID] = struct{}{}
+			likerIDs = append(likerIDs, likes[i].UserID)
+		}
+	}
+	if len(likerIDs) > 0 {
+		hidden, err := privacy.HiddenAvatarIDs(h.db, httpx.AuthenticatedUserID(c), likerIDs)
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
+			return
+		}
+		for i := range likes {
+			if hidden[likes[i].UserID] {
+				likes[i].AvatarURL = nil
+			}
+		}
 	}
 
 	likeCount := len(likes)

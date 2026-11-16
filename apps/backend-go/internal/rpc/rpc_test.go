@@ -567,11 +567,16 @@ func TestGetAvatarHistory_Success(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
+	// Hide-avatar gate first: public profile, avatar visible → not hidden.
+	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"}).
+			AddRow(userID, false, false, false))
 	// Privacy gate: target profile is NOT private, so the history is returned.
 	mock.ExpectQuery(`(?s).*FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"}).
-			AddRow(false, true, true, true, true, true, true, true))
+			AddRow(false, false, false, false, false, false, false, false))
 
 	mock.ExpectQuery(`(?s).*SELECT id, avatar_url, uploaded_at, is_current, is_animated.*FROM avatar_history.*WHERE user_id = \$1.*ORDER BY uploaded_at DESC`).
 		WithArgs(userID).
@@ -584,6 +589,42 @@ func TestGetAvatarHistory_Success(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	data, ok := resp.Data.([]interface{})
+	if !ok || len(data) != 2 {
+		t.Fatalf("expected 2 avatar history rows, got %v", resp.Data)
+	}
+}
+
+// TestGetAvatarHistory_PublicHideAvatarHiddenFromGuest proves a PUBLIC
+// profile with private_hide_avatar hides its avatar history from guests:
+// the hide gate fires before the history query ever runs.
+func TestGetAvatarHistory_PublicHideAvatarHiddenFromGuest(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	userID := "660e8400-e29b-41d4-a716-446655440001"
+	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"}).
+			AddRow(userID, false, true, false))
+
+	c, w := testutil.NewRPCPostContext(map[string]string{"user_uuid": userID}, nil)
+	h.GetAvatarHistory(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	data, ok := resp.Data.([]interface{})
+	if !ok || len(data) != 0 {
+		t.Fatalf("expected empty avatar history for a hidden avatar, got %v", resp.Data)
 	}
 }
 

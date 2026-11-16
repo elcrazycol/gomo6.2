@@ -518,8 +518,14 @@ const Profile = () => {
   // mutual friend AND (the profile is private OR the owner hid the wall).
   const wallHiddenFromViewer = !isOwnProfile && isMutualFriend === false && (privateProfile || privateHideWall);
 
+  // Per-section visibility for a non-owner, non-friend viewer: the owner's
+  // private_hide_* toggles apply on private AND public profiles alike
+  // (mirroring the server, which strips the fields in both cases). The owner
+  // and mutual friends always see everything; while the friendship check is
+  // still pending (null) sections stay visible and self-correct when it
+  // lands — stripped content renders as a placeholder, never as a leak.
   const canViewSection = (hidden: boolean) => {
-    if (!isNonFriendOnPrivate) return true;
+    if (isOwnProfile || isMutualFriend !== false) return true;
     return !hidden;
   };
 
@@ -732,8 +738,7 @@ const Profile = () => {
   const forumPanel = "surface-panel rounded-xl border border-border/60 shadow-sm";
 
   const statsSummaryAllowed = (() => {
-    const isOwn = !!resolvedUserId && currentUser?.id === resolvedUserId;
-    return isOwn || (showProfileStats && canViewSection(privateHideStats));
+    return isOwnProfile || (showProfileStats && canViewSection(privateHideStats));
   })();
 
   // The profile paints as soon as its row is loaded (the header loading bar

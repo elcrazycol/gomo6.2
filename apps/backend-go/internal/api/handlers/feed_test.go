@@ -85,6 +85,9 @@ func TestGetUserFeed_AuthenticatedWithThreadAndWall(t *testing.T) {
 		WithArgs("viewer-1", 20, nil, nil, nil).
 		WillReturnRows(rows)
 
+	// Both authors are public with visible avatars — nothing is stripped.
+	expectPrivacyBatch(mock)
+
 	handler.GetUserFeed(c)
 
 	if w.Code != http.StatusOK {
@@ -219,6 +222,71 @@ func TestGetUserFeed_DBError(t *testing.T) {
 	}
 }
 
+// TestGetUserFeed_HidesAvatarForHiddenAuthor is the production regression:
+// a guest feed mixing an author with private_hide_avatar (public profile)
+// must carry avatar_url null for that author while keeping the other's.
+func TestGetUserFeed_HidesAvatarForHiddenAuthor(t *testing.T) {
+	handler, mock := setupFeedHandler(t)
+
+	now := time.Now()
+	c, w := newGETContext("/api/v1/feed", map[string]string{"limit": "20"})
+
+	rows := sqlmock.NewRows(feedColumnNames()).
+		AddRow(
+			"thread", "thread-1", 12.345, now, now,
+			"Hello", "World", `{"type":"doc"}`, "img1", `["img1"]`, nil,
+			`{"content":"games"}`, 3,
+			"author-1", "alice", "Alice", nil, false, "avatar1",
+			"board-1", "b", "Board", false,
+			"sec-1", "general", "Общее", "hash", nil, nil, nil,
+			nil,
+			5, 3, 0, true, 42,
+			315, nil, 10,
+		).
+		AddRow(
+			"wall_post", "post-1", 8.5, now, now,
+			"Wall title", "Wall content", nil, "img2", nil, `[{"url":"img2","type":"image"}]`,
+			nil, nil,
+			"author-2", "bob", "Bob", nil, false, "avatar2",
+			nil, nil, nil, false,
+			nil, nil, nil, nil, nil, nil, nil,
+			"wall-owner-2",
+			2, 1, 0, false, 7,
+			1337, 42, 11,
+		)
+
+	mock.ExpectQuery(`SELECT item_type, item_id.*FROM get_user_feed\(\$1, \$2, \$3, \$4, \$5\)`).
+		WithArgs(nil, 20, nil, nil, nil).
+		WillReturnRows(rows)
+
+	// author-1 hides their avatar on a public profile; author-2 does not.
+	expectPrivacyBatch(mock, privacyBatchRow{id: "author-1", hideAvatar: true})
+
+	handler.GetUserFeed(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	items, ok := resp.Data.([]interface{})
+	if !ok || len(items) != 2 {
+		t.Fatalf("expected 2 items, got %v", resp.Data)
+	}
+	first := items[0].(map[string]interface{})
+	author1 := first["author"].(map[string]interface{})
+	if av, present := author1["avatar_url"]; present && av != nil {
+		t.Fatalf("expected hidden author avatar to be stripped, got %v", av)
+	}
+	second := items[1].(map[string]interface{})
+	author2 := second["author"].(map[string]interface{})
+	if author2["avatar_url"] != "avatar2" {
+		t.Fatalf("expected visible author avatar to survive, got %v", author2["avatar_url"])
+	}
+}
+
 // TestGetUserFeed_PublicIDsFromSingleQuery proves the human-readable numbers
 // the client links with (item public_id, wall owner user_public_id, author
 // public_id) arrive in the single get_user_feed query — the old second-pass
@@ -258,7 +326,8 @@ func TestGetUserFeed_PublicIDsFromSingleQuery(t *testing.T) {
 		WithArgs("viewer-1", 20, nil, nil, nil).
 		WillReturnRows(rows)
 
-	// NOTE: no second ExpectQuery — any extra DB call fails the test.
+	// Both authors are public with visible avatars — nothing is stripped.
+	expectPrivacyBatch(mock)
 
 	handler.GetUserFeed(c)
 

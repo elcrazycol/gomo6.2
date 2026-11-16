@@ -16,6 +16,50 @@ import (
 
 // ──────────────────────────── GetThreads ────────────────────────────
 
+// TestGetThreads_HidesAvatarForHiddenAuthor is the production regression:
+// a guest listing threads by an author with private_hide_avatar on a public
+// profile must get avatar_url null — the photo never reaches the client.
+func TestGetThreads_HidesAvatarForHiddenAuthor(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	c, w := newGETContext("/api/v1/threads", nil)
+
+	rows := sqlmock.NewRows(threadRowColumns).AddRow(
+		"t1", 315, "b1", nil, nil, nil, "author-1", "Thread Title", "Thread content", nil,
+		nil, "[]", "[]", "[]", 5, "localhost:8080",
+		time.Now(), time.Now(), false, "alice", 42, "avatar1", false, nil, nil,
+		"general", "General", false, false,
+		nil, nil, nil, false, nil, nil,
+	)
+
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*ORDER BY t\.updated_at DESC.*LIMIT \$1 OFFSET \$2`).
+		WithArgs(50, 0).
+		WillReturnRows(rows)
+
+	// Public profile, avatar hidden from non-friends.
+	expectPrivacyBatch(mock, privacyBatchRow{id: "author-1", hideAvatar: true})
+
+	handler.GetThreads(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	items, ok := resp.Data.([]interface{})
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected 1 thread, got %v", resp.Data)
+	}
+	first, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected thread object, got %T", items[0])
+	}
+	if av, present := first["avatar_url"]; present && av != nil {
+		t.Fatalf("expected hidden avatar to be stripped, got %v", av)
+	}
+}
+
 func TestGetThreads_Success_NoFilter(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
 	c, w := newGETContext("/api/v1/threads", nil)

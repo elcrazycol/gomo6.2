@@ -188,18 +188,19 @@ func TestRenderThread(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
        COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
-       COALESCE(b.visibility, 'public')
+       COALESCE(b.visibility, 'public'), COALESCE(author_ps.private_hide_avatar, false)
 FROM threads t
 LEFT JOIN users u ON u.id = t.user_id
 LEFT JOIN boards b ON t.board_id = b.id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
 WHERE t.id = $1 AND b.slug = $2`)).
 		WithArgs("t1", "my-sub").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"title", "content", "image_url", "image_urls", "attachments",
-			"display_name", "username", "avatar_url", "visibility",
+			"display_name", "username", "avatar_url", "visibility", "private_hide_avatar",
 		}).AddRow(
 			"Как дела на планете?", "Тред про всё подряд", "/storage/v1/object/content/u1/thread.webp", nil, nil,
-			"Alice", "alice", "u1/avatar.webp", "public",
+			"Alice", "alice", "u1/avatar.webp", "public", false,
 		))
 
 	c, w := newOGContext(http.MethodGet, "/g/my-sub/thread/t1", "Twitterbot/1.0")
@@ -227,19 +228,20 @@ func TestRenderThreadVideo(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
        COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
-       COALESCE(b.visibility, 'public')
+       COALESCE(b.visibility, 'public'), COALESCE(author_ps.private_hide_avatar, false)
 FROM threads t
 LEFT JOIN users u ON u.id = t.user_id
 LEFT JOIN boards b ON t.board_id = b.id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
 WHERE t.id = $1 AND b.slug = $2`)).
 		WithArgs("t1", "my-sub").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"title", "content", "image_url", "image_urls", "attachments",
-			"display_name", "username", "avatar_url", "visibility",
+			"display_name", "username", "avatar_url", "visibility", "private_hide_avatar",
 		}).AddRow(
 			"Видео-тред", "Смотрим", nil, nil,
 			[]byte(`[{"url":"u1/clip.mp4","type":"video","mime":"video/mp4","poster":"u1/clip.mp4.poster.jpg"}]`),
-			"Alice", "alice", "u1/avatar.webp", "public",
+			"Alice", "alice", "u1/avatar.webp", "public", false,
 		))
 
 	c, w := newOGContext(http.MethodGet, "/g/my-sub/thread/t1", "Twitterbot/1.0")
@@ -267,18 +269,19 @@ func TestRenderThreadBareKeyImage(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
        COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
-       COALESCE(b.visibility, 'public')
+       COALESCE(b.visibility, 'public'), COALESCE(author_ps.private_hide_avatar, false)
 FROM threads t
 LEFT JOIN users u ON u.id = t.user_id
 LEFT JOIN boards b ON t.board_id = b.id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
 WHERE t.id = $1 AND b.slug = $2`)).
 		WithArgs("t1", "my-sub").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"title", "content", "image_url", "image_urls", "attachments",
-			"display_name", "username", "avatar_url", "visibility",
+			"display_name", "username", "avatar_url", "visibility", "private_hide_avatar",
 		}).AddRow(
 			"Тред с картинкой", "Текст", "u1/photo.webp", nil, nil,
-			"Alice", "alice", "u1/avatar.webp", "public",
+			"Alice", "alice", "u1/avatar.webp", "public", false,
 		))
 
 	c, w := newOGContext(http.MethodGet, "/g/my-sub/thread/t1", "Twitterbot/1.0")
@@ -567,18 +570,19 @@ func TestRenderThreadByPublicID(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT t.title, t.content, t.image_url, t.image_urls, t.attachments,
        COALESCE(u.display_name, ''), COALESCE(u.username, ''), COALESCE(u.avatar_url, ''),
-       COALESCE(b.visibility, 'public')
+       COALESCE(b.visibility, 'public'), COALESCE(author_ps.private_hide_avatar, false)
 FROM threads t
 LEFT JOIN users u ON u.id = t.user_id
 LEFT JOIN boards b ON t.board_id = b.id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
 WHERE t.public_id = $1 AND b.slug = $2`)).
 		WithArgs(int64(315), "my-sub").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"title", "content", "image_url", "image_urls", "attachments",
-			"display_name", "username", "avatar_url", "visibility",
+			"display_name", "username", "avatar_url", "visibility", "private_hide_avatar",
 		}).AddRow(
 			"Как дела на планете?", "Тред про всё подряд", "/storage/v1/object/content/u1/thread.webp", nil, nil,
-			"Alice", "alice", "u1/avatar.webp", "public",
+			"Alice", "alice", "u1/avatar.webp", "public", false,
 		))
 
 	c, w := newOGContext(http.MethodGet, "/g/my-sub/thread/315", "Twitterbot/1.0")

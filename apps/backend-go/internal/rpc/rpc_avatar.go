@@ -47,22 +47,29 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		return
 	}
 
-	// Privacy: avatar history is profile content. If the target has a private
-	// profile with private_hide_avatar, only the owner and mutual friends may
-	// list it — otherwise a stranger could harvest every historical avatar URL
-	// (photos) of a private user.
+	// Privacy: avatar history is profile content. When the target hides their
+	// avatar (private_hide_avatar on a public OR private profile), only the
+	// owner and mutual friends may list it — otherwise a stranger could
+	// harvest every historical avatar URL (photos) of a user who explicitly
+	// hid them. A private profile additionally stays friends-only even when
+	// the avatar itself is not hidden.
 	viewerID := ""
 	if claims, ok := httpx.BearerClaims(c); ok {
 		viewerID = claims.UserID
 	}
 	if viewerID != req.UserUUID {
-		ps, err := privacy.GetSettings(h.db, req.UserUUID)
+		hidden, err := privacy.HiddenAvatarIDs(h.db, viewerID, []string{req.UserUUID})
 		if err != nil {
 			httpx.ServerError(c, "handler error", err)
 			return
 		}
-		if ps.PrivateProfile && ps.PrivateHideAvatar {
+		if hidden[req.UserUUID] {
 			c.JSON(http.StatusOK, models.SuccessResponse([]map[string]interface{}{}))
+			return
+		}
+		ps, err := privacy.GetSettings(h.db, req.UserUUID)
+		if err != nil {
+			httpx.ServerError(c, "handler error", err)
 			return
 		}
 		if ps.PrivateProfile {
