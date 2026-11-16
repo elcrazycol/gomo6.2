@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { AnimatedVideo } from "@/components/AnimatedVideo";
+import { SeededPattern } from "@/components/SeededPattern";
 import { useAvatarOverrideStore } from "@/stores/avatarOverrideStore";
 import "./UserAvatar.css";
 
@@ -61,10 +61,22 @@ export function UserAvatar({
   }, [url]);
 
   const containerClass = `user-avatar${square ? "" : " user-avatar--round"}${className ? ` ${className}` : ""}`;
-  const fallbackNode = fallback ?? <User className="user-avatar-icon" aria-hidden="true" />;
+  // No photo → generative suminagashi identity (same seed as the profile
+  // banner, so avatar + banner always match). An explicit `fallback` prop
+  // still wins for callers that need an icon (e.g. system rows).
+  const patternKey = userId || alt || "anon";
+  const fallbackNode = fallback ?? (
+    <SeededPattern seedKey={patternKey} className="user-avatar-pattern" />
+  );
 
   if (!url) {
-    return <span className={containerClass}>{fallbackNode}</span>;
+    return (
+      <span className={containerClass}>
+        <span className="user-avatar-pattern-wrap" aria-hidden="true">
+          {fallbackNode}
+        </span>
+      </span>
+    );
   }
 
   if (isAnimated) {
