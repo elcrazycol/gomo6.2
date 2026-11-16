@@ -58,4 +58,15 @@ describe("UserAvatar", () => {
     rerender(<UserAvatar src="blob:stored" userId="u1" alt="A" />);
     expect(screen.getByAltText("A")).toHaveAttribute("src", "blob:stored");
   });
+
+  it("renders a generative pattern when there is no src", () => {
+    const { container } = render(<UserAvatar userId="u1" alt="A" />);
+    expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("keeps an explicit fallback when provided", () => {
+    render(<UserAvatar userId="u1" alt="A" fallback={<span>FB</span>} />);
+    expect(screen.getByText("FB")).not.toBeNull();
+  });
 });

@@ -1,0 +1,27 @@
+/* Scoped fixes for the generative (suminagashi) identity. */
+
+/**
+ * Light-text scope for content overlapping the generative banner.
+ * The pattern art is always dark, so in light themes the default dark
+ * foreground/muted text disappears into it. Flipping the token vars in
+ * this scope (they resolve at the use site, so descendants inherit the
+ * flipped values) keeps nickname, username, chips and icon buttons
+ * readable — photos are untouched, this class is only added when the
+ * banner itself is generative.
+ */
+.seeded-scope-dark-text {
+  --foreground: 0.94 0.008 0;
+  --muted-foreground: 0.8 0.014 0;
+  --border: 0.5 0.02 0;
+  --muted: 0.32 0.02 0;
+  --background: 0.24 0.016 0;
+  /* The nickname h1 carries no color class of its own — it inherits the
+     already-computed body color, which flipping the vars above does not
+     touch. Re-anchor the scope root so inheritance flows light. */
+  color: oklch(var(--foreground));
+}
+
+/* Soft glow keeps light display names readable over bright ink strokes. */
+.seeded-scope-dark-text h1 {
+  text-shadow: 0 1px 16px rgb(0 0 0 / 0.6);
+}

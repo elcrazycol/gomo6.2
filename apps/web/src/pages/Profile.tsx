@@ -40,6 +40,7 @@ import {
 import { AvatarMorph } from "@/components/profile/AvatarMorph";
 import { CreateFab } from "@/components/CreateFab";
 import { isAnimatedAvatarUrl } from "@/components/UserAvatar";
+import { SeededPattern } from "@/components/SeededPattern";
 import { RecedeOnScroll } from "@/components/profile/RecedeOnScroll";
 import { toViewportRect, type ViewportRect } from "@/utils/domRect";
 import { readProfileAvatarOrigin } from "@/utils/profileAvatarTransition";
@@ -717,6 +718,11 @@ const Profile = () => {
   // picks how it is displayed (Settings → Внешний вид → «Отображение фонов»).
   const profileBackgroundUrl = profile?.background_url ?? null;
   const bgUrl = profileBackgroundUrl ? storageUrl("post-images", profileBackgroundUrl) || profileBackgroundUrl : null;
+  // Generative banner seed: the profile identity. When the owner has no
+  // uploaded background, avatar + banner render the same pattern field.
+  const bannerSeedKey = profile?.id ?? resolvedUserId ?? "anon";
+  const showBannerStrip =
+    editing.isEditing || bgVariant === "banner" || bgVariant === "card";
   // The "card" variant folds the header + stats into one card over the image.
   const cardVariantActive = bgVariant === 'card' && !!bgUrl && !editing.isEditing;
 
@@ -985,21 +991,18 @@ const Profile = () => {
                 <ProfileStats profile={profile} show={statsSummaryAllowed} onOpenWall={() => setActiveTab('wall')} />
               </div>
             </div>
-          ) : editing.isEditing || (bgUrl && (bgVariant === 'banner' || bgVariant === 'card')) ? (
+          ) : showBannerStrip ? (
             <div className="relative overflow-hidden">
-              <div className={`h-24 sm:h-28 w-full ${bgUrl ? "bg-cover bg-center" : "bg-muted/60"}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}>
-                {bgUrl && !editing.isEditing && <div className="absolute inset-x-0 top-0 h-24 sm:h-28 bg-gradient-to-b from-black/45 via-black/20 to-transparent" />}
-                {/* Legibility scrim where the identity block overlaps the strip.
-                    The previous approach faked contrast with a white halo on the
-                    text itself, which (with a gradient nickname's transparent
-                    text fill) painted a blurred white copy over the letters and
-                    made every nickname look washed out. Darkening the image
-                    behind the text works for light and custom-coloured names
-                    alike without touching the glyphs. Same box as the strip so
-                    "top-0" also means "bottom of the banner"; the dark stops sit
-                    only in the band the avatar/name cover, leaving the image
-                    visible above them. */}
-                {bgUrl && !editing.isEditing && (
+              <div className={`h-24 sm:h-28 w-full ${bgUrl ? "bg-cover bg-center" : ""}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}>
+                {!bgUrl && (
+                  <SeededPattern
+                    seedKey={bannerSeedKey}
+                    className="absolute inset-0 h-full w-full"
+                  />
+                )}
+                {bgUrl && !editing.isEditing && <div className="absolute inset-x-0 top-0 h-24 sm:h-28 bg-gradient-to-b from-black/45 via-black/20 to-transparent" aria-hidden="true" />}
+                {/* Legibility scrim over photo or generative pattern alike. */}
+                {!editing.isEditing && (
                   <div
                     className="pointer-events-none absolute inset-x-0 top-0 h-24 sm:h-28"
                     style={{ backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.35) 24%, transparent 58%)' }}
@@ -1031,7 +1034,10 @@ const Profile = () => {
                   </div>
                 )}
               </div>
-              <div className="relative -mt-8 sm:-mt-10 px-4 pb-1.5">
+              {/* Generative banner is always dark art: flip the identity block
+                  to light text so it stays readable in light themes.
+                  Uploaded photos keep the viewer's own theme. */}
+              <div className={`relative -mt-8 sm:-mt-10 px-4 pb-1.5${bgUrl ? "" : " seeded-scope-dark-text"}`}>
                 {headerElement}
               </div>
             </div>

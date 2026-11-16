@@ -27,3 +27,18 @@
   width: 55%;
   height: 55%;
 }
+
+.user-avatar-pattern,
+.user-avatar-pattern-wrap {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.user-avatar-pattern-wrap {
+  overflow: hidden;
+  border-radius: inherit;
+  /* Seals the fuzzy AA fringe of the displaced ink + grain at the circle
+     edge, which reads as a grainy white outline on light themes. */
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.32);
+}

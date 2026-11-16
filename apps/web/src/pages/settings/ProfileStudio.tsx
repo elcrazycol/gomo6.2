@@ -429,6 +429,7 @@ const ProfileStudio = () => {
         <ProfileStudioPreview
           username={username}
           displayName={displayName}
+          seedKey={userId ?? username}
           avatarUrl={avatarUrl}
           backgroundUrl={backgroundUrl}
           hasBackground={!!backgroundUrl}

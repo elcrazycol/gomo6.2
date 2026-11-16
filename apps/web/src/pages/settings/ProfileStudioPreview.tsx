@@ -1,8 +1,9 @@
-import { User as UserIcon, Camera, Smile, ImagePlus, X } from "lucide-react";
+import { Camera, Smile, ImagePlus, X } from "lucide-react";
 import { parseCssToStyle } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { OnlineStatus } from "@/components/OnlineStatus";
+import { SeededPattern } from "@/components/SeededPattern";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { ActiEye } from "@/components/ActiEye";
 
@@ -17,6 +18,8 @@ export interface StudioStats {
 interface ProfileStudioPreviewProps {
   username: string;
   displayName: string;
+  /** Stable identity for the generative fallback (user id). Falls back to username. */
+  seedKey?: string;
   avatarUrl: string | null;
   /** Storage key of the background (or absolute URL). */
   backgroundUrl: string | null;
@@ -49,6 +52,7 @@ interface ProfileStudioPreviewProps {
 export function ProfileStudioPreview({
   username,
   displayName,
+  seedKey,
   avatarUrl,
   backgroundUrl,
   hasBackground,
@@ -65,6 +69,9 @@ export function ProfileStudioPreview({
 }: ProfileStudioPreviewProps) {
   const avatarSrc = avatarUrl ? storageUrl("post-images", avatarUrl) || avatarUrl : null;
   const bgSrc = backgroundUrl ? storageUrl("post-images", backgroundUrl) || backgroundUrl : null;
+  // Same identity rule as the real page: avatar + banner share one seed.
+  const patternKey = seedKey || username || "anon";
+  const generativeBanner = !hasBackground;
   const usernameStyle = parseCssToStyle(usernameCss);
   const badgeStyle = badgeCss ? parseCssToStyle(badgeCss) : {};
 
@@ -72,13 +79,23 @@ export function ProfileStudioPreview({
     <div className="space-y-6">
       {/* ── Profile card: banner strip + overlapping header ─────────────── */}
       <div className="relative overflow-hidden">
-        {/* Banner strip */}
+        {/* Banner strip — generative pattern when no background uploaded */}
         <div
-          className={`h-24 sm:h-28 w-full ${hasBackground ? "bg-cover bg-center" : "bg-muted/60"}`}
+          className={`relative h-24 sm:h-28 w-full overflow-hidden ${hasBackground ? "bg-cover bg-center" : ""}`}
           style={hasBackground && bgSrc ? { backgroundImage: `url("${bgSrc}")` } : undefined}
         >
+          {generativeBanner && (
+            <SeededPattern seedKey={patternKey} className="block h-24 sm:h-28 w-full" />
+          )}
           {hasBackground && (
             <div className="absolute inset-x-0 top-0 h-24 sm:h-28 bg-gradient-to-b from-black/45 via-black/20 to-transparent" />
+          )}
+          {generativeBanner && (
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 h-24 sm:h-28"
+              style={{ backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.35) 24%, transparent 58%)' }}
+              aria-hidden="true"
+            />
           )}
           {onBackgroundUpload && (
             <label className="absolute top-2 right-2 flex items-center gap-1.5 h-8 px-3 rounded-full bg-background/85 backdrop-blur cursor-pointer hover:bg-background transition-colors text-xs font-medium z-10">
@@ -94,7 +111,7 @@ export function ProfileStudioPreview({
         </div>
 
         {/* Header: avatar overlapping the strip + identity */}
-        <div className="relative -mt-8 sm:-mt-10 px-4">
+        <div className={`relative -mt-8 sm:-mt-10 px-4${generativeBanner ? " seeded-scope-dark-text" : ""}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 sm:gap-4">
               {/* Avatar — click to replace */}
@@ -103,7 +120,7 @@ export function ProfileStudioPreview({
                   {avatarSrc ? (
                     <img src={avatarSrc} alt="Аватар" className="w-full h-full object-cover" />
                   ) : (
-                    <UserIcon className="w-10 h-10 text-muted-foreground" />
+                    <SeededPattern seedKey={patternKey} className="block h-full w-full" />
                   )}
                 </div>
                 {onAvatarUpload && (
@@ -203,7 +220,7 @@ export function ProfileStudioPreview({
               {avatarSrc ? (
                 <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
               ) : (
-                <UserIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                <SeededPattern seedKey={patternKey} className="block h-full w-full" />
               )}
             </div>
             <div className="min-w-0">
