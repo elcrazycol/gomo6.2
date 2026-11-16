@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.43.0](https://github.com/elcrazycol/gomo6.2/compare/v2.42.0...v2.43.0) (2026-11-16)
+
+
+### Features
+
+* generative suminagashi avatars and banners ([#610](https://github.com/elcrazycol/gomo6.2/issues/610)) ([f4ceb2e](https://github.com/elcrazycol/gomo6.2/commit/f4ceb2efbe2dddee30ef24669892806eccfcb9b6))
+
 ## [2.42.0](https://github.com/elcrazycol/gomo6.2/compare/v2.41.0...v2.42.0) (2026-11-01)
 
 
