@@ -178,6 +178,16 @@ function useSheetKeyboardInset(panelRef: React.RefObject<HTMLDivElement | null>)
     const OPENING_GRACE_MS = 1200;
     let openingUntil = 0;
     let seenOpen = false;
+    // Layout engines that resize with the keyboard (Android Chrome/Firefox
+    // with interactive-widget=resizes-content) move the fixed sheet above
+    // the keys NATIVELY — the vv delta against the frozen baseline still
+    // reads "open", but writing it as `bottom` double-lifts the sheet over
+    // the whole view. Detected live: the layout viewport itself shrank well
+    // beyond URL-bar noise (same 60px noise floor as the global keyboard
+    // module). While set, the hook writes nothing and the native position
+    // stands — on such engines the composer does exactly nothing fancy.
+    const LAYOUT_SHRINK_PX = 60;
+    let resizingEngine = false;
     const markIntent = () => {
       const now = Date.now();
       lastIntentAt = now;
@@ -277,6 +287,26 @@ function useSheetKeyboardInset(panelRef: React.RefObject<HTMLDivElement | null>)
     // teleporting reads as a glitch; gliding reads as settling).
     const applyLive = () => {
       const now = Date.now();
+      // Resizing engine (Android): the layout viewport shrank with the
+      // keyboard, so the fixed sheet already clears it natively — any
+      // `bottom` we write lands on top and covers the view. Hold zero.
+      const layoutShrink = baseHeight - window.innerHeight;
+      if (layoutShrink >= LAYOUT_SHRINK_PX) resizingEngine = true;
+      if (resizingEngine) {
+        if (layoutShrink < LAYOUT_SHRINK_PX) {
+          // Settled back (keyboard gone, layout restored): re-baseline so
+          // URL-bar drift never accumulates, and drop the flag so a tall
+          // toolbar flick can never stick the bypass on forever.
+          resizingEngine = false;
+          baseHeight = window.innerHeight;
+        }
+        cancelClosing();
+        if (targetBottom !== 0 || displayedBottom > 0.5) {
+          targetBottom = 0;
+          ensureLoop();
+        }
+        return;
+      }
       // Only real viewport/window events reset the silence clock: the loop
       // only eases toward the gated target and never re-reads geometry, so
       // it cannot disguise the freeze gap that identifies the stale transient.
@@ -343,7 +373,10 @@ function useSheetKeyboardInset(panelRef: React.RefObject<HTMLDivElement | null>)
       // Genuine user intent: drop any in-flight descent. The loop below eases
       // the rise from the first frame and the poll catches a silent iOS
       // open/close that fires no viewport event at all.
-      baseHeight = window.innerHeight;
+      // Max, never a plain assignment: on a resizing engine (Android) focus
+      // can land while the layout is already shrunk by the open keyboard —
+      // freezing that as the ruler corrupts every later reading.
+      baseHeight = Math.max(baseHeight, window.innerHeight);
       markIntent();
       cancelClosing();
       ensureLoop();
