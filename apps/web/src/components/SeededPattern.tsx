@@ -7,6 +7,9 @@ export type SeededPatternProps = {
   seedKey: string;
   className?: string;
   title?: string;
+  /** Cheap variant for tiny surfaces (avatars): gradient + rings, no
+   *  feTurbulence/displacement passes. ~10x cheaper in lists. */
+  simple?: boolean;
 };
 
 /**
@@ -15,7 +18,7 @@ export type SeededPatternProps = {
  * windows into the SAME artwork — one identity, like a CS pattern index.
  * Purely deterministic: no network, no storage, no animation.
  */
-export function SeededPattern({ seedKey, className, title }: SeededPatternProps) {
+export function SeededPattern({ seedKey, className, title, simple = false }: SeededPatternProps) {
   const rawId = useId();
   // useId contains ":" which breaks url(#…) references — strip it.
   const uid = useMemo(() => rawId.replace(/[^a-zA-Z0-9]/g, ""), [rawId]);
@@ -40,20 +43,24 @@ export function SeededPattern({ seedKey, className, title }: SeededPatternProps)
           <stop offset="0%" stopColor={p.bg0} />
           <stop offset="100%" stopColor={p.bg1} />
         </linearGradient>
-        <filter id={warpId} x="-20%" y="-20%" width="140%" height="140%">
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.012 0.028"
-            numOctaves="3"
-            seed={p.turbSeed}
-            result="n"
-          />
-          <feDisplacementMap in="SourceGraphic" in2="n" scale="90" xChannelSelector="R" yChannelSelector="G" />
-        </filter>
-        <filter id={grainId}>
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed={p.turbSeed} />
-          <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.5 0" />
-        </filter>
+        {!simple && (
+          <filter id={warpId} x="-20%" y="-20%" width="140%" height="140%">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.012 0.028"
+              numOctaves="2"
+              seed={p.turbSeed}
+              result="n"
+            />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="55" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        )}
+        {!simple && (
+          <filter id={grainId}>
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed={p.turbSeed} />
+            <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.5 0" />
+          </filter>
+        )}
         <radialGradient id={shadeId} cx="50%" cy="45%" r="75%">
           <stop offset="55%" stopColor="black" stopOpacity="0" />
           <stop offset="100%" stopColor="black" stopOpacity="0.38" />
@@ -61,7 +68,7 @@ export function SeededPattern({ seedKey, className, title }: SeededPatternProps)
       </defs>
 
       <rect width="800" height="320" fill={`url(#${bgId})`} />
-      <g filter={`url(#${warpId})`} fill="none">
+      <g filter={simple ? undefined : `url(#${warpId})`} fill="none">
         {p.rings.map((r, i) => (
           <path
             key={i}
@@ -74,7 +81,7 @@ export function SeededPattern({ seedKey, className, title }: SeededPatternProps)
         ))}
       </g>
       <rect width="800" height="320" fill={`url(#${shadeId})`} />
-      <rect width="800" height="320" filter={`url(#${grainId})`} opacity="0.07" />
+      {!simple && <rect width="800" height="320" filter={`url(#${grainId})`} opacity="0.07" />}
     </svg>
   );
 }

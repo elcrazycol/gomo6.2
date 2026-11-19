@@ -103,16 +103,18 @@ export function RecedeOnScroll({
     const now = performance.now();
     const prev = lastYRef.current;
     lastYRef.current = y;
+    const raw = rawAt(y);
     if (prev === null) {
       lastTRef.current = now;
-      progress.set(rawAt(y));
+      // Already fully open — avoid a redundant motion-value write per frame.
+      if (raw === 0 && progress.get() === 0) return;
+      progress.set(raw);
       return;
     }
 
     const dt = Math.max(8, now - lastTRef.current);
     lastTRef.current = now;
     const dy = y - prev;
-    const raw = rawAt(y);
 
     // Down: direct manipulation again. Any latch, pull or release is cancelled.
     if (dy > 0.5) {
@@ -120,7 +122,7 @@ export function RecedeOnScroll({
       releaseRef.current = null;
       modeRef.current = "follow";
       pullRef.current = 0;
-      progress.set(raw);
+      if (raw !== progress.get()) progress.set(raw);
       return;
     }
     if (dy > -0.5) return;
@@ -134,7 +136,7 @@ export function RecedeOnScroll({
         modeRef.current = "locked";
         pullRef.current = 0;
       } else {
-        progress.set(raw);
+        if (raw !== progress.get()) progress.set(raw);
         return;
       }
     }
@@ -153,8 +155,10 @@ export function RecedeOnScroll({
     }
   });
 
-  const scale = useTransform(progress, (p) => 1 - 0.24 * intensity * p);
-  const lift = useTransform(progress, (p) => -44 * intensity * p);
+  // Halved geometry vs the original (0.24/44px): scaling forces a re-raster
+  // of the whole block, so a subtler pull keeps the feel at half the GPU cost.
+  const scale = useTransform(progress, (p) => 1 - 0.12 * intensity * p);
+  const lift = useTransform(progress, (p) => -24 * intensity * p);
   const fade = useTransform(progress, (p) => 1 - 0.6 * intensity * p);
 
   return (

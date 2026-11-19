@@ -839,11 +839,11 @@ const Profile = () => {
         {bgUrl && (forumMode ? (
           <>
             <div
-              className="fixed inset-0 -z-10 scale-110 bg-cover bg-center opacity-60 blur-2xl"
+              className="profile-forum-bg-blur fixed inset-0 -z-10 scale-105 bg-cover bg-center"
               style={{ backgroundImage: `url("${bgUrl}")` }}
               aria-hidden="true"
             />
-            <div className="fixed inset-0 -z-10 bg-background/70" aria-hidden="true" />
+            <div className="fixed inset-0 -z-10 bg-background/75" aria-hidden="true" />
           </>
         ) : (bgVariant === 'page' || bgVariant === 'page_dim') ? (
           <>

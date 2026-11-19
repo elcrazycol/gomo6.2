@@ -26,8 +26,6 @@ type SpotifyNowPlayingProps = {
 export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
   const [data, setData] = useState<NowPlayingData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [displayProgressMs, setDisplayProgressMs] = useState(0);
-  const baseRef = useRef({ progress: 0, receivedAt: 0, duration: 0, playing: false });
 
   useEffect(() => {
     let mounted = true;
@@ -51,13 +49,6 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
     const applyUpdate = (d: NowPlayingData) => {
       setData(d);
       setLoading(false);
-      baseRef.current = {
-        progress: d.progress_ms ?? 0,
-        receivedAt: Date.now(),
-        duration: d.duration_ms ?? 0,
-        playing: d.is_playing,
-      };
-      setDisplayProgressMs(d.progress_ms ?? 0);
     };
 
     const room = `profile_now_playing_${userId}`;
@@ -77,19 +68,9 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
     // Poll every 30s as fallback
     const pollInterval = setInterval(fetchNowPlaying, 30000);
 
-    // Interpolation loop: smoothly advance progress between server updates
-    const interpId = setInterval(() => {
-      const b = baseRef.current;
-      if (!b.playing || b.duration === 0) return;
-      const elapsed = Date.now() - b.receivedAt;
-      const current = Math.min(b.progress + elapsed, b.duration);
-      setDisplayProgressMs(current);
-    }, 200);
-
     return () => {
       mounted = false;
       clearInterval(pollInterval);
-      clearInterval(interpId);
       unsubHandler();
       wsService.unsubscribe(room);
     };
@@ -99,16 +80,11 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
 
   if (!data || !data.is_connected || !data.is_playing) return null;
 
-  const progressPct =
-    data.duration_ms && displayProgressMs > 0
-      ? Math.min((displayProgressMs / data.duration_ms) * 100, 100)
-      : 0;
-
   return (
     <div className="bg-surface border border-border rounded-lg p-3 space-y-3">
       {/* Header */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Disc3 className="h-3.5 w-3.5 text-[#1DB954] animate-pulse" />
+        <Disc3 className="h-3.5 w-3.5 text-[#1DB954]" />
         <span className="font-medium">Сейчас слушает</span>
         <Music className="h-3.5 w-3.5 text-[#1DB954]" />
       </div>
@@ -165,18 +141,54 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="space-y-1">
-        <div className="h-1 bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full bg-[#1DB954] rounded-full"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-[10px] text-muted-foreground/50">
-          <span>{formatMs(displayProgressMs)}</span>
-          <span>{formatMs(data.duration_ms)}</span>
-        </div>
+      {/* Progress bar — isolated so the 1Hz tick never re-renders the card.
+          transform: scaleX is compositor-only, unlike width:%. */}
+      <SpotifyProgressBar
+        progressMs={data.progress_ms ?? 0}
+        durationMs={data.duration_ms ?? 0}
+      />
+    </div>
+  );
+};
+
+const SpotifyProgressBar = ({
+  progressMs,
+  durationMs,
+}: {
+  progressMs: number;
+  durationMs: number;
+}) => {
+  const [now, setNow] = useState(() => Date.now());
+  const baseRef = useRef({ progress: progressMs, at: Date.now() });
+
+  useEffect(() => {
+    baseRef.current = { progress: progressMs, at: Date.now() };
+    setNow(Date.now());
+  }, [progressMs]);
+
+  useEffect(() => {
+    if (!durationMs) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [durationMs]);
+
+  const elapsed = Math.min(
+    Math.max(0, baseRef.current.progress + (now - baseRef.current.at)),
+    durationMs || 0,
+  );
+  const pct = durationMs > 0 ? Math.min((elapsed / durationMs) * 100, 100) : 0;
+
+  return (
+    <div className="space-y-1">
+      <div className="h-1 bg-muted rounded-full overflow-hidden">
+        <div
+          className="h-full w-full bg-[#1DB954] rounded-full origin-left"
+          style={{ transform: `scaleX(${pct / 100})` }}
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-muted-foreground/50">
+        <span>{formatMs(elapsed)}</span>
+        <span>{formatMs(durationMs)}</span>
       </div>
     </div>
   );

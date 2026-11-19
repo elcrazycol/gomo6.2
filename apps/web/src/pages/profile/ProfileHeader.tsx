@@ -113,9 +113,9 @@ export function ProfileHeader({
   const nicknameEmojiButtonRef = useRef<HTMLDivElement>(null);
 
   // Header blocks arrive as one rapid cascade: the avatar first, then the
-  // identity, then the actions. Each block is a dimensional morph anchored to
-  // its own corner, never a bare fade.
-  const item: Variants = morphVariants(0.88);
+  // identity, then the actions. Opacity + scale only — no blur on mobile paths
+  // (filter on a full header block is a per-frame layer during the cascade).
+  const item: Variants = morphVariants(0.88, 0);
   const itemTransition = morphTransition(reduceMotion);
 
   return (
