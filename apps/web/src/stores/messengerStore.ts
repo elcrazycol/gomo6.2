@@ -11,7 +11,7 @@ import type {
 import { applyReaction, noteReactionUsed, replaceChips } from "@/components/messenger/reactions";
 import { messengerApi } from "@/services/messengerApi";
 import { eventManager } from "@/services/eventManager";
-import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
+import { deleteCachedMessages, loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { decryptNote, decryptNotesMeta, encryptNote, encryptNotesMeta, NOTES_LOCKED } from "@/utils/notesCrypto";
 import {
   decryptE2EMessage,
@@ -815,6 +815,10 @@ type MessengerStore = {
   /** Optimistic block flag: flips the composer to the unblock panel (or back)
    *  the moment the block API answers, without waiting for a list refetch. */
   setConversationBlockedByMe: (conversationId: string, blocked: boolean) => void;
+  /** The peer blocked me: an open chat empties itself, its local cache and
+   *  its outbox are dropped. Local only — the server already stopped serving
+   *  the history. */
+  applyPeerBlocked: (conversationId: string) => void;
 };
 
 // ─── Store implementation ───────────────────────────────────────────────────
@@ -2292,26 +2296,38 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   },
 
   setConversationBlockedByMe: (conversationId, blocked) => {
+    // As in Telegram, blocking changes nothing about what the blocker sees of
+    // the peer: their avatar, history and real presence stay exactly as they
+    // were. Only the composer becomes the unblock panel.
     set((s) => ({
       conversations: s.conversations.map((conversation) =>
         conversation.id === conversationId
-          ? {
-              ...conversation,
-              blocked_by_me: blocked,
-              presence_hidden: blocked,
-              // The server hides the peer while a block exists; mirror that
-              // immediately so the header switches to "был(а) давно" without
-              // waiting for the next list refresh.
-              ...(blocked
-                ? {
-                    other_is_online: false,
-                    other_last_seen_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
-                  }
-                : {}),
-            }
+          ? { ...conversation, blocked_by_me: blocked }
           : conversation,
       ),
     }));
+  },
+
+  applyPeerBlocked: (conversationId) => {
+    if (!conversationId) return;
+    const ownerId = get().me?.id ?? "";
+    // Local traces go too: the in-memory LRU, the IndexedDB page and any
+    // queued sends for this chat. The peer's content must not survive in a
+    // cache the blocked viewer can still open.
+    recentMessages.delete(recentKey(ownerId || null, conversationId));
+    void deleteCachedMessages(ownerId, conversationId);
+    if (ownerId) {
+      void listOutbox(ownerId).then((entries) => {
+        for (const entry of entries) {
+          if (entry.conversationId === conversationId) void deleteOutbox(entry.key);
+        }
+      });
+    }
+    set((s) =>
+      s.selectedConversationId === conversationId
+        ? { messages: [], hasMoreMessages: false, pinnedNotes: [] }
+        : s,
+    );
   },
 
   updateConversationFromWs: (convId, updates, incrementUnread = false) => {

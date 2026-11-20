@@ -172,9 +172,9 @@ func TestGetMessages_Success(t *testing.T) {
 		WillReturnRows(rows)
 
 	// The only avatar belongs to the viewer — the visibility lookup keeps it.
-	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"}))
+	mock.ExpectQuery(`SELECT u.id::text, COALESCE\(ps.private_profile, false\),.*FROM users u`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"}))
 
 	h.GetMessages(c)
 

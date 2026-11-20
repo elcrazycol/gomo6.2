@@ -580,9 +580,12 @@ func TestEnginePost_WallPosts_OwnWall(t *testing.T) {
 func TestEnginePost_WallPosts_ForbiddenForeignWall(t *testing.T) {
 	h, mock := setupEngine(t)
 
-	// Privacy gate first: u2's profile is public and the wall is not hidden, so
-	// the wall-post check proceeds to allow_wall_posts_from_others (which is
-	// false here).
+	// No block between the pair, then the privacy gate: u2's profile is public
+	// and the wall is not hidden, so the wall-post check proceeds to
+	// allow_wall_posts_from_others (which is false here).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs("u2", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"private", "hide_wall"}).AddRow(false, false))
@@ -606,8 +609,10 @@ func TestEnginePost_WallPosts_ForbiddenForeignWall(t *testing.T) {
 func TestEnginePost_WallPosts_AllowedForeignWall(t *testing.T) {
 	h, mock := setupEngine(t)
 
-	// Privacy gate first: u2's profile is public and the wall is not hidden →
-	// allowed.
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs("u2", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	// Privacy gate: u2's profile is public and the wall is not hidden → allowed.
 	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"private", "hide_wall"}).AddRow(false, false))

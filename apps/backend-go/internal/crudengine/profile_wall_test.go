@@ -432,8 +432,11 @@ func TestEnginePost_ProfileWallComment(t *testing.T) {
 		WithArgs("post1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
 
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs("u1", "u2").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	// post1 belongs to u1, commenter is u2 → check u1's wall visibility
-	// (public profile, wall not hidden → visible).
+	// (public profile, wall not hidden, no block → visible).
 	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"private", "hide_wall"}).AddRow(false, false))

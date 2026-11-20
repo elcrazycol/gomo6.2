@@ -231,6 +231,7 @@ func TestShouldFilterPrivateProfile_NonFriend(t *testing.T) {
 
 func TestCanViewUserContent_Public(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(false, false, false, false, false, false, false, false))
@@ -246,6 +247,7 @@ func TestCanViewUserContent_Public(t *testing.T) {
 
 func TestCanViewUserContent_PrivateNonFriend(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(true, false, false, false, false, false, false, false))
@@ -282,6 +284,7 @@ func TestCanViewUserAchievements_OwnerSeesHidden(t *testing.T) {
 
 func TestCanViewUserAchievements_HiddenAchievements(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(false, false, false, false, false, false, false, true))
@@ -297,6 +300,7 @@ func TestCanViewUserAchievements_HiddenAchievements(t *testing.T) {
 
 func TestCanViewUserAchievements_PublicProfile(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(false, false, false, false, false, false, false, false))
@@ -327,6 +331,7 @@ func TestCanViewUserAchievements_PrivateAnonymous(t *testing.T) {
 
 func TestCanViewUserAchievements_PrivateFriend(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(true, false, false, false, false, false, false, false))
@@ -345,6 +350,7 @@ func TestCanViewUserAchievements_PrivateFriend(t *testing.T) {
 
 func TestCanViewUserAchievements_PrivateNonFriend(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(true, false, false, false, false, false, false, false))
@@ -365,6 +371,7 @@ func TestCanViewUserAchievements_PrivateNonFriend(t *testing.T) {
 
 func TestCanViewUserGifts_HiddenGifts(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(false, false, false, false, false, false, true, false))
@@ -380,6 +387,7 @@ func TestCanViewUserGifts_HiddenGifts(t *testing.T) {
 
 func TestCanViewUserGifts_PublicProfile(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(false, false, false, false, false, false, false, false))
@@ -395,6 +403,7 @@ func TestCanViewUserGifts_PublicProfile(t *testing.T) {
 
 func TestCanViewUserGifts_PrivateNonFriend(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "target", "viewer")
 	mock.ExpectQuery(settingsQuery).
 		WithArgs("target").
 		WillReturnRows(settingsRow(true, false, false, false, false, false, false, false))
@@ -424,6 +433,18 @@ func wallSettingsRow(privateProfile, hideWall bool) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(privateProfile, hideWall)
 }
 
+// blockedQueryRe matches the single block-direction lookup BlockedBy /
+// CanView* run before touching privacy settings.
+const blockedQueryRe = `SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`
+
+// expectNotBlocked registers the "target has not blocked the viewer" answer of
+// that lookup.
+func expectNotBlocked(mock sqlmock.Sqlmock, target, viewer string) {
+	mock.ExpectQuery(blockedQueryRe).
+		WithArgs(target, viewer).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+}
+
 const friendshipExistsQuery = `SELECT EXISTS.*FROM friendships.*`
 
 func TestCanViewWall_SameUser(t *testing.T) {
@@ -440,6 +461,7 @@ func TestCanViewWall_SameUser(t *testing.T) {
 
 func TestCanViewWall_NoPrivacyRow_PublicByDefault(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "owner", "viewer")
 	mock.ExpectQuery(wallSettingsQuery).
 		WithArgs("owner").
 		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}))
@@ -455,6 +477,7 @@ func TestCanViewWall_NoPrivacyRow_PublicByDefault(t *testing.T) {
 
 func TestCanViewWall_PublicProfile(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "owner", "viewer")
 	mock.ExpectQuery(wallSettingsQuery).
 		WithArgs("owner").
 		WillReturnRows(wallSettingsRow(false, false))
@@ -470,6 +493,7 @@ func TestCanViewWall_PublicProfile(t *testing.T) {
 
 func TestCanViewWall_HiddenWallNonFriend(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "owner", "viewer")
 	// Public profile that hid the wall — non-friends are locked out.
 	mock.ExpectQuery(wallSettingsQuery).
 		WithArgs("owner").
@@ -489,6 +513,7 @@ func TestCanViewWall_HiddenWallNonFriend(t *testing.T) {
 
 func TestCanViewWall_PrivateAndNotFriend(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "owner", "viewer")
 	mock.ExpectQuery(wallSettingsQuery).
 		WithArgs("owner").
 		WillReturnRows(wallSettingsRow(true, true))
@@ -507,6 +532,7 @@ func TestCanViewWall_PrivateAndNotFriend(t *testing.T) {
 
 func TestCanViewWall_PrivateMutualFriend(t *testing.T) {
 	db, mock := newMock(t)
+	expectNotBlocked(mock, "owner", "viewer")
 	mock.ExpectQuery(wallSettingsQuery).
 		WithArgs("owner").
 		WillReturnRows(wallSettingsRow(true, true))
@@ -794,20 +820,20 @@ func TestWallAttachmentAccess_DBErrorFailsClosed(t *testing.T) {
 // ─────────────────── ResolveProfileVisibilityBatch ───────────────────
 
 const (
-	batchSettingsRe = `SELECT user_id::text, COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = ANY`
+	batchSettingsRe = `SELECT u.id::text, COALESCE\(ps.private_profile, false\).*FROM users u`
 	batchFriendsRe  = `SELECT user1_id::text, user2_id::text FROM friendships`
 )
 
 // batchSettingsRows builds the 4-column result set of the batched
 // privacy_settings read.
 func batchSettingsRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"})
+	return sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"})
 }
 
 func TestResolveProfileVisibilityBatch_AnonymousPublic(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(batchSettingsRows())
 
 	vis, err := ResolveProfileVisibilityBatch(db, "", []string{"a", "b"})
@@ -824,8 +850,8 @@ func TestResolveProfileVisibilityBatch_AnonymousPublic(t *testing.T) {
 func TestResolveProfileVisibilityBatch_PrivateNonFriend(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(batchSettingsRows().AddRow("target", true, true, false))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("target", true, true, false, false, false))
 	mock.ExpectQuery(batchFriendsRe).
 		WithArgs("viewer", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}))
@@ -845,8 +871,8 @@ func TestResolveProfileVisibilityBatch_PrivateNonFriend(t *testing.T) {
 func TestResolveProfileVisibilityBatch_PrivateFriend(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(batchSettingsRows().AddRow("target", true, true, true))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("target", true, true, true, false, false))
 	mock.ExpectQuery(batchFriendsRe).
 		WithArgs("viewer", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}).AddRow("target", "viewer"))
@@ -863,8 +889,8 @@ func TestResolveProfileVisibilityBatch_PrivateFriend(t *testing.T) {
 func TestResolveProfileVisibilityBatch_AnonymousPrivateHidesAvatar(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(batchSettingsRows().AddRow("target", true, true, false))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("target", true, true, false, false, false))
 	// An anonymous viewer is never a friend → no friendships read expected.
 
 	vis, err := ResolveProfileVisibilityBatch(db, "", []string{"target"})
@@ -879,8 +905,8 @@ func TestResolveProfileVisibilityBatch_AnonymousPrivateHidesAvatar(t *testing.T)
 func TestResolveProfileVisibilityBatch_PublicHideStats(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(batchSettingsRows().AddRow("t", false, false, true))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("t", false, false, true, false, false))
 	mock.ExpectQuery(batchFriendsRe).
 		WithArgs("viewer", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}))
@@ -900,8 +926,8 @@ func TestResolveProfileVisibilityBatch_PublicHideStats(t *testing.T) {
 func TestResolveProfileVisibilityBatch_PublicToggleExemptsFriend(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(batchSettingsRows().AddRow("t", false, false, true))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("t", false, false, true, false, false))
 	mock.ExpectQuery(batchFriendsRe).
 		WithArgs("viewer", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"user1_id", "user2_id"}).AddRow("t", "viewer"))
@@ -918,8 +944,8 @@ func TestResolveProfileVisibilityBatch_PublicToggleExemptsFriend(t *testing.T) {
 func TestResolveProfileVisibilityBatch_OwnerSkipsFriendQuery(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(batchSettingsRows().AddRow("u1", true, true, true))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("u1", true, true, true, false, false))
 	// Owner → no friendships read expected.
 
 	vis, err := ResolveProfileVisibilityBatch(db, "u1", []string{"u1"})
@@ -937,7 +963,7 @@ func TestResolveProfileVisibilityBatch_OwnerSkipsFriendQuery(t *testing.T) {
 func TestResolveProfileVisibilityBatch_DedupesAndBatches(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(pq.Array([]string{"a", "b"})).
+		WithArgs(pq.Array([]string{"a", "b"}), "").
 		WillReturnRows(batchSettingsRows())
 
 	vis, err := ResolveProfileVisibilityBatch(db, "", []string{"a", "b", "a", "b", ""})
@@ -970,7 +996,7 @@ func TestResolveProfileVisibilityBatch_NilDB(t *testing.T) {
 func TestResolveProfileVisibilityBatch_SettingsError(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnError(errors.New("boom"))
 
 	if _, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"t"}); err == nil {
@@ -981,13 +1007,101 @@ func TestResolveProfileVisibilityBatch_SettingsError(t *testing.T) {
 func TestResolveProfileVisibilityBatch_FriendsError(t *testing.T) {
 	db, mock := newMock(t)
 	mock.ExpectQuery(batchSettingsRe).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(batchSettingsRows().AddRow("t", true, false, false))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().AddRow("t", true, false, false, false, false))
 	mock.ExpectQuery(batchFriendsRe).
 		WithArgs("viewer", sqlmock.AnyArg()).
 		WillReturnError(errors.New("boom"))
 
 	if _, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"t"}); err == nil {
 		t.Fatal("expected the friendships read error to propagate")
+	}
+}
+
+// ─────────────────── Block semantics ───────────────────
+
+func TestBlockedBy_TrueAndSelfExempt(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(blockedQueryRe).
+		WithArgs("blocker", "viewer").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	blocked, err := BlockedBy(db, "blocker", "viewer")
+	if err != nil || !blocked {
+		t.Fatalf("expected a block, got %v / %v", blocked, err)
+	}
+
+	// A self-pair can never be a block and must not hit the database.
+	blocked, err = BlockedBy(db, "same", "same")
+	if err != nil || blocked {
+		t.Fatalf("self must never be blocked, got %v / %v", blocked, err)
+	}
+}
+
+func TestResolveProfileVisibilityBatch_BlockedByTarget(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().
+			AddRow("target", false, false, false, true, false))
+	// Blocked viewers never trigger the friendship read.
+
+	vis, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"target"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := vis["target"]
+	if !got.Blocked || !got.Filter || !got.HideAvatar || !got.HideStats {
+		t.Fatalf("a block must hide everything, got %+v", got)
+	}
+	if got.BlockedByMe {
+		t.Fatal("BlockedByMe must stay false for the blocked side")
+	}
+}
+
+func TestResolveProfileVisibilityBatch_ViewerBlockedTarget(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(batchSettingsRe).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(batchSettingsRows().
+			AddRow("target", false, false, false, false, true))
+
+	vis, err := ResolveProfileVisibilityBatch(db, "viewer", []string{"target"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := vis["target"]
+	if !got.BlockedByMe {
+		t.Fatalf("expected BlockedByMe, got %+v", got)
+	}
+	if got.Blocked || got.Filter || got.HideAvatar || got.HideStats {
+		t.Fatalf("the blocker must still see everything, got %+v", got)
+	}
+}
+
+func TestHiddenPresenceIDs(t *testing.T) {
+	db, mock := newMock(t)
+	mock.ExpectQuery(`SELECT blocker_id::text FROM user_blocks`).
+		WithArgs("viewer", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"blocker_id"}).AddRow("a"))
+
+	hidden, err := HiddenPresenceIDs(db, "viewer", []string{"a", "b"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hidden["a"] || hidden["b"] {
+		t.Fatalf("unexpected hidden set: %+v", hidden)
+	}
+
+	// A guest can never be blocked → no query.
+	if hidden, err := HiddenPresenceIDs(db, "", []string{"a"}); err != nil || len(hidden) != 0 {
+		t.Fatalf("guests must have no hidden presence: %+v / %v", hidden, err)
+	}
+}
+
+func TestWallVisibilityClause_ExcludesBlockerWall(t *testing.T) {
+	clause := WallVisibilityClause("p.user_id", "ps", "$2")
+	if !strings.Contains(clause, "NOT EXISTS (SELECT 1 FROM user_blocks b") {
+		t.Fatalf("wall clause must exclude a blocker's wall, got: %s", clause)
 	}
 }

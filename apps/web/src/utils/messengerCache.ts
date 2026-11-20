@@ -99,6 +99,29 @@ export async function saveCachedMessages(ownerId: string, conversationId: string
   });
 }
 
+/** Drops one conversation's cached page (used when the chat becomes hidden). */
+export async function deleteCachedMessages(ownerId: string, conversationId: string): Promise<void> {
+  const database = await openDatabase();
+  if (!database) return;
+
+  return new Promise((resolve) => {
+    try {
+      const request = database.transaction(STORE_NAME, "readwrite")
+        .objectStore(STORE_NAME)
+        .delete(getCacheKey(ownerId, conversationId));
+      request.onsuccess = () => resolve();
+      request.onerror = () => resolve();
+      request.transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+    } catch {
+      database.close();
+      resolve();
+    }
+  });
+}
+
 export function clearMessengerCache(): Promise<void> {
   const idb = getIndexedDB();
   if (!idb) return Promise.resolve();

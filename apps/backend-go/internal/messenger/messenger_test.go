@@ -84,8 +84,18 @@ func expectConversationAccess(mock sqlmock.Sqlmock, convID, userID, otherUser st
 	mock.ExpectQuery(`FROM chat_conversations c`).
 		WithArgs(convID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user",
-		}).AddRow(convID, true, isGroup, isNotes, isService, mode, otherUser))
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, true, isGroup, isNotes, isService, mode, otherUser, false))
+}
+
+// expectConversationAccessPeerBlocked mocks the access query for a 1:1 chat
+// whose peer blocked the caller (history/media/sends are erased).
+func expectConversationAccessPeerBlocked(mock sqlmock.Sqlmock, convID, userID, otherUser string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, true, false, false, false, "server", otherUser, true))
 }
 
 // expectConversationAccessError mocks a failing access lookup.
@@ -101,8 +111,8 @@ func expectNoConversationAccess(mock sqlmock.Sqlmock, convID, userID string) {
 	mock.ExpectQuery(`FROM chat_conversations c`).
 		WithArgs(convID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user",
-		}).AddRow(convID, false, false, false, false, "server", ""))
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, false, false, false, false, "server", "", false))
 }
 
 // expectMessageExtras mocks the single extras query (attachments + reactions +
@@ -164,8 +174,8 @@ func expectServiceConversationAccess(mock sqlmock.Sqlmock, convID, userID string
 	mock.ExpectQuery(`FROM chat_conversations c`).
 		WithArgs(convID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user",
-		}).AddRow(convID, true, false, false, true, "server", ""))
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(convID, true, false, false, true, "server", "", false))
 }
 
 func TestGetClaims_Valid(t *testing.T) {

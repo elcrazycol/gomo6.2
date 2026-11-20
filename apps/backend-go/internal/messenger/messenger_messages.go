@@ -22,6 +22,7 @@ import (
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
@@ -58,6 +59,14 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	// Membership + conversation kind + encryption mode in one round trip.
 	access := h.requireMember(c, conversationID, claims.UserID)
 	if access == nil {
+		return
+	}
+
+	// A peer block erases the chat for this viewer: the history (including the
+	// pinned/notes lookup mode) reads as empty. The peer's client keeps the real
+	// history — only the blocked side is cut off.
+	if access.PeerBlockedMe && !access.IsGroup && !access.IsNotes {
+		c.JSON(http.StatusOK, models.SuccessResponse([]MessageResponse{}))
 		return
 	}
 
@@ -415,6 +424,36 @@ func scanMessageRow(rows *sql.Rows, conversationID string, isNotes, isE2E bool) 
 // @Router       /messenger/conversations/{id}/messages [post]
 // @Security     BearerAuth
 
+// acknowledgeDroppedMessage answers a send into a chat whose owner blocked the
+// caller with the same shape a real send returns, while storing and delivering
+// nothing. The client replaces its optimistic bubble with this echo, so the
+// composer behaves normally and the sender learns nothing from the network.
+func (h *MessengerHandler) acknowledgeDroppedMessage(c *gin.Context, conversationID string, claims *auth.Claims, req SendMessageRequest, cleanContent string) {
+	now := time.Now().UTC()
+	echo := MessageResponse{
+		ID:             uuid.NewString(),
+		EventID:        "0",
+		ConversationID: conversationID,
+		SenderUserID:   claims.UserID,
+		SenderUsername: claims.Username,
+		Type:           req.Type,
+		Content:        cleanContent,
+		SentAt:         now.Format(time.RFC3339Nano),
+		ClientID:       req.ClientID,
+	}
+	if echo.Type == "" {
+		echo.Type = "text"
+	}
+	if len(req.Payload) > 0 {
+		echo.Payload = req.Payload
+	}
+	if len(req.Attachments) > 0 {
+		echo.Attachments = buildAttachmentResponse(req.Attachments)
+	}
+	normalizeMessageEnvelope(&echo)
+	c.JSON(http.StatusOK, models.SuccessResponse(echo))
+}
+
 func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -469,6 +508,15 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 	if access.IsService {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("This is a notification thread and does not accept messages"))
+		return
+	}
+
+	// A peer block is invisible to the sender: the message is acknowledged like
+	// any other and then dropped (never stored, never delivered). The sender's
+	// own view of this chat is erased anyway, so nothing reappears on reload —
+	// and the blocker never receives it.
+	if access.PeerBlockedMe && !access.IsGroup && !access.IsNotes {
+		h.acknowledgeDroppedMessage(c, conversationID, claims, req, cleanContent)
 		return
 	}
 

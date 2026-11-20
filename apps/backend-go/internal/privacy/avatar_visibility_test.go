@@ -10,12 +10,12 @@ import (
 // HiddenAvatarIDs, returning one row per given (id, private, hideAvatar,
 // hideStats) tuple.
 func expectVisibilitySettings(mock sqlmock.Sqlmock, rows ...[4]interface{}) {
-	set := sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"})
+	set := sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"})
 	for _, r := range rows {
-		set.AddRow(r[0], r[1], r[2], r[3])
+		set.AddRow(r[0], r[1], r[2], r[3], false, false)
 	}
-	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
-		WithArgs(sqlmock.AnyArg()).
+	mock.ExpectQuery(`SELECT u.id::text, COALESCE\(ps.private_profile, false\),.*FROM users u`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(set)
 }
 

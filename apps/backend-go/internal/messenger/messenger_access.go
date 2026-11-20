@@ -30,6 +30,11 @@ type conversationAccess struct {
 	EncryptionMode string
 	// OtherUserID is the peer in a 1:1 chat, empty for groups/notes.
 	OtherUserID string
+	// PeerBlockedMe is true when the 1:1 peer holds a block against the caller.
+	// Such a block erases the peer for the caller: no history, no media, no
+	// presence, and sends are accepted-but-dropped (never delivered, never
+	// stored) so the caller cannot tell a block from a silent chat.
+	PeerBlockedMe bool
 }
 
 // IsE2E reports whether the conversation stores opaque client ciphertext.
@@ -59,7 +64,16 @@ const conversationAccessQuery = `
 			FROM chat_members cm2
 			WHERE cm2.conversation_id = c.id AND cm2.user_id <> $2
 			LIMIT 1
-		), '')
+		), ''),
+		COALESCE((
+			SELECT EXISTS(
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = cm2.user_id AND b.blocked_id = $2
+			)
+			FROM chat_members cm2
+			WHERE cm2.conversation_id = c.id AND cm2.user_id <> $2
+			LIMIT 1
+		), false)
 	FROM chat_conversations c
 	WHERE c.id = $1`
 
@@ -77,6 +91,7 @@ func (h *MessengerHandler) loadAccess(c *gin.Context, conversationID, userID str
 		&access.IsService,
 		&access.EncryptionMode,
 		&access.OtherUserID,
+		&access.PeerBlockedMe,
 	)
 	if err == sql.ErrNoRows {
 		// The conversation does not exist (or is hidden by RLS when the
@@ -213,13 +228,17 @@ func (h *MessengerHandler) BlockUser(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.dbFor(c).Exec(`
+	res, err := h.dbFor(c).Exec(`
 		INSERT INTO user_blocks (blocker_id, blocked_id)
 		VALUES ($1, $2)
 		ON CONFLICT (blocker_id, blocked_id) DO NOTHING
-	`, claims.UserID, targetID); err != nil {
+	`, claims.UserID, targetID)
+	if err != nil {
 		httpx.ServerError(c, "block user", err)
 		return
+	}
+	if affected, _ := res.RowsAffected(); affected > 0 {
+		h.publishBlockState(claims.UserID, targetID, true)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"blocked": true}))
@@ -240,15 +259,52 @@ func (h *MessengerHandler) UnblockUser(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.dbFor(c).Exec(
+	res, err := h.dbFor(c).Exec(
 		`DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2`,
 		claims.UserID, targetID,
-	); err != nil {
+	)
+	if err != nil {
 		httpx.ServerError(c, "unblock user", err)
 		return
 	}
+	if affected, _ := res.RowsAffected(); affected > 0 {
+		h.publishBlockState(claims.UserID, targetID, false)
+	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"blocked": false}))
+}
+
+// publishBlockState pushes a block/unblock through every realtime surface that
+// has to react without a reload:
+//
+//   - the blocked user's live presence subscriptions to the blocker are revoked
+//     (a block can never be outrun by an already-open chat);
+//   - the blocked user instantly receives a presence snapshot: long-gone
+//     offline on block, the real state on unblock;
+//   - both sides refetch their conversation lists (avatar/preview/presence move
+//     in one sweep) and the blocker's profile is invalidated everywhere, so a
+//     profile page open on the blocked user's screen empties itself.
+//
+// Everything is best effort: the database is already authoritative and the
+// next REST read heals any missed event. No payload here says "blocked" — the
+// blocked side only ever sees neutral "refetch"/"presence" signals.
+func (h *MessengerHandler) publishBlockState(blockerID, blockedID string, blocked bool) {
+	if h.hub == nil || blockerID == "" || blockedID == "" {
+		return
+	}
+	go func() {
+		if blocked {
+			h.hub.RevokeProfileVisibility(blockedID, blockerID)
+			// «был(а) давно» — the same threshold the REST paths use.
+			h.hub.SendPresenceSnapshotToUser(blockedID, blockerID, false, time.Now().UTC().Add(-30*24*time.Hour))
+		} else {
+			online, lastSeen := h.hub.GetPresenceStatus(blockerID)
+			h.hub.SendPresenceSnapshotToUser(blockedID, blockerID, online, lastSeen)
+		}
+		_ = h.hub.PublishMessengerRefresh(blockedID)
+		_ = h.hub.PublishMessengerRefresh(blockerID)
+		_ = h.hub.PublishProfileUpdated(blockerID)
+	}()
 }
 
 // ─── 1:1 send policy (blocks, privacy, friendship) ───────────────────────────

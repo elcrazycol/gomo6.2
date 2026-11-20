@@ -98,7 +98,7 @@ func TestListConversations_Empty(t *testing.T) {
 	}
 }
 
-func TestListConversations_BlockedPairHidesPresence(t *testing.T) {
+func TestListConversations_PeerBlockedErasesRow(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
@@ -107,6 +107,8 @@ func TestListConversations_BlockedPairHidesPresence(t *testing.T) {
 
 	now := time.Now()
 	oldSeen := now.Add(-30 * 24 * time.Hour)
+	// What the SQL returns for the blocked side: preview/avatar/pin/read line
+	// already masked, presence collapsed and presence_hidden set.
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
@@ -116,9 +118,9 @@ func TestListConversations_BlockedPairHidesPresence(t *testing.T) {
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
 		"last_read_at",
 	}).AddRow(
-		testConv1, now, "Hello!", testUser2, nil, now,
-		3, false, true, true, false, nil, nil, false, "server", 2,
-		testUser2, "alice", "Alice", "emoji-1", nil, 1001, false, oldSeen, now, now,
+		testConv1, now, nil, testUser2, nil, now,
+		0, false, false, true, false, nil, nil, false, "server", 2,
+		testUser2, "alice", "Alice", nil, nil, 1001, false, oldSeen, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
@@ -138,14 +140,26 @@ func TestListConversations_BlockedPairHidesPresence(t *testing.T) {
 		t.Fatalf("expected 1 conversation, got %d", len(data))
 	}
 	first := data[0].(map[string]interface{})
-	if first["blocked_by_me"] != true {
-		t.Fatalf("expected blocked_by_me=true for the blocker, got %v", first["blocked_by_me"])
+	if first["blocked_by_me"] == true {
+		t.Fatal("the blocked side must never receive blocked_by_me")
 	}
 	if first["presence_hidden"] != true {
-		t.Fatalf("expected presence_hidden=true for a blocked pair, got %v", first["presence_hidden"])
+		t.Fatalf("expected presence_hidden=true for the blocked side, got %v", first["presence_hidden"])
 	}
 	if first["other_is_online"] != false {
-		t.Fatalf("a blocked pair must look offline, got %v", first["other_is_online"])
+		t.Fatalf("the peer must look offline, got %v", first["other_is_online"])
+	}
+	if first["last_message_preview"] != nil {
+		t.Fatalf("history preview must be erased, got %v", first["last_message_preview"])
+	}
+	if first["pinned_message_id"] != nil || first["other_last_read_at"] != nil {
+		t.Fatalf("pin/read line must be erased, got %#v", first)
+	}
+	if first["other_avatar_url"] != nil {
+		t.Fatalf("avatar must be a placeholder, got %v", first["other_avatar_url"])
+	}
+	if unread, _ := first["unread_count"].(float64); unread != 0 {
+		t.Fatalf("unread badge must be cleared, got %v", first["unread_count"])
 	}
 	seenRaw, _ := first["other_last_seen_at"].(string)
 	seen, err := time.Parse(time.RFC3339, seenRaw)
@@ -153,7 +167,59 @@ func TestListConversations_BlockedPairHidesPresence(t *testing.T) {
 		t.Fatalf("last_seen_at is not RFC3339: %q", seenRaw)
 	}
 	if time.Since(seen) < 7*24*time.Hour {
-		t.Fatalf("blocked pair must look long offline, got %s", seenRaw)
+		t.Fatalf("blocked peer must look long offline, got %s", seenRaw)
+	}
+}
+
+func TestListConversations_BlockerKeepsPeerAsBefore(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewGETContext("/api/v1/messenger/conversations", nil)
+	c.Set("claims", claims)
+
+	now := time.Now()
+	// The blocker: only blocked_by_me flips. The peer keeps avatar, preview,
+	// real presence and the read line.
+	rows := sqlmock.NewRows([]string{
+		"id", "last_message_at", "last_message_preview",
+		"last_message_sender_id", "pinned_message_id", "updated_at",
+		"unread_count", "is_muted", "blocked_by_me", "presence_hidden", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
+
+		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
+		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
+		"last_read_at",
+	}).AddRow(
+		testConv1, now, "Hello!", testUser2, nil, now,
+		2, false, true, false, false, nil, nil, false, "server", 2,
+		testUser2, "alice", "Alice", "emoji-1", "alice.png", 1001, true, now, now, now,
+	)
+
+	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
+		WithArgs(testUser1).
+		WillReturnRows(rows)
+
+	handler.ListConversations(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	first := data[0].(map[string]interface{})
+	if first["blocked_by_me"] != true {
+		t.Fatalf("expected blocked_by_me for the blocker, got %v", first["blocked_by_me"])
+	}
+	if first["presence_hidden"] == true {
+		t.Fatal("the blocker must keep the real presence")
+	}
+	if first["other_is_online"] != true {
+		t.Fatalf("the blocker sees the peer online, got %v", first["other_is_online"])
+	}
+	if first["other_avatar_url"] != "alice.png" || first["last_message_preview"] == nil {
+		t.Fatalf("the blocker must keep avatar and a preview, got %#v", first)
 	}
 }
 

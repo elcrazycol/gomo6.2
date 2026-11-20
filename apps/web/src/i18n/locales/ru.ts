@@ -762,6 +762,8 @@ const ru: LocaleResources = {
     threadsLoadError: "Ошибка загрузки записей",
     notFoundTitle: "Профиль не найден",
     notFoundHint: "Возможно, аккаунт удалён или ссылка устарела.",
+    emptyProfileTitle: "Пока что тут ничего нет",
+    emptyProfileHint: "Здесь не появилось ни постов, ни тем, ни подарков.",
     saveError: "Ошибка сохранения профиля",
     updated: "Профиль обновлен",
     updateError: "Ошибка обновления профиля",

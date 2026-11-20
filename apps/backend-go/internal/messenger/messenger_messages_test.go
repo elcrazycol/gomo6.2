@@ -845,3 +845,66 @@ func TestUpdateNotesMeta_Unauthenticated(t *testing.T) {
 		t.Fatalf("expected 401, got %d", w.Code)
 	}
 }
+
+// ─── Peer block: the blocked side sees an erased chat ───────────────────────
+
+func TestGetMessages_PeerBlockedReturnsEmptyWithoutQuery(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewGETContextWithParams(
+		"/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages",
+		nil,
+		map[string]string{"id": testConv1},
+	)
+	c.Set("claims", claims)
+
+	expectConversationAccessPeerBlocked(mock, testConv1, testUser1, testUser2)
+
+	handler.GetMessages(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("a blocked chat must read as empty, got %d messages", len(data))
+	}
+}
+
+func TestSendMessage_PeerBlockedAcknowledgesButStoresNothing(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := SendMessageRequest{Content: "you will never read this", ClientID: testClientID1}
+	c, w := testutil.NewPOSTContext(
+		"/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages",
+		body, claims, map[string]string{"id": testConv1},
+	)
+
+	expectConversationAccessPeerBlocked(mock, testConv1, testUser1, testUser2)
+
+	handler.SendMessage(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("a blocked send must look successful, got %d: %s", w.Code, w.Body.String())
+	}
+	// No BEGIN/INSERT/COMMIT expectations were registered: sqlmock fails the
+	// test if the handler touches the database. The ack echoes the message.
+	msg, err := stripJSON(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if msg["content"] != "you will never read this" {
+		t.Fatalf("expected the echo content, got %v", msg["content"])
+	}
+	if msg["client_id"] != testClientID1 {
+		t.Fatalf("expected the client id echo, got %v", msg["client_id"])
+	}
+	if id, _ := msg["id"].(string); id == "" {
+		t.Fatal("expected a synthetic message id")
+	}
+}

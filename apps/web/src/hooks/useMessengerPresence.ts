@@ -26,7 +26,15 @@ export function useMessengerPresence(): void {
   const partnerKey = useMemo(() => {
     const ids = conversations
       .filter(
-        (c) => !c.is_group && !c.is_notes && Boolean(c.other_user_id) && c.other_user_id !== meId,
+        (c) =>
+          !c.is_group &&
+          !c.is_notes &&
+          // A peer hidden behind a block has no live presence to subscribe to.
+          // The store masks any stray delta, and REST already says «был(а)
+          // давно» — this only avoids the pointless room request.
+          !c.presence_hidden &&
+          Boolean(c.other_user_id) &&
+          c.other_user_id !== meId,
       )
       .map((c) => c.other_user_id as string);
     return [...new Set(ids)].slice(0, MAX_CONVERSATION_PRESENCE).join(",");

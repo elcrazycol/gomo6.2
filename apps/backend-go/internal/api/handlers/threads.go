@@ -616,6 +616,17 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		return
 	}
 
+	// A block held by the thread author erases their content for the blocked
+	// viewer everywhere — a bookmarked direct link must 404 exactly like the
+	// erased profile page.
+	viewerID := h.getUserIDFromRequest(c)
+	if thread.UserID != nil && *thread.UserID != "" && *thread.UserID != viewerID {
+		if blocked, blockErr := privacy.BlockedBy(h.db, *thread.UserID, viewerID); blockErr == nil && blocked {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
+			return
+		}
+	}
+
 	// Check board-level access for private boards (global topics have no board).
 	if boardID.Valid && boardID.String != "" {
 		userID := h.getUserIDFromRequest(c)

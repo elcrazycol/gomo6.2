@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift, FileUp, ShieldOff } from "lucide-react";
+import { ArrowLeft, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift, FileUp } from "lucide-react";
 import { toast } from "sonner";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -785,7 +785,6 @@ export const ChatView = memo(function ChatView({
       {/* Composer — or Telegram's unblock panel while I blocked the peer. */}
       {conversation.blocked_by_me ? (
         <div className="chat-blocked-panel">
-          <span className="chat-blocked-icon"><ShieldOff size={17} /></span>
           <span className="chat-blocked-copy">
             <strong>
               Вы заблокировали {conversation.other_display_name

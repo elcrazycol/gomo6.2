@@ -277,6 +277,40 @@ func genericEmojiVisibility(c *gin.Context, tableName string, argIndex int) (str
 	}
 }
 
+// blockedContentOwnerColumns maps a generic table to the columns that identify
+// the user whose content it holds. Reads through the compatibility surface add
+// one NOT EXISTS predicate per column so a viewer never sees content authored
+// by (or sitting on the wall of) a user who blocked them. This mirrors the
+// profile-page rule — a blocked account is erased for that viewer — and closes
+// the direct-API path, not just the rendered page.
+var blockedContentOwnerColumns = map[string][]string{
+	"threads": {"user_id"},
+	"posts":   {"user_id"},
+}
+
+// genericBlockedVisibility returns the WHERE predicate that hides rows of table
+// tableName belonging to users who blocked the caller. A guest (empty viewer)
+// gets no predicate: nobody can block an anonymous visitor. Returns the
+// predicate plus its argument, and the next placeholder index.
+func genericBlockedVisibility(c *gin.Context, tableName string, argIndex int) (string, []interface{}, int) {
+	columns, ok := blockedContentOwnerColumns[tableName]
+	if !ok {
+		return "", nil, argIndex
+	}
+	viewerID := httpx.AuthenticatedUserID(c)
+	if viewerID == "" {
+		return "", nil, argIndex
+	}
+	ph := "$" + strconv.Itoa(argIndex)
+	clauses := make([]string, 0, len(columns))
+	for _, col := range columns {
+		// Fully qualified so a join or a subquery in the base query cannot make
+		// the reference ambiguous.
+		clauses = append(clauses, "NOT EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id = "+tableName+"."+col+" AND b.blocked_id = "+ph+")")
+	}
+	return "(" + strings.Join(clauses, " AND ") + ")", []interface{}{viewerID}, argIndex + 1
+}
+
 // extractRecordID extracts the record ID from a URL path like /api/v1/table_name/abc-123.
 func extractRecordID(urlPath string, tableName string) string {
 	trimmed := strings.TrimPrefix(urlPath, "/api/v1/"+tableName+"/")

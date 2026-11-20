@@ -17,8 +17,8 @@ func TestSetMuted_PersistsOnlyOwnMembership(t *testing.T) {
 	mock.ExpectQuery(`FROM chat_conversations c`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user",
-		}).AddRow(testConv1, true, false, false, false, "server", testUser2))
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user", "peer_blocked_me",
+		}).AddRow(testConv1, true, false, false, false, "server", testUser2, false))
 	mock.ExpectExec(`UPDATE chat_members\s+SET is_muted = \$3\s+WHERE conversation_id = \$1 AND user_id = \$2`).
 		WithArgs(testConv1, testUser1, true).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -157,5 +157,34 @@ func TestListSharedAttachments_RequiresMember(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for a non-member, got %d", w.Code)
+	}
+}
+
+// A peer block erases the shared-media panel as well: the blocked side gets an
+// empty list and never reaches the attachments query.
+func TestListSharedAttachments_PeerBlockedReturnsEmpty(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+
+	expectConversationAccessPeerBlocked(mock, testConv1, testUser1, testUser2)
+
+	c, w := testutil.NewGETContextWithParams(
+		"/api/v1/messenger/conversations/"+testConv1+"/attachments",
+		nil,
+		map[string]string{"id": testConv1},
+	)
+	c.Set("claims", claims)
+
+	handler.ListSharedAttachments(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("expected no shared media for the blocked side, got %d", len(data))
 	}
 }

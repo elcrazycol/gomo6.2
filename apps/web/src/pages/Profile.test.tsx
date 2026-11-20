@@ -344,6 +344,62 @@ describe("Profile", () => {
     mockRpc.mockResolvedValue({ data: 0, error: null });
   }
 
+  // ─── Erased profile (the owner blocked the viewer) ─────────────────────────
+
+  function setupErasedProfile() {
+    const user = { id: "viewer-user" };
+    const session = { user, access_token: "token-abc" };
+    mockAuth.getSession.mockResolvedValue({ data: { session }, error: null });
+    mockAuth.getUser.mockResolvedValue({ data: { user }, error: null });
+    mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
+
+    const oldSeen = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/v1/profiles")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            data: [{
+              id: "profile-user-1", username: "eraseduser", display_name: "Erased",
+              bio: null, is_anonymous: false, thread_count: null, post_count: null,
+              wall_post_count: null, comment_count: null, likes_received_count: null,
+              garma: null, created_at: "2025-01-01T00:00:00Z",
+              avatar_url: null, is_online: false, last_seen: oldSeen,
+              content_hidden: true, blocked_by_me: false,
+            }],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          order: () => ({
+            maybeSingle: () => Promise.resolve({ data: {}, error: null }),
+            limit: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    });
+    mockRpc.mockResolvedValue({ data: 0, error: null });
+  }
+
+  it("renders the erased profile shell and no content for a blocked viewer", async () => {
+    setupErasedProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Пока что тут ничего нет")).toBeInTheDocument();
+    });
+    // Identity survives, presence reads «был(а) давно», nothing else renders.
+    expect(screen.getByText(/@eraseduser/)).toBeInTheDocument();
+    expect(screen.getByText(/был\(а\) давно/)).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-wall")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Записи" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Награды")).not.toBeInTheDocument();
+  });
+
   it("fetches the owner's visibility flags from the public privacy endpoint for a foreign profile", async () => {
     setupForeignPrivateProfile();
     renderWithProviders(<ProfileComponent />);

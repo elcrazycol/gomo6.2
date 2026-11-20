@@ -99,7 +99,13 @@ func (h *MessengerHandler) ListSharedAttachments(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
 		return
 	}
-	if h.requireMember(c, conversationID, claims.UserID) == nil {
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
+		return
+	}
+	// The blocked side sees the chat erased: no shared media, no files.
+	if access.PeerBlockedMe && !access.IsGroup && !access.IsNotes {
+		c.JSON(http.StatusOK, models.SuccessResponse([]SharedAttachment{}))
 		return
 	}
 

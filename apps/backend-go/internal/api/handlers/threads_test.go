@@ -209,6 +209,9 @@ func TestGetThreads_PrivateProfile_NonFriend_GetsEmpty(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
 	c, w := newGETContextWithClaims("/api/v1/threads?user_id=eq.privateUser", nil, &auth.Claims{UserID: "stranger"})
 
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs("privateUser", "stranger").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	// GetPrivacySettings: private_profile = true.
 	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("privateUser").
@@ -245,6 +248,9 @@ func TestGetThreads_PrivateProfile_MutualFriend_SeesThreads(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
 	c, w := newGETContextWithClaims("/api/v1/threads?user_id=eq.privateUser", nil, &auth.Claims{UserID: "friend"})
 
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs("privateUser", "friend").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("privateUser").
 		WillReturnRows(privacySettingsRow(true))
@@ -290,6 +296,9 @@ func TestGetThreads_PublicProfile_AnyViewerSeesThreads(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
 	c, w := newGETContextWithClaims("/api/v1/threads?user_id=eq.publicUser", nil, &auth.Claims{UserID: "viewer"})
 
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM user_blocks WHERE blocker_id = \$1 AND blocked_id = \$2\)`).
+		WithArgs("publicUser", "viewer").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	// GetPrivacySettings: private_profile = false → no friendship check needed.
 	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("publicUser").

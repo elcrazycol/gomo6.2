@@ -89,6 +89,7 @@ class MessengerWebSocket {
       wsService.on("read_receipt", (msg) => this.handleReadReceipt(msg)),
       wsService.on("delivery_receipt", (msg) => this.handleDeliveryReceipt(msg)),
       wsService.on("conversation_updated", (msg) => this.handleConversationUpdated(msg)),
+      wsService.on("messenger_refresh", () => this.handleMessengerRefresh()),
       wsService.on("chat_typing", (msg) => this.handleTyping(msg)),
       wsService.on("group_updated", (msg) => this.handleGroupUpdated(msg)),
     );
@@ -266,6 +267,30 @@ class MessengerWebSocket {
       encryption_mode: mode,
       preview_changed: data.preview_changed === true,
     });
+  }
+
+  private handleMessengerRefresh(): void {
+    // A relational change (block / unblock) that moves avatars, previews and
+    // presence in one sweep. Refetch, then make every chat whose peer is now
+    // hidden empty itself locally — the server already returns nothing for it.
+    void useMessengerStore
+      .getState()
+      .loadConversations({ force: true })
+      .then((conversations) => {
+        const store = useMessengerStore.getState();
+        for (const conversation of conversations) {
+          if (
+            conversation.presence_hidden &&
+            !conversation.is_group &&
+            !conversation.is_notes
+          ) {
+            store.applyPeerBlocked(conversation.id);
+          }
+        }
+      })
+      .catch(() => {
+        // Best effort: the list keeps its previous state until the next load.
+      });
   }
 
   private handleTyping(msg: WebSocketMessage): void {

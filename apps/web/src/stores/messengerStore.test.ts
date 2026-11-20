@@ -10,6 +10,7 @@ import type { ConversationView, MessageView } from "@/components/messenger/types
 vi.mock("@/utils/messengerCache", () => ({
   loadCachedMessages: vi.fn().mockResolvedValue(null),
   saveCachedMessages: vi.fn().mockResolvedValue(undefined),
+  deleteCachedMessages: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/services/messengerApi", () => ({
@@ -1440,18 +1441,45 @@ describe("messengerStore", () => {
       expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(false);
     });
 
-    it("blocking flips the composer flag and hides the peer instantly", () => {
+    it("blocking only flips the composer flag — the peer stays exactly as before", () => {
       useMessengerStore.setState({
-        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", other_is_online: true, blocked_by_me: false })],
+        conversations: [
+          mockConv({
+            id: "conv-1",
+            other_user_id: "u2",
+            other_is_online: true,
+            other_last_seen_at: "2026-01-01T00:00:00Z",
+            presence_hidden: false,
+            blocked_by_me: false,
+          }),
+        ],
       });
 
       useMessengerStore.getState().setConversationBlockedByMe("conv-1", true);
 
       const conv = useMessengerStore.getState().conversations.find((c) => c.id === "conv-1")!;
       expect(conv.blocked_by_me).toBe(true);
-      expect(conv.presence_hidden).toBe(true);
-      expect(conv.other_is_online).toBe(false);
-      expect(Date.parse(conv.other_last_seen_at ?? "")).toBeLessThan(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      // As in Telegram: the blocked user keeps their avatar, history and real
+      // presence for the blocker. Only the composer turns into the panel.
+      expect(conv.presence_hidden).toBe(false);
+      expect(conv.other_is_online).toBe(true);
+      expect(conv.other_last_seen_at).toBe("2026-01-01T00:00:00Z");
+    });
+
+    it("applyPeerBlocked empties the open chat", () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "me" } as never,
+        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", presence_hidden: true })],
+        selectedConversationId: "conv-1",
+        messages: [{ id: "m1", conversation_id: "conv-1", content: "secret" } as never],
+        hasMoreMessages: true,
+      });
+
+      useMessengerStore.getState().applyPeerBlocked("conv-1");
+
+      const state = useMessengerStore.getState();
+      expect(state.messages).toHaveLength(0);
+      expect(state.hasMoreMessages).toBe(false);
     });
 
     it("updateConversationFromWs updates conversation fields", () => {

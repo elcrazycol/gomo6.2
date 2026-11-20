@@ -327,6 +327,13 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 		return
 	}
 
+	// A block held by the target erases their social graph like the rest of the
+	// profile: the blocked viewer gets an empty list, not a list of names.
+	if blocked, blockErr := privacy.BlockedBy(h.db, targetUserID, claims.UserID); blockErr == nil && blocked {
+		c.JSON(http.StatusOK, models.SuccessResponse([]models.FriendResponse{}))
+		return
+	}
+
 	// Private profile: block friends list from non-friends
 	shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, claims.UserID, targetUserID)
 	if err == nil && shouldFilter && ps.PrivateHideFriends {
@@ -382,6 +389,15 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 	}
 	for i := range friends {
 		friends[i].AvatarURL = friendAvatars[i]
+	}
+
+	// A listed user who blocked the viewer must not appear online to them.
+	if hiddenPresence, err := privacy.HiddenPresenceIDs(h.db, claims.UserID, friendIDs); err == nil {
+		for i := range friends {
+			if hiddenPresence[friends[i].UserID] {
+				friends[i].IsOnline = false
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(friends))
@@ -487,6 +503,11 @@ func (h *FriendsHandler) subscriptionListTarget(c *gin.Context) (string, bool, b
 		return "", false, false
 	}
 
+	// A block held by the target hides their followers/following lists entirely.
+	if blocked, blockErr := privacy.BlockedBy(h.db, targetUserID, claims.UserID); blockErr == nil && blocked {
+		return targetUserID, true, true
+	}
+
 	shouldFilter, ps, err := privacy.ShouldFilterPrivateProfile(h.db, claims.UserID, targetUserID)
 	if err == nil && shouldFilter && ps.PrivateHideFriends {
 		return targetUserID, true, true
@@ -529,8 +550,20 @@ func (h *FriendsHandler) querySubscriptionUsers(c *gin.Context, query, targetUse
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
+	viewerID := httpx.AuthenticatedUserID(c)
 	for i := range users {
 		users[i].AvatarURL = subAvatars[i]
+	}
+
+	// Presence follows the block direction: a listed user who blocked the
+	// viewer is never "online" for them (the row itself stays — the graph is
+	// not the profile).
+	if hiddenPresence, err := privacy.HiddenPresenceIDs(h.db, viewerID, subIDs); err == nil {
+		for i := range users {
+			if hiddenPresence[users[i].UserID] {
+				users[i].IsOnline = false
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(users))

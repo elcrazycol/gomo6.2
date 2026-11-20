@@ -12,10 +12,10 @@ import (
 func TestStripHiddenAuthorAvatars_GuestHidesPublicToggle(t *testing.T) {
 	srv, mock := setupService(t)
 
-	mock.ExpectQuery(`SELECT user_id::text, COALESCE\(private_profile, false\),.*FROM privacy_settings WHERE user_id = ANY`).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats"}).
-			AddRow("author-1", false, true, false))
+	mock.ExpectQuery(`SELECT u.id::text, COALESCE\(ps.private_profile, false\),.*FROM users u`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "private_profile", "private_hide_avatar", "private_hide_stats", "blocked", "blocked_by_me"}).
+			AddRow("author-1", false, true, false, false, false))
 
 	rows := []map[string]interface{}{
 		{

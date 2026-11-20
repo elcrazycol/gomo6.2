@@ -58,6 +58,7 @@ export type WebSocketMessageType =
   | 'read_receipt'
   | 'delivery_receipt'
   | 'conversation_updated'
+  | 'messenger_refresh'
   | 'chat_typing'
   | 'group_updated'
   | 'now_playing'

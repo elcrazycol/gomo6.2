@@ -63,6 +63,15 @@ type User struct {
 	IsAnonymous        bool            `json:"is_anonymous" db:"is_anonymous"`
 	// Official notification account: messenger cut off, login via admin panel only.
 	IsService bool `json:"is_service,omitempty" db:"is_service"`
+	// ContentHidden is true when the profile owner blocked the viewer. The
+	// payload is then an empty shell (identity only, presence collapsed to
+	// «был(а) давно», every counter/visual stripped). The flag is deliberately
+	// neutral: it never says «blocked», so the viewer cannot tell a block from
+	// a wiped account.
+	ContentHidden bool `json:"content_hidden,omitempty" db:"-"`
+	// BlockedByMe is the viewer's own block of this profile. It only drives the
+	// «Разблокировать» affordance; it never hides anything from the viewer.
+	BlockedByMe bool `json:"blocked_by_me,omitempty" db:"-"`
 }
 
 // Board (local boards)

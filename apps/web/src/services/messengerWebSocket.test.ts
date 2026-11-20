@@ -51,6 +51,8 @@ const { storeMocks, queueMarkDeliveredMock, queueMarkReadMock } = vi.hoisted(() 
     applyConversationUpdatedEvent: vi.fn(),
     applyReactionEvent: vi.fn(),
     applyVoiceListenedEvent: vi.fn(),
+    loadConversations: vi.fn().mockResolvedValue([]),
+    applyPeerBlocked: vi.fn(),
   };
   const queueMarkDeliveredMock = vi.fn();
   const queueMarkReadMock = vi.fn();
@@ -102,13 +104,30 @@ describe("messengerWebSocket", () => {
       expect(mockWsService.on).not.toHaveBeenCalledWith("user_offline", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("delivery_receipt", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("conversation_updated", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("messenger_refresh", expect.any(Function));
     });
 
     it("does not double-register handlers", () => {
       messengerWs.connect();
       messengerWs.connect();
-      expect(mockWsService.on).toHaveBeenCalledTimes(11);
+      expect(mockWsService.on).toHaveBeenCalledTimes(12);
     });
+  });
+
+  it("reloads conversations on messenger_refresh and erases hidden chats", async () => {
+    storeMocks.loadConversations.mockResolvedValueOnce([
+      { id: "conv-9", presence_hidden: true, is_group: false, is_notes: false },
+      { id: "conv-10", presence_hidden: false, is_group: false, is_notes: false },
+    ]);
+    messengerWs.connect();
+
+    emitToHandlers("messenger_refresh", {});
+
+    await vi.waitFor(() => {
+      expect(storeMocks.loadConversations).toHaveBeenCalledWith({ force: true });
+      expect(storeMocks.applyPeerBlocked).toHaveBeenCalledWith("conv-9");
+    });
+    expect(storeMocks.applyPeerBlocked).not.toHaveBeenCalledWith("conv-10");
   });
 
   describe("message handling", () => {

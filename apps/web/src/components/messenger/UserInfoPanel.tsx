@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Bell, BellOff, ExternalLink, FileText, Gift, Image as ImageIcon, Play, Search, ShieldOff, UserPlus, X } from "lucide-react";
+import { Ban, Bell, BellOff, ExternalLink, FileText, Gift, Image as ImageIcon, Play, Search, ShieldCheck, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -404,7 +404,9 @@ export function UserInfoPanel({
                     onClick={() => (blocked ? void handleToggleBlock() : setConfirmBlock(true))}
                     disabled={blockBusy}
                   >
-                    <span className="user-info-switch-icon"><ShieldOff size={16} /></span>
+                    <span className="user-info-switch-icon">
+                      {blocked ? <ShieldCheck size={16} /> : <Ban size={16} />}
+                    </span>
                     <span className="user-info-switch-copy">
                       <span>{blocked ? "Разблокировать" : "Заблокировать"}</span>
                       <small>{blocked ? "Сообщения и звонки запрещены" : "Скрыть переписку и звонки"}</small>

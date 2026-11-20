@@ -77,8 +77,10 @@ the peer's unread badge is recomputed. The tombstone keeps only its identity and
 a fresh `event_id`, so a delta sync still sees the deletion.
 
 **1:1 write policy.** Creating a chat or sending into one is refused with `403`
-when either side has blocked the other, or when the recipient set
-`allow_private_messages = false` and you are not a mutual friend. The same gate
+when the sender blocked the peer, or when the recipient set
+`allow_private_messages = false` and you are not a mutual friend. When the
+**peer** blocked the sender, the send is acknowledged with a normal `200` and
+dropped (see the block section below) — the block stays invisible. The same gate
 covers every shared-state mutation of a 1:1 chat — edit, reaction, voice-listen
 mark and pin — so a blocked user cannot poke the peer through a side channel.
 Groups are not gated (a block does not silence group chat, like Telegram).
@@ -92,19 +94,45 @@ POST   /messenger/blocks/:userId         → {blocked: true}   (idempotent)
 DELETE /messenger/blocks/:userId         → {blocked: false}  (idempotent)
 ```
 
-A block never deletes history on either side and never tells the blocked user
-that it happened (the send simply fails with a generic reason). Read paths
-(history, receipts) stay available, as in Telegram.
+A block never deletes data in the database and never tells the blocked user
+that it happened. The two sides see **different** chats, as in Telegram:
 
-Conversation rows carry the block state without disclosing whose block it is:
+* **The blocker** keeps the peer exactly as before: real presence, avatar,
+  full history, media, receipts. Only `blocked_by_me` flips the composer into
+  the «Вы заблокировали …» / «Разблокировать» panel (`DELETE /messenger/blocks/:userId`
+  restores it).
+* **The blocked side** sees the blocker erased: no avatar (the client's
+  placeholder), no last-message preview, no history (`GET …/messages` returns
+  `[]`), no shared media, no pin/read line, no unread badge, and the peer's
+  presence is hidden — offline with a last-seen older than a week (the UI
+  renders «был(а) давно», the same phrase used for long-gone accounts). Sends
+  are acknowledged with the normal response shape but never stored or
+  delivered, so the sender cannot distinguish a block from a quiet chat.
 
-* `blocked_by_me` — true only for the blocker. The client replaces the composer
-  with Telegram's «Вы заблокировали …» / «Разблокировать» panel; unblocking is
-  the same `DELETE /messenger/blocks/:userId` and restores the composer.
-* `presence_hidden` — true for **both** sides of a blocked pair. The peer is
-  returned offline with a last-seen older than a week (the UI renders
-  «был(а) давно»), and the client ignores live presence deltas for that chat.
-  The blocked side gets no flag and no hint that it was blocked.
+Conversation rows carry the state without disclosing whose block it is:
+
+* `blocked_by_me` — true only for the blocker (composer panel).
+* `presence_hidden` — true only for the **blocked** side. The server already
+  returns masked presence; the client must also ignore live presence deltas for
+  that chat, and it never subscribes to the peer's presence room (the room ACL
+  denies a blocked viewer).
+
+Realtime, without a reload: blocking pushes a neutral `messenger_refresh` to
+both users (conversation list refetch), a `presence_snapshot` to the blocked
+user (long-gone offline, or the real state on unblock), revokes the blocked
+user's subscriptions to the blocker's presence/wall/now-playing rooms, and
+broadcasts `profile_updated` so an open profile page empties itself. The event
+payloads say nothing about a block.
+
+The same rule applies to the profile page: a profile whose owner blocked the
+viewer is served as an identity-only shell (`content_hidden: true`) — avatar,
+background, theme, bio, counters, presence all stripped, `last_seen` older than
+a week. Every content read for that user is gated too (threads and the single
+thread endpoint, walls, pinned threads, achievements, gifts, subscribers,
+avatar history, customization), so the direct API cannot restore what the page
+hides. `blocked_by_me` on the profile row drives «Заблокировать» /
+«Разблокировать» in the actions menu; blocking from the profile or the
+messenger is the same endpoint.
 
 `ids=` exists for the notes pinned strip: pins live in client-encrypted metadata,
 so the server cannot list them, and the device asks for the handful of ids it

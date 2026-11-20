@@ -131,6 +131,17 @@ func (h *Engine) handleGet(c *gin.Context, tableName string) {
 		args = append(args, scopeArgs...)
 	}
 
+	// A block erases the blocker's content for the blocked viewer everywhere,
+	// not only on the profile page: `/threads?user_id=…` and the post lists must
+	// not serve rows this viewer may no longer see. The predicate is added after
+	// the caller's own filters, so it narrows any query shape.
+	blockedClause, blockedArgs, nextBlockedIndex := genericBlockedVisibility(c, tableName, argIndex)
+	if blockedClause != "" {
+		clauses = append(clauses, blockedClause)
+		args = append(args, blockedArgs...)
+		argIndex = nextBlockedIndex
+	}
+
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}

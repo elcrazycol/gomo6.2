@@ -57,6 +57,12 @@ const (
 	MessageTypeChatTyping          = "chat_typing"
 	MessageTypeSessionRevoked      = "session_revoked"
 	MessageTypeConversationUpdated = "conversation_updated"
+	// MessageTypeMessengerRefresh tells one user's clients to refetch the
+	// conversation list (a relational change, not a message): blocks and
+	// unblocks change avatars, previews and presence in one sweep. Routed to
+	// the user's own notifications_<id> room (always subscribed while signed
+	// in), never broadcast — the event carries no content.
+	MessageTypeMessengerRefresh = "messenger_refresh"
 
 	// GomoSub text-channel (chat) events — separate from the E2E messenger
 	// pipeline: this content is plaintext and moderatable by design.
@@ -585,6 +591,12 @@ func (h *Hub) dispatchRealtimeBroadcast(eventType string, payload interface{}, m
 			h.BroadcastToRoom(fmt.Sprintf("notifications_%s", userID), messageBytes)
 		}
 
+	case MessageTypeMessengerRefresh:
+		// Personal, content-free "refetch your conversations" hint.
+		if userID := extractRoomID(payload, "user_id"); userID != "" {
+			h.BroadcastToRoom(fmt.Sprintf("notifications_%s", userID), messageBytes)
+		}
+
 	case MessageTypeNewReport, MessageTypeNewAppeal:
 		// Scoped to the moderation room — only moderator clients subscribe.
 		h.BroadcastToRoom("moderation", messageBytes)
@@ -1000,6 +1012,13 @@ func (h *Hub) canViewWallRoom(userID, targetID string) bool {
 // now-playing visibility, so presence events never leak private profiles to
 // strangers (M2/M3).
 func (h *Hub) canViewPresenceRoom(userID, targetID string) bool {
+	// A block held by the target hides their live presence unconditionally —
+	// even from a mutual friend, and even on a public profile.
+	if h.db != nil && userID != targetID {
+		if blocked, err := privacy.BlockedBy(h.db, targetID, userID); err == nil && blocked {
+			return false
+		}
+	}
 	return h.canViewNowPlayingRoom(userID, targetID)
 }
 
@@ -1014,6 +1033,11 @@ func (h *Hub) canViewNowPlayingRoom(userID, targetID string) bool {
 	}
 	if userID == targetID {
 		return true
+	}
+	// A block held by the target erases now-playing (and presence, which shares
+	// this predicate) for the blocked viewer on every surface.
+	if blocked, err := privacy.BlockedBy(h.db, targetID, userID); err == nil && blocked {
+		return false
 	}
 	var private bool
 	err := h.db.QueryRow(
@@ -1718,6 +1742,89 @@ func (h *Hub) expirePresenceUsers(now time.Time, ttl time.Duration) []string {
 	return members
 }
 
+// blockedPresenceAge is the fake last-seen served for a user who blocked the
+// viewer. It must stay above the client's «был(а) давно» threshold (7 days).
+const blockedPresenceAge = 30 * 24 * time.Hour
+
+// RevokeProfileVisibility removes the viewer's live connections from every room
+// that carries the target's profile content (presence, wall, now-playing,
+// stories). Called when the target blocks the viewer: an already-open profile
+// or chat must stop receiving deltas immediately, not on the next reload.
+func (h *Hub) RevokeProfileVisibility(viewerID, targetID string) {
+	if viewerID == "" || targetID == "" || viewerID == targetID {
+		return
+	}
+	rooms := []string{
+		fmt.Sprintf("presence_%s", targetID),
+		fmt.Sprintf("profile_wall_%s", targetID),
+		fmt.Sprintf("profile_now_playing_%s", targetID),
+		fmt.Sprintf("stories_user_%s", targetID),
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, room := range rooms {
+		roomClients, ok := h.rooms[room]
+		if !ok {
+			continue
+		}
+		for client := range roomClients {
+			if client.UserID != viewerID {
+				continue
+			}
+			delete(roomClients, client)
+			delete(client.Rooms, room)
+		}
+		if len(roomClients) == 0 {
+			delete(h.rooms, room)
+		}
+	}
+}
+
+// SendPresenceSnapshotToUser delivers a presence_snapshot for targetID to every
+// live connection of viewerID. Used right after a block/unblock flips what the
+// viewer may see, so an open chat header/profile updates without navigation.
+// A zero lastSeen omits the field (the client then keeps its previous value).
+func (h *Hub) SendPresenceSnapshotToUser(viewerID, targetID string, online bool, lastSeen time.Time) {
+	if h == nil || viewerID == "" || targetID == "" {
+		return
+	}
+	data := map[string]interface{}{
+		"user_id":   targetID,
+		"is_online": online,
+	}
+	if !lastSeen.IsZero() {
+		data["last_seen"] = lastSeen.Format(time.RFC3339)
+	}
+	msg := Message{
+		Type:      MessageTypePresenceSnapshot,
+		Data:      mustMarshalJSON(data),
+		Timestamp: time.Now().Unix(),
+	}
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for client := range h.clients {
+		if client.UserID == viewerID {
+			client.trySend(msgBytes)
+		}
+	}
+}
+
+// PublishMessengerRefresh asks one user's clients to refetch the conversation
+// list. Ids only — no content, no reason.
+func (h *Hub) PublishMessengerRefresh(userID string) error {
+	if userID == "" {
+		return nil
+	}
+	return h.PublishToRedis(RedisChannelChat, RealtimeEvent{
+		Type:    MessageTypeMessengerRefresh,
+		Payload: map[string]string{"user_id": userID},
+	})
+}
+
 // SendPresenceSnapshot pushes the current online state of userID to one
 // client. Called right after a successful presence_<userID> subscription so
 // the viewer sees the status immediately, before any delta arrives. The
@@ -1728,6 +1835,12 @@ func (h *Hub) SendPresenceSnapshot(client *Client, userID string) {
 	}
 	online, lastSeen := h.GetPresenceStatus(userID)
 	if h.db != nil {
+		// A block held by the target outranks every other rule: the viewer sees
+		// a long-gone account, never the real activity time.
+		if blocked, err := privacy.BlockedBy(h.db, userID, client.UserID); err == nil && blocked {
+			online = false
+			lastSeen = time.Now().UTC().Add(-blockedPresenceAge)
+		}
 		var show bool
 		if err := h.db.QueryRow("SELECT COALESCE(show_online_status, true) FROM privacy_settings WHERE user_id = $1", userID).Scan(&show); err == nil && !show {
 			online = false
