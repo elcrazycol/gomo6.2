@@ -303,13 +303,9 @@ func scanMessageRow(rows *sql.Rows, conversationID string, isNotes, isE2E bool) 
 	} else if opaque {
 		// Opaque client blob: forward as-is, the device decrypts locally.
 		msg.Content = encryptedContent.String
-		if msg.Enc == nil {
-			if alg, _, ok := parseE2EEnvelope(msg.Content); ok {
-				msg.Enc = &MessageEnc{V: e2eEnvelopeVersion, Alg: alg}
-			} else if isNotes {
-				msg.Enc = &MessageEnc{V: e2eEnvelopeVersion, Alg: "notes-aesgcm"}
-			}
-		}
+		// `enc` (from enc_v/enc_alg) is set only for real E2E envelopes. Notes
+		// are identified by the conversation's is_notes flag, so they need no
+		// extra envelope hint.
 	} else {
 		// Try per-conversation key first, fall back to master key (for legacy
 		// messages). If decryption fails, replace the ciphertext with a
@@ -420,7 +416,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 	opaque := isNotes || isE2E
 
-	encryptedContent, encV, encAlg, ok := prepareOutgoingContent(c, conversationID, isNotes, isE2E, cleanContent)
+	encryptedContent, encV, encAlg, ok := prepareOutgoingContent(c, conversationID, isNotes, isE2E, cleanContent, len(req.Attachments) > 0)
 	if !ok {
 		return
 	}
@@ -536,10 +532,11 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 // Notes conversations require the client-E2E marker and enforce a generous cap
 // (base64 of up to ~4k runes of plaintext); the blob is stored verbatim — the
 // server must never attempt to decrypt it. E2E 1:1 conversations require the
-// `e2e1:<alg>:...` envelope with the same verbatim rule. Regular conversations
-// validate the plaintext before server-side encryption. On any rejection it
-// writes the error response and returns ok=false.
-func prepareOutgoingContent(c *gin.Context, conversationID string, isNotes, isE2E bool, cleanContent string) (encrypted string, encV int, encAlg string, ok bool) {
+// `e2e1:<alg>:...` envelope with the same verbatim rule (an attachment-only
+// message has no envelope, exactly like a regular attachment-only message).
+// Regular conversations validate the plaintext before server-side encryption.
+// On any rejection it writes the error response and returns ok=false.
+func prepareOutgoingContent(c *gin.Context, conversationID string, isNotes, isE2E bool, cleanContent string, hasAttachments bool) (encrypted string, encV int, encAlg string, ok bool) {
 	if isNotes {
 		// Client E2E payload: require the marker and enforce a generous cap
 		// (base64 of up to ~4k runes of plaintext). Stored verbatim — the
@@ -559,20 +556,20 @@ func prepareOutgoingContent(c *gin.Context, conversationID string, isNotes, isE2
 	if isE2E {
 		// Opaque 1:1 E2E payload: require the versioned envelope, enforce the
 		// cap, and record the envelope version for clients. Stored verbatim —
-		// the server must never attempt to decrypt it.
+		// the server must never attempt to decrypt it. An attachment-only
+		// message (no caption) is allowed and carries no envelope.
 		if cleanContent == "" {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Content required"))
+			if !hasAttachments {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Content required"))
+				return "", 0, "", false
+			}
+			return "", 0, "", true
+		}
+		if err := validateE2EPayload(cleanContent); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return "", 0, "", false
 		}
-		alg, _, valid := parseE2EEnvelope(cleanContent)
-		if !valid {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid E2E payload"))
-			return "", 0, "", false
-		}
-		if len(cleanContent) > maxE2EContentLen {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("E2E payload too large"))
-			return "", 0, "", false
-		}
+		alg, _, _ := parseE2EEnvelope(cleanContent)
 		return cleanContent, e2eEnvelopeVersion, alg, true
 	}
 
@@ -939,16 +936,12 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		}
 		encryptedContent = req.Content
 	} else if isE2E {
-		if _, alg, valid := parseE2EEnvelope(req.Content); !valid {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid E2E payload"))
-			return
-		} else {
-			encAlg = alg
-		}
-		if len(req.Content) > maxE2EContentLen {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("E2E payload too large"))
+		if err := validateE2EPayload(req.Content); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
+		alg, _, _ := parseE2EEnvelope(req.Content)
+		encAlg = alg
 		encryptedContent = req.Content
 		encV = e2eEnvelopeVersion
 	} else {

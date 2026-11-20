@@ -248,14 +248,21 @@ async function decryptNotesPreviews(conversations: ConversationView[]): Promise<
       if (c.encryption_mode === "e2e" && c.last_message_preview && c.other_user_id) {
         const peerKey = await getE2EPeerKey(c.other_user_id);
         if (!peerKey) return { ...c, last_message_preview: E2E_LOCKED.slice(0, 80) };
-        const decrypted = parseE2EEnvelope(c.last_message_preview)
-          ? await decryptE2EMessage(c.last_message_preview, peerKey, c.id, c.last_message_sender_id ?? "")
-              .catch(() => null)
-          : null;
-        // The sender id is unknown at preview time; try the peer first, then self.
-        const plain =
-          decrypted ??
-          (await decryptE2EMessage(c.last_message_preview, peerKey, c.id, c.other_user_id).catch(() => null));
+        if (!parseE2EEnvelope(c.last_message_preview)) {
+          // Not an envelope (e.g. a legacy row) — show it as-is.
+          return { ...c, last_message_preview: sanitizeServerPreview(c.last_message_preview) };
+        }
+        // The AAD binds the SENDER, so decrypt as whoever wrote the last row:
+        // the peer, or me. Try the recorded sender first, then both parties.
+        const meId = useMessengerStore.getState().me?.id ?? "";
+        const candidates = [c.last_message_sender_id, c.other_user_id, meId].filter(
+          (id): id is string => Boolean(id),
+        );
+        let plain: string | null = null;
+        for (const senderId of candidates) {
+          plain = await decryptE2EMessage(c.last_message_preview, peerKey, c.id, senderId).catch(() => null);
+          if (plain !== null) break;
+        }
         return { ...c, last_message_preview: sanitizeServerPreview(plain ?? E2E_LOCKED) };
       }
       return { ...c, last_message_preview: sanitizeServerPreview(c.last_message_preview) };
@@ -307,9 +314,11 @@ function withOutboxEntries(
 }
 
 function cacheCurrentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
-  // Notes content is encrypted with a device-local key; never persist it to
-  // the IndexedDB cache (the store already holds the readable plaintext).
-  if (messages.length > 0 && !notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, messages);
+  // Opaque content (notes, e2e) is device-encrypted: never persist the readable
+  // plaintext to the IndexedDB cache — the store is the only place it lives.
+  if (messages.length > 0 && !opaqueConversationExists(conversationId)) {
+    persistMessages(ownerId, conversationId, messages);
+  }
 }
 
 function normalizeConversationUnread(conversation: ConversationView, selectedId: string | null): ConversationView {

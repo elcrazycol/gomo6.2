@@ -1372,6 +1372,53 @@ describe("messengerStore", () => {
       expect(useMessengerStore.getState().messages[0].content).toContain("🔒");
     });
 
+    it("never persists decrypted e2e content to the IndexedDB cache", async () => {
+      const { encryptE2EMessage } = await import("@/utils/messengerCrypto");
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+      const wire = await encryptE2EMessage("очень секретно", peer, "e2e-1", "u2");
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "e1", conversation_id: "e2e-1", sender_user_id: "u2", content: wire }),
+      ]);
+
+      await useMessengerStore.getState().loadMessages("e2e-1");
+
+      expect(useMessengerStore.getState().messages[0].content).toBe("очень секретно");
+      expect(saveCachedMessages).not.toHaveBeenCalled();
+    });
+
+    it("decrypts an e2e list preview written by either party", async () => {
+      const { encryptE2EMessage } = await import("@/utils/messengerCrypto");
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+
+      // Preview written by ME (sender id = u1).
+      const mine = await encryptE2EMessage("последнее слово", peer, "e2e-1", "u1");
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([
+        mockConv({
+          id: "e2e-1",
+          other_user_id: "u2",
+          encryption_mode: "e2e",
+          last_message_preview: mine,
+          last_message_sender_id: "u1",
+        }),
+      ]);
+      useMessengerStore.setState({ me: { id: "u1", username: "test" } });
+
+      await useMessengerStore.getState().loadConversations({ force: true });
+
+      expect(useMessengerStore.getState().conversations[0].last_message_preview).toBe("последнее слово");
+    });
+
     it("encrypts outgoing messages with the shared ECDH key, never sending plaintext", async () => {
       const { peer } = await mintPeerKey();
       vi.mocked(messengerApi.getUserKeys).mockResolvedValue([

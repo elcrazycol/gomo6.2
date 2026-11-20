@@ -66,8 +66,8 @@ func (h *MessengerHandler) SendServiceNotification(serviceID, recipientID, text 
 	var msgID, eventID string
 	var sentAt time.Time
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
-		VALUES ($1, $2, $3, $4, NULL)
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id, type)
+		VALUES ($1, $2, $3, $4, NULL, 'system')
 		ON CONFLICT (conversation_id, client_id) DO NOTHING
 		RETURNING id, event_id, sent_at
 	`, convID, serviceID, encrypted, clientID).Scan(&msgID, &eventID, &sentAt)

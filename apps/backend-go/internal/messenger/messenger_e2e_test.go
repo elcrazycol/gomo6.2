@@ -195,6 +195,67 @@ func TestGetMessages_E2EPassthrough(t *testing.T) {
 	}
 }
 
+func TestSendMessage_E2EAttachmentOnlyAllowed(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := SendMessageRequest{
+		Content:  "",
+		ClientID: testClientID1,
+		Attachments: []AttachmentInput{{
+			URL:  testUser1 + "/messenger/photo.jpg",
+			Type: "image",
+			Name: "photo.jpg",
+			Size: 1024,
+			Mime: "image/jpeg",
+		}},
+	}
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+
+	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
+		WithArgs(testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// A caption-less media message in an e2e chat is legitimate: the envelope
+	// only exists for text, so an empty content with attachments must pass
+	// validation and reach the attachment check (storage is nil here → 400).
+	handler.SendMessage(c)
+
+	if strings.Contains(w.Body.String(), "Content required") {
+		t.Fatalf("attachment-only e2e message must not be rejected as missing content: %s", w.Body.String())
+	}
+}
+
+func TestSendMessage_E2ERejectsOversized(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := SendMessageRequest{Content: "e2e1:p256-aesgcm:" + strings.Repeat("A", maxE2EContentLen), ClientID: testClientID1}
+	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+
+	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
+
+	handler.SendMessage(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized e2e payload, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "too large") {
+		t.Fatalf("expected the size error, got: %s", w.Body.String())
+	}
+}
+
 func TestEditMessage_E2ERejectsPlaintext(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 

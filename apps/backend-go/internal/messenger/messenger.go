@@ -174,7 +174,7 @@ type Attachment struct {
 // the notes self-chat (which is larger because of base64 + GCM overhead).
 type SendMessageRequest struct {
 	Type            string            `json:"type" binding:"omitempty,oneof=text media voice gift share system"`
-	Content         string            `json:"content" binding:"max=24000"`
+	Content         string            `json:"content" binding:"max=40000"`
 	Payload         json.RawMessage   `json:"payload"`
 	ClientID        string            `json:"client_id" binding:"required"`
 	ParentMessageID *string           `json:"parent_message_id"`

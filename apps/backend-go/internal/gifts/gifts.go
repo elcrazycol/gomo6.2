@@ -9,6 +9,7 @@ package gifts
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -284,11 +285,21 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 	}
 
 	var msgID, eventID string
+	giftPayload, payloadErr := json.Marshal(map[string]string{
+		"gift_id":        giftID,
+		"gift_name":      giftName,
+		"image_url":      giftImageURL,
+		"gift_record_id": giftRecordID,
+	})
+	if payloadErr != nil {
+		log.Printf("[Gifts] marshal gift payload error: %v", payloadErr)
+		return
+	}
 	err = h.db.QueryRow(`
 		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, type, payload)
 		VALUES ($1, $2, $3, $4, 'gift', $5::jsonb)
 		RETURNING id, event_id
-	`, convID, senderID, encryptedContent, clientID, fmt.Sprintf(`{"gift_id":%q,"gift_name":%q,"image_url":%q,"gift_record_id":%q}`, giftID, giftName, giftImageURL, giftRecordID)).Scan(&msgID, &eventID)
+	`, convID, senderID, encryptedContent, clientID, string(giftPayload)).Scan(&msgID, &eventID)
 	if err != nil {
 		log.Printf("[Gifts] insert gift message error: %v", err)
 		return

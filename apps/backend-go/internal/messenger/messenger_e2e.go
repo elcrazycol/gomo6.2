@@ -36,10 +36,7 @@ func parseE2EEnvelope(content string) (alg, body string, ok bool) {
 // validateE2EPayload checks the shape + size of an opaque E2E blob.
 func validateE2EPayload(content string) error {
 	alg, body, ok := parseE2EEnvelope(content)
-	if !ok {
-		return errInvalidE2EPayload
-	}
-	if alg == "" || body == "" {
+	if !ok || alg == "" || body == "" {
 		return errInvalidE2EPayload
 	}
 	if len(content) > maxE2EContentLen {
@@ -64,17 +61,6 @@ func (h *MessengerHandler) isE2EConversation(c *gin.Context, conversationID stri
 		return false, err
 	}
 	return mode.Valid && mode.String == encryptionModeE2E, nil
-}
-
-// isOpaqueConversation is true when the server must store + forward the content
-// verbatim and never decrypt it: notes self-chat or an e2e 1:1 conversation.
-func (h *MessengerHandler) isOpaqueConversation(c *gin.Context, conversationID string) (isNotes, isE2E bool, err error) {
-	isNotes, err = h.isNotesConversation(c, conversationID)
-	if err != nil || isNotes {
-		return isNotes, false, err
-	}
-	isE2E, err = h.isE2EConversation(c, conversationID)
-	return false, isE2E, err
 }
 
 // ─── Device key directory ────────────────────────────────────────────────────
