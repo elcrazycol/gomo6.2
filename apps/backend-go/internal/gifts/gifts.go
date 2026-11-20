@@ -8,6 +8,7 @@
 package gifts
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -26,7 +27,6 @@ import (
 	"github.com/gomo6/backend/internal/achievements"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
-	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
@@ -38,6 +38,10 @@ type GiftsHandler struct {
 	redis     *redis.Client
 	hub       *websocket.Hub
 	achEngine *achievements.Engine
+	// messenger is the single write path for gift chat entries (encryption,
+	// preview, typed envelope, realtime). Nil-safe: without it the gift still
+	// sends, minus the chat bubble.
+	messenger *messenger.MessengerHandler
 }
 
 func NewGiftsHandler(db *sql.DB) *GiftsHandler {
@@ -47,6 +51,9 @@ func NewGiftsHandler(db *sql.DB) *GiftsHandler {
 func (h *GiftsHandler) SetRedis(redis *redis.Client) { h.redis = redis }
 
 func (h *GiftsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
+
+// SetMessenger wires the messenger write path for gift chat entries.
+func (h *GiftsHandler) SetMessenger(m *messenger.MessengerHandler) { h.messenger = m }
 
 // SetAchievementEngine wires the achievements engine for auto-unlock events.
 func (h *GiftsHandler) SetAchievementEngine(e *achievements.Engine) {
@@ -256,151 +263,32 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 }
 
 func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, giftID, giftName, giftImageURL, giftRecordID string) {
-	if h.hub == nil {
+	if h.messenger == nil {
 		return
 	}
-
-	convID, err := h.findOrCreateConversation(senderID, recipientID)
-	if err != nil {
-		log.Printf("[Gifts] find/create conversation error: %v", err)
-		return
-	}
-	if convID == "" {
-		log.Printf("[Gifts] empty conversation ID; skipping messenger message for gift %s", giftRecordID)
-		return
-	}
-
-	giftContent := fmt.Sprintf("__GIFT__:%s:%s:%s", giftID, giftName, giftImageURL)
-	clientID := fmt.Sprintf("gift_%s", giftRecordID)
-
-	encryptedContent, err := messenger.EncryptContentForConversation(convID, giftContent)
-	if err != nil {
-		log.Printf("[Gifts] encrypt gift message error: %v", err)
-		return
-	}
-	encryptedPreview, err := messenger.EncryptContentForConversation(convID, "Подарок")
-	if err != nil {
-		log.Printf("[Gifts] encrypt gift preview error: %v", err)
-		return
-	}
-
-	var msgID, eventID string
-	giftPayload, payloadErr := json.Marshal(map[string]string{
+	giftPayload, err := json.Marshal(map[string]string{
 		"gift_id":        giftID,
 		"gift_name":      giftName,
 		"image_url":      giftImageURL,
 		"gift_record_id": giftRecordID,
 	})
-	if payloadErr != nil {
-		log.Printf("[Gifts] marshal gift payload error: %v", payloadErr)
-		return
-	}
-	err = h.db.QueryRow(`
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, type, payload)
-		VALUES ($1, $2, $3, $4, 'gift', $5::jsonb)
-		RETURNING id, event_id
-	`, convID, senderID, encryptedContent, clientID, string(giftPayload)).Scan(&msgID, &eventID)
 	if err != nil {
-		log.Printf("[Gifts] insert gift message error: %v", err)
+		log.Printf("[Gifts] marshal gift payload error: %v", err)
 		return
 	}
-
-	_, err = h.db.Exec(`
-		UPDATE chat_conversations
-		SET last_message_preview = $1,
-		    last_message_sender_id = $2,
-		    updated_at = NOW()
-		WHERE id = $3
-	`, encryptedPreview, senderID, convID)
-	if err != nil {
-		log.Printf("[Gifts] update conversation preview error: %v", err)
+	// The messenger owns the write: encryption at rest, the conversation
+	// preview, the typed envelope and the realtime frame. An E2E conversation
+	// yields nil (the server cannot author client ciphertext); the gift
+	// notification still reaches the recipient.
+	if _, err := h.messenger.DeliverIntegrationMessage(
+		context.Background(), senderID, recipientID,
+		fmt.Sprintf("__GIFT__:%s:%s:%s", giftID, giftName, giftImageURL),
+		"gift", giftPayload,
+		// One gift record → one bubble, even if delivery is retried.
+		"gift_"+giftRecordID,
+	); err != nil {
+		log.Printf("[Gifts] deliver gift message error: %v", err)
 	}
-
-	if encryptedContent == "" {
-		log.Printf("[Gifts] gift message content encryption produced empty payload; skipping WebSocket broadcast")
-		return
-	}
-
-	sentAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := h.hub.PublishNewChatMessage(gin.H{
-		"id":              msgID,
-		"event_id":        eventID,
-		"conversation_id": convID,
-		"sender_user_id":  senderID,
-		"type":            "gift",
-		"payload": gin.H{
-			"gift_id":        giftID,
-			"gift_name":      giftName,
-			"image_url":      giftImageURL,
-			"gift_record_id": giftRecordID,
-		},
-		"encrypted_content": encryptedContent,
-		"is_edited":         false,
-		"is_deleted":        false,
-		"edited_at":         nil,
-		"sent_at":           sentAt,
-		"client_id":         clientID,
-		"recipient_ids":     []string{senderID, recipientID},
-	}); err != nil {
-		log.Printf("[Gifts] WS gift message error: %v", err)
-	}
-
-	if h.redis != nil {
-		go messenger.InvalidateMessengerCaches(h.redis, convID, senderID)
-	}
-}
-
-// findOrCreateConversation uses the atomic DB function when available, falls back to legacy.
-func (h *GiftsHandler) findOrCreateConversation(user1, user2 string) (string, error) {
-	var convID string
-	err := h.db.QueryRow("SELECT find_or_create_conversation($1, $2)", user1, user2).Scan(&convID)
-	if err == nil {
-		return convID, nil
-	}
-	// Function not found — fall back to legacy approach
-	if !strings.Contains(err.Error(), "function") && !strings.Contains(err.Error(), "does not exist") {
-		return "", fmt.Errorf("find_or_create_conversation: %w", err)
-	}
-	return h.findOrCreateConversationLegacy(user1, user2)
-}
-
-func (h *GiftsHandler) findOrCreateConversationLegacy(user1, user2 string) (string, error) {
-	for attempt := 0; attempt < 3; attempt++ {
-		var convID string
-		err := h.db.QueryRow(`
-			SELECT cm1.conversation_id
-			FROM chat_members cm1
-			INNER JOIN chat_members cm2 ON cm1.conversation_id = cm2.conversation_id
-			WHERE cm1.user_id = $1 AND cm2.user_id = $2
-			  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
-			LIMIT 1
-		`, user1, user2).Scan(&convID)
-		if err == nil {
-			return convID, nil
-		}
-		if err != sql.ErrNoRows {
-			return "", err
-		}
-		tx, err := h.db.Begin()
-		if err != nil {
-			return "", err
-		}
-		err = tx.QueryRow(`INSERT INTO chat_conversations (encryption_key_version) VALUES ($1) RETURNING id`, crypto.KeyVersionHKDF).Scan(&convID)
-		if err != nil {
-			tx.Rollback()
-			continue
-		}
-		_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`, convID, user1, user2)
-		if err != nil {
-			tx.Rollback()
-			continue
-		}
-		if err := tx.Commit(); err != nil {
-			continue
-		}
-		return convID, nil
-	}
-	return "", fmt.Errorf("failed to create conversation after retries")
 }
 
 // GetUserGifts — GET /api/v1/user_gifts (public)

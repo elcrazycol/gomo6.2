@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  BlockedUser,
   ConversationView,
   GroupMember,
   MessageView,
@@ -136,6 +137,21 @@ export const messengerApi = {
       method: "POST",
       body: JSON.stringify({ mode }),
     });
+  },
+
+  // ── Blocks (direct-message spam control) ──────────────────────────────
+  // The list is private to the blocker; blocking is idempotent and never
+  // deletes history on either side.
+  async listBlocks(): Promise<BlockedUser[]> {
+    return req("/blocks");
+  },
+
+  async blockUser(userId: string): Promise<{ blocked: boolean }> {
+    return req(`/blocks/${userId}`, { method: "POST" });
+  },
+
+  async unblockUser(userId: string): Promise<{ blocked: boolean }> {
+    return req(`/blocks/${userId}`, { method: "DELETE" });
   },
 
   // ── Messages ──────────────────────────────────────────────────────────

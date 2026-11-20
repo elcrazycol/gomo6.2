@@ -3,8 +3,6 @@ package messenger
 import (
 	"log"
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/httpx"
@@ -17,50 +15,6 @@ import (
 // play it, and my own note stays marked for me until the peer plays it. A row in
 // `message_voice_listens` means "this user has listened"; the message payload
 // carries the ids so both sides can draw the dot without extra requests.
-
-// addVoiceListensToMessages attaches the listener ids to a page of messages in
-// one query, the same batching as attachments and reactions.
-func (h *MessengerHandler) addVoiceListensToMessages(c *gin.Context, messages []MessageResponse) error {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	placeholders := make([]string, len(messages))
-	args := make([]interface{}, len(messages))
-	for i := range messages {
-		placeholders[i] = "$" + strconv.Itoa(i+1)
-		args[i] = messages[i].ID
-	}
-
-	rows, err := h.dbFor(c).Query(`
-		SELECT message_id, user_id
-		FROM message_voice_listens
-		WHERE message_id IN (`+strings.Join(placeholders, ",")+`)
-	`, args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	listeners := make(map[string][]string)
-	for rows.Next() {
-		var messageID, userID string
-		if err := rows.Scan(&messageID, &userID); err != nil {
-			return err
-		}
-		listeners[messageID] = append(listeners[messageID], userID)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for i := range messages {
-		if ids, ok := listeners[messages[i].ID]; ok {
-			messages[i].VoiceListenedBy = ids
-		}
-	}
-	return nil
-}
 
 func (h *MessengerHandler) broadcastVoiceListened(conversationID, messageID, userID string) {
 	if h.hub == nil {
@@ -108,18 +62,17 @@ func (h *MessengerHandler) MarkVoiceListened(c *gin.Context) {
 		return
 	}
 
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
+	// The listened mark is shared state (the sender sees who listened).
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
 		return
 	}
-	if !member {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member"))
+	if !h.enforceDirectWritePolicy(c, access, claims.UserID) {
 		return
 	}
 
 	var messageExists bool
-	err = h.dbFor(c).QueryRow(
+	err := h.dbFor(c).QueryRow(
 		"SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2 AND is_deleted = false)",
 		messageID, conversationID,
 	).Scan(&messageExists)

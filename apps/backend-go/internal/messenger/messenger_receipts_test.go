@@ -64,7 +64,7 @@ func TestMarkRead_MessageNotFound(t *testing.T) {
 	body := MarkReadRequest{MessageID: testMsg999}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
@@ -224,7 +224,7 @@ func TestMarkDelivered_MessageNotFound(t *testing.T) {
 	body := map[string]string{"message_id": testMsg999}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/delivered", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
@@ -358,9 +358,7 @@ func TestTogglePin_Success(t *testing.T) {
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
 
 	// Membership check
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 
 	// Verify message belongs to conversation (NEW)
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
@@ -391,9 +389,7 @@ func TestTogglePin_Unpin(t *testing.T) {
 	body := map[string]string{"message_id": testMsg1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).
 		WithArgs(testMsg1, testConv1).
@@ -431,9 +427,7 @@ func TestTogglePin_MessageNotInConversation(t *testing.T) {
 	body := map[string]string{"message_id": "30000000-0000-0000-0000-000000000001"}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/pin", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 
 	// Message doesn't belong to this conversation
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_messages WHERE id = \$1 AND conversation_id = \$2 AND is_deleted = false\)`).

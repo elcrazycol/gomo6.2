@@ -9,6 +9,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/testutil"
+	"github.com/lib/pq"
 )
 
 // ─── GetMessages ─────────────────────────────────────────────────────────────
@@ -20,21 +21,6 @@ func TestGetMessages_Success(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	// Membership check
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	// Notes check (regular conversation)
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
@@ -44,23 +30,14 @@ func TestGetMessages_Success(t *testing.T) {
 		AddRow(int64(2), testMsg2, testConv1, testUser2, "bob", nil, "Hi!", "text", nil, 0, nil, false, false, nil, now.Add(time.Minute), "c2").
 		AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", "text", nil, 0, nil, false, false, nil, now, "c1")
 
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(msgRows)
 
-	// Attachments query (empty result)
-	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
-		WithArgs(testMsg2, testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
-
-	// Reactions query (empty result)
-	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at.*FROM message_reactions r`).
-		WithArgs(testMsg2, testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "emoji", "user_id", "username", "created_at"}))
-		// Voice listens query (empty result)
-	mock.ExpectQuery(`SELECT message_id, user_id FROM message_voice_listens WHERE message_id IN`).
-		WithArgs(testMsg2, testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "user_id"}))
+	// One extras query: attachments + reactions + voice listens.
+	expectMessageExtras(mock, pq.Array([]string{testMsg2, testMsg1}))
 
 	handler.GetMessages(c)
 
@@ -88,18 +65,6 @@ func TestGetMessages_ReactionLookupFailure(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
@@ -107,15 +72,15 @@ func TestGetMessages_ReactionLookupFailure(t *testing.T) {
 		"edited_at", "sent_at", "client_id",
 	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", "text", nil, 0, nil, false, false, nil, now, "c1")
 
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(msgRows)
 
-	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
-	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at`).
-		WithArgs(testMsg1).
+	// The extras query fails: the page must not be served.
+	mock.ExpectQuery(`SELECT\s+COALESCE\(\(`).
+		WithArgs(sqlmock.AnyArg()).
 		WillReturnError(errReactionInsert)
 
 	handler.GetMessages(c)
@@ -132,19 +97,6 @@ func TestGetMessages_WithBefore(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", map[string]string{"before": testMsg5, "limit": "10"}, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
@@ -152,23 +104,14 @@ func TestGetMessages_WithBefore(t *testing.T) {
 		"edited_at", "sent_at", "client_id",
 	}).AddRow(int64(3), testMsg3, testConv1, testUser1, "testuser", nil, "Third", "text", nil, 0, nil, false, false, nil, now, "c3")
 
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1 AND m.sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY m.sent_at DESC.*LIMIT \$3`).
 		WithArgs(testConv1, testMsg5, 10).
 		WillReturnRows(msgRows)
 
-	// Attachments query (empty result)
-	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
-		WithArgs(testMsg3).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
-
-	// Reactions query (empty result)
-	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at.*FROM message_reactions r`).
-		WithArgs(testMsg3).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "emoji", "user_id", "username", "created_at"}))
-		// Voice listens query (empty result)
-	mock.ExpectQuery(`SELECT message_id, user_id FROM message_voice_listens WHERE message_id IN`).
-		WithArgs(testMsg3).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "user_id"}))
+	// One extras query: attachments + reactions + voice listens.
+	expectMessageExtras(mock, pq.Array([]string{testMsg3}))
 
 	handler.GetMessages(c)
 
@@ -184,10 +127,8 @@ func TestGetMessages_NotMember(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-
+	// Not a member: RLS makes the conversation row invisible.
+	expectNoConversationAccess(mock, testConv1, testUser1)
 	handler.GetMessages(c)
 
 	if w.Code != http.StatusForbidden {
@@ -202,19 +143,8 @@ func TestGetMessages_Empty(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id.*FROM chat_messages m.*`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id", "content", "is_edited", "is_deleted", "edited_at", "sent_at", "client_id"}))
@@ -241,19 +171,6 @@ func TestGetMessages_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
@@ -261,20 +178,14 @@ func TestGetMessages_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 		"edited_at", "sent_at", "client_id",
 	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "not-a-valid-ciphertext!", "text", nil, 0, nil, false, false, nil, now, "c1")
 
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(msgRows)
 
-	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
-	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at.*FROM message_reactions r`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "emoji", "user_id", "username", "created_at"}))
-		// Voice listens query (empty result)
-	mock.ExpectQuery(`SELECT message_id, user_id FROM message_voice_listens WHERE message_id IN`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "user_id"}))
+	// One extras query: attachments + reactions + voice listens.
+	expectMessageExtras(mock, pq.Array([]string{testMsg1}))
 
 	handler.GetMessages(c)
 
@@ -319,22 +230,10 @@ func TestSendMessage_Success(t *testing.T) {
 	body := SendMessageRequest{Content: "Hello, world!", ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	// Notes check (regular conversation)
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
-	// Membership check
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
 	// Transaction Begin
+
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectBegin()
 
 	now := time.Now()
@@ -383,15 +282,8 @@ func TestSendMessage_HtmlRejected(t *testing.T) {
 	body := SendMessageRequest{Content: "<script>alert('xss')</script>", ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	handler.SendMessage(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -406,19 +298,8 @@ func TestSendMessage_NotMember(t *testing.T) {
 	body := SendMessageRequest{Content: "Hello!", ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-
+	// Not a member: RLS makes the conversation row invisible.
+	expectNoConversationAccess(mock, testConv1, testUser1)
 	handler.SendMessage(c)
 
 	if w.Code != http.StatusForbidden {
@@ -445,20 +326,10 @@ func TestSendMessage_Duplicate(t *testing.T) {
 	body := SendMessageRequest{Content: "Hello!", ClientID: testClientID2}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
 	// Transaction Begin
+
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectBegin()
 
 	// Insert fails with duplicate key error
@@ -485,18 +356,8 @@ func TestEditMessage_Success(t *testing.T) {
 	body := EditMessageRequest{Content: "Edited content"}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$4, enc_v = \$5, enc_alg = \$6, is_edited = true`).
 		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg(), 0, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -537,15 +398,8 @@ func TestEditMessage_HtmlRejected(t *testing.T) {
 	body := EditMessageRequest{Content: "<b>bold</b>"}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	handler.EditMessage(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -560,18 +414,8 @@ func TestEditMessage_NotFound(t *testing.T) {
 	body := EditMessageRequest{Content: "Edited content"}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", body, claims, map[string]string{"id": testConv1, "msgId": testMsg999})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectExec(`UPDATE chat_messages.*SET content.*WHERE id = \$1 AND conversation_id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
 		WithArgs(testMsg999, testConv1, testUser1, sqlmock.AnyArg(), 0, nil).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -602,18 +446,8 @@ func TestEditMessage_DBError(t *testing.T) {
 	body := EditMessageRequest{Content: "Edited content"}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// E2E mode check (regular conversation)
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	mock.ExpectExec(`UPDATE chat_messages.*`).
 		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg(), 0, nil).
 		WillReturnError(sqlmock.ErrCancelled)
@@ -627,6 +461,28 @@ func TestEditMessage_DBError(t *testing.T) {
 
 // ─── DeleteMessage ───────────────────────────────────────────────────────────
 
+// expectDeleteCascade mocks the satellite cleanup of a deleted message.
+func expectDeleteCascade(mock sqlmock.Sqlmock, messageID string) {
+	mock.ExpectExec(`DELETE FROM message_attachments WHERE message_id = \$1`).
+		WithArgs(messageID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM message_reactions WHERE message_id = \$1`).
+		WithArgs(messageID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM message_voice_listens WHERE message_id = \$1`).
+		WithArgs(messageID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM chat_receipts WHERE message_id = \$1`).
+		WithArgs(messageID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE chat_conversations\s+SET pinned_message_id = NULL`).
+		WithArgs(testConv1, messageID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE chat_members cm\s+SET unread_count =`).
+		WithArgs(testConv1, testUser1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
 func TestDeleteMessage_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
@@ -634,9 +490,35 @@ func TestDeleteMessage_Success(t *testing.T) {
 	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 	c.Set("claims", claims)
 
-	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*WHERE id = \$1.*AND sender_user_id = \$2.*AND is_deleted = false.*AND conversation_id = \$3.*AND EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$3 AND user_id = \$2\)`).
+	sentAt := time.Now().Add(-time.Minute)
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
+
+	// Ownership check.
+	mock.ExpectQuery(`SELECT EXISTS\(\s+SELECT 1 FROM chat_messages`).
+		WithArgs(testMsg1, testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// Storage keys are read BEFORE the rows disappear.
+	mock.ExpectQuery(`SELECT url, meta FROM message_attachments WHERE message_id = \$1`).
+		WithArgs(testMsg1).
+		WillReturnRows(sqlmock.NewRows([]string{"url", "meta"}).
+			AddRow(testUser1+"/messenger/a.jpg", `{"preview_key":"`+testUser1+`/messenger/a.jpg.preview.jpg"}`))
+
+	// The row is wiped: no content, no payload, no envelope.
+	mock.ExpectExec(`UPDATE chat_messages\s+SET is_deleted = true,`).
 		WithArgs(testMsg1, testUser1, testConv1).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	expectDeleteCascade(mock, testMsg1)
+
+	// The preview is recomputed from the newest surviving message.
+	mock.ExpectQuery(`SELECT content, sent_at, sender_user_id\s+FROM chat_messages`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"content", "sent_at", "sender_user_id"}).
+			AddRow("ciphertext-of-previous", sentAt, testUser2))
+	mock.ExpectExec(`UPDATE chat_conversations\s+SET last_message_preview = \$1`).
+		WithArgs(sqlmock.AnyArg(), sentAt, testUser2, testConv1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	handler.DeleteMessage(c)
 
@@ -645,21 +527,74 @@ func TestDeleteMessage_Success(t *testing.T) {
 	}
 }
 
-func TestDeleteMessage_NotFound(t *testing.T) {
+func TestDeleteMessage_ClearsPreviewWhenConversationBecomesEmpty(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
-	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", nil, map[string]string{"id": testConv1, "msgId": testMsg999})
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
 	c.Set("claims", claims)
 
-	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*`).
-		WithArgs(testMsg999, testUser1, testConv1).
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
+	mock.ExpectQuery(`SELECT EXISTS\(\s+SELECT 1 FROM chat_messages`).
+		WithArgs(testMsg1, testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT url, meta FROM message_attachments WHERE message_id = \$1`).
+		WithArgs(testMsg1).
+		WillReturnRows(sqlmock.NewRows([]string{"url", "meta"}))
+	mock.ExpectExec(`UPDATE chat_messages\s+SET is_deleted = true,`).
+		WithArgs(testMsg1, testUser1, testConv1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectDeleteCascade(mock, testMsg1)
+
+	// No message survives → the preview fields are cleared.
+	mock.ExpectQuery(`SELECT content, sent_at, sender_user_id\s+FROM chat_messages`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"content", "sent_at", "sender_user_id"}))
+	mock.ExpectExec(`UPDATE chat_conversations\s+SET last_message_preview = NULL`).
+		WithArgs(testConv1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	handler.DeleteMessage(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteMessage_CannotDeleteSomeoneElsesMessage(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000002", nil, map[string]string{"id": testConv1, "msgId": testMsg2})
+	c.Set("claims", claims)
+
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
+
+	// The message exists but belongs to the peer.
+	mock.ExpectQuery(`SELECT EXISTS\(\s+SELECT 1 FROM chat_messages`).
+		WithArgs(testMsg2, testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	handler.DeleteMessage(c)
 
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
+		t.Fatalf("expected 404 for someone else's message, got %d", w.Code)
+	}
+}
+
+func TestDeleteMessage_NotMember(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", nil, map[string]string{"id": testConv1, "msgId": testMsg1})
+	c.Set("claims", claims)
+
+	expectNoConversationAccess(mock, testConv1, testUser1)
+
+	handler.DeleteMessage(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
 	}
 }
 
@@ -684,17 +619,10 @@ func TestSendMessage_NotesE2E(t *testing.T) {
 	body := SendMessageRequest{Content: ciphertext, ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	// Notes check — it IS the notes self-chat
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
-
-	// Membership check
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
 	// Transaction Begin
+
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 	mock.ExpectBegin()
 
 	now := time.Now()
@@ -740,10 +668,8 @@ func TestSendMessage_NotesRejectsNonMarkedPayload(t *testing.T) {
 	body := SendMessageRequest{Content: "plaintext must never reach the server", ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
-
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 	handler.SendMessage(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -758,16 +684,9 @@ func TestGetMessages_NotesCiphertextPassthrough(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
 	// It IS the notes self-chat: content and metadata must pass through undecrypted.
 	ciphertext := "e2enote1:abcdefghijklmnopqrstuvwxyz0123456789"
 	metaBlob := "e2enote1:0123456789abcdefghijklmnopqrstuvwxyz"
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
 
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
@@ -776,20 +695,14 @@ func TestGetMessages_NotesCiphertextPassthrough(t *testing.T) {
 		"edited_at", "sent_at", "client_id", "notes_meta",
 	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, ciphertext, "text", nil, 0, nil, false, false, nil, now, "c1", metaBlob)
 
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(msgRows)
 
-	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
-	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at.*FROM message_reactions r`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "emoji", "user_id", "username", "created_at"}))
-		// Voice listens query (empty result)
-	mock.ExpectQuery(`SELECT message_id, user_id FROM message_voice_listens WHERE message_id IN`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "user_id"}))
+	// One extras query: attachments + reactions + voice listens.
+	expectMessageExtras(mock, pq.Array([]string{testMsg1}))
 
 	handler.GetMessages(c)
 
@@ -821,14 +734,10 @@ func TestEditMessage_NotesE2E(t *testing.T) {
 	body := EditMessageRequest{Content: ciphertext}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// Ciphertext is stored verbatim, never server-encrypted.
+
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$4, enc_v = \$5, enc_alg = \$6, is_edited = true`).
 		WithArgs(testMsg1, testConv1, testUser1, ciphertext, 0, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -850,11 +759,10 @@ func TestUpdateNotesMeta_Success(t *testing.T) {
 	body := UpdateNotesMetaRequest{Meta: meta}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	// It IS the notes self-chat.
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
 	// The client E2E blob is stored verbatim — never server-encrypted.
+
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 	mock.ExpectExec(`UPDATE chat_messages.*SET notes_meta = \$1.*WHERE id = \$2 AND conversation_id = \$3 AND sender_user_id = \$4 AND is_deleted = false`).
 		WithArgs(meta, testMsg1, testConv1, testUser1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -880,10 +788,8 @@ func TestUpdateNotesMeta_NotNotesRejected(t *testing.T) {
 	body := UpdateNotesMetaRequest{Meta: "e2enote1:abcdef0123456789abcdef0123456789"}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 	handler.UpdateNotesMeta(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -898,10 +804,8 @@ func TestUpdateNotesMeta_UnmarkedRejected(t *testing.T) {
 	body := UpdateNotesMetaRequest{Meta: "plaintext metadata must never reach the server"}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
-
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 	handler.UpdateNotesMeta(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -917,9 +821,8 @@ func TestUpdateNotesMeta_NotFound(t *testing.T) {
 	body := UpdateNotesMetaRequest{Meta: meta}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999/notes-meta", body, claims, map[string]string{"id": testConv1, "msgId": testMsg999})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
+	// Conversation access: membership + kind + encryption mode in one query.
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 	mock.ExpectExec(`UPDATE chat_messages.*SET notes_meta = \$1.*`).
 		WithArgs(meta, testMsg999, testConv1, testUser1).
 		WillReturnResult(sqlmock.NewResult(0, 0))

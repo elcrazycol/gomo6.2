@@ -1308,6 +1308,32 @@ describe("messengerStore", () => {
       expect(messengerApi.getReceipts).not.toHaveBeenCalled();
     });
 
+    it("applyConversationUpdatedEvent refetches when the preview changed (deleted last message)", async () => {
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([
+        mockConv({ id: "conv-1", last_message_preview: "предыдущее" }),
+      ]);
+      useMessengerStore.setState({
+        conversations: [mockConv({ id: "conv-1", last_message_preview: "удалённое" })],
+      });
+
+      useMessengerStore.getState().applyConversationUpdatedEvent({
+        conversation_id: "conv-1",
+        preview_changed: true,
+      });
+      await vi.waitFor(() =>
+        expect(useMessengerStore.getState().conversations[0].last_message_preview).toBe("предыдущее"),
+      );
+    });
+
+    it("applyConversationUpdatedEvent ignores an event with nothing actionable", () => {
+      vi.mocked(messengerApi.listConversations).mockClear();
+      useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1" })] });
+
+      useMessengerStore.getState().applyConversationUpdatedEvent({ conversation_id: "conv-1" });
+
+      expect(messengerApi.listConversations).not.toHaveBeenCalled();
+    });
+
     it("applyConversationUpdatedEvent refetches the list on an encryption mode switch", async () => {
       vi.mocked(messengerApi.listConversations).mockResolvedValue([mockConv({ id: "conv-1", encryption_mode: "e2e" })]);
       useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1", encryption_mode: "server" })] });

@@ -269,7 +269,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			logsafe.Printf("[ADMIN-SERVICE] login notify failed for user %s: %v", userID, err)
 		}
 	})
-	messengerHandler.SetRedis(redis)
 	messengerHandler.SetPushService(pushService)
 	channelChatHandler := gomosubchat.NewHandler(db, wsHub)
 	// Content moderation: report filing (any user) + moderator queue/triage.
@@ -297,6 +296,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	giftsHandler := gifts.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
+	// Gift messages go through the messenger write path (encryption, preview,
+	// typed envelope, realtime) instead of a raw INSERT of their own.
+	giftsHandler.SetMessenger(messengerHandler)
 	giftAdminHandler := gifts.NewGiftAdminHandler(db)
 	dropsHandler := drops.NewDropsHandler(db)
 	friendsHandler := handlers.NewFriendsHandler(db)
@@ -822,6 +824,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerRead.GET("/messenger/conversations", messengerHandler.ListConversations)
 				messengerRead.GET("/messenger/conversations/:id/messages", messengerHandler.GetMessages)
 				messengerRead.GET("/messenger/conversations/:id/receipts", messengerHandler.GetReceipts)
+				messengerRead.GET("/messenger/blocks", messengerHandler.ListBlockedUsers)
 				messengerRead.GET("/messenger/keys", messengerHandler.ListMyKeys)
 				messengerRead.GET("/messenger/users/:userId/keys", messengerHandler.GetUserKeys)
 			}
@@ -833,6 +836,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			messengerWrite.Use(middleware.MessengerRateLimitMiddleware(
 				middleware.NewMessengerRateLimiter(redis, 120, 1*time.Minute)))
 			{
+				messengerWrite.POST("/messenger/blocks/:userId", messengerHandler.BlockUser)
+				messengerWrite.DELETE("/messenger/blocks/:userId", messengerHandler.UnblockUser)
 				messengerWrite.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
 				messengerWrite.POST("/messenger/notes", messengerHandler.GetOrCreateNotesConversation)
 				messengerWrite.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)

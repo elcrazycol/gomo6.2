@@ -35,6 +35,41 @@ describe("messengerApi", () => {
     } as Response);
   }
 
+  describe("blocks", () => {
+    it("lists the caller's block list", async () => {
+      mockFetch([{ user_id: "u2", username: "bob", display_name: "Bob", blocked_at: "2026-02-01T12:00:00Z" }]);
+
+      const result = await messengerApi.listBlocks();
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/blocks",
+        expect.anything(),
+      );
+      expect(result[0].username).toBe("bob");
+    });
+
+    it("blocks and unblocks with the right verbs", async () => {
+      mockFetch({ blocked: true });
+      await messengerApi.blockUser("u2");
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        "/api/v1/messenger/blocks/u2",
+        expect.objectContaining({ method: "POST" }),
+      );
+
+      mockFetch({ blocked: false });
+      await messengerApi.unblockUser("u2");
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        "/api/v1/messenger/blocks/u2",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+
+    it("surfaces a refused block (unknown user)", async () => {
+      mockFetch(null, 404);
+      await expect(messengerApi.blockUser("missing")).rejects.toThrow();
+    });
+  });
+
   describe("toggleReaction", () => {
     it("posts the emoji and returns the message's chips", async () => {
       mockFetchRaw({

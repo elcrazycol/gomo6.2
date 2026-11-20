@@ -125,6 +125,15 @@ export type Attachment = {
   sort_order?: number;
 };
 
+/** One entry of the caller's direct-message block list (blocker-only view). */
+export type BlockedUser = {
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar_url?: string;
+  blocked_at: string;
+};
+
 /** In-flight upload shown as a progress chip in the composer. */
 export type UploadingFile = {
   id: string;

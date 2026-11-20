@@ -188,3 +188,10 @@ func TestSendGift_InvalidBody(t *testing.T) {
 		t.Errorf("expected 400, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
+
+// A gift with no messenger wired still records/sends; the chat bubble is simply
+// skipped (nil-safe dependency).
+func TestSendGiftMessengerMessage_NilMessengerSafe(t *testing.T) {
+	handler, _ := setupGiftsHandler(t)
+	handler.sendGiftMessengerMessage("u1", "u2", "g1", "Роза", "", "gr1")
+}

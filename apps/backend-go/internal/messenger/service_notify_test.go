@@ -63,9 +63,7 @@ func TestSendMessage_ServiceThread_Rejected(t *testing.T) {
 	body := SendMessageRequest{Content: "hello?", ClientID: "c1"}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/"+convID+"/messages", body, claims, map[string]string{"id": convID})
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COALESCE(is_service, false) FROM chat_conversations WHERE id = $1`)).
-		WithArgs(convID).
-		WillReturnRows(sqlmock.NewRows([]string{"is_service"}).AddRow(true))
+	expectServiceConversationAccess(mock, convID, "user-1")
 
 	h.SendMessage(c)
 

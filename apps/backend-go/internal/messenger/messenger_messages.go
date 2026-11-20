@@ -53,32 +53,10 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
-	// Verify membership
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
+	// Membership + conversation kind + encryption mode in one round trip.
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
 		return
-	}
-	if !member {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
-		return
-	}
-
-	// Notes conversations carry client-side E2E ciphertext: the server forwards
-	// it verbatim and never attempts to decrypt it. The same holds for 1:1
-	// conversations in e2e mode.
-	isNotes, err := h.isNotesConversation(c, conversationID)
-	if err != nil {
-		httpx.ServerError(c, "check notes conversation", err)
-		return
-	}
-	isE2E := false
-	if !isNotes {
-		isE2E, err = h.isE2EConversation(c, conversationID)
-		if err != nil {
-			httpx.ServerError(c, "check e2e conversation", err)
-			return
-		}
 	}
 
 	limit, before, sinceEventRaw, sinceEventID, ok := parseMessageCursor(c)
@@ -86,7 +64,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
-	messages, ok := h.fetchMessagePage(c, conversationID, isNotes, isE2E, limit, before, sinceEventID, sinceEventRaw != "")
+	messages, ok := h.fetchMessagePage(c, conversationID, access.IsNotes, access.IsE2E(), limit, before, sinceEventID, sinceEventRaw != "")
 	if !ok {
 		return
 	}
@@ -202,37 +180,35 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 		return nil, false
 	}
 
-	// Batch-fetch attachments for all messages
+	// Attachments, reaction chips and voice-listened marks arrive in ONE query:
+	// a page costs three round trips in total (access, page, extras) instead of
+	// the previous seven.
 	if len(messages) > 0 {
 		ids := make([]string, len(messages))
-		for i, m := range messages {
-			ids[i] = m.ID
+		for i := range messages {
+			ids[i] = messages[i].ID
 		}
-		attMap, err := h.getAttachmentsByMessageIDs(c, ids)
-		if err != nil {
-			httpx.ServerError(c, "get attachments", err)
+		viewerID := ""
+		if claims := getClaims(c); claims != nil {
+			viewerID = claims.UserID
+		}
+		attachments, reactions, voice, extrasErr := h.fetchMessageExtras(c, ids, viewerID)
+		if extrasErr != nil {
+			httpx.ServerError(c, "get message extras", extrasErr)
 			return nil, false
 		}
 		for i := range messages {
-			if atts, ok := attMap[messages[i].ID]; ok {
+			if atts, ok := attachments[messages[i].ID]; ok {
 				messages[i].Attachments = atts
+			}
+			if chips, ok := reactions[messages[i].ID]; ok {
+				messages[i].Reactions = chips
+			}
+			if listeners, ok := voice[messages[i].ID]; ok {
+				messages[i].VoiceListenedBy = listeners
 			}
 			normalizeMessageEnvelope(&messages[i])
 		}
-	}
-
-	// Reactions for the whole page in one query (the same batching as
-	// attachments): the chips travel with the message so the list has them on
-	// first paint, and realtime only has to deliver deltas.
-	if err := h.addReactionsToMessages(c, messages); err != nil {
-		httpx.ServerError(c, "get reactions", err)
-		return nil, false
-	}
-
-	// …and the same for the per-user voice "listened" state.
-	if err := h.addVoiceListensToMessages(c, messages); err != nil {
-		httpx.ServerError(c, "get voice listens", err)
-		return nil, false
 	}
 
 	// Backward pages are returned by sent_at DESC and must be reversed. Delta
@@ -387,48 +363,35 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Service threads are read-only: the notification account never reads
-	// replies and recipients must not write into the void.
-	var convIsService bool
-	if err := h.dbFor(c).QueryRow(
-		`SELECT COALESCE(is_service, false) FROM chat_conversations WHERE id = $1`,
-		conversationID).Scan(&convIsService); err == nil && convIsService {
+	// Service threads are read-only; the conversation kind, encryption mode and
+	// membership all come from one access query. Membership is answered first so
+	// a non-member learns nothing about the conversation's kind.
+	access, ok := h.loadAccess(c, conversationID, claims.UserID)
+	if !ok || access == nil {
+		return
+	}
+	if !access.IsMember {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
+		return
+	}
+	if access.IsService {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("This is a notification thread and does not accept messages"))
 		return
 	}
 
-	// The personal notes conversation carries client-side E2E ciphertext: the
-	// server stores the opaque blob verbatim and never holds the key. The same
-	// holds for 1:1 conversations in e2e mode. Regular conversations keep the
-	// server-side AES-GCM encryption.
-	isNotes, err := h.isNotesConversation(c, conversationID)
-	if err != nil {
-		httpx.ServerError(c, "check notes conversation", err)
-		return
-	}
-	isE2E := false
-	if !isNotes {
-		isE2E, err = h.isE2EConversation(c, conversationID)
-		if err != nil {
-			httpx.ServerError(c, "check e2e conversation", err)
-			return
-		}
-	}
-	opaque := isNotes || isE2E
-
-	encryptedContent, encV, encAlg, ok := prepareOutgoingContent(c, conversationID, isNotes, isE2E, cleanContent, len(req.Attachments) > 0)
-	if !ok {
+	// 1:1 policy: blocks (either direction) and a friends-only inbox are
+	// enforced on every send, not only when the chat is created.
+	if !h.enforceDirectWritePolicy(c, access, claims.UserID) {
 		return
 	}
 
-	// Verify membership
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
-		return
-	}
-	if !member {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
+	// Opaque conversations (notes / e2e) carry client ciphertext: the server
+	// stores the blob verbatim and never holds the key.
+	isNotes, isE2E := access.IsNotes, access.IsE2E()
+	opaque := access.IsOpaque()
+
+	encryptedContent, encV, encAlg, prepared := prepareOutgoingContent(c, conversationID, isNotes, isE2E, cleanContent, len(req.Attachments) > 0)
+	if !prepared {
 		return
 	}
 
@@ -736,15 +699,16 @@ func updateConversationPreview(c *gin.Context, tx *sql.Tx, conversationID string
 }
 
 // scheduleMessageSideEffects registers the post-commit side effects of a sent
-// message: cache invalidation, the realtime broadcast and — for regular
-// conversations only — the Web Push (PWA) delivery to the other members.
-// Notes (self-chat) have no other members, so nothing is sent. E2E
-// conversations get a generic push body: the server cannot read the opaque
-// ciphertext and must never put it into a notification.
+// message: the realtime broadcast and — outside opaque conversations — the Web
+// Push (PWA) delivery. Notes (self-chat) have no other members, so nothing is
+// sent. E2E conversations get a generic push body: the server cannot read the
+// opaque ciphertext and must never put it into a notification.
+//
+// There is deliberately NO data-cache invalidation here: the shared
+// DataCacheMiddleware skips every /messenger path (real-time contract), so the
+// old Redis SCAN on each message only walked the whole keyspace to delete
+// nothing.
 func scheduleMessageSideEffects(h *MessengerHandler, conversationID string, claims *auth.Claims, msg MessageResponse, opaque bool, cleanContent string, hasAttachments bool, isE2E bool) {
-	if h.redis != nil {
-		publishPool.Go(func() { InvalidateMessengerCaches(h.redis, conversationID, claims.UserID) })
-	}
 	if h.hub != nil {
 		publishPool.Go(func() { h.broadcastNewMessage(conversationID, msg, claims, opaque) })
 	}
@@ -907,20 +871,19 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
-	// Opaque messages (notes / e2e) carry client ciphertext, stored verbatim.
-	isNotes, err := h.isNotesConversation(c, conversationID)
-	if err != nil {
-		httpx.ServerError(c, "check notes conversation", err)
+	// Membership, conversation kind and encryption mode in one round trip.
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
 		return
 	}
-	isE2E := false
-	if !isNotes {
-		isE2E, err = h.isE2EConversation(c, conversationID)
-		if err != nil {
-			httpx.ServerError(c, "check e2e conversation", err)
-			return
-		}
+	if !h.enforceDirectWritePolicy(c, access, claims.UserID) {
+		return
 	}
+	if access.IsService {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("This is a notification thread and is read-only"))
+		return
+	}
+	isNotes, isE2E := access.IsNotes, access.IsE2E()
 
 	var encryptedContent string
 	var encV int
@@ -951,26 +914,16 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 			return
 		}
 		req.Content = cleanContent // keep plaintext for the broadcast below
-		encryptedContent, err = EncryptContentForConversation(conversationID, cleanContent)
-		if err != nil {
-			httpx.ServerError(c, "encrypt edit content", err)
+		encryptedContent, sErr = EncryptContentForConversation(conversationID, cleanContent)
+		if sErr != nil {
+			httpx.ServerError(c, "encrypt edit content", sErr)
 			return
 		}
 	}
 
-	// Membership is checked explicitly before the update. The UPDATE repeats
-	// membership-relevant message predicates, so a user cannot edit across a
-	// conversation boundary even if a message ID is guessed.
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check edit membership", err)
-		return
-	}
-	if !member {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
-		return
-	}
-
+	// The UPDATE repeats membership-relevant message predicates, so a user
+	// cannot edit across a conversation boundary even if a message ID is
+	// guessed. membership itself was already answered by loadAccess.
 	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
 		SET content = $4, enc_v = $5, enc_alg = $6, is_edited = true, edited_at = NOW(), event_id = nextval('chat_messages_event_id_seq')
@@ -985,6 +938,15 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 	if rows == 0 {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found or not editable"))
 		return
+	}
+
+	// Editing the conversation's newest message changes what the chat list
+	// shows. Every other edit leaves the preview alone (one indexed lookup).
+	if isNewest, checkErr := h.isNewestMessage(c, conversationID, messageID); checkErr == nil && isNewest {
+		if refreshErr := h.refreshConversationPreview(c, conversationID, access.IsOpaque()); refreshErr != nil {
+			httpx.ServerError(c, "refresh conversation preview", refreshErr)
+			return
+		}
 	}
 
 	queueAfterCommit(c, func() {
@@ -1091,12 +1053,11 @@ func (h *MessengerHandler) UpdateNotesMeta(c *gin.Context) {
 	}
 
 	// Notes metadata exists only in the personal notes self-chat.
-	isNotes, err := h.isNotesConversation(c, conversationID)
-	if err != nil {
-		httpx.ServerError(c, "check notes conversation", err)
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
 		return
 	}
-	if !isNotes {
+	if !access.IsNotes {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Notes metadata is only available in the notes chat"))
 		return
 	}
@@ -1187,31 +1148,91 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 		return
 	}
 
-	// Verify user is a conversation member AND message sender
-	// This prevents users from deleting messages in conversations they're not part of.
-	// The opaque ciphertext is wiped too (content + enc envelope), so a deleted
-	// message leaves no recoverable blob behind.
+	// The caller must be a member; the message must be theirs and alive. One
+	// access query answers membership + conversation kind/encryption mode.
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
+		return
+	}
+
+	var canDelete bool
+	if err := h.dbFor(c).QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_messages
+			WHERE id = $1 AND conversation_id = $2 AND sender_user_id = $3 AND is_deleted = false
+		)
+	`, messageID, conversationID, claims.UserID).Scan(&canDelete); err != nil {
+		httpx.ServerError(c, "check message ownership", err)
+		return
+	}
+	if !canDelete {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found or already deleted"))
+		return
+	}
+
+	// Collect the storage keys BEFORE the rows disappear: after the transaction
+	// there is nothing left to tell us which S3 objects to remove.
+	attachments, err := h.loadAttachmentKeys(c, messageID)
+	if err != nil {
+		httpx.ServerError(c, "load attachment keys", err)
+		return
+	}
+	storageKeys := attachmentStorageKeys(attachments)
+
+	// Soft-delete + wipe every recoverable payload. The opaque ciphertext, the
+	// structured payload and the notes metadata all go; the row keeps only its
+	// identity so clients can render "message deleted".
 	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
-		SET is_deleted = true, content = '', notes_meta = NULL, enc_v = 0, enc_alg = NULL, payload = NULL, event_id = nextval('chat_messages_event_id_seq')
+		SET is_deleted = true,
+		    content = '',
+		    notes_meta = NULL,
+		    enc_v = 0,
+		    enc_alg = NULL,
+		    payload = NULL,
+		    event_id = nextval('chat_messages_event_id_seq')
 		WHERE id = $1
 		  AND sender_user_id = $2
 		  AND is_deleted = false
 		  AND conversation_id = $3
-		  AND EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $3 AND user_id = $2)
 	`, messageID, claims.UserID, conversationID)
 	if err != nil {
 		httpx.ServerError(c, "delete message", err)
 		return
 	}
-
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found or already deleted"))
 		return
 	}
 
+	// Cascade the message's satellites (attachments/reactions/voice/receipts)
+	// and drop the pin if it pointed here.
+	if err := h.deleteMessageArtifacts(c, conversationID, messageID); err != nil {
+		httpx.ServerError(c, "delete message artifacts", err)
+		return
+	}
+
+	// The insert trigger only increments unread counters: without a recompute a
+	// deleted message would keep counting in the peer's badge.
+	if err := h.recomputeUnreadForOthers(c, conversationID, claims.UserID); err != nil {
+		httpx.ServerError(c, "recompute unread", err)
+		return
+	}
+
+	// The chat list mirrors the newest message: recompute it now that this one
+	// is gone (clears the fields when the conversation is now empty).
+	if err := h.refreshConversationPreview(c, conversationID, access.IsOpaque()); err != nil {
+		httpx.ServerError(c, "refresh conversation preview", err)
+		return
+	}
+
 	queueAfterCommit(c, func() {
+		// Storage cleanup is bounded and best-effort: the message is already
+		// gone, and a failed object delete only leaves an unreachable file.
+		if len(storageKeys) > 0 {
+			publishPool.Go(func() { h.deleteStorageObjects(storageKeys) })
+		}
 		if h.hub == nil {
 			return
 		}
@@ -1229,6 +1250,22 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 				Payload: payload,
 			}); err != nil {
 				log.Printf("[Messenger] WS delete broadcast error: %v", err)
+				return
+			}
+			// The conversation list must drop the deleted preview too.
+			updated := map[string]interface{}{
+				"conversation_id": conversationID,
+				"preview_changed": true,
+				"event":           "conversation_updated",
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				updated["recipient_ids"] = memberIDs
+			}
+			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+				Type:    "conversation_updated",
+				Payload: updated,
+			}); err != nil {
+				log.Printf("[Messenger] WS conversation preview broadcast error: %v", err)
 			}
 		})
 	})

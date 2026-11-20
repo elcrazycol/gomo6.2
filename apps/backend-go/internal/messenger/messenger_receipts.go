@@ -466,20 +466,19 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		return
 	}
 
-	// Check membership
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
+	// A pin changes shared state (every member sees it), so it obeys the same
+	// 1:1 policy as a send.
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
 		return
 	}
-	if !member {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member"))
+	if !h.enforceDirectWritePolicy(c, access, claims.UserID) {
 		return
 	}
 
 	// Verify the message belongs to this conversation
 	var msgExists bool
-	err = h.dbFor(c).QueryRow(
+	err := h.dbFor(c).QueryRow(
 		"SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2 AND is_deleted = false)",
 		req.MessageID, conversationID,
 	).Scan(&msgExists)

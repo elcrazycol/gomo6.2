@@ -1,6 +1,7 @@
 package messenger
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -75,7 +76,97 @@ func stripJSONArray(body []byte) ([]interface{}, error) {
 	return resp.Data.([]interface{}), nil
 }
 
+// ─── Phase-3 test helpers ────────────────────────────────────────────────────
+
+// expectConversationAccess mocks the single access query that answers
+// membership + conversation kind + encryption mode + the 1:1 peer.
+func expectConversationAccess(mock sqlmock.Sqlmock, convID, userID, otherUser string, isGroup, isNotes, isService bool, mode string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user",
+		}).AddRow(convID, true, isGroup, isNotes, isService, mode, otherUser))
+}
+
+// expectConversationAccessError mocks a failing access lookup.
+func expectConversationAccessError(mock sqlmock.Sqlmock, convID, userID string, err error) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnError(err)
+}
+
+// expectNoConversationAccess mocks the access query for a non-member: the row is
+// visible but the explicit membership predicate is false.
+func expectNoConversationAccess(mock sqlmock.Sqlmock, convID, userID string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user",
+		}).AddRow(convID, false, false, false, false, "server", ""))
+}
+
+// expectMessageExtras mocks the single extras query (attachments + reactions +
+// voice listens) with empty JSON arrays.
+func expectMessageExtras(mock sqlmock.Sqlmock, ids ...driver.Value) {
+	mock.ExpectQuery(`SELECT\s+COALESCE\(\(`).
+		WithArgs(ids...).
+		WillReturnRows(sqlmock.NewRows([]string{"attachments", "reactions", "voice"}).
+			AddRow([]byte("[]"), []byte("[]"), []byte("[]")))
+}
+
+// expectMessageExtrasJSON mocks the extras query with explicit JSON payloads.
+func expectMessageExtrasJSON(mock sqlmock.Sqlmock, attachments, reactions, voice string, ids ...driver.Value) {
+	mock.ExpectQuery(`SELECT\s+COALESCE\(\(`).
+		WithArgs(ids...).
+		WillReturnRows(sqlmock.NewRows([]string{"attachments", "reactions", "voice"}).
+			AddRow([]byte(attachments), []byte(reactions), []byte(voice)))
+}
+
+// expectDirectMessageAllowed mocks the 1:1 write gate as allowed.
+func expectDirectMessageAllowed(mock sqlmock.Sqlmock, senderID, recipientID string) {
+	mock.ExpectQuery(`FROM user_blocks`).
+		WithArgs(senderID, recipientID).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked", "friends", "allow_dm"}).AddRow(false, false, true))
+}
+
+// expectDirectMessageBlocked mocks the 1:1 write gate as blocked.
+func expectDirectMessageBlocked(mock sqlmock.Sqlmock, senderID, recipientID string) {
+	mock.ExpectQuery(`FROM user_blocks`).
+		WithArgs(senderID, recipientID).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked", "friends", "allow_dm"}).AddRow(true, false, true))
+}
+
+// expectDirectMessageFriendsOnly mocks a friends-only inbox for a non-friend.
+func expectDirectMessageFriendsOnly(mock sqlmock.Sqlmock, senderID, recipientID string) {
+	mock.ExpectQuery(`FROM user_blocks`).
+		WithArgs(senderID, recipientID).
+		WillReturnRows(sqlmock.NewRows([]string{"blocked", "friends", "allow_dm"}).AddRow(false, false, false))
+}
+
+// insertMessageRowColumns is the RETURNING projection of a message insert
+// (no sender_username join).
+var insertMessageRowColumns = []string{
+	"event_id", "id", "conversation_id", "sender_user_id", "parent_message_id",
+	"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
+	"edited_at", "sent_at", "client_id",
+}
+
+// expectMessageRowColumns is the shared column list of a chat_messages page row.
+var messageRowColumns = []string{
+	"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
+	"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
+	"edited_at", "sent_at", "client_id",
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+// expectServiceConversationAccess mocks the access query for a service thread.
+func expectServiceConversationAccess(mock sqlmock.Sqlmock, convID, userID string) {
+	mock.ExpectQuery(`FROM chat_conversations c`).
+		WithArgs(convID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "is_member", "is_group", "is_notes", "is_service", "encryption_mode", "other_user",
+		}).AddRow(convID, true, false, false, true, "server", ""))
+}
 
 func TestGetClaims_Valid(t *testing.T) {
 	_, _ = setupMessengerHandler(t)

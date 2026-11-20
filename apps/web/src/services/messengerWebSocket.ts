@@ -264,6 +264,7 @@ class MessengerWebSocket {
     useMessengerStore.getState().applyConversationUpdatedEvent({
       conversation_id: convId,
       encryption_mode: mode,
+      preview_changed: data.preview_changed === true,
     });
   }
 

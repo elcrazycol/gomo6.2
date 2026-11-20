@@ -628,8 +628,9 @@ type MessengerStore = {
   /** Applies a realtime delivery_receipt event in O(1) without a GET /receipts round-trip. */
   applyDeliveryReceiptEvent: (event: { conversation_id: string; user_id: string; message_id: string; delivered_at?: string }) => void;
 
-  /** Applies a realtime conversation_updated event (e.g. encryption mode switch). */
-  applyConversationUpdatedEvent: (event: { conversation_id: string; encryption_mode?: string }) => void;
+  /** Applies a realtime conversation_updated event (encryption switch or a
+   *  deleted/edited last message changing the chat-list preview). */
+  applyConversationUpdatedEvent: (event: { conversation_id: string; encryption_mode?: string; preview_changed?: boolean }) => void;
 
   // ── Actions (local) ───────────────────────────────────────────────────
   selectConversation: (id: string | null) => void;
@@ -1809,9 +1810,13 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   applyConversationUpdatedEvent: (event) => {
     if (!event.conversation_id) return;
-    // Encryption mode is security-relevant: refetch the authoritative list
-    // instead of trusting the event payload alone.
-    if (event.encryption_mode === "server" || event.encryption_mode === "e2e") {
+    // Both cases need the authoritative snapshot: the encryption mode is
+    // security-relevant, and a preview change carries ciphertext the device
+    // must decrypt (an event payload would leak the server's stored blob into
+    // the list). One refetch covers either.
+    const securityRelevant =
+      event.encryption_mode === "server" || event.encryption_mode === "e2e";
+    if (securityRelevant || event.preview_changed) {
       void get().loadConversations({ force: true });
     }
   },

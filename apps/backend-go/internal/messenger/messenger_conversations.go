@@ -266,6 +266,18 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 		return
 	}
 
+	// 1:1 write policy: blocks and a friends-only inbox are enforced before a
+	// conversation row exists, so a blocked user cannot even create the chat.
+	allowed, reason, gateErr := h.canSendDirect(c, claims.UserID, req.UserID)
+	if gateErr != nil {
+		httpx.ServerError(c, "check direct message policy", gateErr)
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, models.ErrorResponse(reason))
+		return
+	}
+
 	// Atomic find-or-create via DB function (race-safe via ON CONFLICT)
 	convID, err := h.FindOrCreateConversation(c, claims.UserID, req.UserID)
 	if err != nil {
@@ -308,21 +320,6 @@ func (h *MessengerHandler) GetOrCreateNotesConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID, "is_notes": true}))
 }
 
-// isNotesConversation reports whether the conversation is the personal notes
-// self-chat (client-side E2E encrypted content). A nonexistent conversation is
-// treated as a regular one — the caller's membership check rejects it next.
-func (h *MessengerHandler) isNotesConversation(c *gin.Context, conversationID string) (bool, error) {
-	var notes bool
-	err := h.dbFor(c).QueryRow(
-		"SELECT COALESCE(is_notes, false) FROM chat_conversations WHERE id = $1",
-		conversationID,
-	).Scan(&notes)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	return notes, err
-}
-
 // LeaveConversation removes the user from a conversation.
 // DELETE /api/v1/messenger/conversations/:id/leave
 //
@@ -351,24 +348,18 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 
 	// The personal notes chat cannot be left: it is the user's own encrypted
 	// storage, and leaving would orphan the stored ciphertext.
-	isNotes, err := h.isNotesConversation(c, conversationID)
-	if err != nil {
-		httpx.ServerError(c, "check notes conversation", err)
+	access, accessOK := h.loadAccess(c, conversationID, claims.UserID)
+	if !accessOK || access == nil {
 		return
 	}
-	if isNotes {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Notes conversation cannot be left"))
-		return
-	}
-
-	// Check membership
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
-		return
-	}
-	if !member {
+	// Membership is answered first so a non-member cannot probe the kind of a
+	// conversation by the shape of the error.
+	if !access.IsMember {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
+		return
+	}
+	if access.IsNotes {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Notes conversation cannot be left"))
 		return
 	}
 

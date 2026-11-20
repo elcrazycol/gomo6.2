@@ -1,7 +1,6 @@
 package messenger
 
 import (
-	"database/sql"
 	"net/http"
 	"strings"
 
@@ -43,24 +42,6 @@ func validateE2EPayload(content string) error {
 		return errE2EPayloadTooLarge
 	}
 	return nil
-}
-
-// isE2EConversation reports whether the conversation uses client-side E2E
-// (encryption_mode = 'e2e'). A nonexistent conversation is treated as regular —
-// the caller's membership check rejects it next.
-func (h *MessengerHandler) isE2EConversation(c *gin.Context, conversationID string) (bool, error) {
-	var mode sql.NullString
-	err := h.dbFor(c).QueryRow(
-		"SELECT encryption_mode FROM chat_conversations WHERE id = $1",
-		conversationID,
-	).Scan(&mode)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return mode.Valid && mode.String == encryptionModeE2E, nil
 }
 
 // ─── Device key directory ────────────────────────────────────────────────────
@@ -259,25 +240,15 @@ func (h *MessengerHandler) UpdateEncryptionMode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("mode must be 'server' or 'e2e'"))
 		return
 	}
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
+	access, accessOK := h.loadAccess(c, conversationID, claims.UserID)
+	if !accessOK || access == nil {
 		return
 	}
-	if !member {
+	if !access.IsMember {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
 		return
 	}
-	var isGroup, isNotes, isService bool
-	if err := h.dbFor(c).QueryRow(
-		`SELECT COALESCE(is_group, false), COALESCE(is_notes, false), COALESCE(is_service, false)
-		 FROM chat_conversations WHERE id = $1`,
-		conversationID,
-	).Scan(&isGroup, &isNotes, &isService); err != nil {
-		httpx.ServerError(c, "check conversation kind", err)
-		return
-	}
-	if isGroup || isNotes || isService {
+	if access.IsGroup || access.IsNotes || access.IsService {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("E2E is only available for 1:1 conversations"))
 		return
 	}

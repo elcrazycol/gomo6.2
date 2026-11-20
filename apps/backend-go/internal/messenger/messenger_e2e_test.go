@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/testutil"
+	"github.com/lib/pq"
 )
 
 // ─── E2E envelope ────────────────────────────────────────────────────────────
@@ -51,18 +52,6 @@ func TestValidateE2EPayload_TooLarge(t *testing.T) {
 
 // ─── Opaque 1:1 conversation: send / edit / read ────────────────────────────
 
-func setupE2EConversationMocks(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-}
-
 func TestSendMessage_E2ERejectsPlaintext(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
@@ -70,12 +59,8 @@ func TestSendMessage_E2ERejectsPlaintext(t *testing.T) {
 	body := SendMessageRequest{Content: "plaintext must never enter an e2e chat", ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
+	expectConversationAccess(mock, testConv1, testUser1, testUser2, false, false, false, "e2e")
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
 
 	handler.SendMessage(c)
 
@@ -92,15 +77,8 @@ func TestSendMessage_E2EStoresVerbatim(t *testing.T) {
 	body := SendMessageRequest{Content: blob, ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, testUser2, false, false, false, "e2e")
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
 	mock.ExpectBegin()
 
 	now := time.Now()
@@ -140,15 +118,7 @@ func TestGetMessages_E2EPassthrough(t *testing.T) {
 	c, w := testutil.NewGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "e2e")
 
 	blob := "e2e1:p256-aesgcm:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWQ=="
 	now := time.Now()
@@ -161,15 +131,7 @@ func TestGetMessages_E2EPassthrough(t *testing.T) {
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(msgRows)
-	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
-	mock.ExpectQuery(`SELECT r.message_id, r.emoji, r.user_id, COALESCE\(u.username, ''\), r.created_at.*FROM message_reactions r`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "emoji", "user_id", "username", "created_at"}))
-	mock.ExpectQuery(`SELECT message_id, user_id FROM message_voice_listens WHERE message_id IN`).
-		WithArgs(testMsg1).
-		WillReturnRows(sqlmock.NewRows([]string{"message_id", "user_id"}))
+	expectMessageExtras(mock, pq.Array([]string{testMsg1}))
 
 	handler.GetMessages(c)
 
@@ -212,15 +174,8 @@ func TestSendMessage_E2EAttachmentOnlyAllowed(t *testing.T) {
 	}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, testUser2, false, false, false, "e2e")
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
 
 	// A caption-less media message in an e2e chat is legitimate: the envelope
 	// only exists for text, so an empty content with attachments must pass
@@ -239,12 +194,8 @@ func TestSendMessage_E2ERejectsOversized(t *testing.T) {
 	body := SendMessageRequest{Content: "e2e1:p256-aesgcm:" + strings.Repeat("A", maxE2EContentLen), ClientID: testClientID1}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
+	expectConversationAccess(mock, testConv1, testUser1, testUser2, false, false, false, "e2e")
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
 
 	handler.SendMessage(c)
 
@@ -263,12 +214,8 @@ func TestEditMessage_E2ERejectsPlaintext(t *testing.T) {
 	body := EditMessageRequest{Content: "plaintext edit"}
 	c, w := testutil.NewPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("e2e"))
+	expectConversationAccess(mock, testConv1, testUser1, testUser2, false, false, false, "e2e")
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
 
 	handler.EditMessage(c)
 
@@ -376,12 +323,7 @@ func TestUpdateEncryptionMode_Success(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/encryption", map[string]string{"mode": "e2e"}, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT COALESCE\(is_group, false\), COALESCE\(is_notes, false\), COALESCE\(is_service, false\)`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_group", "is_notes", "is_service"}).AddRow(false, false, false))
+	expectConversationAccess(mock, testConv1, testUser1, testUser2, false, false, false, "server")
 	mock.ExpectExec(`UPDATE chat_conversations SET encryption_mode`).
 		WithArgs(testConv1, "e2e").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -399,12 +341,7 @@ func TestUpdateEncryptionMode_RejectsGroup(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/encryption", map[string]string{"mode": "e2e"}, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT COALESCE\(is_group, false\), COALESCE\(is_notes, false\), COALESCE\(is_service, false\)`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_group", "is_notes", "is_service"}).AddRow(true, false, false))
+	expectConversationAccess(mock, testConv1, testUser1, "", true, false, false, "server")
 
 	handler.UpdateEncryptionMode(c)
 
@@ -432,9 +369,7 @@ func TestUpdateEncryptionMode_NotMember(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	c, w := testutil.NewPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/encryption", map[string]string{"mode": "e2e"}, claims, map[string]string{"id": testConv1})
 
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	expectNoConversationAccess(mock, testConv1, testUser1)
 
 	handler.UpdateEncryptionMode(c)
 

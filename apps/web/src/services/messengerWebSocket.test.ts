@@ -228,6 +228,16 @@ describe("messengerWebSocket", () => {
       expect(storeMocks.applyConversationUpdatedEvent).toHaveBeenCalledWith({
         conversation_id: "conv-1",
         encryption_mode: "e2e",
+        preview_changed: false,
+      });
+    });
+
+    it("forwards preview_changed on conversation_updated", () => {
+      emitToHandlers("conversation_updated", { conversation_id: "conv-1", preview_changed: true });
+      expect(storeMocks.applyConversationUpdatedEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        encryption_mode: undefined,
+        preview_changed: true,
       });
     });
 

@@ -56,7 +56,42 @@ POST /conversations/:id/delivered {"message_id"}   # delivery line (prefix)
 POST /conversations/:id/pin       {"message_id"}   # toggle
 DELETE /conversations/:id/leave
 POST /conversations/:id/encryption {"mode": "server"|"e2e"}  # 1:1 only
+PUT  /conversations/:id/messages/:msgId   {"content"}
+DELETE /conversations/:id/messages/:msgId
 ```
+
+**Deleting is real.** The row's `content`, `payload`, `notes_meta` and the `enc`
+envelope are wiped, its attachments/reactions/voice-marks/receipts are removed,
+the S3 objects (original + image preview derivative) are deleted, the
+conversation is unpinned if it pinned this message, the chat-list preview is
+recomputed from the newest surviving message (cleared when none survive) and
+the peer's unread badge is recomputed. The tombstone keeps only its identity and
+a fresh `event_id`, so a delta sync still sees the deletion.
+
+**1:1 write policy.** Creating a chat or sending into one is refused with `403`
+when either side has blocked the other, or when the recipient set
+`allow_private_messages = false` and you are not a mutual friend. The same gate
+covers every shared-state mutation of a 1:1 chat — edit, reaction, voice-listen
+mark and pin — so a blocked user cannot poke the peer through a side channel.
+Groups are not gated (a block does not silence group chat, like Telegram).
+Service threads are read-only for users.
+
+The block list itself is private to the blocker:
+
+```
+GET    /messenger/blocks                 → [{user_id, username, display_name, avatar_url?, blocked_at}]
+POST   /messenger/blocks/:userId         → {blocked: true}   (idempotent)
+DELETE /messenger/blocks/:userId         → {blocked: false}  (idempotent)
+```
+
+A block never deletes history on either side and never tells the blocked user
+that it happened (the send simply fails with a generic reason). Read paths
+(history, receipts) stay available, as in Telegram.
+
+**Membership is explicit.** Every messenger handler asks
+`chat_members` whether the caller belongs to the conversation instead of relying
+on row-level security: the deployment connects with a superuser role in the
+standard Compose setup, and a superuser bypasses RLS entirely.
 
 Server-mode content is validated as plaintext (≤4000 runes, no HTML tags);
 opaque conversations (notes / `e2e`) must send the client envelope verbatim
@@ -85,7 +120,7 @@ Events (all carry `conversation_id`):
 | `message_voice_listened` | `{message_id, user_id}` |
 | `read_receipt` | `{message_id, user_id, read_at}` — advance `other_last_read_at` + open-chat chips, no `GET /receipts` needed |
 | `delivery_receipt` | `{message_id, user_id, delivered_at}` — same for `✓✓` |
-| `conversation_updated` | `{encryption_mode}` — refetch `/conversations` (authoritative) |
+| `conversation_updated` | `{encryption_mode?}` or `{preview_changed: true}` — refetch `/conversations` (authoritative: decrypts notes/e2e previews, picks up unpins) |
 | `chat_typing` | `{user_id, username, is_typing}` (open-chat room only) |
 | `member_left`, `group_updated`, `message_notes_meta` | housekeeping, same room routing |
 
@@ -117,6 +152,11 @@ Crypto (all standard WebCrypto / Rust `p256` + `aes-gcm`):
 
 The server validates only the shape (`e2e1:` prefix, known alg, size cap) and
 stores/forwards the blob verbatim, including previews and realtime frames.
+**Current limits (by design, Phase 2–3):** attachment bytes are *not* encrypted
+end-to-end (files live in S3 as uploaded); device identity keys are static (no
+prekey bundles / rotation yet, so no forward secrecy); E2E is opt-in per 1:1 chat
+and has no UI toggle yet.
+
 Reference implementation: `apps/web/src/utils/messengerCrypto.ts`
 (`encryptE2EMessage` / `decryptE2EMessage`); Go validators:
 `parseE2EEnvelope` / `validateE2EPayload` in `messenger_e2e.go`.

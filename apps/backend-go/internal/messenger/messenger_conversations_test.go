@@ -186,6 +186,9 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 		WithArgs(testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"exists", "is_service"}).AddRow(true, false))
 
+	// 1:1 write gate (blocks / friends-only inbox).
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
+
 	// Atomic find-or-create via DB function
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
 		WithArgs(testUser1, testUser2).
@@ -217,6 +220,8 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\),`).
 		WithArgs(testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"exists", "is_service"}).AddRow(true, false))
+
+	expectDirectMessageAllowed(mock, testUser1, testUser2)
 
 	// Atomic find-or-create via DB function — returns new conversation
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
@@ -306,15 +311,7 @@ func TestLeaveConversation_Success(t *testing.T) {
 	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	// Notes check (regular conversation)
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	// Membership check
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
 
 	// Delete membership
 	mock.ExpectExec(`DELETE FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2`).
@@ -335,13 +332,7 @@ func TestLeaveConversation_NotMember(t *testing.T) {
 	c, w := testutil.NewDELETEContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
-
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs(testConv1, testUser1).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	expectNoConversationAccess(mock, testConv1, testUser1)
 
 	handler.LeaveConversation(c)
 
@@ -459,9 +450,7 @@ func TestLeaveConversation_NotesRejected(t *testing.T) {
 	c.Set("claims", claims)
 
 	// It IS the notes self-chat: leaving must be rejected.
-	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
-		WithArgs(testConv1).
-		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(true))
+	expectConversationAccess(mock, testConv1, testUser1, "", false, true, false, "server")
 
 	handler.LeaveConversation(c)
 

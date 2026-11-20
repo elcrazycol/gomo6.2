@@ -3,16 +3,14 @@ package messenger
 import (
 	"log"
 	"net/http"
-	"sort"
-	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/lib/pq"
 )
 
 // ─── Message reactions ──────────────────────────────────────────────────────
@@ -74,114 +72,39 @@ func validReactionEmoji(emoji string) bool {
 	return runes > 0 && runes <= maxReactionRunes
 }
 
-// fetchReactionsForMessages returns the chips of a page of messages in one
-// query, grouped and ordered by popularity (Telegram's chip order), with `mine`
-// resolved for the viewer.
+// fetchReactionsForMessages returns the chips of a page of messages, grouped
+// and ordered by popularity, with `mine` resolved for the viewer. The rows come
+// back in one query and are folded by the shared chip builder (the same one the
+// page extras query uses, so both paths can never disagree).
 func (h *MessengerHandler) fetchReactionsForMessages(c *gin.Context, messageIDs []string, viewerID string) (map[string][]ReactionSummary, error) {
 	if len(messageIDs) == 0 {
 		return nil, nil
-	}
-
-	placeholders := make([]string, len(messageIDs))
-	args := make([]interface{}, len(messageIDs))
-	for i, id := range messageIDs {
-		placeholders[i] = "$" + strconv.Itoa(i+1)
-		args[i] = id
 	}
 
 	rows, err := h.dbFor(c).Query(`
 		SELECT r.message_id, r.emoji, r.user_id, COALESCE(u.username, ''), r.created_at
 		FROM message_reactions r
 		LEFT JOIN users u ON u.id = r.user_id
-		WHERE r.message_id IN (`+strings.Join(placeholders, ",")+`)
-		ORDER BY r.created_at ASC
-	`, args...)
+		WHERE r.message_id = ANY($1::uuid[])
+		ORDER BY r.created_at ASC, r.id
+	`, pq.Array(messageIDs))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	type chip struct {
-		summary ReactionSummary
-	}
-	perMessage := make(map[string]map[string]*chip)
-	order := make(map[string][]string)
-
+	reactionRows := make([]reactionRow, 0, len(messageIDs))
 	for rows.Next() {
-		var messageID, emoji, userID, username string
-		var createdAt time.Time
-		if err := rows.Scan(&messageID, &emoji, &userID, &username, &createdAt); err != nil {
+		var row reactionRow
+		if err := rows.Scan(&row.MessageID, &row.Emoji, &row.UserID, &row.Username, &row.CreatedAt); err != nil {
 			return nil, err
 		}
-		chips := perMessage[messageID]
-		if chips == nil {
-			chips = make(map[string]*chip)
-			perMessage[messageID] = chips
-		}
-		current := chips[emoji]
-		if current == nil {
-			current = &chip{summary: ReactionSummary{Emoji: emoji}}
-			chips[emoji] = current
-			order[messageID] = append(order[messageID], emoji)
-		}
-		current.summary.Count++
-		if userID == viewerID {
-			current.summary.Mine = true
-			at := createdAt.UTC().Format(time.RFC3339Nano)
-			current.summary.MineAt = &at
-		}
-		current.summary.Users = append(current.summary.Users, ReactionUser{ID: userID, Username: username})
+		reactionRows = append(reactionRows, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
-	result := make(map[string][]ReactionSummary, len(perMessage))
-	for messageID, chips := range perMessage {
-		list := make([]ReactionSummary, 0, len(chips))
-		for _, emoji := range order[messageID] {
-			list = append(list, chips[emoji].summary)
-		}
-		// Popularity first, then the order the reactions first appeared — the
-		// same stable order Telegram keeps while counts change.
-		positions := make(map[string]int, len(order[messageID]))
-		for at, emoji := range order[messageID] {
-			positions[emoji] = at
-		}
-		sort.SliceStable(list, func(i, j int) bool {
-			if list[i].Count != list[j].Count {
-				return list[i].Count > list[j].Count
-			}
-			return positions[list[i].Emoji] < positions[list[j].Emoji]
-		})
-		result[messageID] = list
-	}
-	return result, nil
-}
-
-// addReactionsToMessages attaches the chips to a page of messages in place.
-func (h *MessengerHandler) addReactionsToMessages(c *gin.Context, messages []MessageResponse) error {
-	if len(messages) == 0 {
-		return nil
-	}
-	viewerID := ""
-	if claims := getClaims(c); claims != nil {
-		viewerID = claims.UserID
-	}
-	ids := make([]string, len(messages))
-	for i := range messages {
-		ids[i] = messages[i].ID
-	}
-	summaries, err := h.fetchReactionsForMessages(c, ids, viewerID)
-	if err != nil {
-		return err
-	}
-	for i := range messages {
-		if chips, ok := summaries[messages[i].ID]; ok {
-			messages[i].Reactions = chips
-		}
-	}
-	return nil
+	return buildReactionChips(reactionRows, viewerID), nil
 }
 
 // broadcastReaction fans a delta out to the conversation room. The payload is a
@@ -251,18 +174,17 @@ func (h *MessengerHandler) ToggleReaction(c *gin.Context) {
 		return
 	}
 
-	member, err := h.isMember(c, conversationID, claims.UserID)
-	if err != nil {
-		httpx.ServerError(c, "check membership", err)
+	// A reaction is shared state: it must obey the same 1:1 gate as a message.
+	access := h.requireMember(c, conversationID, claims.UserID)
+	if access == nil {
 		return
 	}
-	if !member {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member"))
+	if !h.enforceDirectWritePolicy(c, access, claims.UserID) {
 		return
 	}
 
 	var messageExists bool
-	err = h.dbFor(c).QueryRow(
+	err := h.dbFor(c).QueryRow(
 		"SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2 AND is_deleted = false)",
 		messageID, conversationID,
 	).Scan(&messageExists)

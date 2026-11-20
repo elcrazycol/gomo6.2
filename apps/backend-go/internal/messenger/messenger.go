@@ -13,7 +13,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -27,7 +26,6 @@ import (
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
-	"github.com/redis/go-redis/v9"
 )
 
 var htmlTagRegex = regexp.MustCompile(`(?i)</?[a-z][a-z0-9]*(?:\s[^>]*)?>`)
@@ -256,7 +254,6 @@ type GroupMemberResponse struct {
 type MessengerHandler struct {
 	db      *sql.DB
 	hub     *websocket.Hub
-	redis   *redis.Client
 	storage *storage.StorageClient
 	push    *push.Service
 }
@@ -265,7 +262,6 @@ func NewMessengerHandler(db *sql.DB, hub *websocket.Hub) *MessengerHandler {
 	return &MessengerHandler{db: db, hub: hub}
 }
 
-func (h *MessengerHandler) SetRedis(r *redis.Client)            { h.redis = r }
 func (h *MessengerHandler) SetStorage(s *storage.StorageClient) { h.storage = s }
 func (h *MessengerHandler) SetPushService(p *push.Service)      { h.push = p }
 
@@ -568,38 +564,4 @@ func truncatePreview(s string) string {
 		return s
 	}
 	return string(runes[:80])
-}
-
-// InvalidateMessengerCaches clears Redis caches for messenger endpoints.
-// Exported for the gifts handler, which writes gift messages into
-// conversations and must evict the same caches the messenger package owns.
-func InvalidateMessengerCaches(redisClient *redis.Client, conversationID, userID string) {
-	// Use wildcard patterns to invalidate all cached messenger data
-	patterns := []string{
-		"data:/api/v1/messenger/conversations*",
-		fmt.Sprintf("data:/api/v1/messenger/conversations/%s/messages*", conversationID),
-		fmt.Sprintf("data:/api/v1/messenger/conversations/%s/receipts*", conversationID),
-		"data:/api/v1/messenger/unread-count*",
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	for _, pattern := range patterns {
-		var cursor uint64
-		for {
-			keys, nextCursor, err := redisClient.Scan(ctx, cursor, pattern, 100).Result()
-			if err != nil {
-				log.Printf("[Messenger] cache invalidation scan error: %v", err)
-				break
-			}
-			if len(keys) > 0 {
-				redisClient.Del(ctx, keys...)
-			}
-			cursor = nextCursor
-			if cursor == 0 {
-				break
-			}
-		}
-	}
 }
