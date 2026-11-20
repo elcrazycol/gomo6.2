@@ -451,7 +451,10 @@ export const ThreadFeed = ({
   const onTouchMove = (e: React.TouchEvent) => {
     if (touchStartYRef.current == null) return;
     const delta = e.touches[0].clientY - touchStartYRef.current;
-    setPullDistance(delta > 0 && window.scrollY <= 0 ? Math.min(delta, 90) : 0);
+    // Whole-feed re-render per pixel is the jank: commit only when the
+    // rounded distance actually changed (indicator moves in 1px steps anyway).
+    const next = delta > 0 && window.scrollY <= 0 ? Math.min(Math.round(delta), 90) : 0;
+    setPullDistance((prev) => (prev === next ? prev : next));
   };
 
   const onTouchEnd = async () => {
