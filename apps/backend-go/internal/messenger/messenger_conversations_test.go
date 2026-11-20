@@ -24,14 +24,14 @@ func TestListConversations_Success(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
 		"last_read_at",
 	}).
-		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, false, false, nil, nil, false, 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, now, now.Add(-time.Hour)).
-		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, false, false, nil, nil, false, 2, testUser3, "bob", "Bob", "emoji-2", "avatar.jpg", 1002, false, now.Add(-time.Hour), now.Add(-2*time.Hour), nil)
+		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, false, false, nil, nil, false, "server", 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, now, now.Add(-time.Hour)).
+		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, false, false, nil, nil, false, "server", 2, testUser3, "bob", "Bob", "emoji-2", "avatar.jpg", 1002, false, now.Add(-time.Hour), now.Add(-2*time.Hour), nil)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*LEFT JOIN`).
 		WithArgs(testUser1).
@@ -72,7 +72,7 @@ func TestListConversations_Empty(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
@@ -120,12 +120,12 @@ func TestListConversations_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
 		"last_read_at",
-	}).AddRow(testConv1, now, "not-a-valid-ciphertext!", testUser2, nil, now, 3, false, false, nil, nil, false, 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, nil, nil)
+	}).AddRow(testConv1, now, "not-a-valid-ciphertext!", testUser2, nil, now, 3, false, false, nil, nil, false, "server", 2, testUser2, "alice", "Alice", "emoji-1", nil, 1001, true, nil, nil, nil)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
 		WithArgs(testUser1).
@@ -415,12 +415,12 @@ func TestListConversations_NotesPreviewPassthrough(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "member_count",
+		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "is_notes", "encryption_mode", "member_count",
 
 		"other_id", "other_username", "other_display_name", "other_nickname_emoji_id",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at", "other_last_read_at",
 		"last_read_at",
-	}).AddRow(testConv1, now, ciphertext, testUser1, nil, now, 0, false, false, nil, nil, true, 1,
+	}).AddRow(testConv1, now, ciphertext, testUser1, nil, now, 0, false, false, nil, nil, true, "server", 1,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).

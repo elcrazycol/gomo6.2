@@ -63,14 +63,14 @@ func (h *MessengerHandler) SendServiceNotification(serviceID, recipientID, text 
 		return fmt.Errorf("service notify: encrypt: %w", err)
 	}
 	clientID := "svc-" + uuid.New().String()
-	var msgID string
+	var msgID, eventID string
 	var sentAt time.Time
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
 		VALUES ($1, $2, $3, $4, NULL)
 		ON CONFLICT (conversation_id, client_id) DO NOTHING
-		RETURNING id, sent_at
-	`, convID, serviceID, encrypted, clientID).Scan(&msgID, &sentAt)
+		RETURNING id, event_id, sent_at
+	`, convID, serviceID, encrypted, clientID).Scan(&msgID, &eventID, &sentAt)
 	if err != nil {
 		return fmt.Errorf("service notify: insert: %w", err)
 	}
@@ -95,9 +95,11 @@ func (h *MessengerHandler) SendServiceNotification(serviceID, recipientID, text 
 	// unread-badge invalidation, and a push like any ordinary message.
 	payload := gin.H{
 		"id":                msgID,
+		"event_id":          eventID,
 		"conversation_id":   convID,
 		"sender_user_id":    serviceID,
 		"parent_message_id": nil,
+		"type":              "system",
 		"is_edited":         false,
 		"is_deleted":        false,
 		"edited_at":         nil,
@@ -105,6 +107,7 @@ func (h *MessengerHandler) SendServiceNotification(serviceID, recipientID, text 
 		"client_id":         clientID,
 		"sender_username":   "gomo6",
 		"encrypted_content": encrypted,
+		"recipient_ids":     []string{recipientID},
 	}
 	if h.hub != nil {
 		publishPool.Go(func() {

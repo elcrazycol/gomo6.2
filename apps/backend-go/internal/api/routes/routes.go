@@ -822,6 +822,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerRead.GET("/messenger/conversations", messengerHandler.ListConversations)
 				messengerRead.GET("/messenger/conversations/:id/messages", messengerHandler.GetMessages)
 				messengerRead.GET("/messenger/conversations/:id/receipts", messengerHandler.GetReceipts)
+				messengerRead.GET("/messenger/keys", messengerHandler.ListMyKeys)
+				messengerRead.GET("/messenger/users/:userId/keys", messengerHandler.GetUserKeys)
 			}
 
 			// Write endpoints — lower rate limit (60 req/min for sends/edits/deletes)
@@ -843,6 +845,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerWrite.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)
 				messengerWrite.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)
 				messengerWrite.DELETE("/messenger/conversations/:id/leave", messengerHandler.LeaveConversation)
+				messengerWrite.POST("/messenger/conversations/:id/encryption", messengerHandler.UpdateEncryptionMode)
+				messengerWrite.PUT("/messenger/keys", messengerHandler.PutDeviceKey)
+				messengerWrite.DELETE("/messenger/keys/:deviceId", messengerHandler.DeleteDeviceKey)
 
 				// Group chats
 				messengerWrite.POST("/messenger/groups", messengerHandler.CreateGroupConversation)

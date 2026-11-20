@@ -144,6 +144,8 @@ func TestSanitizeContent(t *testing.T) {
 		{"html script", "<script>alert('xss')</script>", false, ""},
 		{"html img", "hello<img src=x>", false, ""},
 		{"html entity ok", "hello &amp; world", true, "hello &amp; world"},
+		{"math comparisons ok", "a < b && c > d", true, "a < b && c > d"},
+		{"heart emoticon ok", "<3", true, "<3"},
 	}
 
 	for _, tt := range tests {
@@ -176,6 +178,8 @@ func TestHasHTML(t *testing.T) {
 		{"just text", false},
 		{"<img src=x>", true},
 		{"hello &amp; goodbye", false},
+		{"a < b && c > d", false},
+		{"<3", false},
 		{"", false},
 	}
 
@@ -185,6 +189,51 @@ func TestHasHTML(t *testing.T) {
 				t.Errorf("hasHTML(%q) = %v, want %v", tt.input, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestNormalizeMessageEnvelope(t *testing.T) {
+	giftMsg := MessageResponse{Content: "__GIFT__:g-1:Роза:/gift.png"}
+	normalizeMessageEnvelope(&giftMsg)
+	if giftMsg.Type != "gift" {
+		t.Fatalf("expected type=gift, got %q", giftMsg.Type)
+	}
+	if len(giftMsg.Payload) == 0 {
+		t.Fatal("expected gift payload to be populated")
+	}
+
+	shareMsg := MessageResponse{Content: "__SHARE__:thread:t-42"}
+	normalizeMessageEnvelope(&shareMsg)
+	if shareMsg.Type != "share" {
+		t.Fatalf("expected type=share, got %q", shareMsg.Type)
+	}
+	if len(shareMsg.Payload) == 0 {
+		t.Fatal("expected share payload to be populated")
+	}
+
+	voiceMeta := `{"voice":true,"duration":4.2,"waveform":[10,20,30]}`
+	voiceMsg := MessageResponse{
+		Content:     "",
+		Attachments: []Attachment{{Type: "audio", Meta: &voiceMeta}},
+	}
+	normalizeMessageEnvelope(&voiceMsg)
+	if voiceMsg.Type != "voice" {
+		t.Fatalf("expected type=voice, got %q", voiceMsg.Type)
+	}
+
+	mediaMsg := MessageResponse{
+		Content:     "",
+		Attachments: []Attachment{{Type: "image", URL: "u1/messenger/img.jpg"}},
+	}
+	normalizeMessageEnvelope(&mediaMsg)
+	if mediaMsg.Type != "media" {
+		t.Fatalf("expected type=media, got %q", mediaMsg.Type)
+	}
+
+	textMsg := MessageResponse{Content: "hello"}
+	normalizeMessageEnvelope(&textMsg)
+	if textMsg.Type != "text" {
+		t.Fatalf("expected type=text, got %q", textMsg.Type)
 	}
 }
 

@@ -30,14 +30,19 @@ func TestGetMessages_Success(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
 	}).
-		AddRow(int64(2), testMsg2, testConv1, testUser2, "bob", nil, "Hi!", false, false, nil, now.Add(time.Minute), "c2").
-		AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", false, false, nil, now, "c1")
+		AddRow(int64(2), testMsg2, testConv1, testUser2, "bob", nil, "Hi!", "text", nil, 0, nil, false, false, nil, now.Add(time.Minute), "c2").
+		AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", "text", nil, 0, nil, false, false, nil, now, "c1")
 
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
@@ -90,12 +95,17 @@ func TestGetMessages_ReactionLookupFailure(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", false, false, nil, now, "c1")
+	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", "text", nil, 0, nil, false, false, nil, now, "c1")
 
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
@@ -130,12 +140,17 @@ func TestGetMessages_WithBefore(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(int64(3), testMsg3, testConv1, testUser1, "testuser", nil, "Third", false, false, nil, now, "c3")
+	}).AddRow(int64(3), testMsg3, testConv1, testUser1, "testuser", nil, "Third", "text", nil, 0, nil, false, false, nil, now, "c3")
 
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1 AND m.sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY m.sent_at DESC.*LIMIT \$3`).
 		WithArgs(testConv1, testMsg5, 10).
@@ -195,6 +210,11 @@ func TestGetMessages_Empty(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id.*FROM chat_messages m.*`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id", "content", "is_edited", "is_deleted", "edited_at", "sent_at", "client_id"}))
@@ -229,12 +249,17 @@ func TestGetMessages_DecryptionFailureNoCiphertextLeak(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "not-a-valid-ciphertext!", false, false, nil, now, "c1")
+	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "not-a-valid-ciphertext!", "text", nil, 0, nil, false, false, nil, now, "c1")
 
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
@@ -299,6 +324,11 @@ func TestSendMessage_Success(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	// Membership check
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
 		WithArgs(testConv1, testUser1).
@@ -310,12 +340,12 @@ func TestSendMessage_Success(t *testing.T) {
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(int64(10), "20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, "Hello, world!", false, false, nil, now, testClientID1)
+	}).AddRow(int64(10), "20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, "Hello, world!", "text", nil, 0, nil, false, false, nil, now, testClientID1)
 
-	mock.ExpectQuery(`INSERT INTO chat_messages \(conversation_id, sender_user_id, content, client_id, parent_message_id\).*ON CONFLICT \(conversation_id, client_id\) DO NOTHING.*RETURNING`).
-		WithArgs(testConv1, testUser1, sqlmock.AnyArg(), testClientID1, nil).
+	mock.ExpectQuery(`INSERT INTO chat_messages`).
+		WithArgs(testConv1, testUser1, sqlmock.AnyArg(), testClientID1, nil, "text", nil, 0, nil).
 		WillReturnRows(msgRows)
 
 	mock.ExpectExec(`UPDATE chat_conversations.*SET last_message_preview = \$1, last_message_sender_id = \$2, updated_at = NOW\(\).*WHERE id = \$3`).
@@ -357,6 +387,11 @@ func TestSendMessage_HtmlRejected(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	handler.SendMessage(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -374,6 +409,11 @@ func TestSendMessage_NotMember(t *testing.T) {
 	mock.ExpectQuery(`SELECT COALESCE\(is_notes, false\) FROM chat_conversations WHERE id = \$1`).
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
+
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -409,6 +449,11 @@ func TestSendMessage_Duplicate(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -417,8 +462,8 @@ func TestSendMessage_Duplicate(t *testing.T) {
 	mock.ExpectBegin()
 
 	// Insert fails with duplicate key error
-	mock.ExpectQuery(`INSERT INTO chat_messages \(conversation_id, sender_user_id, content, client_id, parent_message_id\).*ON CONFLICT \(conversation_id, client_id\) DO NOTHING.*RETURNING`).
-		WithArgs(testConv1, testUser1, sqlmock.AnyArg(), testClientID2, nil).
+	mock.ExpectQuery(`INSERT INTO chat_messages`).
+		WithArgs(testConv1, testUser1, sqlmock.AnyArg(), testClientID2, nil, "text", nil, 0, nil).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	// Transaction Rollback (deferred)
@@ -444,11 +489,16 @@ func TestEditMessage_Success(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$4, is_edited = true, edited_at = NOW\(\).*WHERE id = \$1 AND conversation_id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
-		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg()).
+	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$4, enc_v = \$5, enc_alg = \$6, is_edited = true`).
+		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg(), 0, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	handler.EditMessage(c)
@@ -491,6 +541,11 @@ func TestEditMessage_HtmlRejected(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	handler.EditMessage(c)
 
 	if w.Code != http.StatusBadRequest {
@@ -509,11 +564,16 @@ func TestEditMessage_NotFound(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec(`UPDATE chat_messages.*SET content.*WHERE id = \$1 AND conversation_id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
-		WithArgs(testMsg999, testConv1, testUser1, sqlmock.AnyArg()).
+		WithArgs(testMsg999, testConv1, testUser1, sqlmock.AnyArg(), 0, nil).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	handler.EditMessage(c)
@@ -546,11 +606,16 @@ func TestEditMessage_DBError(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec(`UPDATE chat_messages.*`).
-		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg()).
+		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg(), 0, nil).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.EditMessage(c)
@@ -635,13 +700,13 @@ func TestSendMessage_NotesE2E(t *testing.T) {
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(int64(10), "20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, ciphertext, false, false, nil, now, testClientID1)
+	}).AddRow(int64(10), "20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, ciphertext, "text", nil, 0, nil, false, false, nil, now, testClientID1)
 
 	// The client ciphertext must be stored verbatim — never server-encrypted.
-	mock.ExpectQuery(`INSERT INTO chat_messages \(conversation_id, sender_user_id, content, client_id, parent_message_id\).*ON CONFLICT \(conversation_id, client_id\) DO NOTHING.*RETURNING`).
-		WithArgs(testConv1, testUser1, ciphertext, testClientID1, nil).
+	mock.ExpectQuery(`INSERT INTO chat_messages`).
+		WithArgs(testConv1, testUser1, ciphertext, testClientID1, nil, "text", nil, 0, nil).
 		WillReturnRows(msgRows)
 
 	// The preview is the full client ciphertext (truncating would break GCM).
@@ -707,9 +772,9 @@ func TestGetMessages_NotesCiphertextPassthrough(t *testing.T) {
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id", "notes_meta",
-	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, ciphertext, false, false, nil, now, "c1", metaBlob)
+	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, ciphertext, "text", nil, 0, nil, false, false, nil, now, "c1", metaBlob)
 
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
@@ -764,8 +829,8 @@ func TestEditMessage_NotesE2E(t *testing.T) {
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// Ciphertext is stored verbatim, never server-encrypted.
-	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$4, is_edited = true, edited_at = NOW\(\).*WHERE id = \$1 AND conversation_id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
-		WithArgs(testMsg1, testConv1, testUser1, ciphertext).
+	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$4, enc_v = \$5, enc_alg = \$6, is_edited = true`).
+		WithArgs(testMsg1, testConv1, testUser1, ciphertext, 0, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	handler.EditMessage(c)

@@ -65,11 +65,20 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	}
 
 	// Notes conversations carry client-side E2E ciphertext: the server forwards
-	// it verbatim and never attempts to decrypt it.
+	// it verbatim and never attempts to decrypt it. The same holds for 1:1
+	// conversations in e2e mode.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
 		httpx.ServerError(c, "check notes conversation", err)
 		return
+	}
+	isE2E := false
+	if !isNotes {
+		isE2E, err = h.isE2EConversation(c, conversationID)
+		if err != nil {
+			httpx.ServerError(c, "check e2e conversation", err)
+			return
+		}
 	}
 
 	limit, before, sinceEventRaw, sinceEventID, ok := parseMessageCursor(c)
@@ -77,7 +86,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
-	messages, ok := h.fetchMessagePage(c, conversationID, isNotes, limit, before, sinceEventID, sinceEventRaw != "")
+	messages, ok := h.fetchMessagePage(c, conversationID, isNotes, isE2E, limit, before, sinceEventID, sinceEventRaw != "")
 	if !ok {
 		return
 	}
@@ -120,10 +129,11 @@ func parseMessageCursor(c *gin.Context) (limit int, before string, sinceEventRaw
 // buildMessageSelectColumns returns the lean message projection of GetMessages.
 // Notes conversations additionally carry client-encrypted metadata
 // (pin/folder/tags): the column is selected only for the notes self-chat so
-// regular conversations keep the lean projection.
+// regular conversations keep the lean projection. The E2E envelope version
+// travels on every row (cheap ints) so clients can tell opaque blobs apart.
 func buildMessageSelectColumns(isNotes bool) string {
 	selectColumns := `SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
-			m.parent_message_id, m.content, m.is_edited, m.is_deleted,
+			m.parent_message_id, m.content, m.type, m.payload, m.enc_v, m.enc_alg, m.is_edited, m.is_deleted,
 			m.edited_at, m.sent_at, m.client_id`
 	if isNotes {
 		selectColumns += `, m.notes_meta`
@@ -132,11 +142,11 @@ func buildMessageSelectColumns(isNotes bool) string {
 }
 
 // fetchMessagePage runs the cursor-mode query, decodes every row (server-side
-// decryption for regular conversations, verbatim forwarding for notes) and
-// attaches the batch-fetched attachments. Delta pages are returned in
+// decryption for regular conversations, verbatim forwarding for opaque ones)
+// and attaches the batch-fetched attachments. Delta pages are returned in
 // event_id ASC order so they can be appended directly; backward pages return
 // in chronological order (sent_at DESC was reversed).
-func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID string, isNotes bool, limit int, before string, sinceEventID int64, delta bool) ([]MessageResponse, bool) {
+func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID string, isNotes, isE2E bool, limit int, before string, sinceEventID int64, delta bool) ([]MessageResponse, bool) {
 	selectColumns := buildMessageSelectColumns(isNotes)
 
 	var rows *sql.Rows
@@ -159,7 +169,7 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 			WHERE m.conversation_id = $1 AND m.sent_at < (
 				SELECT sent_at FROM chat_messages WHERE id = $2
 			)
-			ORDER BY m.sent_at DESC
+			ORDER BY m.sent_at DESC, m.event_id DESC
 			LIMIT $3
 		`, conversationID, before, limit)
 	default:
@@ -168,7 +178,7 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1
-			ORDER BY m.sent_at DESC
+			ORDER BY m.sent_at DESC, m.event_id DESC
 			LIMIT $2
 		`, conversationID, limit)
 	}
@@ -180,7 +190,7 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 
 	messages := []MessageResponse{}
 	for rows.Next() {
-		msg, scanErr := scanMessageRow(rows, conversationID, isNotes)
+		msg, scanErr := scanMessageRow(rows, conversationID, isNotes, isE2E)
 		if scanErr != nil {
 			httpx.ServerError(c, "scan message row", scanErr)
 			return nil, false
@@ -207,6 +217,7 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 			if atts, ok := attMap[messages[i].ID]; ok {
 				messages[i].Attachments = atts
 			}
+			normalizeMessageEnvelope(&messages[i])
 		}
 	}
 
@@ -238,18 +249,20 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 // scanMessageRow decodes a single chat_messages row. Regular conversations
 // are decrypted server-side (per-conversation key first, then master key for
 // legacy messages); a failed decryption is replaced with a placeholder — the
-// encrypted blob must never be returned to the client. Notes rows are
-// forwarded verbatim, the device decrypts them locally.
-func scanMessageRow(rows *sql.Rows, conversationID string, isNotes bool) (*MessageResponse, error) {
+// encrypted blob must never be returned to the client. Opaque rows (notes and
+// e2e conversations) are forwarded verbatim, the device decrypts them locally.
+func scanMessageRow(rows *sql.Rows, conversationID string, isNotes, isE2E bool) (*MessageResponse, error) {
 	var msg MessageResponse
 	var parentID, editedAt, senderUsername sql.NullString
-	var encryptedContent string
+	var encryptedContent, msgType, encAlg sql.NullString
+	var payload []byte
+	var encV sql.NullInt64
 	var isDeleted bool
 
 	var notesMeta sql.NullString
 	dest := []interface{}{
 		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
-		&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
+		&parentID, &encryptedContent, &msgType, &payload, &encV, &encAlg, &msg.IsEdited, &isDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
 	}
 	if isNotes {
@@ -263,6 +276,19 @@ func scanMessageRow(rows *sql.Rows, conversationID string, isNotes bool) (*Messa
 	if senderUsername.Valid {
 		msg.SenderUsername = senderUsername.String
 	}
+	if msgType.Valid && msgType.String != "" {
+		msg.Type = msgType.String
+	}
+	if len(payload) > 0 {
+		msg.Payload = append(json.RawMessage(nil), payload...)
+	}
+	if encV.Valid && encV.Int64 > 0 {
+		enc := &MessageEnc{V: int(encV.Int64)}
+		if encAlg.Valid && encAlg.String != "" {
+			enc.Alg = encAlg.String
+		}
+		msg.Enc = enc
+	}
 
 	if isNotes && notesMeta.Valid {
 		// Client-encrypted pin/folder/tags blob — forward verbatim, the
@@ -270,19 +296,27 @@ func scanMessageRow(rows *sql.Rows, conversationID string, isNotes bool) (*Messa
 		msg.NotesMeta = &notesMeta.String
 	}
 
+	opaque := isNotes || isE2E
 	msg.IsDeleted = isDeleted
 	if isDeleted {
 		msg.Content = ""
-	} else if isNotes {
-		// Client-side E2E blob: forward as-is, the device decrypts locally.
-		msg.Content = encryptedContent
+	} else if opaque {
+		// Opaque client blob: forward as-is, the device decrypts locally.
+		msg.Content = encryptedContent.String
+		if msg.Enc == nil {
+			if alg, _, ok := parseE2EEnvelope(msg.Content); ok {
+				msg.Enc = &MessageEnc{V: e2eEnvelopeVersion, Alg: alg}
+			} else if isNotes {
+				msg.Enc = &MessageEnc{V: e2eEnvelopeVersion, Alg: "notes-aesgcm"}
+			}
+		}
 	} else {
 		// Try per-conversation key first, fall back to master key (for legacy
 		// messages). If decryption fails, replace the ciphertext with a
 		// placeholder — the encrypted blob must never be returned to the client.
-		decrypted, decErr := decryptContentForConversation(conversationID, encryptedContent)
+		decrypted, decErr := decryptContentForConversation(conversationID, encryptedContent.String)
 		if decErr != nil {
-			decrypted, decErr = decryptContent(encryptedContent)
+			decrypted, decErr = decryptContent(encryptedContent.String)
 		}
 		if decErr == nil {
 			msg.Content = decrypted
@@ -335,6 +369,23 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 
 	cleanContent := strings.TrimSpace(req.Content)
+	if cleanContent == "" && len(req.Attachments) == 0 && len(req.Payload) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
+		return
+	}
+	// If a client sends typed share payload without raw content, synthesize the
+	// canonical __SHARE__ token so older clients and preview logic see it.
+	if cleanContent == "" && req.Type == "share" && len(req.Payload) > 0 {
+		var sharePayload struct {
+			TargetType string `json:"target_type"`
+			TargetID   string `json:"target_id"`
+		}
+		if json.Unmarshal(req.Payload, &sharePayload) == nil &&
+			(sharePayload.TargetType == "thread" || sharePayload.TargetType == "wall") &&
+			sharePayload.TargetID != "" {
+			cleanContent = fmt.Sprintf("__SHARE__:%s:%s", sharePayload.TargetType, sharePayload.TargetID)
+		}
+	}
 	if cleanContent == "" && len(req.Attachments) == 0 {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
 		return
@@ -351,15 +402,25 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 
 	// The personal notes conversation carries client-side E2E ciphertext: the
-	// server stores the opaque blob verbatim and never holds the key. Regular
-	// conversations keep the server-side AES-GCM encryption.
+	// server stores the opaque blob verbatim and never holds the key. The same
+	// holds for 1:1 conversations in e2e mode. Regular conversations keep the
+	// server-side AES-GCM encryption.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
 		httpx.ServerError(c, "check notes conversation", err)
 		return
 	}
+	isE2E := false
+	if !isNotes {
+		isE2E, err = h.isE2EConversation(c, conversationID)
+		if err != nil {
+			httpx.ServerError(c, "check e2e conversation", err)
+			return
+		}
+	}
+	opaque := isNotes || isE2E
 
-	encryptedContent, ok := prepareOutgoingContent(c, conversationID, isNotes, cleanContent)
+	encryptedContent, encV, encAlg, ok := prepareOutgoingContent(c, conversationID, isNotes, isE2E, cleanContent)
 	if !ok {
 		return
 	}
@@ -401,10 +462,10 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// ON CONFLICT avoids aborting the transaction on an idempotent retry. That
 	// matters when this handler is running inside the middleware transaction:
 	// after a constraint error PostgreSQL would reject every subsequent query.
-	msg, err := insertChatMessageRow(tx, conversationID, claims.UserID, req, encryptedContent)
+	msg, err := insertChatMessageRow(tx, conversationID, claims.UserID, req, encryptedContent, encV, encAlg)
 	if err == sql.ErrNoRows {
 		// Idempotent retry: read the already-persisted message in the same tx.
-		msg, err = h.loadMessageForRetry(c, tx, conversationID, req.ClientID, isNotes)
+		msg, err = h.loadMessageForRetry(c, tx, conversationID, req.ClientID, opaque)
 		if err == nil {
 			c.JSON(http.StatusOK, models.SuccessResponse(msg))
 			return
@@ -425,10 +486,19 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 
 	// Return plaintext only after the server has persisted its ciphertext.
+	// For opaque conversations the "plaintext" IS the client ciphertext.
 	msg.Content = cleanContent
+	msg.Type = req.Type
+	if len(req.Payload) > 0 {
+		msg.Payload = req.Payload
+	}
+	if encV > 0 {
+		msg.Enc = &MessageEnc{V: encV, Alg: encAlg}
+	}
 	if len(req.Attachments) > 0 {
 		msg.Attachments = buildAttachmentResponse(req.Attachments)
 	}
+	normalizeMessageEnvelope(&msg)
 
 	// A message that is only a voice note has blank content: preview it
 	// as the voice message it is instead of leaving the chat list empty.
@@ -438,7 +508,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			previewBody = label
 		}
 	}
-	if !updateConversationPreview(c, tx, conversationID, isNotes, previewBody, claims.UserID) {
+	if !updateConversationPreview(c, tx, conversationID, opaque, previewBody, claims.UserID) {
 		return
 	}
 
@@ -456,7 +526,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// commits. Otherwise a client can fetch a message before PostgreSQL exposes
 	// it.
 	queueAfterCommit(c, func() {
-		scheduleMessageSideEffects(h, conversationID, claims, msg, isNotes, cleanContent, len(req.Attachments) > 0)
+		scheduleMessageSideEffects(h, conversationID, claims, msg, opaque, cleanContent, len(req.Attachments) > 0, isE2E)
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(msg))
@@ -465,10 +535,11 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 // prepareOutgoingContent validates and encrypts the outgoing message content.
 // Notes conversations require the client-E2E marker and enforce a generous cap
 // (base64 of up to ~4k runes of plaintext); the blob is stored verbatim — the
-// server must never attempt to decrypt it. Regular conversations validate the
-// plaintext before server-side encryption. On any rejection it writes the
-// error response and returns ok=false.
-func prepareOutgoingContent(c *gin.Context, conversationID string, isNotes bool, cleanContent string) (string, bool) {
+// server must never attempt to decrypt it. E2E 1:1 conversations require the
+// `e2e1:<alg>:...` envelope with the same verbatim rule. Regular conversations
+// validate the plaintext before server-side encryption. On any rejection it
+// writes the error response and returns ok=false.
+func prepareOutgoingContent(c *gin.Context, conversationID string, isNotes, isE2E bool, cleanContent string) (encrypted string, encV int, encAlg string, ok bool) {
 	if isNotes {
 		// Client E2E payload: require the marker and enforce a generous cap
 		// (base64 of up to ~4k runes of plaintext). Stored verbatim — the
@@ -476,55 +547,93 @@ func prepareOutgoingContent(c *gin.Context, conversationID string, isNotes bool,
 		if cleanContent != "" {
 			if !strings.HasPrefix(cleanContent, notesContentMarker) {
 				c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid encrypted note payload"))
-				return "", false
+				return "", 0, "", false
 			}
 			if len(cleanContent) > maxNotesContentLen {
 				c.JSON(http.StatusBadRequest, models.ErrorResponse("note payload too large"))
-				return "", false
+				return "", 0, "", false
 			}
 		}
-		return cleanContent, true
+		return cleanContent, 0, "", true
+	}
+	if isE2E {
+		// Opaque 1:1 E2E payload: require the versioned envelope, enforce the
+		// cap, and record the envelope version for clients. Stored verbatim —
+		// the server must never attempt to decrypt it.
+		if cleanContent == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Content required"))
+			return "", 0, "", false
+		}
+		alg, _, valid := parseE2EEnvelope(cleanContent)
+		if !valid {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid E2E payload"))
+			return "", 0, "", false
+		}
+		if len(cleanContent) > maxE2EContentLen {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("E2E payload too large"))
+			return "", 0, "", false
+		}
+		return cleanContent, e2eEnvelopeVersion, alg, true
 	}
 
 	// Regular server-encrypted message: validate plaintext before encryption.
 	if len([]rune(cleanContent)) > 4000 {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
-		return "", false
+		return "", 0, "", false
 	}
 	if hasHTML(cleanContent) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
-		return "", false
+		return "", 0, "", false
 	}
 	encryptedContent, err := EncryptContentForConversation(conversationID, cleanContent)
 	if err != nil {
 		httpx.ServerError(c, "encrypt content", err)
-		return "", false
+		return "", 0, "", false
 	}
-	return encryptedContent, true
+	return encryptedContent, 0, "", true
 }
 
 // insertChatMessageRow persists a message with ON CONFLICT DO NOTHING so an
 // idempotent retry cannot abort the middleware-owned transaction. ErrNoRows
 // from the RETURNING clause signals that the row already existed — the caller
 // must read it back instead.
-func insertChatMessageRow(tx *sql.Tx, conversationID, userID string, req SendMessageRequest, encryptedContent string) (MessageResponse, error) {
+func insertChatMessageRow(tx *sql.Tx, conversationID, userID string, req SendMessageRequest, encryptedContent string, encV int, encAlg string) (MessageResponse, error) {
 	var msg MessageResponse
 	msg.EncryptedContent = encryptedContent
 	var parentID, editedAt sql.NullString
+	msgType := req.Type
+	if msgType == "" {
+		msgType = "text"
+	}
+	var payloadParam interface{}
+	if len(req.Payload) > 0 && string(req.Payload) != "null" {
+		payloadParam = string(req.Payload)
+	}
+	var encAlgParam interface{}
+	if encAlg != "" {
+		encAlgParam = encAlg
+	}
+	var encVScan sql.NullInt64
+	var encAlgScan sql.NullString
+	var payloadScan []byte
 	err := tx.QueryRow(`
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id, type, payload, enc_v, enc_alg)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
 		ON CONFLICT (conversation_id, client_id) DO NOTHING
 		RETURNING event_id, id, conversation_id, sender_user_id, parent_message_id,
-			content, is_edited, is_deleted, edited_at, sent_at, client_id
-	`, conversationID, userID, encryptedContent, req.ClientID, req.ParentMessageID).Scan(
+			content, type, payload, enc_v, enc_alg, is_edited, is_deleted, edited_at, sent_at, client_id
+	`, conversationID, userID, encryptedContent, req.ClientID, req.ParentMessageID, msgType, payloadParam, encV, encAlgParam).Scan(
 		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
-		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
+		&msg.Content, &msg.Type, &payloadScan, &encVScan, &encAlgScan, &msg.IsEdited, &msg.IsDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
 	)
 	if err != nil {
 		return msg, err
 	}
+	if len(payloadScan) > 0 {
+		msg.Payload = append(json.RawMessage(nil), payloadScan...)
+	}
+	setMessageEnc(&msg, encVScan, encAlgScan)
 	if parentID.Valid {
 		msg.ParentMessageID = &parentID.String
 	}
@@ -538,23 +647,30 @@ func insertChatMessageRow(tx *sql.Tx, conversationID, userID string, req SendMes
 // loadMessageForRetry reloads the message an idempotent replay hit
 // (ON CONFLICT DO NOTHING) and — for regular conversations — resolves its
 // plaintext so the client sees decryptable content instead of raw ciphertext.
-func (h *MessengerHandler) loadMessageForRetry(c *gin.Context, tx *sql.Tx, conversationID, clientID string, isNotes bool) (MessageResponse, error) {
+func (h *MessengerHandler) loadMessageForRetry(c *gin.Context, tx *sql.Tx, conversationID, clientID string, opaque bool) (MessageResponse, error) {
 	var msg MessageResponse
 	var parentID, editedAt sql.NullString
+	var encVScan sql.NullInt64
+	var encAlgScan sql.NullString
+	var payloadScan []byte
 	err := tx.QueryRow(`
 		SELECT event_id, id, conversation_id, sender_user_id, parent_message_id,
-			content, is_edited, is_deleted, edited_at, sent_at, client_id
+			content, type, payload, enc_v, enc_alg, is_edited, is_deleted, edited_at, sent_at, client_id
 		FROM chat_messages
 		WHERE conversation_id = $1 AND client_id = $2
 	`, conversationID, clientID).Scan(
 		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
-		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
+		&msg.Content, &msg.Type, &payloadScan, &encVScan, &encAlgScan, &msg.IsEdited, &msg.IsDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
 	)
 	if err != nil {
 		return msg, err
 	}
-	if !isNotes {
+	if len(payloadScan) > 0 {
+		msg.Payload = append(json.RawMessage(nil), payloadScan...)
+	}
+	setMessageEnc(&msg, encVScan, encAlgScan)
+	if !opaque {
 		decryptMessageContent(conversationID, &msg)
 	}
 	if parentID.Valid {
@@ -592,16 +708,16 @@ func buildAttachmentResponse(attachments []AttachmentInput) []Attachment {
 // updateConversationPreview refreshes the conversation's last-message preview
 // in the same transaction as the message. This keeps the request-scoped RLS
 // binding intact and avoids using a closed tx from a background goroutine.
-// For notes the preview must be the full client ciphertext — truncating it
-// would break local decryption (GCM authentication); the device decrypts the
-// preview locally.
-func updateConversationPreview(c *gin.Context, tx *sql.Tx, conversationID string, isNotes bool, cleanContent, userID string) bool {
+// For opaque conversations (notes / e2e) the preview must be the full client
+// ciphertext — truncating it would break local decryption (GCM
+// authentication); the device decrypts the preview locally.
+func updateConversationPreview(c *gin.Context, tx *sql.Tx, conversationID string, opaque bool, cleanContent, userID string) bool {
 	previewContent := cleanContent
-	if !isNotes {
+	if !opaque {
 		previewContent = truncatePreview(cleanContent)
 	}
 	var encryptedPreview string
-	if isNotes {
+	if opaque {
 		encryptedPreview = previewContent
 	} else {
 		var encErr error
@@ -625,21 +741,27 @@ func updateConversationPreview(c *gin.Context, tx *sql.Tx, conversationID string
 // scheduleMessageSideEffects registers the post-commit side effects of a sent
 // message: cache invalidation, the realtime broadcast and — for regular
 // conversations only — the Web Push (PWA) delivery to the other members.
-// Notes (self-chat) have no other members, so nothing is sent — and the notes
-// payload is client-side E2E ciphertext we cannot (and must not) read.
-func scheduleMessageSideEffects(h *MessengerHandler, conversationID string, claims *auth.Claims, msg MessageResponse, isNotes bool, cleanContent string, hasAttachments bool) {
+// Notes (self-chat) have no other members, so nothing is sent. E2E
+// conversations get a generic push body: the server cannot read the opaque
+// ciphertext and must never put it into a notification.
+func scheduleMessageSideEffects(h *MessengerHandler, conversationID string, claims *auth.Claims, msg MessageResponse, opaque bool, cleanContent string, hasAttachments bool, isE2E bool) {
 	if h.redis != nil {
 		publishPool.Go(func() { InvalidateMessengerCaches(h.redis, conversationID, claims.UserID) })
 	}
 	if h.hub != nil {
-		publishPool.Go(func() { h.broadcastNewMessage(conversationID, msg, claims, isNotes) })
+		publishPool.Go(func() { h.broadcastNewMessage(conversationID, msg, claims, opaque) })
 	}
-	if !isNotes {
-		body := messagePushBody(cleanContent, hasAttachments)
-		publishPool.Go(func() {
-			h.deliverMessagePush(context.Background(), conversationID, claims.UserID, claims.Username, body)
-		})
+	if opaque && !isE2E {
+		return
 	}
+	body := messagePushBody(cleanContent, hasAttachments)
+	if isE2E {
+		// Never leak opaque ciphertext into a push notification.
+		body = messagePushBody("", hasAttachments)
+	}
+	publishPool.Go(func() {
+		h.deliverMessagePush(context.Background(), conversationID, claims.UserID, claims.Username, body)
+	})
 } // messagePushBody builds the short human-readable push body for a message:
 // the plaintext when present, otherwise a placeholder for an attachment-only
 // message. Truncated so a long message never floods the OS notification.
@@ -706,9 +828,9 @@ func (h *MessengerHandler) deliverMessagePush(ctx context.Context, conversationI
 	}
 }
 
-func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageResponse, claims *auth.Claims, isNotes bool) {
+func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageResponse, claims *auth.Claims, opaque bool) {
 	// Broadcast encrypted content, not decrypted — Redis sees ciphertext only.
-	// For the notes self-chat the "ciphertext" is the client-side E2E blob the
+	// For opaque conversations the "ciphertext" is the client-side E2E blob the
 	// client sent; it is forwarded verbatim under the plain "content" key so
 	// the hub passes it through unchanged and the owning device decrypts it
 	// locally.
@@ -718,6 +840,7 @@ func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageRespons
 		"conversation_id":   msg.ConversationID,
 		"sender_user_id":    msg.SenderUserID,
 		"parent_message_id": msg.ParentMessageID,
+		"type":              msg.Type,
 		"is_edited":         msg.IsEdited,
 		"is_deleted":        msg.IsDeleted,
 		"edited_at":         msg.EditedAt,
@@ -725,13 +848,22 @@ func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageRespons
 		"client_id":         msg.ClientID,
 		"sender_username":   claims.Username,
 	}
-	if isNotes {
+	if len(msg.Payload) > 0 {
+		payload["payload"] = msg.Payload
+	}
+	if msg.Enc != nil {
+		payload["enc"] = gin.H{"v": msg.Enc.V, "alg": msg.Enc.Alg}
+	}
+	if opaque {
 		payload["content"] = msg.Content
 	} else {
 		payload["encrypted_content"] = msg.EncryptedContent
 	}
 	if len(msg.Attachments) > 0 {
 		payload["attachments"] = msg.Attachments
+	}
+	if memberIDs := h.listConversationMemberIDs(convID); len(memberIDs) > 0 {
+		payload["recipient_ids"] = memberIDs
 	}
 	if err := h.hub.PublishNewChatMessage(payload); err != nil {
 		log.Printf("[Messenger] WS broadcast error: %v", err)
@@ -778,14 +910,24 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
-	// Notes messages carry client-encrypted ciphertext, stored verbatim.
+	// Opaque messages (notes / e2e) carry client ciphertext, stored verbatim.
 	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
 		httpx.ServerError(c, "check notes conversation", err)
 		return
 	}
+	isE2E := false
+	if !isNotes {
+		isE2E, err = h.isE2EConversation(c, conversationID)
+		if err != nil {
+			httpx.ServerError(c, "check e2e conversation", err)
+			return
+		}
+	}
 
 	var encryptedContent string
+	var encV int
+	var encAlg string
 	if isNotes {
 		if !strings.HasPrefix(req.Content, notesContentMarker) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid encrypted note payload"))
@@ -796,6 +938,19 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 			return
 		}
 		encryptedContent = req.Content
+	} else if isE2E {
+		if _, alg, valid := parseE2EEnvelope(req.Content); !valid {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid E2E payload"))
+			return
+		} else {
+			encAlg = alg
+		}
+		if len(req.Content) > maxE2EContentLen {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("E2E payload too large"))
+			return
+		}
+		encryptedContent = req.Content
+		encV = e2eEnvelopeVersion
 	} else {
 		cleanContent, sErr := sanitizeContent(req.Content)
 		if sErr != nil {
@@ -825,9 +980,9 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
-		SET content = $4, is_edited = true, edited_at = NOW()
+		SET content = $4, enc_v = $5, enc_alg = $6, is_edited = true, edited_at = NOW(), event_id = nextval('chat_messages_event_id_seq')
 		WHERE id = $1 AND conversation_id = $2 AND sender_user_id = $3 AND is_deleted = false
-	`, messageID, conversationID, claims.UserID, encryptedContent)
+	`, messageID, conversationID, claims.UserID, encryptedContent, encV, nullString(encAlg))
 	if err != nil {
 		httpx.ServerError(c, "edit message", err)
 		return
@@ -841,16 +996,25 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 	queueAfterCommit(c, func() {
 		if h.hub != nil {
-			publishPool.Go(func() { h.broadcastMessageEdited(messageID, req.Content, conversationID, isNotes) })
+			publishPool.Go(func() {
+				h.broadcastMessageEdited(messageID, req.Content, conversationID, isNotes, isE2E, encV, encAlg)
+			})
 		}
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
 
-func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversationID string, isNotes bool) {
+func nullString(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversationID string, isNotes, isE2E bool, encV int, encAlg string) {
 	var payload map[string]interface{}
-	if isNotes {
+	if isNotes || isE2E {
 		// Forward the client ciphertext verbatim — the hub passes payloads
 		// without "encrypted_content" through unchanged, and the device
 		// decrypts locally.
@@ -860,6 +1024,9 @@ func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversatio
 			"conversation_id": conversationID,
 			"edited_at":       time.Now().UTC().Format(time.RFC3339),
 			"event":           "message_edited",
+		}
+		if encV > 0 {
+			payload["enc"] = map[string]interface{}{"v": encV, "alg": encAlg}
 		}
 	} else {
 		// Encrypt content before Redis broadcast. If encryption fails, drop the
@@ -878,6 +1045,9 @@ func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversatio
 			"edited_at":         time.Now().UTC().Format(time.RFC3339),
 			"event":             "message_edited",
 		}
+	}
+	if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+		payload["recipient_ids"] = memberIDs
 	}
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 		Type:    "message_edited",
@@ -986,6 +1156,9 @@ func (h *MessengerHandler) broadcastMessageNotesMeta(msgID, conversationID, meta
 		"notes_meta":      meta,
 		"event":           "message_notes_meta",
 	}
+	if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+		payload["recipient_ids"] = memberIDs
+	}
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 		Type:    "message_notes_meta",
 		Payload: payload,
@@ -1022,10 +1195,12 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 	}
 
 	// Verify user is a conversation member AND message sender
-	// This prevents users from deleting messages in conversations they're not part of
+	// This prevents users from deleting messages in conversations they're not part of.
+	// The opaque ciphertext is wiped too (content + enc envelope), so a deleted
+	// message leaves no recoverable blob behind.
 	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
-		SET is_deleted = true
+		SET is_deleted = true, content = '', notes_meta = NULL, enc_v = 0, enc_alg = NULL, payload = NULL, event_id = nextval('chat_messages_event_id_seq')
 		WHERE id = $1
 		  AND sender_user_id = $2
 		  AND is_deleted = false
@@ -1048,13 +1223,17 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 			return
 		}
 		publishPool.Go(func() {
+			payload := map[string]interface{}{
+				"id":              messageID,
+				"conversation_id": conversationID,
+				"event":           "message_deleted",
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-				Type: "message_deleted",
-				Payload: map[string]interface{}{
-					"id":              messageID,
-					"conversation_id": conversationID,
-					"event":           "message_deleted",
-				},
+				Type:    "message_deleted",
+				Payload: payload,
 			}); err != nil {
 				log.Printf("[Messenger] WS delete broadcast error: %v", err)
 			}

@@ -13,6 +13,13 @@ import { messengerApi } from "@/services/messengerApi";
 import { eventManager } from "@/services/eventManager";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { decryptNote, decryptNotesMeta, encryptNote, encryptNotesMeta, NOTES_LOCKED } from "@/utils/notesCrypto";
+import {
+  decryptE2EMessage,
+  E2E_LOCKED,
+  encryptE2EMessage,
+  ensureE2EDevice,
+  parseE2EEnvelope,
+} from "@/utils/messengerCrypto";
 import type { NotesMeta } from "@/utils/notesCrypto";
 import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
 import { appendMessages, mergeMessages, prependOlder, sortBySentAt } from "@/components/messenger/core/messageModel";
@@ -119,6 +126,65 @@ function notesConversationExists(conversationId: string | null | undefined): boo
   return useMessengerStore.getState().conversations.some((c) => c.id === conversationId && c.is_notes);
 }
 
+function e2eConversationExists(conversationId: string | null | undefined): boolean {
+  if (!conversationId) return false;
+  return useMessengerStore.getState().conversations.some(
+    (c) => c.id === conversationId && c.encryption_mode === "e2e" && !c.is_notes,
+  );
+}
+
+function opaqueConversationExists(conversationId: string | null | undefined): boolean {
+  return notesConversationExists(conversationId) || e2eConversationExists(conversationId);
+}
+
+// Peer public-key cache for E2E 1:1 chats (user id → public JWK). Fetched
+// lazily from the key directory; entries are small and safe to keep in memory.
+const e2ePeerKeyCache = new Map<string, JsonWebKey>();
+
+async function getE2EPeerKey(userId: string): Promise<JsonWebKey | null> {
+  const cached = e2ePeerKeyCache.get(userId);
+  if (cached) return cached;
+  try {
+    const keys = await messengerApi.getUserKeys(userId);
+    const jwk = keys.length > 0 ? (JSON.parse(keys[0].public_key) as JsonWebKey) : null;
+    if (jwk) e2ePeerKeyCache.set(userId, jwk);
+    return jwk;
+  } catch {
+    return null;
+  }
+}
+
+export function __resetE2EPeerKeyCacheForTests(): void {
+  e2ePeerKeyCache.clear();
+}
+
+// Decrypts a batch of messages for an E2E 1:1 conversation. The peer key comes
+// from the key directory; without it (or without a local device identity) the
+// message shows the locked placeholder instead of opaque ciphertext.
+async function decryptE2EMessages(conversationId: string, messages: MessageView[]): Promise<MessageView[]> {
+  if (!e2eConversationExists(conversationId) || messages.length === 0) return messages;
+  const conv = useMessengerStore.getState().conversations.find((c) => c.id === conversationId);
+  const peerId = conv?.other_user_id;
+  if (!peerId) return messages;
+  const peerKey = await getE2EPeerKey(peerId);
+  if (!peerKey) {
+    return messages.map((m) =>
+      m.content && !m.is_deleted && parseE2EEnvelope(m.content) ? { ...m, content: E2E_LOCKED } : m,
+    );
+  }
+  return Promise.all(
+    messages.map(async (message) => {
+      if (!message.content || message.is_deleted || !parseE2EEnvelope(message.content)) return message;
+      const decrypted = await decryptE2EMessage(message.content, peerKey, conversationId, message.sender_user_id);
+      if (decrypted === null) {
+        if (message.content !== E2E_LOCKED) return { ...message, content: E2E_LOCKED };
+        return message;
+      }
+      return { ...message, content: decrypted };
+    }),
+  );
+}
+
 // Decrypts a batch of messages for the notes conversation. The store only ever
 // holds readable plaintext; the IndexedDB cache keeps what the server stores.
 // Notes metadata (pin/folder/tags) is decrypted alongside the body.
@@ -167,8 +233,9 @@ function sanitizeServerPreview(preview: string | null | undefined): string {
     .slice(0, 80);
 }
 
-// Decrypts notes conversation previews (the server passes the client
-// ciphertext through verbatim so the device can decrypt them locally).
+// Decrypts conversation previews. Notes and E2E 1:1 conversations carry
+// opaque client ciphertext that the server passes through verbatim, so the
+// device decrypts them locally.
 async function decryptNotesPreviews(conversations: ConversationView[]): Promise<ConversationView[]> {
   return Promise.all(
     conversations.map(async (c) => {
@@ -177,6 +244,19 @@ async function decryptNotesPreviews(conversations: ConversationView[]): Promise<
         if (!preview) return c;
         const decrypted = await decryptNote(preview, c.id);
         return { ...c, last_message_preview: sanitizeServerPreview(decrypted ?? NOTES_LOCKED) };
+      }
+      if (c.encryption_mode === "e2e" && c.last_message_preview && c.other_user_id) {
+        const peerKey = await getE2EPeerKey(c.other_user_id);
+        if (!peerKey) return { ...c, last_message_preview: E2E_LOCKED.slice(0, 80) };
+        const decrypted = parseE2EEnvelope(c.last_message_preview)
+          ? await decryptE2EMessage(c.last_message_preview, peerKey, c.id, c.last_message_sender_id ?? "")
+              .catch(() => null)
+          : null;
+        // The sender id is unknown at preview time; try the peer first, then self.
+        const plain =
+          decrypted ??
+          (await decryptE2EMessage(c.last_message_preview, peerKey, c.id, c.other_user_id).catch(() => null));
+        return { ...c, last_message_preview: sanitizeServerPreview(plain ?? E2E_LOCKED) };
       }
       return { ...c, last_message_preview: sanitizeServerPreview(c.last_message_preview) };
     }),
@@ -365,6 +445,7 @@ export function  destroyMessenger(): void {
   pendingReadLine.clear();
   lastSentReadLine.clear();
   lastReceiptsLoad.clear();
+  e2ePeerKeyCache.clear();
   // Clear all typing timers
   for (const timer of typingTimers.values()) clearTimeout(timer);
   typingTimers.clear();
@@ -533,6 +614,13 @@ type MessengerStore = {
    *  content. Best-effort; never creates a notes chat just to delete. */
   deleteFavoriteNote: (content: string) => Promise<void>;
   loadReceipts: (conversationId: string) => Promise<void>;
+  /** Applies a realtime read_receipt event in O(1) without a GET /receipts round-trip. */
+  applyReadReceiptEvent: (event: { conversation_id: string; user_id: string; message_id: string; read_at?: string }) => void;
+  /** Applies a realtime delivery_receipt event in O(1) without a GET /receipts round-trip. */
+  applyDeliveryReceiptEvent: (event: { conversation_id: string; user_id: string; message_id: string; delivered_at?: string }) => void;
+
+  /** Applies a realtime conversation_updated event (e.g. encryption mode switch). */
+  applyConversationUpdatedEvent: (event: { conversation_id: string; encryption_mode?: string }) => void;
 
   // ── Actions (local) ───────────────────────────────────────────────────
   selectConversation: (id: string | null) => void;
@@ -684,7 +772,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     // runs immediately and remains authoritative when it succeeds.
     try {
       const cached = ownerId ? await loadCachedMessages(ownerId, conversationId) : null;
-      const cachedView = cached ? await decryptNotesMessages(conversationId, cached) : null;
+      const cachedNotes = cached ? await decryptNotesMessages(conversationId, cached) : null;
+      const cachedView = cachedNotes ? await decryptE2EMessages(conversationId, cachedNotes) : null;
       if (cachedView && cachedView.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
         hasCachedMessages = true;
         const queued = ownerId ? await listOutbox(ownerId) : [];
@@ -717,7 +806,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       } else {
         raw = await messengerApi.getMessages(conversationId);
       }
-      const rawMsgs = await decryptNotesMessages(conversationId, raw);
+      const rawMsgsNotes = await decryptNotesMessages(conversationId, raw);
+      const rawMsgs = await decryptE2EMessages(conversationId, rawMsgsNotes);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
       const queued = ownerId ? await listOutbox(ownerId) : [];
       const msgs = ownerId
@@ -735,14 +825,14 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         messages: msgs,
         isMessagesLoading: false,
         // Pagination is a property of the server page, not of pending bubbles.
-        hasMoreMessages: !notesConversationExists(conversationId) && rawMsgs.length >= 50,
+        hasMoreMessages: !opaqueConversationExists(conversationId) && rawMsgs.length >= 50,
       });
       rememberLatestEventId(conversationId, msgs);
-      // Notes content is device-encrypted: never persist it to the IndexedDB
-      // cache (the store already holds the readable plaintext).
+      // Opaque (notes / e2e) content is device-encrypted: never persist it to
+      // the IndexedDB cache (the store already holds the readable plaintext).
       // Cache only what the server confirmed: pending bubbles are re-attached
       // from the outbox on the next load.
-      if (!notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, rawMsgs);
+      if (!opaqueConversationExists(conversationId)) persistMessages(ownerId, conversationId, rawMsgs);
       // Read marking is owned by MessageList's visibility tracking: only the
       // messages actually on screen get a read receipt (each with its own real
       // read_at). Loading a conversation must not auto-read its whole history.
@@ -761,7 +851,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const sinceEventId = latestEventIds.get(conversationId);
     try {
       const raw = await messengerApi.getMessages(conversationId, undefined, sinceEventId);
-      const delta = await decryptNotesMessages(conversationId, raw);
+      const deltaNotes = await decryptNotesMessages(conversationId, raw);
+      const delta = await decryptE2EMessages(conversationId, deltaNotes);
       if (get().selectedConversationId !== conversationId || get().me?.id !== ownerId) return;
       if (delta.length === 0) return;
       set((s) => {
@@ -796,7 +887,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     set({ isLoadingMore: true });
     try {
       const raw = await messengerApi.getMessages(conversationId, oldest.id);
-      const older = await decryptNotesMessages(conversationId, raw);
+      const olderNotes = await decryptNotesMessages(conversationId, raw);
+      const older = await decryptE2EMessages(conversationId, olderNotes);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) {
         if (requestGeneration === loadMoreRequestGeneration) {
           set({ isLoadingMore: false });
@@ -863,13 +955,31 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
     // Notes: encrypt plaintext locally before it ever leaves the device. The
     // server stores the ciphertext verbatim and never holds the key.
+    // E2E 1:1 chats use the same verbatim rule with the shared ECDH key.
     const isNotes = notesConversationExists(convId);
+    const isE2E = !isNotes && e2eConversationExists(convId);
     let wireContent = content;
     if (isNotes && content.trim()) {
       try {
         wireContent = await encryptNote(content, convId);
       } catch {
         set({ error: "Не удалось зашифровать заметку" });
+        return "";
+      }
+    } else if (isE2E && content.trim()) {
+      try {
+        const conv = get().conversations.find((c) => c.id === convId);
+        const peerId = conv?.other_user_id;
+        const meId = get().me?.id ?? "";
+        const peerKey = peerId ? await getE2EPeerKey(peerId) : null;
+        if (!peerKey) {
+          set({ error: "Нет ключа собеседника для E2E" });
+          return "";
+        }
+        await ensureE2EDevice();
+        wireContent = await encryptE2EMessage(content, peerKey, convId, meId);
+      } catch {
+        set({ error: "Не удалось зашифровать сообщение" });
         return "";
       }
     }
@@ -958,11 +1068,19 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           attachments,
         );
         const sentAt = msg.sent_at;
-        // For notes the server echoes the client ciphertext; decrypt it back to
-        // plaintext so the store only ever holds readable notes.
+        // For opaque conversations the server echoes the client ciphertext;
+        // decrypt it back to plaintext so the store only ever holds readable
+        // content.
         let displayContent = msg.content;
         if (isNotes) {
           const decrypted = await decryptNote(msg.content, convId);
+          displayContent = decrypted ?? content;
+        } else if (isE2E) {
+          const conv = get().conversations.find((c) => c.id === convId);
+          const peerId = conv?.other_user_id;
+          const peerKey = peerId ? await getE2EPeerKey(peerId) : null;
+          const meId = get().me?.id ?? "";
+          const decrypted = peerKey ? await decryptE2EMessage(msg.content, peerKey, convId, meId) : null;
           displayContent = decrypted ?? content;
         }
         set((s) => {
@@ -1055,12 +1173,27 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         }
 
         const isNotes = notesConversationExists(entry.conversationId);
+        const isE2E = !isNotes && e2eConversationExists(entry.conversationId);
         let wireContent = entry.content;
         if (isNotes && entry.content.trim()) {
           try {
             wireContent = await encryptNote(entry.content, entry.conversationId);
           } catch {
             // Cannot encrypt on this device (notes key gone): keep it queued.
+            blocked.add(entry.conversationId);
+            continue;
+          }
+        } else if (isE2E && entry.content.trim()) {
+          try {
+            const conv = get().conversations.find((c) => c.id === entry.conversationId);
+            const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+            if (!peerKey) {
+              blocked.add(entry.conversationId);
+              continue;
+            }
+            await ensureE2EDevice();
+            wireContent = await encryptE2EMessage(entry.content, peerKey, entry.conversationId, me.id);
+          } catch {
             blocked.add(entry.conversationId);
             continue;
           }
@@ -1074,9 +1207,16 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
             entry.parentMessageId,
             entry.attachments.length > 0 ? entry.attachments : undefined,
           );
-          const displayContent = isNotes
-            ? (await decryptNote(msg.content, entry.conversationId)) ?? entry.content
-            : msg.content;
+          let displayContent = msg.content;
+          if (isNotes) {
+            displayContent = (await decryptNote(msg.content, entry.conversationId)) ?? entry.content;
+          } else if (isE2E) {
+            const conv = get().conversations.find((c) => c.id === entry.conversationId);
+            const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+            displayContent = peerKey
+              ? (await decryptE2EMessage(msg.content, peerKey, entry.conversationId, me.id)) ?? entry.content
+              : entry.content;
+          }
           const delivered: MessageView = {
             ...msg,
             content: displayContent,
@@ -1162,12 +1302,28 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     if (!selectedConversationId) return;
 
     // Notes: encrypt the new content locally before the edit request.
+    // E2E 1:1 chats use the shared ECDH key with the same verbatim rule.
     let wireContent = content;
     if (notesConversationExists(selectedConversationId) && content.trim()) {
       try {
         wireContent = await encryptNote(content, selectedConversationId);
       } catch {
         set({ error: "Не удалось зашифровать заметку" });
+        return;
+      }
+    } else if (e2eConversationExists(selectedConversationId) && content.trim()) {
+      try {
+        const conv = get().conversations.find((c) => c.id === selectedConversationId);
+        const meId = get().me?.id ?? "";
+        const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+        if (!peerKey) {
+          set({ error: "Нет ключа собеседника для E2E" });
+          return;
+        }
+        await ensureE2EDevice();
+        wireContent = await encryptE2EMessage(content, peerKey, selectedConversationId, meId);
+      } catch {
+        set({ error: "Не удалось зашифровать сообщение" });
         return;
       }
     }
@@ -1523,6 +1679,134 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
   },
 
+  applyReadReceiptEvent: (event) => {
+    const { me } = get();
+    if (!event.conversation_id || !event.user_id) return;
+    if (me?.id && event.user_id === me.id) return;
+    const readAt = event.read_at || new Date().toISOString();
+
+    set((s) => {
+      // 1. Update conversation's other_last_read_at for the 1:1 list checkmark.
+      const conversations = s.conversations.map((c) => {
+        if (c.id !== event.conversation_id) return c;
+        if (c.other_last_read_at && Date.parse(c.other_last_read_at) > Date.parse(readAt)) {
+          return c;
+        }
+        return { ...c, other_last_read_at: readAt };
+      });
+
+      // 2. If this conversation is open, update receipts in O(1) for all messages up to message_id.
+      if (s.selectedConversationId !== event.conversation_id) {
+        return { conversations };
+      }
+
+      const targetMsg = s.messages.find((m) => m.id === event.message_id);
+      const cutoffMs = targetMsg ? Date.parse(targetMsg.sent_at) : Date.parse(readAt);
+      const existing = s.receipts.get(event.conversation_id) ?? [];
+      const byMsg = new Map<string, ReceiptRow>();
+      for (const r of existing) {
+        byMsg.set(`${r.message_id}:${r.user_id}`, r);
+      }
+
+      for (const m of s.messages) {
+        if (m.sender_user_id === event.user_id || m.is_deleted) continue;
+        if (Number.isFinite(cutoffMs) && Date.parse(m.sent_at) > cutoffMs && m.id !== event.message_id) {
+          continue;
+        }
+        const key = `${m.id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: m.id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? readAt,
+          read_at: prev?.read_at ?? readAt,
+        });
+      }
+      // Also ensure the explicit message_id has a receipt even if not in the current window
+      if (event.message_id) {
+        const key = `${event.message_id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: event.message_id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? readAt,
+          read_at: prev?.read_at ?? readAt,
+        });
+      }
+
+      const nextReceipts = new Map(s.receipts);
+      nextReceipts.set(event.conversation_id, [...byMsg.values()]);
+      return { conversations, receipts: nextReceipts };
+    });
+  },
+
+  applyDeliveryReceiptEvent: (event) => {
+    const { me } = get();
+    if (!event.conversation_id || !event.user_id) return;
+    if (me?.id && event.user_id === me.id) return;
+    const deliveredAt = event.delivered_at || new Date().toISOString();
+
+    set((s) => {
+      const conversations = s.conversations.map((c) => {
+        if (c.id !== event.conversation_id) return c;
+        if (c.other_last_delivered_at && Date.parse(c.other_last_delivered_at) > Date.parse(deliveredAt)) {
+          return c;
+        }
+        return { ...c, other_last_delivered_at: deliveredAt };
+      });
+
+      if (s.selectedConversationId !== event.conversation_id) {
+        return { conversations };
+      }
+
+      const targetMsg = s.messages.find((m) => m.id === event.message_id);
+      const cutoffMs = targetMsg ? Date.parse(targetMsg.sent_at) : Date.parse(deliveredAt);
+      const existing = s.receipts.get(event.conversation_id) ?? [];
+      const byMsg = new Map<string, ReceiptRow>();
+      for (const r of existing) {
+        byMsg.set(`${r.message_id}:${r.user_id}`, r);
+      }
+
+      for (const m of s.messages) {
+        if (m.sender_user_id === event.user_id || m.is_deleted) continue;
+        if (Number.isFinite(cutoffMs) && Date.parse(m.sent_at) > cutoffMs && m.id !== event.message_id) {
+          continue;
+        }
+        const key = `${m.id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: m.id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? deliveredAt,
+          read_at: prev?.read_at ?? null,
+        });
+      }
+      if (event.message_id) {
+        const key = `${event.message_id}:${event.user_id}`;
+        const prev = byMsg.get(key);
+        byMsg.set(key, {
+          message_id: event.message_id,
+          user_id: event.user_id,
+          delivered_at: prev?.delivered_at ?? deliveredAt,
+          read_at: prev?.read_at ?? null,
+        });
+      }
+
+      const nextReceipts = new Map(s.receipts);
+      nextReceipts.set(event.conversation_id, [...byMsg.values()]);
+      return { conversations, receipts: nextReceipts };
+    });
+  },
+
+  applyConversationUpdatedEvent: (event) => {
+    if (!event.conversation_id) return;
+    // Encryption mode is security-relevant: refetch the authoritative list
+    // instead of trusting the event payload alone.
+    if (event.encryption_mode === "server" || event.encryption_mode === "e2e") {
+      void get().loadConversations({ force: true });
+    }
+  },
+
   // ── Local actions ─────────────────────────────────────────────────────
   selectConversation: (id) => {
     // Invalidate in-flight cache/network responses before switching so a slow
@@ -1572,7 +1856,23 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       });
     };
     if (!notesConversationExists(message.conversation_id)) {
-      apply(message);
+      if (!e2eConversationExists(message.conversation_id)) {
+        apply(message);
+        return;
+      }
+      // E2E WS payloads carry opaque ciphertext — decrypt before showing.
+      void (async () => {
+        if (!message.content || !parseE2EEnvelope(message.content)) {
+          apply(message);
+          return;
+        }
+        const conv = get().conversations.find((c) => c.id === message.conversation_id);
+        const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+        const content = peerKey
+          ? (await decryptE2EMessage(message.content, peerKey, message.conversation_id, message.sender_user_id)) ?? E2E_LOCKED
+          : E2E_LOCKED;
+        apply({ ...message, content });
+      })();
       return;
     }
     // Notes WS payloads carry the client ciphertext — decrypt before showing.
@@ -1629,6 +1929,22 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         })();
         return;
       }
+    }
+    if (conversationId && e2eConversationExists(conversationId) && content !== undefined) {
+      // WS edit events for E2E chats carry opaque ciphertext — decrypt first.
+      void (async () => {
+        if (!parseE2EEnvelope(content)) {
+          apply(updates);
+          return;
+        }
+        const target = get().messages.find((m) => m.id === id);
+        const conv = get().conversations.find((c) => c.id === conversationId);
+        const peerKey = conv?.other_user_id ? await getE2EPeerKey(conv.other_user_id) : null;
+        const senderId = target?.sender_user_id ?? "";
+        const decrypted = peerKey ? await decryptE2EMessage(content, peerKey, conversationId, senderId) : null;
+        apply({ ...updates, content: decrypted ?? E2E_LOCKED });
+      })();
+      return;
     }
     apply(updates);
   },

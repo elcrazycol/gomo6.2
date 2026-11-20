@@ -37,11 +37,14 @@ export type ConversationView = {
   /** The peer's read line (their chat_members.last_read_at) — real read
    *  status for the list: ≥ last_message_at means my last message was read. */
   other_last_read_at?: string | null;
+  other_last_delivered_at?: string | null;
   // Group fields
   is_group: boolean;
   group_name: string | null;
   group_avatar_url: string | null;
   member_count: number;
+  /** Encryption mode: "server" (default) or "e2e" (opaque client ciphertext). */
+  encryption_mode?: "server" | "e2e";
   // Personal notes self-chat (client-side E2E encrypted content)
   is_notes?: boolean;
 };
@@ -65,6 +68,13 @@ export type ReactionSummary = {
   mineAt?: string;
 };
 
+export type MessageType = "text" | "media" | "voice" | "gift" | "share" | "system";
+
+export type MessageEnc = {
+  v: number;
+  alg?: string;
+};
+
 export type MessageView = {
   id: string;
   /** Monotonic PostgreSQL BIGINT cursor serialized as a decimal string. */
@@ -73,7 +83,11 @@ export type MessageView = {
   sender_user_id: string;
   sender_username?: string;
   parent_message_id: string | null;
+  type?: MessageType;
   content: string;
+  payload?: Record<string, unknown> | null;
+  /** Client E2E envelope version (v>=1 means opaque `e2e1:` ciphertext). */
+  enc?: MessageEnc | null;
   is_edited: boolean;
   is_deleted: boolean;
   edited_at: string | null;

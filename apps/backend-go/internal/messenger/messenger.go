@@ -30,7 +30,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var htmlTagRegex = regexp.MustCompile(`<[^>]*>`)
+var htmlTagRegex = regexp.MustCompile(`(?i)</?[a-z][a-z0-9]*(?:\s[^>]*)?>`)
 var uuidRegex = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // isUUID checks if a string is a valid UUID format.
@@ -44,6 +44,30 @@ func isUUID(s string) bool {
 // the blob verbatim and never attempts to decrypt it, so note plaintext never
 // reaches the server.
 const notesContentMarker = "e2enote1:"
+
+// e2eContentMarker prefixes every stored message in a 1:1 conversation that
+// opted into client-side E2E (encryption_mode = 'e2e'). Everything after the
+// marker is opaque to the server: `e2e1:<alg>:<base64(iv || ciphertext)>`.
+// See apps/web/src/utils/messengerCrypto.ts for the client implementation.
+// The conversation id + sender id are bound as AAD, so a blob can never be
+// replayed into another conversation or forged by another sender.
+const e2eContentMarker = "e2e1:"
+
+// E2E envelope versions / algorithms.
+const (
+	e2eEnvelopeVersion = 1
+	e2eAlgP256AESGCM   = "p256-aesgcm"
+)
+
+// maxE2EContentLen caps an E2E ciphertext payload: base64 of up to ~4000 runes
+// of plaintext plus nonce + GCM tag + envelope overhead, with slack.
+const maxE2EContentLen = 24000
+
+// Supported encryption modes for a conversation.
+const (
+	encryptionModeServer = "server"
+	encryptionModeE2E    = "e2e"
+)
 
 // maxNotesContentLen caps the notes ciphertext payload: base64 of up to ~4000
 // runes of plaintext plus the 12-byte nonce and GCM tag, with slack.
@@ -78,33 +102,48 @@ type ConversationResponse struct {
 	OtherLastSeenAt      *string `json:"other_last_seen_at"`
 	// The peer's read line in the 1:1 chat (their chat_members.last_read_at) —
 	// lets the client show the real read status of my last message in the list.
-	OtherLastReadAt *string `json:"other_last_read_at"`
+	OtherLastReadAt      *string `json:"other_last_read_at"`
+	OtherLastDeliveredAt *string `json:"other_last_delivered_at"`
 	// Group fields
 	IsGroup     bool    `json:"is_group"`
 	GroupName   *string `json:"group_name"`
 	GroupAvatar *string `json:"group_avatar_url"`
 	MemberCount int     `json:"member_count"`
+	// Encryption mode: "server" (server-side AES-GCM at rest) or "e2e"
+	// (opaque client ciphertext, the server never holds the key).
+	EncryptionMode string `json:"encryption_mode"`
 	// Notes: the personal self-chat (client-side E2E encrypted)
 	IsNotes bool `json:"is_notes"`
+}
+
+// MessageEnc describes the client E2E envelope of a message. Version 0 (or a
+// missing enc) means server-side encryption; version 1 means the opaque
+// `e2e1:<alg>:...` client envelope.
+type MessageEnc struct {
+	V   int    `json:"v"`
+	Alg string `json:"alg,omitempty"`
 }
 
 // MessageResponse is returned to the client
 type MessageResponse struct {
 	ID string `json:"id"`
 	// EventID is serialized as a decimal string so JavaScript clients never lose precision on BIGINT cursors.
-	EventID          string       `json:"event_id"`
-	ConversationID   string       `json:"conversation_id"`
-	SenderUserID     string       `json:"sender_user_id"`
-	SenderUsername   string       `json:"sender_username,omitempty"`
-	ParentMessageID  *string      `json:"parent_message_id"`
-	Content          string       `json:"content"`
-	EncryptedContent string       `json:"-"` // not serialized to API, used for Redis broadcast
-	IsEdited         bool         `json:"is_edited"`
-	IsDeleted        bool         `json:"is_deleted"`
-	EditedAt         *string      `json:"edited_at"`
-	SentAt           string       `json:"sent_at"`
-	ClientID         string       `json:"client_id"`
-	Attachments      []Attachment `json:"attachments,omitempty"`
+	EventID          string          `json:"event_id"`
+	ConversationID   string          `json:"conversation_id"`
+	SenderUserID     string          `json:"sender_user_id"`
+	SenderUsername   string          `json:"sender_username,omitempty"`
+	ParentMessageID  *string         `json:"parent_message_id"`
+	Type             string          `json:"type"`
+	Content          string          `json:"content"`
+	Payload          json.RawMessage `json:"payload,omitempty"`
+	Enc              *MessageEnc     `json:"enc,omitempty"`
+	EncryptedContent string          `json:"-"` // not serialized to API, used for Redis broadcast
+	IsEdited         bool            `json:"is_edited"`
+	IsDeleted        bool            `json:"is_deleted"`
+	EditedAt         *string         `json:"edited_at"`
+	SentAt           string          `json:"sent_at"`
+	ClientID         string          `json:"client_id"`
+	Attachments      []Attachment    `json:"attachments,omitempty"`
 	// NotesMeta is the client-side E2E-encrypted pin/folder/tags blob for the
 	// personal notes self-chat. It is forwarded verbatim, never decrypted.
 	NotesMeta *string `json:"notes_meta,omitempty"`
@@ -134,7 +173,9 @@ type Attachment struct {
 // regular chats, up to maxNotesContentLen of client-encrypted ciphertext for
 // the notes self-chat (which is larger because of base64 + GCM overhead).
 type SendMessageRequest struct {
+	Type            string            `json:"type" binding:"omitempty,oneof=text media voice gift share system"`
 	Content         string            `json:"content" binding:"max=24000"`
+	Payload         json.RawMessage   `json:"payload"`
 	ClientID        string            `json:"client_id" binding:"required"`
 	ParentMessageID *string           `json:"parent_message_id"`
 	Attachments     []AttachmentInput `json:"attachments"`
@@ -295,10 +336,34 @@ func (h *MessengerHandler) isMember(c *gin.Context, conversationID, userID strin
 	return ok, err
 }
 
+// listConversationMemberIDs returns the user IDs of all members in a
+// conversation for background WebSocket fan-out to messenger_user_<id> rooms.
+// Best-effort: returns nil on any error or when the database is unavailable.
+func (h *MessengerHandler) listConversationMemberIDs(conversationID string) []string {
+	if h.db == nil || conversationID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	rows, err := h.db.QueryContext(ctx,
+		"SELECT user_id FROM chat_members WHERE conversation_id = $1",
+		conversationID,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 // areFriends reports whether two users have a confirmed friendship.
-// The friendships table always stores the smaller UUID first, so both column
-// orders are checked. The table has no RLS, so the query works from the
-// messenger request transaction.
 func (h *MessengerHandler) areFriends(c *gin.Context, user1, user2 string) (bool, error) {
 	var ok bool
 	err := h.dbFor(c).QueryRow(`
@@ -366,6 +431,73 @@ func GenerateClientID() string {
 	return fmt.Sprintf("c%d", time.Now().UnixNano())
 }
 
+// normalizeMessageEnvelope ensures a message has a canonical Type and Payload.
+// For legacy or token-encoded messages (__GIFT__:..., __SHARE__:...) or
+// attachment-only messages, it populates Type and Payload so any client can
+// inspect msg.Type + msg.Payload directly without regex-parsing msg.Content.
+func normalizeMessageEnvelope(msg *MessageResponse) {
+	if msg.IsDeleted {
+		if msg.Type == "" {
+			msg.Type = "text"
+		}
+		return
+	}
+	if strings.HasPrefix(msg.Content, "__GIFT__:") {
+		parts := strings.SplitN(strings.TrimPrefix(msg.Content, "__GIFT__:"), ":", 3)
+		if len(parts) == 3 {
+			msg.Type = "gift"
+			if len(msg.Payload) == 0 {
+				b, _ := json.Marshal(map[string]string{
+					"gift_id":   parts[0],
+					"gift_name": parts[1],
+					"image_url": parts[2],
+				})
+				msg.Payload = b
+			}
+		}
+	} else if strings.HasPrefix(msg.Content, "__SHARE__:") {
+		parts := strings.SplitN(strings.TrimPrefix(msg.Content, "__SHARE__:"), ":", 2)
+		if len(parts) == 2 && (parts[0] == "thread" || parts[0] == "wall") {
+			msg.Type = "share"
+			if len(msg.Payload) == 0 {
+				b, _ := json.Marshal(map[string]string{
+					"target_type": parts[0],
+					"target_id":   parts[1],
+				})
+				msg.Payload = b
+			}
+		}
+	}
+
+	if msg.Type == "" || msg.Type == "text" {
+		if len(msg.Attachments) == 1 && msg.Attachments[0].Type == "audio" && msg.Attachments[0].Meta != nil {
+			var meta struct {
+				Voice bool `json:"voice"`
+			}
+			if json.Unmarshal([]byte(*msg.Attachments[0].Meta), &meta) == nil && meta.Voice {
+				msg.Type = "voice"
+			}
+		}
+		if (msg.Type == "" || msg.Type == "text") && len(msg.Attachments) > 0 && strings.TrimSpace(msg.Content) == "" {
+			msg.Type = "media"
+		}
+	}
+	if msg.Type == "" {
+		msg.Type = "text"
+	}
+}
+
+// setMessageEnc attaches the scanned envelope version to a message.
+func setMessageEnc(msg *MessageResponse, encV sql.NullInt64, encAlg sql.NullString) {
+	if encV.Valid && encV.Int64 > 0 {
+		enc := &MessageEnc{V: int(encV.Int64)}
+		if encAlg.Valid && encAlg.String != "" {
+			enc.Alg = encAlg.String
+		}
+		msg.Enc = enc
+	}
+}
+
 // decryptMessageContent decrypts a single message's content if encrypted.
 // Tries the per-conversation key first, then falls back to the master key for
 // legacy messages written before per-conversation encryption was introduced.
@@ -373,19 +505,23 @@ func GenerateClientID() string {
 // so the encrypted blob is never returned to the client.
 func decryptMessageContent(conversationID string, msg *MessageResponse) {
 	if msg.Content == "" || msg.IsDeleted {
+		normalizeMessageEnvelope(msg)
 		return
 	}
 	decrypted, err := decryptContentForConversation(conversationID, msg.Content)
 	if err == nil {
 		msg.Content = decrypted
+		normalizeMessageEnvelope(msg)
 		return
 	}
 	decrypted, err = decryptContent(msg.Content)
 	if err == nil {
 		msg.Content = decrypted
+		normalizeMessageEnvelope(msg)
 		return
 	}
 	msg.Content = crypto.DecryptionFailedPlaceholder
+	normalizeMessageEnvelope(msg)
 }
 
 // FindOrCreateConversation atomically finds or creates a regular 1:1

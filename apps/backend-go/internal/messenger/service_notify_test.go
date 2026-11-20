@@ -31,7 +31,7 @@ func TestSendServiceNotification_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO chat_messages")).
 		WithArgs(convID, svcID, sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "sent_at"}).AddRow(uuid.New().String(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "event_id", "sent_at"}).AddRow(uuid.New().String(), "101", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE chat_conversations")).
 		WithArgs(sqlmock.AnyArg(), svcID, convID).
 		WillReturnResult(sqlmock.NewResult(0, 1))

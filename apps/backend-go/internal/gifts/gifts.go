@@ -277,13 +277,18 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 		log.Printf("[Gifts] encrypt gift message error: %v", err)
 		return
 	}
+	encryptedPreview, err := messenger.EncryptContentForConversation(convID, "Подарок")
+	if err != nil {
+		log.Printf("[Gifts] encrypt gift preview error: %v", err)
+		return
+	}
 
-	var msgID string
+	var msgID, eventID string
 	err = h.db.QueryRow(`
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id
-	`, convID, senderID, encryptedContent, clientID).Scan(&msgID)
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, type, payload)
+		VALUES ($1, $2, $3, $4, 'gift', $5::jsonb)
+		RETURNING id, event_id
+	`, convID, senderID, encryptedContent, clientID, fmt.Sprintf(`{"gift_id":%q,"gift_name":%q,"image_url":%q,"gift_record_id":%q}`, giftID, giftName, giftImageURL, giftRecordID)).Scan(&msgID, &eventID)
 	if err != nil {
 		log.Printf("[Gifts] insert gift message error: %v", err)
 		return
@@ -291,11 +296,11 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 
 	_, err = h.db.Exec(`
 		UPDATE chat_conversations
-		SET last_message_preview = 'Подарок',
-		    last_message_sender_id = $1,
+		SET last_message_preview = $1,
+		    last_message_sender_id = $2,
 		    updated_at = NOW()
-		WHERE id = $2
-	`, senderID, convID)
+		WHERE id = $3
+	`, encryptedPreview, senderID, convID)
 	if err != nil {
 		log.Printf("[Gifts] update conversation preview error: %v", err)
 	}
@@ -307,15 +312,24 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 
 	sentAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := h.hub.PublishNewChatMessage(gin.H{
-		"id":                msgID,
-		"conversation_id":   convID,
-		"sender_user_id":    senderID,
+		"id":              msgID,
+		"event_id":        eventID,
+		"conversation_id": convID,
+		"sender_user_id":  senderID,
+		"type":            "gift",
+		"payload": gin.H{
+			"gift_id":        giftID,
+			"gift_name":      giftName,
+			"image_url":      giftImageURL,
+			"gift_record_id": giftRecordID,
+		},
 		"encrypted_content": encryptedContent,
 		"is_edited":         false,
 		"is_deleted":        false,
 		"edited_at":         nil,
 		"sent_at":           sentAt,
 		"client_id":         clientID,
+		"recipient_ids":     []string{senderID, recipientID},
 	}); err != nil {
 		log.Printf("[Gifts] WS gift message error: %v", err)
 	}

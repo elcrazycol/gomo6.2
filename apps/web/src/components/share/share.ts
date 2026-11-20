@@ -26,7 +26,15 @@ const SHARE_TOKEN_RE = /^__SHARE__:(thread|wall):([A-Za-z0-9-]+)$/;
  * a share token (the regex is anchored, so a user-typed phrase containing
  * "__SHARE__" mid-text never matches).
  */
-export function parseShareToken(content: string): ShareTarget | null {
+export function parseShareToken(content: string, payload?: Record<string, unknown> | null): ShareTarget | null {
+  if (
+    payload &&
+    (payload.target_type === "thread" || payload.target_type === "wall") &&
+    typeof payload.target_id === "string" &&
+    payload.target_id
+  ) {
+    return { type: payload.target_type, id: payload.target_id };
+  }
   if (!content || !content.startsWith(SHARE_TOKEN_PREFIX)) return null;
   const match = content.match(SHARE_TOKEN_RE);
   if (!match) return null;

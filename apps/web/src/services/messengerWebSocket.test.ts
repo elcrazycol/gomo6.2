@@ -46,6 +46,9 @@ const { storeMocks, queueMarkDeliveredMock, queueMarkReadMock } = vi.hoisted(() 
     setTyping: vi.fn(),
     updateConversationFromWs: vi.fn(),
     loadReceipts: vi.fn(),
+    applyReadReceiptEvent: vi.fn(),
+    applyDeliveryReceiptEvent: vi.fn(),
+    applyConversationUpdatedEvent: vi.fn(),
     applyReactionEvent: vi.fn(),
     applyVoiceListenedEvent: vi.fn(),
   };
@@ -97,12 +100,14 @@ describe("messengerWebSocket", () => {
       // via useMessengerPresence, not by this legacy global-feed handler.
       expect(mockWsService.on).not.toHaveBeenCalledWith("user_online", expect.any(Function));
       expect(mockWsService.on).not.toHaveBeenCalledWith("user_offline", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("delivery_receipt", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("conversation_updated", expect.any(Function));
     });
 
     it("does not double-register handlers", () => {
       messengerWs.connect();
       messengerWs.connect();
-      expect(mockWsService.on).toHaveBeenCalledTimes(9);
+      expect(mockWsService.on).toHaveBeenCalledTimes(11);
     });
   });
 
@@ -197,9 +202,33 @@ describe("messengerWebSocket", () => {
       expect(storeMocks.removeMessage).toHaveBeenCalledWith("msg-1");
     });
 
-    it("handles read_receipt", () => {
-      emitToHandlers("read_receipt", { message_id: "msg-1", user_id: "u2", conversation_id: "conv-1" });
-      expect(storeMocks.loadReceipts).toHaveBeenCalledWith("conv-1");
+    it("handles read_receipt in O(1) via applyReadReceiptEvent", () => {
+      emitToHandlers("read_receipt", { message_id: "msg-1", user_id: "u2", conversation_id: "conv-1", read_at: "2025-01-01T00:05:00Z" });
+      expect(storeMocks.applyReadReceiptEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "msg-1",
+        read_at: "2025-01-01T00:05:00Z",
+      });
+      expect(storeMocks.loadReceipts).not.toHaveBeenCalled();
+    });
+
+    it("handles delivery_receipt in O(1)", () => {
+      emitToHandlers("delivery_receipt", { conversation_id: "conv-1", user_id: "u2", message_id: "msg-9", delivered_at: "2025-01-01T00:04:00Z" });
+      expect(storeMocks.applyDeliveryReceiptEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "msg-9",
+        delivered_at: "2025-01-01T00:04:00Z",
+      });
+    });
+
+    it("handles conversation_updated by refetching the list", () => {
+      emitToHandlers("conversation_updated", { conversation_id: "conv-1", encryption_mode: "e2e" });
+      expect(storeMocks.applyConversationUpdatedEvent).toHaveBeenCalledWith({
+        conversation_id: "conv-1",
+        encryption_mode: "e2e",
+      });
     });
 
     it("handles chat_typing", () => {

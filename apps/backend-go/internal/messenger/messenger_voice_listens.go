@@ -66,14 +66,18 @@ func (h *MessengerHandler) broadcastVoiceListened(conversationID, messageID, use
 	if h.hub == nil {
 		return
 	}
+	payload := map[string]interface{}{
+		"message_id":      messageID,
+		"conversation_id": conversationID,
+		"user_id":         userID,
+		"event":           "message_voice_listened",
+	}
+	if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+		payload["recipient_ids"] = memberIDs
+	}
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-		Type: "message_voice_listened",
-		Payload: map[string]interface{}{
-			"message_id":      messageID,
-			"conversation_id": conversationID,
-			"user_id":         userID,
-			"event":           "message_voice_listened",
-		},
+		Type:    "message_voice_listened",
+		Payload: payload,
 	}); err != nil {
 		log.Printf("[Messenger] WS voice-listened broadcast error: %v", err)
 	}

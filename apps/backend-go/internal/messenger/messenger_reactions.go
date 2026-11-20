@@ -191,17 +191,21 @@ func (h *MessengerHandler) broadcastReaction(conversationID, messageID, emoji, u
 	if h.hub == nil {
 		return
 	}
+	payload := map[string]interface{}{
+		"message_id":      messageID,
+		"conversation_id": conversationID,
+		"emoji":           emoji,
+		"user_id":         userID,
+		"username":        username,
+		"action":          action,
+		"event":           "message_reaction",
+	}
+	if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+		payload["recipient_ids"] = memberIDs
+	}
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-		Type: "message_reaction",
-		Payload: map[string]interface{}{
-			"message_id":      messageID,
-			"conversation_id": conversationID,
-			"emoji":           emoji,
-			"user_id":         userID,
-			"username":        username,
-			"action":          action,
-			"event":           "message_reaction",
-		},
+		Type:    "message_reaction",
+		Payload: payload,
 	}); err != nil {
 		log.Printf("[Messenger] WS reaction broadcast error: %v", err)
 	}

@@ -144,8 +144,9 @@ func (c *Client) readPump() {
 				c.trySend(msgBytes)
 			}
 
-			// Auto-subscribe to notification room
+			// Auto-subscribe to notification and personal messenger stream rooms
 			c.Hub.SubscribeToRoom(c, fmt.Sprintf("notifications_%s", c.UserID))
+			c.Hub.SubscribeToRoom(c, fmt.Sprintf("messenger_user_%s", c.UserID))
 			continue
 		}
 

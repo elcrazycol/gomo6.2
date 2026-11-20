@@ -108,6 +108,36 @@ export const messengerApi = {
     return req("/notes", { method: "POST" });
   },
 
+  // ── E2E encryption ────────────────────────────────────────────────────
+  // Key directory for 1:1 E2E handshakes (Phase 2 contract). Private keys
+  // never leave the device; only the public JWK is published here.
+  async listMyKeys(): Promise<Array<{ user_id: string; device_id: string; public_key: string; alg: string; updated_at: string }>> {
+    return req("/keys");
+  },
+
+  async putDeviceKey(deviceId: string, publicKey: string, alg = "p256-aesgcm"): Promise<{ user_id: string; device_id: string; public_key: string; alg: string; updated_at: string }> {
+    return req("/keys", {
+      method: "PUT",
+      body: JSON.stringify({ device_id: deviceId, public_key: publicKey, alg }),
+    });
+  },
+
+  async deleteDeviceKey(deviceId: string): Promise<{ deleted: boolean }> {
+    return req(`/keys/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+  },
+
+  async getUserKeys(userId: string): Promise<Array<{ user_id: string; device_id: string; public_key: string; alg: string; updated_at: string }>> {
+    return req(`/users/${encodeURIComponent(userId)}/keys`);
+  },
+
+  /** Switches a 1:1 conversation between server-side and E2E encryption. */
+  async updateEncryptionMode(conversationId: string, mode: "server" | "e2e"): Promise<{ encryption_mode: string }> {
+    return req(`/conversations/${conversationId}/encryption`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+  },
+
   // ── Messages ──────────────────────────────────────────────────────────
   async getMessages(conversationId: string, before?: string, sinceEventId?: string, limit?: number): Promise<MessageView[]> {
     const params = new URLSearchParams();

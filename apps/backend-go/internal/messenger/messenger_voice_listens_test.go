@@ -108,11 +108,16 @@ func TestVoiceListens_AttachedToThePage(t *testing.T) {
 		WithArgs(testConv1).
 		WillReturnRows(sqlmock.NewRows([]string{"is_notes"}).AddRow(false))
 
+	// E2E mode check (regular conversation)
+	mock.ExpectQuery(`SELECT encryption_mode FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"encryption_mode"}).AddRow("server"))
+
 	msgRows := sqlmock.NewRows([]string{
 		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
-		"content", "is_edited", "is_deleted",
+		"content", "type", "payload", "enc_v", "enc_alg", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, " ", false, false, nil, "2026-08-20T10:00:00Z", "c1")
+	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, " ", "text", nil, 0, nil, false, false, nil, "2026-08-20T10:00:00Z", "c1")
 
 	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).

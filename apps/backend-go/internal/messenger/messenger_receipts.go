@@ -160,14 +160,20 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 			return
 		}
 		publishPool.Go(func() {
+			nowISO := time.Now().UTC().Format(time.RFC3339Nano)
+			payload := map[string]interface{}{
+				"conversation_id": conversationID,
+				"user_id":         claims.UserID,
+				"message_id":      req.MessageID,
+				"read_at":         nowISO,
+				"event":           "read_receipt",
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-				Type: "read_receipt",
-				Payload: map[string]interface{}{
-					"conversation_id": conversationID,
-					"user_id":         claims.UserID,
-					"message_id":      req.MessageID,
-					"event":           "read_receipt",
-				},
+				Type:    "read_receipt",
+				Payload: payload,
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}
@@ -252,6 +258,30 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 		httpx.ServerError(c, "mark delivered", err)
 		return
 	}
+
+	queueAfterCommit(c, func() {
+		if h.hub == nil {
+			return
+		}
+		publishPool.Go(func() {
+			payload := map[string]interface{}{
+				"conversation_id": conversationID,
+				"user_id":         claims.UserID,
+				"message_id":      req.MessageID,
+				"delivered_at":    sentAt.UTC().Format(time.RFC3339Nano),
+				"event":           "delivery_receipt",
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
+			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+				Type:    websocket.MessageTypeDeliveryReceipt,
+				Payload: payload,
+			}); err != nil {
+				// Best effort.
+			}
+		})
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }

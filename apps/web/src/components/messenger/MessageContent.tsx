@@ -32,7 +32,14 @@ export interface GiftMessageData {
   imageUrl: string;
 }
 
-export function parseGiftContent(content: string): GiftMessageData | null {
+export function parseGiftContent(content: string, payload?: Record<string, unknown> | null): GiftMessageData | null {
+  if (payload && typeof payload.gift_id === "string" && typeof payload.gift_name === "string") {
+    return {
+      giftId: payload.gift_id,
+      giftName: payload.gift_name,
+      imageUrl: typeof payload.image_url === "string" ? payload.image_url : "",
+    };
+  }
   const match = content.match(/^__GIFT__:(.+?):(.+?):(.*)$/);
   if (!match) return null;
   return { giftId: match[1], giftName: match[2], imageUrl: match[3] };
@@ -116,6 +123,7 @@ export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { 
 
 interface MessageContentProps {
   content: string;
+  payload?: Record<string, unknown> | null;
   attachments?: Attachment[];
   hasQuotedMessage?: boolean;
   /** Own messages get the primary-tinted voice player. */
@@ -264,7 +272,7 @@ function AttachmentView({
 }
 
 export const MessageContent = memo(function MessageContent({
-  content, attachments, hasQuotedMessage = false, isMine = false, onVoiceListen,
+  content, payload, attachments, hasQuotedMessage = false, isMine = false, onVoiceListen,
 }: MessageContentProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -273,9 +281,9 @@ export const MessageContent = memo(function MessageContent({
   // formatting tags, or bare URLs.
   const hasLinks = /https?:\/\//.test(content);
   const hasRichText = /\[(?:b|i|u|s|spoiler|blur|col|size|url|e)[\]:=]/i.test(content) || hasLinks;
-  // Shared posts arrive as a content token; they render as a rich card
-  // instead of the raw token text.
-  const share = parseShareToken(content);
+  // Shared posts arrive as a content token or typed payload; they render as a
+  // rich card instead of raw token text.
+  const share = parseShareToken(content, payload);
   const visualAttachments = useMemo(
     () => attachments?.filter((attachment) => attachment.type === "image" || attachment.type === "video") ?? [],
     [attachments],

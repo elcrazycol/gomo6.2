@@ -334,11 +334,11 @@ export const ChatView = memo(function ChatView({
 
   const handleCancelReply = useCallback(() => setReplyToMessage(null), []);
 
-  // A voice note is already uploaded by the recorder; this only sends the
+    // Avoice note is already uploaded by the recorder; this only sends the
   // message that carries it (same path as an attachment, no caption).
   const handleSendVoice = useCallback(async (attachment: Attachment) => {
     const clientId = `c${Date.now().toString(36)}_v${Math.random().toString(36).slice(2, 8)}`;
-    const sentId = await sendMessage(" ", clientId, replyToMessage?.id ?? undefined, [attachment]);
+    const sentId = await sendMessage("", clientId, replyToMessage?.id ?? undefined, [attachment]);
     if (sentId) setReplyToMessage(null);
   }, [sendMessage, replyToMessage]);
 
@@ -360,7 +360,7 @@ export const ChatView = memo(function ChatView({
     const batches = attachmentsToSend.length > 0
       ? chunkAttachments(attachmentsToSend)
       : [[] as Attachment[]];
-    const caption = draft.trim() || " ";
+    const caption = draft.trim();
     const replyTo = replyToMessage?.id ?? undefined;
 
     // Telegram's model: the composer empties at once and the message lives in
@@ -384,7 +384,7 @@ export const ChatView = memo(function ChatView({
       // rejection must never escape as an unhandled one.
       void Promise.resolve(
         sendMessage(
-          index === batches.length - 1 ? caption : " ",
+          index === batches.length - 1 ? caption : "",
           clientId,
           index === 0 ? replyTo : undefined,
           batch.length > 0 ? batch : undefined,
@@ -436,7 +436,7 @@ export const ChatView = memo(function ChatView({
       // identity does not change on every arrival and message rows can be
       // memoized. `renderVersion` below covers the ambient inputs.
       const { dateLabel, isConsecutive: isGrouped, quoted, peerReceipt } = extras;
-      const giftData = parseGiftContent(msg.content);
+      const giftData = parseGiftContent(msg.content, msg.payload);
 
       if (giftData) {
         const imgSrc = giftImageUrl(giftData.imageUrl);
@@ -612,7 +612,9 @@ export const ChatView = memo(function ChatView({
               <p className="presence-copy">
                 {conversation.is_notes
                   ? "Шифрование на устройстве"
-                  : typingUsername
+                  : conversation.encryption_mode === "e2e"
+                    ? "🔒 Сквозное шифрование"
+                    : typingUsername
                     ? <em>{conversation.is_group ? "печатают..." : "печатает..."}</em>
                     : conversation.is_group
                       ? `${conversation.member_count} участник${conversation.member_count === 1 ? "" : conversation.member_count < 5 ? "а" : "ов"}`

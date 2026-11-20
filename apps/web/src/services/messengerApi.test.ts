@@ -251,6 +251,38 @@ describe("messengerApi", () => {
     });
   });
 
+  describe("E2E key directory", () => {
+    it("publishes a device key", async () => {
+      mockFetch({ user_id: "u1", device_id: "d1", public_key: "k", alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" });
+      const result = await messengerApi.putDeviceKey("d1", "k");
+      expect(result.device_id).toBe("d1");
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/keys",
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({ device_id: "d1", public_key: "k", alg: "p256-aesgcm" }) }),
+      );
+    });
+
+    it("fetches a peer's keys", async () => {
+      mockFetch([{ user_id: "u2", device_id: "d9", public_key: "peer", alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" }]);
+      const result = await messengerApi.getUserKeys("u2");
+      expect(result).toHaveLength(1);
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/users/u2/keys",
+        expect.any(Object),
+      );
+    });
+
+    it("switches a conversation to e2e mode", async () => {
+      mockFetch({ encryption_mode: "e2e" });
+      const result = await messengerApi.updateEncryptionMode("conv-1", "e2e");
+      expect(result).toEqual({ encryption_mode: "e2e" });
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/encryption",
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ mode: "e2e" }) }),
+      );
+    });
+  });
+
   describe("error handling", () => {
     it("throws on non-ok response", async () => {
       vi.mocked(global.fetch).mockResolvedValueOnce({

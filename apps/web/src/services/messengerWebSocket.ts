@@ -87,6 +87,8 @@ class MessengerWebSocket {
       wsService.on("message_reaction", (msg) => this.handleMessageReaction(msg)),
       wsService.on("message_voice_listened", (msg) => this.handleVoiceListened(msg)),
       wsService.on("read_receipt", (msg) => this.handleReadReceipt(msg)),
+      wsService.on("delivery_receipt", (msg) => this.handleDeliveryReceipt(msg)),
+      wsService.on("conversation_updated", (msg) => this.handleConversationUpdated(msg)),
       wsService.on("chat_typing", (msg) => this.handleTyping(msg)),
       wsService.on("group_updated", (msg) => this.handleGroupUpdated(msg)),
     );
@@ -115,7 +117,10 @@ class MessengerWebSocket {
       sender_user_id: data.sender_user_id as string,
       sender_username: (data.sender_username as string) ?? "",
       parent_message_id: (data.parent_message_id as string) ?? null,
+      ...(typeof data.type === "string" ? { type: data.type as import("@/components/messenger/types").MessageType } : {}),
       content,
+      ...(data.payload && typeof data.payload === "object" ? { payload: data.payload as Record<string, unknown> } : {}),
+      ...(data.enc && typeof data.enc === "object" ? { enc: data.enc as import("@/components/messenger/types").MessageEnc } : {}),
       is_edited: (data.is_edited as boolean) ?? false,
       is_deleted: (data.is_deleted as boolean) ?? false,
       edited_at: (data.edited_at as string) ?? null,
@@ -127,9 +132,9 @@ class MessengerWebSocket {
     store.addMessage(message);
 
     const conv = store.conversations?.find((c) => c.id === data.conversation_id);
-    const isNotes = Boolean(conv?.is_notes);
-    if (isNotes) {
-      // Notes payloads carry client ciphertext: never feed it into the list
+    const isOpaque = Boolean(conv?.is_notes || conv?.encryption_mode === "e2e");
+    if (isOpaque) {
+      // Opaque payloads carry client ciphertext: never feed it into the list
       // preview (truncating it would break local decryption). The store's
       // loadConversations decrypts the full preview from the server, and the
       // optimistic send path already updates it with plaintext.
@@ -215,9 +220,51 @@ class MessengerWebSocket {
     const data = this.getMessageData(msg);
     if (!data) return;
     const convId = data.conversation_id as string;
+    const userId = data.user_id as string;
+    const messageId = data.message_id as string;
+    const readAt = typeof data.read_at === "string" ? data.read_at : undefined;
     if (convId) {
-      useMessengerStore.getState().loadReceipts(convId);
+      const store = useMessengerStore.getState();
+      if (typeof store.applyReadReceiptEvent === "function" && userId && messageId) {
+        store.applyReadReceiptEvent({
+          conversation_id: convId,
+          user_id: userId,
+          message_id: messageId,
+          read_at: readAt,
+        });
+      } else {
+        store.loadReceipts(convId);
+      }
     }
+  }
+
+  private handleDeliveryReceipt(msg: WebSocketMessage): void {
+    const data = this.getMessageData(msg);
+    if (!data) return;
+    const convId = data.conversation_id as string;
+    const userId = data.user_id as string;
+    const messageId = data.message_id as string;
+    const deliveredAt = typeof data.delivered_at === "string" ? data.delivered_at : undefined;
+    if (convId && userId && messageId) {
+      useMessengerStore.getState().applyDeliveryReceiptEvent({
+        conversation_id: convId,
+        user_id: userId,
+        message_id: messageId,
+        delivered_at: deliveredAt,
+      });
+    }
+  }
+
+  private handleConversationUpdated(msg: WebSocketMessage): void {
+    const data = this.getMessageData(msg);
+    if (!data) return;
+    const convId = data.conversation_id as string;
+    if (!convId) return;
+    const mode = data.encryption_mode as string | undefined;
+    useMessengerStore.getState().applyConversationUpdatedEvent({
+      conversation_id: convId,
+      encryption_mode: mode,
+    });
   }
 
   private handleTyping(msg: WebSocketMessage): void {

@@ -485,7 +485,7 @@ export const MessageBubble = memo(function MessageBubble({
   // A shared post (__SHARE__) renders a full-height card instead of text: line
   // measurement does not apply, and the card reserves its own meta space, so
   // skip the whole compact/multiline path for it.
-  const isShareMessage = message.content?.startsWith("__SHARE__") ?? false;
+  const isShareMessage = message.type === "share" || (message.content?.startsWith("__SHARE__") ?? false);
   const canUseInlineMeta = !isVoiceBubble
     && !isMediaBubble
     && !isShareMessage
@@ -649,6 +649,7 @@ export const MessageBubble = memo(function MessageBubble({
 
           <MessageContent
             content={message.content}
+            payload={message.payload}
             attachments={message.attachments}
             hasQuotedMessage={Boolean(quotedMessage)}
             isMine={isMine}

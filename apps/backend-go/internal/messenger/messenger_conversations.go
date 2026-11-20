@@ -69,6 +69,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			c.last_message_sender_id, c.pinned_message_id, c.updated_at,
 			cm.unread_count, cm.is_muted,
 			c.is_group, c.group_name, c.group_avatar_url, c.is_notes,
+			COALESCE(c.encryption_mode, 'server') AS encryption_mode,
 			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
 			-- 1:1 fields (NULL for groups)
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
@@ -102,12 +103,14 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		var otherLastReadAt, myLastReadAt sql.NullString
 		var preview, lastMsgAt, lastMsgSender, pinnedMsg sql.NullString
 		var groupName, groupAvatar sql.NullString
+		var encryptionMode sql.NullString
 
 		if err := rows.Scan(
 			&conv.ID, &lastMsgAt, &preview,
 			&lastMsgSender, &pinnedMsg, &conv.UpdatedAt,
 			&conv.UnreadCount, &conv.IsMuted,
 			&conv.IsGroup, &groupName, &groupAvatar, &conv.IsNotes,
+			&encryptionMode,
 			&conv.MemberCount,
 			&otherID, &otherUsername, &otherDisplayName, &otherNicknameEmojiID,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
@@ -120,10 +123,16 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		if lastMsgAt.Valid {
 			conv.LastMessageAt = &lastMsgAt.String
 		}
+		if encryptionMode.Valid && encryptionMode.String != "" {
+			conv.EncryptionMode = encryptionMode.String
+		} else {
+			conv.EncryptionMode = encryptionModeServer
+		}
+		isOpaquePreview := conv.IsNotes || conv.EncryptionMode == encryptionModeE2E
 		if preview.Valid {
-			if conv.IsNotes {
-				// Notes previews are client-side E2E ciphertext: pass the blob
-				// through verbatim so the owning device can decrypt it locally.
+			if isOpaquePreview {
+				// Opaque client ciphertext: pass the blob through verbatim so
+				// the owning device can decrypt it locally.
 				conv.LastMessagePreview = &preview.String
 			} else {
 				// Try per-conversation key first, fall back to master key. If decryption
@@ -390,12 +399,16 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 			return
 		}
 		publishPool.Go(func() {
+			payload := map[string]interface{}{
+				"conversation_id": conversationID,
+				"user_id":         claims.UserID,
+			}
+			if memberIDs := h.listConversationMemberIDs(conversationID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-				Type: "member_left",
-				Payload: map[string]interface{}{
-					"conversation_id": conversationID,
-					"user_id":         claims.UserID,
-				},
+				Type:    "member_left",
+				Payload: payload,
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}
@@ -691,12 +704,16 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 			return
 		}
 		publishPool.Go(func() {
+			payload := map[string]interface{}{
+				"conversation_id": groupID,
+				"event":           "group_updated",
+			}
+			if memberIDs := h.listConversationMemberIDs(groupID); len(memberIDs) > 0 {
+				payload["recipient_ids"] = memberIDs
+			}
 			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
-				Type: "group_updated",
-				Payload: map[string]interface{}{
-					"conversation_id": groupID,
-					"event":           "group_updated",
-				},
+				Type:    "group_updated",
+				Payload: payload,
 			}); err != nil {
 				// Persistence already succeeded; realtime delivery is best effort.
 			}

@@ -30,6 +30,11 @@ vi.mock("@/services/messengerApi", () => ({
     updateNotesMeta: vi.fn(),
     getReceipts: vi.fn(),
     getUnreadCount: vi.fn(),
+    getUserKeys: vi.fn().mockResolvedValue([]),
+    listMyKeys: vi.fn().mockResolvedValue([]),
+    putDeviceKey: vi.fn(),
+    deleteDeviceKey: vi.fn(),
+    updateEncryptionMode: vi.fn(),
   },
 }));
 
@@ -1245,6 +1250,149 @@ describe("messengerStore", () => {
 
       const c = useMessengerStore.getState().conversations[0];
       expect(c.last_message_preview).toBe("Привет как дела");
+    });
+
+    it("applyReadReceiptEvent updates other_last_read_at and open chat receipts in O(1) without network fetch", () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", other_last_read_at: null })],
+        messages: [
+          mockMsg({ id: "m1", sender_user_id: "u1", sent_at: "2025-06-01T12:00:00Z" }),
+          mockMsg({ id: "m2", sender_user_id: "u1", sent_at: "2025-06-01T12:01:00Z" }),
+          mockMsg({ id: "m3", sender_user_id: "u1", sent_at: "2025-06-01T12:02:00Z" }),
+        ],
+      });
+
+      useMessengerStore.getState().applyReadReceiptEvent({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "m2",
+        read_at: "2025-06-01T12:01:30Z",
+      });
+
+      const conv = useMessengerStore.getState().conversations[0];
+      expect(conv.other_last_read_at).toBe("2025-06-01T12:01:30Z");
+
+      const receipts = useMessengerStore.getState().receipts.get("conv-1") ?? [];
+      const readMsgIds = receipts.filter((r) => r.read_at != null).map((r) => r.message_id);
+      expect(readMsgIds).toContain("m1");
+      expect(readMsgIds).toContain("m2");
+      expect(readMsgIds).not.toContain("m3");
+      expect(messengerApi.getReceipts).not.toHaveBeenCalled();
+    });
+
+    it("applyDeliveryReceiptEvent updates other_last_delivered_at in O(1) without network fetch", () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", other_last_delivered_at: null })],
+        messages: [
+          mockMsg({ id: "m1", sender_user_id: "u1", sent_at: "2025-06-01T12:00:00Z" }),
+          mockMsg({ id: "m2", sender_user_id: "u1", sent_at: "2025-06-01T12:01:00Z" }),
+        ],
+      });
+
+      useMessengerStore.getState().applyDeliveryReceiptEvent({
+        conversation_id: "conv-1",
+        user_id: "u2",
+        message_id: "m1",
+        delivered_at: "2025-06-01T12:00:30Z",
+      });
+
+      const conv = useMessengerStore.getState().conversations[0];
+      expect(conv.other_last_delivered_at).toBe("2025-06-01T12:00:30Z");
+      const receipts = useMessengerStore.getState().receipts.get("conv-1") ?? [];
+      expect(receipts.find((r) => r.message_id === "m1")?.delivered_at).toBe("2025-06-01T12:00:30Z");
+      expect(receipts.find((r) => r.message_id === "m2")?.delivered_at ?? null).toBeNull();
+      expect(messengerApi.getReceipts).not.toHaveBeenCalled();
+    });
+
+    it("applyConversationUpdatedEvent refetches the list on an encryption mode switch", async () => {
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([mockConv({ id: "conv-1", encryption_mode: "e2e" })]);
+      useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1", encryption_mode: "server" })] });
+
+      useMessengerStore.getState().applyConversationUpdatedEvent({ conversation_id: "conv-1", encryption_mode: "e2e" });
+      await vi.waitFor(() => expect(useMessengerStore.getState().conversations[0].encryption_mode).toBe("e2e"));
+
+      expect(messengerApi.listConversations).toHaveBeenCalled();
+    });
+  });
+
+  describe("e2e 1:1 conversations", () => {
+    function e2eConv(): ConversationView {
+      return mockConv({ id: "e2e-1", other_user_id: "u2", other_username: "alice", encryption_mode: "e2e" });
+    }
+
+    async function mintPeerKey(): Promise<{ mine: JsonWebKey; peer: JsonWebKey }> {
+      const { ensureE2EDevice, getE2EDevicePublicJwk } = await import("@/utils/messengerCrypto");
+      const mine = (await ensureE2EDevice())!.publicJwk;
+      const storedMine = localStorage.getItem("gomo6:e2e:device:v1");
+      localStorage.clear();
+      const peer = (await ensureE2EDevice())!.publicJwk;
+      localStorage.setItem("gomo6:e2e:device:v1", storedMine!);
+      void getE2EDevicePublicJwk;
+      return { mine, peer };
+    }
+
+    it("decrypts e2e messages on load via the key directory", async () => {
+      const { encryptE2EMessage } = await import("@/utils/messengerCrypto");
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+      const wire = await encryptE2EMessage("секрет e2e", peer, "e2e-1", "u2");
+
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([mockMsg({ id: "e1", conversation_id: "e2e-1", sender_user_id: "u2", content: wire })]);
+
+      await useMessengerStore.getState().loadMessages("e2e-1");
+
+      expect(useMessengerStore.getState().messages[0].content).toBe("секрет e2e");
+      expect(messengerApi.getUserKeys).toHaveBeenCalledWith("u2");
+    });
+
+    it("shows the locked placeholder when the peer key is unknown", async () => {
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([]);
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "e1", conversation_id: "e2e-1", sender_user_id: "u2", content: "e2e1:p256-aesgcm:QUJD" }),
+      ]);
+
+      await useMessengerStore.getState().loadMessages("e2e-1");
+
+      expect(useMessengerStore.getState().messages[0].content).toContain("🔒");
+    });
+
+    it("encrypts outgoing messages with the shared ECDH key, never sending plaintext", async () => {
+      const { peer } = await mintPeerKey();
+      vi.mocked(messengerApi.getUserKeys).mockResolvedValue([
+        { user_id: "u2", device_id: "d", public_key: JSON.stringify(peer), alg: "p256-aesgcm", updated_at: "2025-01-01T00:00:00Z" },
+      ]);
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "e2e-1",
+        conversations: [e2eConv()],
+      });
+      vi.mocked(messengerApi.sendMessage).mockImplementation(
+        async (_convId, content, clientId) => mockMsg({ id: "srv-1", conversation_id: "e2e-1", sender_user_id: "u1", client_id: clientId, content }),
+      );
+
+      const msgId = await useMessengerStore.getState().sendMessage("тайна", "client-e2e-1");
+
+      expect(msgId).toBe("srv-1");
+      const wire = vi.mocked(messengerApi.sendMessage).mock.calls[0]![1];
+      expect(wire.startsWith("e2e1:")).toBe(true);
+      expect(wire.includes("тайна")).toBe(false);
+      expect(useMessengerStore.getState().messages[0].content).toBe("тайна");
     });
   });
 
