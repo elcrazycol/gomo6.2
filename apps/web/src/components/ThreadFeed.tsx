@@ -85,7 +85,7 @@ interface ThreadFeedProps {
 }
 
 const PULL_THRESHOLD = 60;
-const INITIAL_CASCADE_LIMIT = 6;
+const INITIAL_CASCADE_LIMIT = 3;
 
 /**
  * Unified personalized feed (threads + wall posts).

@@ -184,20 +184,18 @@ export const streamRowVariants = (index: number): Variants => {
   };
 };
 
-/** Card landing in streams: lift + fade + a breath of scale, all on short expo
- *  tweens. The look of the old spring cascade, but deterministic: no spring
- *  tail, no per-card physics — the re-raster window is ~0.2s per card and the
- *  cascade only plays on cold start (cached pages paint instantly). */
+/** Card landing in streams: lift + fade on short expo tweens. Deliberately no
+ *  scale — scaling a full card re-rasters its text and photos every frame,
+ *  which is exactly the visible stutter. The cascade covers only the first
+ *  three cards and plays once per mount. */
 export const STREAM_ITEM_VARIANTS: Variants = {
-  hidden: { opacity: 0, y: SPATIAL_OFFSET.row, scale: 0.98 },
+  hidden: { opacity: 0, y: 20 },
   show: {
     opacity: 1,
     y: 0,
-    scale: 1,
     transition: {
-      y: { duration: 0.22, ease: EASE_OUT_EXPO },
+      y: { duration: 0.25, ease: EASE_OUT_EXPO },
       opacity: { duration: 0.16, ease: EASE_OUT_EXPO },
-      scale: { duration: 0.22, ease: EASE_OUT_EXPO },
     },
   },
 };

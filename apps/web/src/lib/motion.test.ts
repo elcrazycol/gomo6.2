@@ -38,23 +38,19 @@ describe("shared stream choreography", () => {
     });
   });
 
-  it("lands stream rows with lift, fade and a breath of scale on expo tweens", () => {
+  it("lands stream rows with lift and fade on expo tweens, no scale", () => {
     expect(STREAM_CASCADE_VARIANTS.show).toEqual({
       transition: { staggerChildren: 0.055, delayChildren: 0.02 },
     });
     expect(STREAM_ITEM_VARIANTS.hidden).toEqual({
       opacity: 0,
-      y: 14,
-      scale: 0.98,
+      y: 20,
     });
     expect(STREAM_ITEM_VARIANTS.show).toMatchObject({
       opacity: 1,
       y: 0,
-      scale: 1,
     });
-    const transition = (STREAM_ITEM_VARIANTS.show as { transition: Record<string, unknown> }).transition;
-    expect(transition?.y).toMatchObject({ duration: 0.22 });
-    expect(transition?.scale).toMatchObject({ duration: 0.22 });
+    expect(STREAM_ITEM_VARIANTS.show).not.toHaveProperty("scale");
   });
 });
 
