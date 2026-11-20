@@ -498,8 +498,11 @@ export const ThreadFeed = ({
     return <ThreadFeedSkeleton />;
   }
 
+  // The cascade is the app's signature: it plays on every feed mount,
+  // cached or cold. Tweens are short and deterministic, rows are memoized,
+  // so the replay costs one quick pass instead of a spring pile-up.
   const runInitialCascade =
-    initialPageReady && !cachedPage && animateEntrance && !prefersReducedMotion;
+    initialPageReady && animateEntrance && !prefersReducedMotion;
 
   return (
     <>
