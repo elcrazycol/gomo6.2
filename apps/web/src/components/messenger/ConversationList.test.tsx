@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConversationList } from "./ConversationList";
@@ -20,11 +20,13 @@ vi.mock("@/utils/storage", () => ({
 // ─── Mock zustand store ──────────────────────────────────────────────────────
 
 const mockSelectConversation = vi.fn();
+const mockPrefetchConversation = vi.fn().mockResolvedValue(undefined);
 const mockSetError = vi.fn();
 const mockStore = {
   conversations: [] as any[],
   selectedConversationId: null as string | null,
   selectConversation: mockSelectConversation,
+  prefetchConversation: mockPrefetchConversation,
   error: null as string | null,
   setError: mockSetError,
   isInitialLoading: false,
@@ -63,6 +65,16 @@ function mockConversation(overrides: Record<string, unknown> = {}) {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("ConversationList", () => {
+  it("warms a chat on hover so opening it needs no skeleton frame", () => {
+    mockStore.conversations = [mockConversation({ id: "conv-7" })];
+    render(<ConversationList />);
+
+    const row = screen.getByRole("button", { name: /alice/i });
+    fireEvent.pointerEnter(row);
+
+    expect(mockPrefetchConversation).toHaveBeenCalledWith("conv-7");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.conversations = [];

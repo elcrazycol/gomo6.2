@@ -63,9 +63,9 @@ export function UserInfoPanel({
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/v1/gift_catalog")
-      .then((r) => r.json())
-      .then((res) => setGiftCatalog(res.data || []))
+    apiClient
+      .request<GiftCatalogItem[]>("/api/v1/gift_catalog")
+      .then((res) => setGiftCatalog((res.data ?? []) as GiftCatalogItem[]))
       .catch(() => {});
   }, [open]);
 
@@ -82,12 +82,11 @@ export function UserInfoPanel({
       return;
     }
     const timer = setTimeout(() => {
-      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`, {
-        credentials: "include",
-        headers: apiClient.getToken() ? { Authorization: `Bearer ${apiClient.getToken()}` } : {},
-      })
-        .then((r) => r.json())
-        .then((res) => setAddMemberResults(res.data || []))
+      apiClient
+        .request<Array<{ id: string; username: string; display_name: string | null; avatar_url: string | null }>>(
+          `/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`,
+        )
+        .then((res) => setAddMemberResults((res.data ?? []) as typeof addMemberResults))
         .catch(() => setAddMemberResults([]));
     }, 300);
     return () => clearTimeout(timer);
@@ -120,17 +119,8 @@ export function UserInfoPanel({
     if (!selectedGift || sending) return;
     setSending(true);
     try {
-      const { api } = await import("@/integrations/api/compat");
-      const session = await api.auth.getSession();
-      const token = session.data.session?.access_token;
-      if (!token) return;
-
-      const res = await fetch("/api/v1/gifts/send", {
+      await apiClient.request("/api/v1/gifts/send", {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({
           gift_id: selectedGift.id,
           recipient_id: userId,
@@ -139,22 +129,16 @@ export function UserInfoPanel({
         }),
       });
 
-      const result = await res.json();
-      if (!res.ok || !result.success) {
-        const { toast } = await import("sonner");
-        toast.error(result.error || "Не удалось отправить подарок");
-        return;
-      }
-
       const { toast } = await import("sonner");
       toast.success(`Подарок «${selectedGift.name}» отправлен!`);
       setMessage("");
       setIsAnonymous(false);
       setShowSendDialog(false);
       setSelectedGift(null);
-    } catch {
+    } catch (error) {
       const { toast } = await import("sonner");
-      toast.error("Ошибка отправки подарка");
+      // The client surfaces the server's message (e.g. "insufficient funds").
+      toast.error(error instanceof Error && error.message ? error.message : "Не удалось отправить подарок");
     } finally {
       setSending(false);
     }

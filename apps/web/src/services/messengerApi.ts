@@ -164,6 +164,14 @@ export const messengerApi = {
     return req<MessageView[]>(`/conversations/${conversationId}/messages${query ? `?${query}` : ""}`);
   },
 
+  /** Returns specific messages of a conversation (bounded by the server to 50).
+   *  Used by the notes pinned strip, whose items may live beyond the first page. */
+  async getMessagesByIds(conversationId: string, ids: string[]): Promise<MessageView[]> {
+    if (ids.length === 0) return [];
+    const params = new URLSearchParams({ ids: ids.join(",") });
+    return req<MessageView[]>(`/conversations/${conversationId}/messages?${params.toString()}`);
+  },
+
   /** Stores the client-encrypted pin/folder/tags blob for a note (verbatim). */
   async updateNotesMeta(conversationId: string, messageId: string, meta: string): Promise<{ updated: boolean }> {
     return req(`/conversations/${conversationId}/messages/${messageId}/notes-meta`, {

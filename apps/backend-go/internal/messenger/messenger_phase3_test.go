@@ -2,6 +2,7 @@ package messenger
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -684,5 +685,87 @@ func TestEditMessage_BlockedPairForbidden(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for a blocked pair, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Specific-message mode (notes pinned strip) ────────────────────────────
+
+func TestGetMessages_ByIDs(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewGETContextWithParams(
+		"/api/v1/messenger/conversations/"+testConv1+"/messages?ids="+testMsg1+","+testMsg2,
+		nil, map[string]string{"id": testConv1},
+	)
+	c.Set("claims", claims)
+
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
+	now := time.Now()
+	mock.ExpectQuery(`FROM chat_messages m.*WHERE m.conversation_id = \$1 AND m.id = ANY\(\$2::uuid\[\]\)`).
+		WithArgs(testConv1, pq.Array([]string{testMsg1, testMsg2})).
+		WillReturnRows(sqlmock.NewRows(messageRowColumns).
+			AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "one", "text", nil, 0, nil, false, false, nil, now, "c1").
+			AddRow(int64(2), testMsg2, testConv1, testUser2, "bob", nil, "two", "text", nil, 0, nil, false, false, nil, now, "c2"))
+	expectMessageExtras(mock, pq.Array([]string{testMsg1, testMsg2}))
+
+	handler.GetMessages(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(data) != 2 {
+		t.Fatalf("expected both requested messages, got %v", data)
+	}
+	first, _ := data[0].(map[string]interface{})
+	second, _ := data[1].(map[string]interface{})
+	if first["id"] != testMsg1 || second["id"] != testMsg2 {
+		t.Fatalf("expected chronological order of the requested ids, got %v", data)
+	}
+}
+
+func TestGetMessages_ByIDsRejectsInvalid(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := testutil.NewGETContextWithParams(
+		"/api/v1/messenger/conversations/"+testConv1+"/messages?ids=not-a-uuid",
+		nil, map[string]string{"id": testConv1},
+	)
+	c.Set("claims", claims)
+
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
+
+	handler.GetMessages(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a non-uuid id, got %d", w.Code)
+	}
+}
+
+func TestGetMessages_ByIDsRejectsTooMany(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	ids := make([]string, 51)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("00000000-0000-0000-0000-%012d", i)
+	}
+	c, w := testutil.NewGETContextWithParams(
+		"/api/v1/messenger/conversations/"+testConv1+"/messages?ids="+strings.Join(ids, ","),
+		nil, map[string]string{"id": testConv1},
+	)
+	c.Set("claims", claims)
+
+	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
+
+	handler.GetMessages(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 above the id cap, got %d", w.Code)
 	}
 }

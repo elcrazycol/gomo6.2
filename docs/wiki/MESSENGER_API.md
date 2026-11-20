@@ -88,6 +88,18 @@ A block never deletes history on either side and never tells the blocked user
 that it happened (the send simply fails with a generic reason). Read paths
 (history, receipts) stay available, as in Telegram.
 
+`ids=` exists for the notes pinned strip: pins live in client-encrypted metadata,
+so the server cannot list them, and the device asks for the handful of ids it
+knows instead of walking the whole history page by page.
+
+**Client reading model.** The messenger opens a chat on one page (the notes
+self-chat included) and paginates with `before`. The last five opened chats are
+kept decrypted in an in-memory LRU, so switching back paints the messages in the
+same frame while the network refresh runs; hovering a row warms that LRU from
+IndexedDB without a request. Message timestamps are laid out by an invisible
+inline twin of the pill (reserving its exact width during normal line breaking),
+not by measuring the DOM.
+
 **Membership is explicit.** Every messenger handler asks
 `chat_members` whether the caller belongs to the conversation instead of relying
 on row-level security: the deployment connects with a superuser role in the

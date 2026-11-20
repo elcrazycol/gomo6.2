@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
+import { memo, useCallback, useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck, Clock } from "lucide-react";
@@ -106,8 +106,6 @@ export const MessageBubble = memo(function MessageBubble({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const [isLongPressing, setIsLongPressing] = useState(false);
-  const [isCompact, setIsCompact] = useState(false);
-  const [hasMeasuredLines, setHasMeasuredLines] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const messageBubbleRef = useRef<HTMLDivElement | null>(null);
   const rowInnerRef = useRef<HTMLDivElement | null>(null);
@@ -480,11 +478,9 @@ export const MessageBubble = memo(function MessageBubble({
     && hasVisualAttachments
     && message.attachments?.every((attachment) => attachment.type === "image" || attachment.type === "video");
 
-  // Measure the actual rendered line count so every one-line message gets the
-  // compact inline timestamp, regardless of its character length.
   // A shared post (__SHARE__) renders a full-height card instead of text: line
   // measurement does not apply, and the card reserves its own meta space, so
-  // skip the whole compact/multiline path for it.
+  // skip the whole inline-meta path for it.
   const isShareMessage = message.type === "share" || (message.content?.startsWith("__SHARE__") ?? false);
   const canUseInlineMeta = !isVoiceBubble
     && !isMediaBubble
@@ -492,61 +488,31 @@ export const MessageBubble = memo(function MessageBubble({
     && !message.attachments?.length
     && message.localStatus !== "failed";
 
-  useLayoutEffect(() => {
-    const bubble = messageBubbleRef.current;
-    if (!bubble || !canUseInlineMeta) {
-      setIsCompact(false);
-      setHasMeasuredLines(false);
-      return;
-    }
-
-    // Plain-text messages render a `.message-content-text` <p>; emoji / rich-text
-    // messages render a `.message-content-stack` <div>. Both carry the shared
-    // `.message-content` class, so measuring that one class covers every
-    // single-line case and keeps the time/status pill from overlapping the
-    // last emoji (or link) the way it used to.
-    const content = bubble.querySelector<HTMLElement>(".message-content");
-    if (!content) {
-      setIsCompact(false);
-      setHasMeasuredLines(false);
-      return;
-    }
-
-    const measureLines = () => {
-      // Measure the text without the metadata/spacer affecting its wrapping.
-      bubble.classList.add("is-measuring");
-      void bubble.offsetWidth;
-      const range = document.createRange();
-
-      try {
-        range.selectNodeContents(content);
-        if (typeof range.getClientRects !== "function") {
-          // JSDOM has no layout engine; keep the safe multiline layout there.
-          setIsCompact((previous) => previous ? false : previous);
-          setHasMeasuredLines((previous) => previous ? previous : true);
-          return;
-        }
-
-        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
-        const lineTops = new Set(rects.map((rect) => Math.round(rect.top)));
-        const nextIsCompact = rects.length > 0 && lineTops.size <= 1;
-        setIsCompact((previous) => previous === nextIsCompact ? previous : nextIsCompact);
-        setHasMeasuredLines((previous) => previous ? previous : true);
-      } finally {
-        range.detach?.();
-        bubble.classList.remove("is-measuring");
-      }
-    };
-
-    measureLines();
-    const resizeObserver = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(measureLines)
-      : null;
-    resizeObserver?.observe(bubble);
-    resizeObserver?.observe(content);
-
-    return () => resizeObserver?.disconnect();
-  }, [canUseInlineMeta, message.content, message.attachments?.length, message.is_edited, peerReadAt, peerDeliveredAt, isMine]);
+  // Telegram Web's layout trick, with zero DOM reads: the timestamp/status pill
+  // is rendered TWICE — once invisible, inline at the end of the text, where
+  // the browser's own line breaking reserves exactly its width; and once
+  // visible, absolutely positioned at the bubble's bottom-right. The text can
+  // never run under the pill, and nothing is measured: no forced reflow
+  // (`offsetWidth`), no Range.getClientRects, no per-bubble ResizeObserver and
+  // no second layout pass after mount.
+  const metaChildren = (
+    <>
+      {/* Telegram's media-unread dot: an incoming voice note nobody has
+          listened to yet. It disappears on the first playback. */}
+      {voiceUnheard && (
+        <span
+          className="message-unheard-dot"
+          role="img"
+          aria-label={isMine ? "Собеседник ещё не прослушал" : "Не прослушано"}
+        />
+      )}
+      <span className="message-time">{formatTime(message.sent_at)}</span>
+      {message.is_edited && <span className="edited-label">изм.</span>}
+      {isMine && (
+        <span className="message-status">{getStatusIcon()}</span>
+      )}
+    </>
+  );
 
   // The floated action layer renders into the same chat surface the blur
   // lives on; both refs are guaranteed set by the time a user gesture opens
@@ -599,7 +565,7 @@ export const MessageBubble = memo(function MessageBubble({
             in the overlay below. */}
         <div
           ref={messageBubbleRef}
-          className={`message-bubble${isMine ? " is-mine" : ""}${isVoiceBubble ? " is-voice-bubble" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isShareMessage ? " is-share-bubble" : ""}${isCompact ? " is-compact" : ""}${hasMeasuredLines && !isCompact && !isMediaBubble ? " is-multiline" : ""}${menuOpen ? " is-menu-hidden" : ""}`}
+          className={`message-bubble${isMine ? " is-mine" : ""}${isVoiceBubble ? " is-voice-bubble" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isShareMessage ? " is-share-bubble" : ""}${menuOpen ? " is-menu-hidden" : ""}`}
           data-message-id={message.id}
           onContextMenu={(e) => { e.preventDefault(); openMenu(); }}
         >
@@ -654,24 +620,14 @@ export const MessageBubble = memo(function MessageBubble({
             hasQuotedMessage={Boolean(quotedMessage)}
             isMine={isMine}
             onVoiceListen={onVoiceListen}
+            trailingMeta={canUseInlineMeta ? (
+              <span className="message-meta-reserve" aria-hidden="true">
+                {metaChildren}
+              </span>
+            ) : undefined}
           />
 
-          <div className="message-meta">
-            {/* Telegram's media-unread dot: an incoming voice note nobody has
-                listened to yet. It disappears on the first playback. */}
-            {voiceUnheard && (
-              <span
-                className="message-unheard-dot"
-                role="img"
-                aria-label={isMine ? "Собеседник ещё не прослушал" : "Не прослушано"}
-              />
-            )}
-            <span className="message-time">{formatTime(message.sent_at)}</span>
-            {message.is_edited && <span className="edited-label">изм.</span>}
-            {isMine && (
-              <span className="message-status">{getStatusIcon()}</span>
-            )}
-          </div>
+          <div className="message-meta">{metaChildren}</div>
 
           {floatingEmoji && (
             <span className="reaction-float" key={floatingEmoji} aria-hidden="true">

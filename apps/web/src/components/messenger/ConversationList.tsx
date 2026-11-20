@@ -37,6 +37,7 @@ const ConversationCard = memo(function ConversationCard({
 }) {
   const language = useLanguageStore((state) => state.language);
   void language;
+  const prefetchConversation = useMessengerStore((s) => s.prefetchConversation);
   const isOnline = !conversation.is_group && conversation.other_is_online;
   const unread = conversation.unread_count ?? 0;
   const lastMessageIsMine = Boolean(myUserId && conversation.last_message_sender_id === myUserId);
@@ -57,6 +58,10 @@ const ConversationCard = memo(function ConversationCard({
       type="button"
       className={`conversation-card${isSelected ? " is-active" : ""}${unread > 0 ? " has-unread" : ""}`}
       onClick={onSelect}
+      // Warm the last snapshot of this chat while the pointer travels to it, so
+      // the click can paint the messages in the same frame (no skeleton).
+      onPointerEnter={() => { if (!isSelected) void prefetchConversation(conversation.id); }}
+      onFocus={() => { if (!isSelected) void prefetchConversation(conversation.id); }}
       title={isCollapsed ? (conversation.is_group ? conversation.group_name || "Группа" : conversation.other_username || "Диалог") : undefined}
       aria-label={isCollapsed ? (conversation.is_group ? conversation.group_name || "Группа" : conversation.other_username || "Диалог") : undefined}
     >

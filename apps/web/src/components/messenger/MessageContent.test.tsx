@@ -144,3 +144,27 @@ describe('MessageContent media mosaic', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });
+
+describe("GiftDetailDialog", () => {
+  it("reads the gift through the shared API client, not a raw fetch", async () => {
+    const { apiClient } = await import("@/integrations/api/client");
+    const requestSpy = vi.spyOn(apiClient, "request").mockResolvedValue({
+      success: true,
+      data: [],
+    } as never);
+    const { GiftDetailDialog } = await import("./MessageContent");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <GiftDetailDialog giftId="gift-1" recipientId="user-2" open onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(requestSpy).toHaveBeenCalledWith("/api/v1/user_gifts?recipient_id=eq.user-2&limit=50"),
+    );
+    requestSpy.mockRestore();
+  });
+});

@@ -63,6 +63,156 @@ export function __resetConversationCacheForTests(): void {
   conversationsInFlight = null;
   conversationsLoadedAt = 0;
 }
+
+// ─── Recent chats (in-memory LRU) ───────────────────────────────────────────
+// Telegram opens a chat with the messages already on screen. IndexedDB alone
+// cannot do that: even a warm read is asynchronous, so the first frame would
+// paint a skeleton. This small LRU keeps the last few opened chats' *decrypted*
+// message arrays in memory, so switching back to a recent chat is synchronous —
+// zero frames of skeleton, no flicker. The network refresh still runs and stays
+// authoritative; the LRU is only the first paint.
+const RECENT_CHAT_LIMIT = 5;
+const recentMessages = new Map<string, MessageView[]>();
+// A chat whose cache was already read once does not need another IndexedDB
+// round trip on every hover. Opening the chat fills the LRU itself.
+const prefetchAttempted = new Set<string>();
+
+function recentKey(ownerId: string | null, conversationId: string): string {
+  return `${ownerId ?? "anon"}:${conversationId}`;
+}
+
+function rememberRecentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
+  if (!ownerId || !conversationId || messages.length === 0) return;
+  const key = recentKey(ownerId, conversationId);
+  // Re-insert to refresh LRU order.
+  recentMessages.delete(key);
+  recentMessages.set(key, messages);
+  while (recentMessages.size > RECENT_CHAT_LIMIT) {
+    const oldest = recentMessages.keys().next().value;
+    if (oldest === undefined) break;
+    recentMessages.delete(oldest);
+  }
+}
+
+function readRecentMessages(ownerId: string | null, conversationId: string): MessageView[] | null {
+  if (!ownerId || !conversationId) return null;
+  const key = recentKey(ownerId, conversationId);
+  const hit = recentMessages.get(key);
+  if (!hit) return null;
+  // A read is a use: refresh position so the oldest *unused* chat is evicted.
+  recentMessages.delete(key);
+  recentMessages.set(key, hit);
+  return hit;
+}
+
+/** Test-only reset for the in-memory recent-chat LRU. */
+export function __resetRecentMessagesForTests(): void {
+  recentMessages.clear();
+  prefetchAttempted.clear();
+}
+
+// ─── Notes indices (device-local) ───────────────────────────────────────────
+// Notes organization is client-side E2E: the server only sees an opaque blob and
+// cannot answer "which notes are pinned". The device keeps its own small id
+// indices, so the pinned strip is rehydrated with ONE bounded by-ids request
+// instead of walking the entire history page by page.
+const NOTES_PINS_KEY = "gomo6:notes-pins:v1";
+const FAVORITE_NOTES_KEY = "gomo6:favorite-notes:v1";
+
+function readPinnedNoteIds(conversationId: string): string[] {
+  try {
+    const raw = localStorage.getItem(NOTES_PINS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Record<string, string[]>;
+    const ids = parsed?.[conversationId];
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedNoteIds(conversationId: string, ids: string[]): void {
+  try {
+    const raw = localStorage.getItem(NOTES_PINS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    if (ids.length > 0) parsed[conversationId] = ids;
+    else delete parsed[conversationId];
+    localStorage.setItem(NOTES_PINS_KEY, JSON.stringify(parsed));
+  } catch {
+    // Storage may be unavailable (private mode): the pin still works in-session.
+  }
+}
+
+function setNotePinnedLocally(conversationId: string, messageId: string, pinned: boolean): void {
+  const ids = readPinnedNoteIds(conversationId);
+  const next = pinned
+    ? (ids.includes(messageId) ? ids : [...ids, messageId])
+    : ids.filter((id) => id !== messageId);
+  if (next.length !== ids.length || pinned) writePinnedNoteIds(conversationId, next);
+}
+
+/** Folds a decrypted page into the pin index: the page's meta is authoritative
+ *  for the notes it contains (a pin toggled on another device is picked up). */
+function syncNotesPinIndex(conversationId: string, messages: MessageView[]): void {
+  if (messages.length === 0) return;
+  const ids = new Set(readPinnedNoteIds(conversationId));
+  let changed = false;
+  for (const message of messages) {
+    if (message.is_deleted) continue;
+    if (message.notesPinned && !ids.has(message.id)) {
+      ids.add(message.id);
+      changed = true;
+    } else if (!message.notesPinned && ids.delete(message.id)) {
+      changed = true;
+    }
+  }
+  if (changed) writePinnedNoteIds(conversationId, [...ids]);
+}
+
+// A favorite's content is hashed rather than stored: the index maps the hash to
+// the note id, so unfavoriting never needs to scan (or decrypt) the history.
+function favoriteContentKey(content: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${content.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function rememberFavoriteNoteId(content: string, messageId: string): void {
+  try {
+    const raw = localStorage.getItem(FAVORITE_NOTES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    parsed[favoriteContentKey(content)] = messageId;
+    localStorage.setItem(FAVORITE_NOTES_KEY, JSON.stringify(parsed));
+  } catch {
+    // Best-effort: the fallback path is the in-memory recent chat.
+  }
+}
+
+function readFavoriteNoteId(content: string): string | null {
+  try {
+    const raw = localStorage.getItem(FAVORITE_NOTES_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed[favoriteContentKey(content)] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetFavoriteNoteId(content: string): void {
+  try {
+    const raw = localStorage.getItem(FAVORITE_NOTES_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    delete parsed[favoriteContentKey(content)];
+    localStorage.setItem(FAVORITE_NOTES_KEY, JSON.stringify(parsed));
+  } catch {
+    // Best-effort.
+  }
+}
 /** The outbox retry loop (one timer, one in-flight flush). */
 let outboxTimer: ReturnType<typeof setTimeout> | null = null;
 let outboxFlushing = false;
@@ -314,6 +464,9 @@ function withOutboxEntries(
 }
 
 function cacheCurrentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
+  // In-memory first: the store already holds decrypted text, and the LRU is
+  // what makes a return to a recent chat synchronous.
+  rememberRecentMessages(ownerId, conversationId, messages);
   // Opaque content (notes, e2e) is device-encrypted: never persist the readable
   // plaintext to the IndexedDB cache — the store is the only place it lives.
   if (messages.length > 0 && !opaqueConversationExists(conversationId)) {
@@ -461,6 +614,9 @@ export function  destroyMessenger(): void {
   latestEventIds.clear();
   localReadThrough.clear();
   pendingOlderPages.clear();
+  // Decrypted message arrays must never outlive the session.
+  recentMessages.clear();
+  prefetchAttempted.clear();
 }
 
 export function queueMarkDelivered(conversationId: string, messageId: string, sentAt?: string): void {
@@ -563,6 +719,9 @@ type MessengerStore = {
   selectedConversationId: string | null;
   openingUnreadCount: number;
   messages: MessageView[];
+  /** Pinned notes that are beyond the loaded page, hydrated by id. The pinned
+   *  strip renders these plus the pinned items already in `messages`. */
+  pinnedNotes: MessageView[];
   receipts: Map<string, ReceiptRow[]>; // conversation_id → receipts
   typingUsers: Record<string, TypingUser>; // user_id → typing info
   onlineUsers: Set<string>;
@@ -584,6 +743,10 @@ type MessengerStore = {
   loadConversations: (opts?: { force?: boolean }) => Promise<ConversationView[]>;
   ensureConversation: (conversationId: string) => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
+  /** Warms the in-memory LRU for a chat the user is about to open (hover/focus
+   *  on a conversation row). Reads IndexedDB, decrypts opaque payloads and
+   *  stops there — no network request until the chat is actually opened. */
+  prefetchConversation: (conversationId: string) => Promise<void>;
   syncMessages: (conversationId: string) => Promise<void>;
   /** Fetches the previous page. With `{ postpone: true }` the page is buffered
    *  instead of inserted — the caller decides when it is safe to show it. */
@@ -615,6 +778,8 @@ type MessengerStore = {
   setNotesMeta: (messageId: string, meta: NotesMeta) => Promise<void>;
   /** Flips the pin flag of a note. */
   toggleNotesPin: (messageId: string) => Promise<void>;
+  /** Rehydrates the notes pinned strip (ids beyond the loaded page). */
+  loadPinnedNotes: (conversationId: string) => Promise<void>;
   /** Mirrors a favorited post/thread into the notes chat as a note. Best-effort
    *  (issue #509); returns the note id, or null on failure. Never disturbs the
    *  currently open chat and never depends on `me` being loaded. */
@@ -654,6 +819,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   selectedConversationId: null,
   openingUnreadCount: 0,
   messages: [],
+  pinnedNotes: [],
   receipts: new Map(),
   typingUsers: {},
   onlineUsers: new Set(),
@@ -776,7 +942,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     pendingOlderPages.delete(conversationId);
     let hasCachedMessages = false;
     const ownerId = get().me?.id ?? null;
-    set({ isMessagesLoading: true, error: null });
+    // A warm chat is already on screen: refreshing it must not replace the
+    // messages with a skeleton even for a frame.
+    const warm = readRecentMessages(ownerId, conversationId);
+    set({ isMessagesLoading: !warm, error: null });
 
     // Render the last local snapshot first. The network request below still
     // runs immediately and remains authoritative when it succeeds.
@@ -798,24 +967,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
 
     try {
-      // Notes are personal-scale: load every message so the pinned section and
-      // folder filters are complete — a pinned note could otherwise sit beyond
-      // the first paginated page. Loop 100-message pages with the `before`
-      // cursor until the server returns an empty page.
-      let raw: MessageView[];
-      if (notesConversationExists(conversationId)) {
-        raw = [];
-        let before: string | undefined;
-        for (let page = 0; page < 200; page += 1) {
-          const pageRaw = await messengerApi.getMessages(conversationId, before, undefined, 100);
-          if (pageRaw.length === 0) break;
-          raw = [...pageRaw, ...raw];
-          if (pageRaw.length < 100) break;
-          before = pageRaw[0].id;
-        }
-      } else {
-        raw = await messengerApi.getMessages(conversationId);
-      }
+      // Notes open exactly like any other chat: one page, then "load more".
+      // The pinned strip is hydrated separately by id (loadPinnedNotes), so
+      // opening notes no longer downloads up to 200 pages of history.
+      const raw = await messengerApi.getMessages(conversationId);
       const rawMsgsNotes = await decryptNotesMessages(conversationId, raw);
       const rawMsgs = await decryptE2EMessages(conversationId, rawMsgsNotes);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
@@ -831,6 +986,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           .filter((entry) => confirmed.has(entry.clientId))
           .forEach((entry) => void deleteOutbox(entry.key));
       }
+      rememberRecentMessages(ownerId, conversationId, msgs);
       set({
         messages: msgs,
         isMessagesLoading: false,
@@ -843,6 +999,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // Cache only what the server confirmed: pending bubbles are re-attached
       // from the outbox on the next load.
       if (!opaqueConversationExists(conversationId)) persistMessages(ownerId, conversationId, rawMsgs);
+      if (notesConversationExists(conversationId)) {
+        syncNotesPinIndex(conversationId, rawMsgs);
+        void get().loadPinnedNotes(conversationId);
+      }
       // Read marking is owned by MessageList's visibility tracking: only the
       // messages actually on screen get a read receipt (each with its own real
       // read_at). Loading a conversation must not auto-read its whole history.
@@ -852,6 +1012,29 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         error: hasCachedMessages ? null : "Не удалось загрузить сообщения",
         isMessagesLoading: false,
       });
+    }
+  },
+
+  // ── Warm a chat before it is opened ───────────────────────────────────
+  // Called on hover/focus of a conversation row. It only reads the local cache
+  // and decrypts opaque payloads, so it costs no network request; by the time
+  // the user taps, selectConversation can seed the message list synchronously.
+  prefetchConversation: async (conversationId) => {
+    if (!conversationId) return;
+    const ownerId = get().me?.id ?? null;
+    if (!ownerId) return;
+    if (readRecentMessages(ownerId, conversationId)) return;
+    const key = recentKey(ownerId, conversationId);
+    if (prefetchAttempted.has(key)) return;
+    prefetchAttempted.add(key);
+    try {
+      const cached = await loadCachedMessages(ownerId, conversationId);
+      if (!cached?.length) return;
+      const decryptedNotes = await decryptNotesMessages(conversationId, cached);
+      const view = await decryptE2EMessages(conversationId, decryptedNotes);
+      rememberRecentMessages(ownerId, conversationId, view);
+    } catch {
+      // A cache miss is never an error: the network path still loads the chat.
     }
   },
 
@@ -867,6 +1050,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       if (delta.length === 0) return;
       set((s) => {
         const messages = mergeMessages(s.messages, delta);
+        cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
         rememberLatestEventId(conversationId, delta);
         cacheCurrentMessages(ownerId, conversationId, messages);
         return { messages };
@@ -1342,10 +1526,15 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const original = get().messages.find((m) => m.id === messageId);
     const originalContent = original?.content ?? content;
 
-    // Optimistic update
-    set((s) => ({
-      messages: s.messages.map((m) => (m.id === messageId ? { ...m, content, is_edited: true, edited_at: new Date().toISOString() } : m)),
-    }));
+    // Optimistic update (and the recent-chat snapshot, so a switch back shows
+    // the edited text rather than the pre-edit one).
+    set((s) => {
+      const messages = s.messages.map((m) =>
+        m.id === messageId ? { ...m, content, is_edited: true, edited_at: new Date().toISOString() } : m,
+      );
+      cacheCurrentMessages(s.me?.id ?? null, selectedConversationId, messages);
+      return { messages };
+    });
 
     try {
       await messengerApi.editMessage(selectedConversationId, messageId, wireContent);
@@ -1378,9 +1567,18 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
     try {
       await messengerApi.deleteMessage(selectedConversationId, messageId);
-      set((s) => ({
-        messages: s.messages.map((m) => (m.id === messageId ? { ...m, is_deleted: true, content: "" } : m)),
-      }));
+      setNotePinnedLocally(selectedConversationId, messageId, false);
+      set((s) => {
+        const messages = s.messages.map((m) =>
+          m.id === messageId ? { ...m, is_deleted: true, content: "" } : m,
+        );
+        // The recent-chat snapshot must not resurrect the content either.
+        cacheCurrentMessages(s.me?.id ?? null, selectedConversationId, messages);
+        return {
+          messages,
+          pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
+        };
+      });
     } catch {
       set({ error: "Не удалось удалить сообщение" });
     }
@@ -1534,15 +1732,20 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       set((s) => ({
         messages: s.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
       }));
+    const conversationId = selectedConversationId;
     // Optimistic update — the notes chat feels instant.
     apply({
       notesPinned: normalized.pinned,
       notesFolder: normalized.folder,
       notesTags: normalized.tags,
     });
+    setNotePinnedLocally(conversationId, messageId, normalized.pinned);
+    if (!normalized.pinned) {
+      set((s) => ({ pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId) }));
+    }
     try {
-      const wire = await encryptNotesMeta(normalized, selectedConversationId);
-      await messengerApi.updateNotesMeta(selectedConversationId, messageId, wire);
+      const wire = await encryptNotesMeta(normalized, conversationId);
+      await messengerApi.updateNotesMeta(conversationId, messageId, wire);
     } catch {
       // Revert on failure so the UI never shows state the server lacks.
       apply({
@@ -1550,6 +1753,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         notesFolder: original.notesFolder ?? null,
         notesTags: original.notesTags ?? [],
       });
+      setNotePinnedLocally(conversationId, messageId, Boolean(original.notesPinned));
       set({ error: "Не удалось сохранить настройки заметки" });
     }
   },
@@ -1562,6 +1766,46 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       folder: message.notesFolder ?? null,
       tags: message.notesTags ?? [],
     });
+  },
+
+  // ── Notes pinned strip ────────────────────────────────────────────────
+  // Pins live in the client-encrypted meta, so the server cannot list them. The
+  // device keeps the ids; this hydrates the ones beyond the loaded page with a
+  // single bounded request. Deleted/unpinned notes are pruned from the index.
+  loadPinnedNotes: async (conversationId) => {
+    const ids = readPinnedNoteIds(conversationId);
+    if (ids.length === 0) {
+      set({ pinnedNotes: [] });
+      return;
+    }
+
+    const loadedPinned = new Set(
+      get().selectedConversationId === conversationId
+        ? get().messages.filter((m) => m.notesPinned && !m.is_deleted).map((m) => m.id)
+        : [],
+    );
+    const missing = ids.filter((id) => !loadedPinned.has(id));
+    if (missing.length === 0) {
+      set({ pinnedNotes: [] });
+      return;
+    }
+
+    try {
+      const raw = await messengerApi.getMessagesByIds(conversationId, missing.slice(0, 50));
+      const decrypted = await decryptNotesMessages(conversationId, raw);
+      const view = decrypted.filter((m) => m.notesPinned && !m.is_deleted);
+      // A pinned id the server no longer returns (or that reports pinned=false)
+      // is stale — drop it from the device index for good.
+      const fresh = new Set(view.map((m) => m.id));
+      writePinnedNoteIds(
+        conversationId,
+        ids.filter((id) => !missing.includes(id) || fresh.has(id)),
+      );
+      if (get().selectedConversationId !== conversationId) return;
+      set({ pinnedNotes: view });
+    } catch {
+      // Best-effort: the strip simply shows the pins already in the page.
+    }
   },
 
   // ── Favorite → notes mirror (issue #509) ──────────────────────────────
@@ -1594,6 +1838,9 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         // Note created without organization meta — leave it visible.
       }
 
+      // Hash → id, so a later unfavorite is O(1) instead of a 200-page scan.
+      rememberFavoriteNoteId(content, msg.id);
+      if (meta.pinned) setNotePinnedLocally(convId, msg.id, true);
       set((s) => {
         // Only ever touch the OPEN conversation's list — never leak the note
         // into a different chat that happens to be selected.
@@ -1636,33 +1883,29 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         if (hit) messageId = hit.id;
       }
 
-      // Slow path: page through the notes conversation, decrypting as we go.
+      // O(1) path: the device remembered which note mirrored this favorite.
+      if (!messageId) messageId = readFavoriteNoteId(content);
+      // Fallback: a recently opened notes chat is already decrypted in memory.
+      // Neither path walks history — the old one paged up to 200 times.
       if (!messageId) {
-        let before: string | undefined;
-        for (let page = 0; page < 200; page += 1) {
-          const pageRaw = await messengerApi.getMessages(convId, before, undefined, 100);
-          if (pageRaw.length === 0) break;
-          for (const raw of pageRaw) {
-            if (raw.is_deleted) continue;
-            if ((await decryptNote(raw.content, convId)) === content) {
-              messageId = raw.id;
-              break;
-            }
-          }
-          if (messageId) break;
-          if (pageRaw.length < 100) break;
-          before = pageRaw[0].id;
-        }
+        const recent = readRecentMessages(get().me?.id ?? null, convId);
+        const hit = recent?.find((m) => !m.is_deleted && m.content === content);
+        if (hit) messageId = hit.id;
       }
       if (!messageId) return;
 
       await messengerApi.deleteMessage(convId, messageId);
+      forgetFavoriteNoteId(content);
+      setNotePinnedLocally(convId, messageId, false);
       set((s) => {
         if (s.selectedConversationId !== convId) return s;
+        const messages = s.messages.map((m) =>
+          m.id === messageId ? { ...m, is_deleted: true, content: "" } : m,
+        );
+        cacheCurrentMessages(s.me?.id ?? null, convId, messages);
         return {
-          messages: s.messages.map((m) =>
-            m.id === messageId ? { ...m, is_deleted: true, content: "" } : m,
-          ),
+          messages,
+          pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
         };
       });
     } catch {
@@ -1834,13 +2077,17 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const openingUnreadCount = id
       ? get().conversations.find((conversation) => conversation.id === id)?.unread_count ?? 0
       : 0;
+    // Recent chats paint in this very commit: no skeleton, no empty frame.
+    // The network refresh below stays authoritative and replaces this snapshot.
+    const warm = id ? readRecentMessages(get().me?.id ?? null, id) : null;
     set({
       selectedConversationId: id,
       openingUnreadCount,
-      messages: [],
+      messages: warm ?? [],
+      pinnedNotes: [],
       hasMoreMessages: true,
       isLoadingMore: false,
-      isMessagesLoading: !!id,
+      isMessagesLoading: !warm && !!id,
       conversations: get().conversations.map((conversation) =>
         conversation.id === id ? { ...conversation, unread_count: 0 } : conversation,
       ),

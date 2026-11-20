@@ -22,6 +22,7 @@ import (
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/lib/pq"
 )
 
 // ─── Get Messages ───────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ import (
 // @Param        limit  query int    false "Max results (1-100)" default(50)
 // @Param        before query string false "Cursor: get messages before this message ID"
 // @Param        since_event_id query string false "Decimal BIGINT cursor; return messages after this monotonic event cursor"
+// @Param        ids query string false "Comma-separated message IDs (max 50): return exactly those messages, chronological"
 // @Success      200 {object} models.APIResponse
 // @Failure      403 {object} models.APIResponse
 // @Router       /messenger/conversations/{id}/messages [get]
@@ -56,6 +58,25 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	// Membership + conversation kind + encryption mode in one round trip.
 	access := h.requireMember(c, conversationID, claims.UserID)
 	if access == nil {
+		return
+	}
+
+	// Specific-message mode (notes pinned strip): a bounded id list instead of
+	// a cursor page. It deliberately ignores the cursors.
+	if idsRaw := c.Query("ids"); idsRaw != "" {
+		ids, valid := parseMessageIDs(idsRaw)
+		if !valid {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid ids"))
+			return
+		}
+		messages, byIDsOK := h.fetchMessagesByIDs(c, conversationID, access.IsNotes, access.IsE2E(), ids)
+		if !byIDsOK {
+			return
+		}
+		if messages == nil {
+			messages = []MessageResponse{}
+		}
+		c.JSON(http.StatusOK, models.SuccessResponse(messages))
 		return
 	}
 
@@ -180,35 +201,8 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 		return nil, false
 	}
 
-	// Attachments, reaction chips and voice-listened marks arrive in ONE query:
-	// a page costs three round trips in total (access, page, extras) instead of
-	// the previous seven.
-	if len(messages) > 0 {
-		ids := make([]string, len(messages))
-		for i := range messages {
-			ids[i] = messages[i].ID
-		}
-		viewerID := ""
-		if claims := getClaims(c); claims != nil {
-			viewerID = claims.UserID
-		}
-		attachments, reactions, voice, extrasErr := h.fetchMessageExtras(c, ids, viewerID)
-		if extrasErr != nil {
-			httpx.ServerError(c, "get message extras", extrasErr)
-			return nil, false
-		}
-		for i := range messages {
-			if atts, ok := attachments[messages[i].ID]; ok {
-				messages[i].Attachments = atts
-			}
-			if chips, ok := reactions[messages[i].ID]; ok {
-				messages[i].Reactions = chips
-			}
-			if listeners, ok := voice[messages[i].ID]; ok {
-				messages[i].VoiceListenedBy = listeners
-			}
-			normalizeMessageEnvelope(&messages[i])
-		}
+	if !h.attachMessageExtras(c, messages) {
+		return nil, false
 	}
 
 	// Backward pages are returned by sent_at DESC and must be reversed. Delta
@@ -219,6 +213,105 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 		}
 	}
 
+	return messages, true
+}
+
+// attachMessageExtras fills the page's attachments, reaction chips and
+// voice-listened marks with ONE query, then normalizes each envelope.
+func (h *MessengerHandler) attachMessageExtras(c *gin.Context, messages []MessageResponse) bool {
+	if len(messages) == 0 {
+		return true
+	}
+	ids := make([]string, len(messages))
+	for i := range messages {
+		ids[i] = messages[i].ID
+	}
+	viewerID := ""
+	if claims := getClaims(c); claims != nil {
+		viewerID = claims.UserID
+	}
+	attachments, reactions, voice, err := h.fetchMessageExtras(c, ids, viewerID)
+	if err != nil {
+		httpx.ServerError(c, "get message extras", err)
+		return false
+	}
+	for i := range messages {
+		if atts, ok := attachments[messages[i].ID]; ok {
+			messages[i].Attachments = atts
+		}
+		if chips, ok := reactions[messages[i].ID]; ok {
+			messages[i].Reactions = chips
+		}
+		if listeners, ok := voice[messages[i].ID]; ok {
+			messages[i].VoiceListenedBy = listeners
+		}
+		normalizeMessageEnvelope(&messages[i])
+	}
+	return true
+}
+
+// maxMessagesByID caps the "specific messages" mode. It exists for the notes
+// pinned strip: pinned notes may live beyond the newest page, and pulling them
+// by id keeps that list cheap instead of walking the whole history.
+const maxMessagesByID = 50
+
+// parseMessageIDs validates a comma-separated id list. On invalid input it
+// writes a 400 and returns ok=false.
+func parseMessageIDs(raw string) ([]string, bool) {
+	parts := strings.Split(raw, ",")
+	if len(parts) == 0 || len(parts) > maxMessagesByID {
+		return nil, false
+	}
+	ids := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if !isUUID(id) {
+			return nil, false
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, len(ids) > 0
+}
+
+// fetchMessagesByIDs returns specific messages of one conversation, in
+// chronological order. Access + privacy are already answered by the caller's
+// membership check; the conversation id in the WHERE clause prevents an id from
+// another chat being read even if it is guessed.
+func (h *MessengerHandler) fetchMessagesByIDs(c *gin.Context, conversationID string, isNotes, isE2E bool, ids []string) ([]MessageResponse, bool) {
+	rows, err := h.dbFor(c).Query(`
+		`+buildMessageSelectColumns(isNotes)+`
+		FROM chat_messages m
+		LEFT JOIN users u ON u.id = m.sender_user_id
+		WHERE m.conversation_id = $1 AND m.id = ANY($2::uuid[]) AND m.is_deleted = false
+		ORDER BY m.sent_at ASC, m.event_id ASC
+	`, conversationID, pq.Array(ids))
+	if err != nil {
+		httpx.ServerError(c, "get messages by ids", err)
+		return nil, false
+	}
+	defer rows.Close()
+
+	messages := make([]MessageResponse, 0, len(ids))
+	for rows.Next() {
+		msg, scanErr := scanMessageRow(rows, conversationID, isNotes, isE2E)
+		if scanErr != nil {
+			httpx.ServerError(c, "scan message row", scanErr)
+			return nil, false
+		}
+		messages = append(messages, *msg)
+	}
+	if err := rows.Err(); err != nil {
+		httpx.ServerError(c, "iterate messages by ids", err)
+		return nil, false
+	}
+	if !h.attachMessageExtras(c, messages) {
+		return nil, false
+	}
 	return messages, true
 }
 

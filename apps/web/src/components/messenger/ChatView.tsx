@@ -154,12 +154,24 @@ export const ChatView = memo(function ChatView({
     return [...set].sort((a, b) => a.localeCompare(b, "ru"));
   }, [isNotesChat, messages]);
 
-  // Pinned notes are shown in a dedicated section on top of the chat.
-  // Deleted notes never stay in the curated pinned area.
+  // Pinned notes are shown in a dedicated section on top of the chat. Notes
+  // load page by page like any chat, so an older pinned note is hydrated by id
+  // into `pinnedNotesById` (one bounded request) instead of forcing the whole
+  // history to load. Deleted notes never stay in the curated pinned area.
+  const pinnedNotesById = useMessengerStore((s) => s.pinnedNotes ?? []);
   const pinnedNotes = useMemo(() => {
     if (!isNotesChat) return [] as MessageView[];
-    return messages.filter((m) => m.notesPinned && !m.is_deleted);
-  }, [isNotesChat, messages]);
+    const byId = new Map<string, MessageView>();
+    for (const message of messages) {
+      if (message.notesPinned && !message.is_deleted) byId.set(message.id, message);
+    }
+    for (const message of pinnedNotesById) {
+      if (!message.is_deleted) byId.set(message.id, message);
+    }
+    return [...byId.values()].sort(
+      (left, right) => Date.parse(left.sent_at) - Date.parse(right.sent_at),
+    );
+  }, [isNotesChat, messages, pinnedNotesById]);
 
   // The main list shows everything except pinned notes, optionally filtered by
   // the active folder chip.

@@ -99,6 +99,24 @@ describe("messengerApi", () => {
     });
   });
 
+  describe("getMessagesByIds", () => {
+    it("requests exactly the given ids in one bounded call", async () => {
+      mockFetch([]);
+
+      await messengerApi.getMessagesByIds("conv-1", ["m-1", "m-2"]);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/messages?ids=m-1%2Cm-2",
+        expect.anything(),
+      );
+    });
+
+    it("skips the network for an empty list", async () => {
+      await expect(messengerApi.getMessagesByIds("conv-1", [])).resolves.toEqual([]);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("getMyProfile", () => {
     // getCurrentUser caches for 30s across tests in this file: move the fake
     // clock monotonically forward so every case starts expired (fake Date

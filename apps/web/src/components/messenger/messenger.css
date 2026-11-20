@@ -1392,46 +1392,23 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   max-width: 100%;
 }
 
-.message-bubble.is-multiline .message-content-stack {
-  padding-bottom: 22px;
-}
-
-.message-bubble.is-measuring .message-meta,
-.message-bubble.is-measuring .message-content-text::after,
-.message-bubble.is-measuring .message-content-stack::after {
-  display: none;
-}
-
-/* Measure one-line messages with the same right-side reserve they will have
-   after the metadata is positioned. This prevents a late wrap/overlap. The
-   reserve applies to both plain-text (.message-content-text) and emoji /
-   rich-text (.message-content-stack) messages so the time/status pill never
-   paints over the last emoji or link. */
-.message-bubble.is-measuring .message-content-text,
-.message-bubble.is-compact .message-content-text,
-.message-bubble.is-measuring .message-content-stack,
-.message-bubble.is-compact .message-content-stack {
-  box-sizing: border-box;
-  display: block;
-  padding-right: var(--message-meta-reserve);
-}
-
-.message-bubble.is-multiline .message-content-text::after,
-.message-bubble.is-multiline .message-content-stack::after {
-  content: "";
-  display: inline-block;
-  width: var(--message-meta-reserve);
-  height: 1em;
+/* Invisible inline twin of .message-meta. It lives at the very end of the text
+   flow, so the browser's line breaking reserves the pill's exact width on the
+   last line — no JS measurement, no forced reflow, no ResizeObserver. The
+   visible pill stays absolutely positioned at the bubble's bottom-right. */
+.message-meta-reserve {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 0 1px 6px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
   vertical-align: bottom;
-}
-
-.message-bubble.is-compact .message-content-text::after,
-.message-bubble.is-compact .message-content-stack::after {
-  display: none;
-}
-
-.message-bubble.is-compact .message-content-stack {
-  padding-bottom: 0;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
 }
 
 
@@ -1720,15 +1697,7 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   background: oklch(var(--primary) / 0.06);
 }
 
-.message-bubble.is-compact .message-meta {
-  /* Compact messages use the same right-edge placement as every other
-     message; the body reserves space instead of placing meta after text. */
-  position: absolute;
-  right: 11px;
-  bottom: 8px;
-  margin: 0;
-  padding: 1px 0 1px 6px;
-}
+
 
 .message-time,
 .edited-label,
@@ -5306,8 +5275,8 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  /* Bottom padding reserves the absolutely-positioned time/status row, exactly
-     like a normal bubble's is-multiline content reserve. */
+  /* Bottom padding reserves the absolutely-positioned time/status row: the card
+     has no text flow to hang the inline reserve on. */
   padding: 10px 12px 22px;
   border: 1px solid oklch(var(--border));
   border-radius: 14px;

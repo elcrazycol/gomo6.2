@@ -315,13 +315,15 @@ describe("MessageBubble", () => {
   });
 
   it("renders sent time from sent_at", () => {
-    render(
+    const { container } = render(
       <MessageBubble
         message={createMessage({ sent_at: "2025-06-01T14:30:00Z" })}
         {...defaultProps}
       />,
     );
-    expect(screen.getByText(/\d{2}:\d{2}/)).toBeInTheDocument();
+    // The pill is rendered twice (visible + invisible inline twin), so query
+    // the visible one explicitly instead of by text alone.
+    expect(container.querySelector(".message-meta")?.textContent).toMatch(/\d{2}:\d{2}/);
   });
 
   it("shows the outbox clock while a message is sending", () => {
@@ -468,130 +470,76 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 0.5625");
   });
 
-  it("keeps timestamp and status inline for a one-line reply", () => {
-    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
-    const originalGetClientRects = rangePrototype.getClientRects;
-    const rect = { top: 10, width: 80, height: 14 } as DOMRect;
-    const rectList = {
-      0: rect,
-      length: 1,
-      item: (index: number) => index === 0 ? rect : null,
-    } as unknown as DOMRectList;
-
-    Object.defineProperty(rangePrototype, "getClientRects", {
+  it("places the timestamp without reading layout back from the DOM", () => {
+    // The old implementation forced a synchronous reflow per bubble
+    // (offsetWidth + Range.getClientRects + ResizeObserver). Any regression
+    // would immediately show up here as a call.
+    const rangeSpy = vi.spyOn(document, "createRange");
+    const offsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    const offsetWidthSpy = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
       configurable: true,
-      value: () => rectList,
+      get: offsetWidthSpy,
     });
 
     try {
-      const quoted = createMessage({ id: "quoted-1", content: "original" });
       const { container } = render(
-        <MessageBubble
-          message={createMessage({ content: "ответ" })}
-          {...defaultProps}
-          isMine={true}
-          quotedMessage={quoted}
-        />,
+        <MessageBubble message={createMessage({ content: "ответ" })} {...defaultProps} isMine={true} />,
       );
 
-      const bubble = container.querySelector(".message-bubble");
-      expect(bubble).toHaveClass("is-compact");
+      expect(rangeSpy).not.toHaveBeenCalled();
+      expect(offsetWidthSpy).not.toHaveBeenCalled();
       expect(container.querySelector(".message-meta")).toBeInTheDocument();
     } finally {
-      if (originalGetClientRects) {
-        Object.defineProperty(rangePrototype, "getClientRects", {
-          configurable: true,
-          value: originalGetClientRects,
-        });
-      } else {
-        delete rangePrototype.getClientRects;
+      rangeSpy.mockRestore();
+      if (offsetWidthDescriptor) {
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", offsetWidthDescriptor);
       }
     }
   });
 
-  it("keeps the time/status pill clear of a single-line emoji message", () => {
-    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
-    const originalGetClientRects = rangePrototype.getClientRects;
-    const rect = { top: 10, width: 80, height: 14 } as DOMRect;
-    const rectList = {
-      0: rect,
-      length: 1,
-      item: (index: number) => index === 0 ? rect : null,
-    } as unknown as DOMRectList;
+  it("reserves the pill's exact width with an invisible inline twin", () => {
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({ content: "ответ", is_edited: true })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
 
-    Object.defineProperty(rangePrototype, "getClientRects", {
-      configurable: true,
-      value: () => rectList,
-    });
-
-    try {
-      const { container } = render(
-        <MessageBubble
-          message={createMessage({ content: "[e:emoji1]" })}
-          {...defaultProps}
-          isMine={true}
-        />,
-      );
-
-      const bubble = container.querySelector(".message-bubble");
-      // Emoji-only messages render through the rich-text stack, not the plain
-      // <p>; the compact measurement must apply to it too.
-      expect(container.querySelector(".message-content-stack")).toBeInTheDocument();
-      expect(bubble).toHaveClass("is-compact");
-    } finally {
-      if (originalGetClientRects) {
-        Object.defineProperty(rangePrototype, "getClientRects", {
-          configurable: true,
-          value: originalGetClientRects,
-        });
-      } else {
-        delete rangePrototype.getClientRects;
-      }
-    }
+    const reserve = container.querySelector(".message-content-text .message-meta-reserve");
+    const meta = container.querySelector(".message-meta");
+    expect(reserve).toBeInTheDocument();
+    expect(meta).toBeInTheDocument();
+    // Same children → same width in the line box. It must be *invisible*, not
+    // removed: visibility:hidden still participates in layout.
+    expect(reserve?.textContent).toBe(meta?.textContent);
+    expect(reserve).toHaveAttribute("aria-hidden", "true");
+    expect(reserve?.textContent).toContain("изм.");
   });
 
-  it("keeps bottom space for a multiline reply", () => {
-    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
-    const originalGetClientRects = rangePrototype.getClientRects;
-    const firstRect = { top: 10, width: 80, height: 14 } as DOMRect;
-    const secondRect = { top: 28, width: 70, height: 14 } as DOMRect;
-    const rects = [firstRect, secondRect];
-    const rectList = {
-      0: firstRect,
-      1: secondRect,
-      length: rects.length,
-      item: (index: number) => rects[index] ?? null,
-    } as unknown as DOMRectList;
+  it("puts the inline twin inside the rich-text stack for emoji messages", () => {
+    const { container } = render(
+      <MessageBubble message={createMessage({ content: "[e:emoji1]" })} {...defaultProps} isMine={true} />,
+    );
 
-    Object.defineProperty(rangePrototype, "getClientRects", {
-      configurable: true,
-      value: () => rectList,
-    });
+    expect(container.querySelector(".message-content-stack .message-meta-reserve")).toBeInTheDocument();
+  });
 
-    try {
-      const quoted = createMessage({ id: "quoted-1", content: "original" });
-      const { container } = render(
-        <MessageBubble
-          message={createMessage({ content: "длинный ответ" })}
-          {...defaultProps}
-          isMine={true}
-          quotedMessage={quoted}
-        />,
-      );
+  it("does not reserve inline space for media or failed bubbles", () => {
+    const cases: MessageView[] = [
+      createMessage({
+        content: "",
+        attachments: [{ url: "user-1/messenger/photo.jpg", type: "image", name: "photo.jpg", size: 10, mime: "image/jpeg" }],
+      }),
+      createMessage({ localStatus: "failed" }),
+    ];
 
-      const bubble = container.querySelector(".message-bubble");
-      expect(bubble).toHaveClass("is-multiline");
-      expect(bubble).not.toHaveClass("is-compact");
+    for (const message of cases) {
+      const { container, unmount } = render(<MessageBubble message={message} {...defaultProps} isMine={true} />);
+      expect(container.querySelector(".message-meta-reserve")).not.toBeInTheDocument();
       expect(container.querySelector(".message-meta")).toBeInTheDocument();
-    } finally {
-      if (originalGetClientRects) {
-        Object.defineProperty(rangePrototype, "getClientRects", {
-          configurable: true,
-          value: originalGetClientRects,
-        });
-      } else {
-        delete rangePrototype.getClientRects;
-      }
+      unmount();
     }
   });
 
@@ -620,14 +568,14 @@ describe("MessageBubble", () => {
   });
 
   it("renders edited label for edited messages", () => {
-    render(
+    const { container } = render(
       <MessageBubble
         message={createMessage({ is_edited: true })}
         {...defaultProps}
         isMine={true}
       />,
     );
-    expect(screen.getByText("изм.")).toBeInTheDocument();
+    expect(container.querySelector(".message-meta")?.textContent).toContain("изм.");
   });
 
   it("renders pinned indicator when isPinned", () => {

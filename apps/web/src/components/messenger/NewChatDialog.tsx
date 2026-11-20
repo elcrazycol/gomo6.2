@@ -46,12 +46,10 @@ export function NewChatDialog({ open, onClose }: Props) {
     }
     const timer = setTimeout(() => {
       setIsSearching(true);
-      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(query)}`, {
-        credentials: "include",
-        headers: apiClient.getToken() ? { Authorization: `Bearer ${apiClient.getToken()}` } : {},
-      })
-        .then((r) => r.json())
-        .then((res) => setResults(res.data || []))
+      // One client owns auth, credentials, CSRF and the 401 refresh dance.
+      apiClient
+        .request<UserSearchResult[]>(`/api/v1/drops/users/search?q=${encodeURIComponent(query)}`)
+        .then((res) => setResults((res.data ?? []) as UserSearchResult[]))
         .catch(() => setResults([]))
         .finally(() => setIsSearching(false));
     }, 300);
