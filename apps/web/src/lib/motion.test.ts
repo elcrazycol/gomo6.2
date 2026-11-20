@@ -39,21 +39,19 @@ describe("shared stream choreography", () => {
     });
   });
 
-  it("moves stream rows only a small distance and uses the standard spring", () => {
+  it("moves stream rows a small distance with expo tweens and no scale", () => {
     expect(STREAM_CASCADE_VARIANTS.show).toEqual({
       transition: { staggerChildren: 0.055, delayChildren: 0.02 },
     });
     expect(STREAM_ITEM_VARIANTS.hidden).toEqual({
       opacity: 0,
-      y: SPATIAL_OFFSET.row,
-      scale: 0.975,
+      y: 12,
     });
     expect(STREAM_ITEM_VARIANTS.show).toMatchObject({
       opacity: 1,
       y: 0,
-      scale: 1,
-      transition: SPRING.standard,
     });
+    expect(STREAM_ITEM_VARIANTS.show).not.toHaveProperty("scale");
   });
 });
 

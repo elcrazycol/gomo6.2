@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
@@ -191,6 +191,33 @@ export const ThreadFeed = ({
   const feedToThread = (item: FeedItem): FeedThread => feedItemToThread(item);
 
   const feedToWallPost = (item: FeedItem): WallPost => feedItemToWallPost(item);
+
+  const handleImageClick = useCallback((items: LightboxItem[], idx: number) => {
+    setGalleryItems(items);
+    setGalleryIndex(idx);
+  }, []);
+
+  type FeedRow =
+    | { key: string; kind: "thread"; thread: FeedThread; likesCount: number; likedByViewer: boolean }
+    | { key: string; kind: "wall"; post: WallPost };
+  // Converted rows are memoized: without this every ThreadFeed render
+  // (pull-distance pixel, loading flags, new-post pill) rebuilds all twenty
+  // card models with fresh identities, busting every useMemo inside the cards.
+  const rows = useMemo<FeedRow[]>(
+    () =>
+      items.map((item) =>
+        item.item_type === "thread"
+          ? {
+              key: `thread-${item.item_id}`,
+              kind: "thread",
+              thread: feedItemToThread(item),
+              likesCount: item.likes_count,
+              likedByViewer: item.liked_by_viewer,
+            }
+          : { key: `wall-${item.item_id}`, kind: "wall", post: feedItemToWallPost(item) },
+      ),
+    [items],
+  );
 
   const loadInitial = useCallback(async () => {
     setLoading(true);
@@ -476,7 +503,7 @@ export const ThreadFeed = ({
   }
 
   const runInitialCascade =
-    initialPageReady && animateEntrance && !prefersReducedMotion;
+    initialPageReady && !cachedPage && animateEntrance && !prefersReducedMotion;
 
   return (
     <>
@@ -511,7 +538,7 @@ export const ThreadFeed = ({
           </button>
         )}
 
-        {items.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 py-12 text-center">
             <p className="text-lg font-medium">В ленте пока пусто</p>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -521,49 +548,41 @@ export const ThreadFeed = ({
             </p>
           </div>
         ) : (
-          items.map((item, index) => {
+          rows.map((row, index) => {
             const rowVariants = runInitialCascade && index < INITIAL_CASCADE_LIMIT
               ? STREAM_ITEM_VARIANTS
               : undefined;
-            if (item.item_type === "thread") {
-              const thread = feedToThread(item);
+            if (row.kind === "thread") {
               return (
                 <motion.div
-                  key={`thread-${thread.id}`}
+                  key={row.key}
                   data-motion={rowVariants ? "cascade-row" : undefined}
                   variants={rowVariants}
                 >
                   <FeedThreadCard
-                    thread={thread}
+                    thread={row.thread}
                     currentUserId={currentUserId}
                     currentUsername={currentUsername}
                     currentUserColor={currentUserColor}
-                    initialLikesCount={item.likes_count}
-                    initialUserLiked={item.liked_by_viewer}
-                    onImageClick={(items, idx) => {
-                      setGalleryItems(items);
-                      setGalleryIndex(idx);
-                    }}
+                    initialLikesCount={row.likesCount}
+                    initialUserLiked={row.likedByViewer}
+                    onImageClick={handleImageClick}
                   />
                 </motion.div>
               );
             }
-            const wallPost = feedToWallPost(item);
             return (
               <motion.div
-                key={`wall-${wallPost.id}`}
+                key={row.key}
                 data-motion={rowVariants ? "cascade-row" : undefined}
                 variants={rowVariants}
               >
                 <FeedWallPostCard
-                  post={wallPost}
+                  post={row.post}
                   currentUserId={currentUserId}
                   currentUsername={currentUsername}
                   currentUserColor={currentUserColor}
-                  onImageClick={(items, idx) => {
-                    setGalleryItems(items);
-                    setGalleryIndex(idx);
-                  }}
+                  onImageClick={handleImageClick}
                 />
               </motion.div>
             );

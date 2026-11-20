@@ -184,15 +184,16 @@ export const streamRowVariants = (index: number): Variants => {
   };
 };
 
-/** Restrained card landing: lift + tiny scale settle, never a flat opacity-only reveal. */
+/** Card landing in streams: short lift + fade, never scale. A scale on a full
+ *  card (text + photos) forces the GPU to re-raster it every frame of the
+ *  entrance; six staggered springs on top is the feed-entry jank. */
 export const STREAM_ITEM_VARIANTS: Variants = {
-  hidden: { opacity: 0, y: SPATIAL_OFFSET.row, scale: 0.975 },
+  hidden: { opacity: 0, y: 12 },
   show: {
     opacity: 1,
     y: 0,
-    scale: 1,
     transition: {
-      ...SPRING.standard,
+      y: { duration: 0.22, ease: EASE_OUT_EXPO },
       opacity: { duration: 0.16, ease: EASE_OUT_EXPO },
     },
   },
