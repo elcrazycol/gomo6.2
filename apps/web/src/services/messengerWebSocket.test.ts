@@ -53,6 +53,7 @@ const { storeMocks, queueMarkDeliveredMock, queueMarkReadMock } = vi.hoisted(() 
     applyVoiceListenedEvent: vi.fn(),
     loadConversations: vi.fn().mockResolvedValue([]),
     applyPeerBlocked: vi.fn(),
+    loadMessages: vi.fn().mockResolvedValue(undefined),
   };
   const queueMarkDeliveredMock = vi.fn();
   const queueMarkReadMock = vi.fn();
@@ -128,6 +129,8 @@ describe("messengerWebSocket", () => {
       expect(storeMocks.applyPeerBlocked).toHaveBeenCalledWith("conv-9");
     });
     expect(storeMocks.applyPeerBlocked).not.toHaveBeenCalledWith("conv-10");
+    // The open chat is reloaded so an unblock restores its history instantly.
+    expect(storeMocks.loadMessages).toHaveBeenCalledWith("conv-1");
   });
 
   describe("message handling", () => {

@@ -287,6 +287,11 @@ class MessengerWebSocket {
             store.applyPeerBlocked(conversation.id);
           }
         }
+        // The open chat must switch immediately in both directions: erased on
+        // a block, real history restored on an unblock (the list refetch alone
+        // never touches the message view).
+        const selected = store.selectedConversationId;
+        if (selected) void store.loadMessages(selected);
       })
       .catch(() => {
         // Best effort: the list keeps its previous state until the next load.

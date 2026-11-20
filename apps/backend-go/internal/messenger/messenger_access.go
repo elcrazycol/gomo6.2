@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/httpx"
 	"github.com/gomo6/backend/internal/models"
 )
@@ -238,6 +239,7 @@ func (h *MessengerHandler) BlockUser(c *gin.Context) {
 		return
 	}
 	if affected, _ := res.RowsAffected(); affected > 0 {
+		h.invalidateBlockCaches(claims.UserID, targetID)
 		h.publishBlockState(claims.UserID, targetID, true)
 	}
 
@@ -268,10 +270,42 @@ func (h *MessengerHandler) UnblockUser(c *gin.Context) {
 		return
 	}
 	if affected, _ := res.RowsAffected(); affected > 0 {
+		h.invalidateBlockCaches(claims.UserID, targetID)
 		h.publishBlockState(claims.UserID, targetID, false)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"blocked": false}))
+}
+
+// invalidateBlockCaches drops the viewer-scoped GET caches that a block flips:
+// the profile row (avatar/counters/presence/blocked_by_me), status, stats,
+// customization, social graph, gifts, achievements, pinned threads and threads.
+// Without this a cached 30-second profile response would keep showing the full
+// account to the viewer who was just blocked.
+func (h *MessengerHandler) invalidateBlockCaches(userIDs ...string) {
+	if h.redis == nil {
+		return
+	}
+	prefixes := []string{
+		"data:/api/v1/profiles*",
+		"data:/api/v1/users/",
+		"data:/api/v1/friends*",
+		"data:/api/v1/user_gifts*",
+		"data:/api/v1/threads*",
+		"data:/api/v1/user_achievements*",
+		"data:/api/v1/user_awards*",
+		"data:/api/v1/profile_pinned_threads*",
+		"data:/api/v1/profile_wall_posts*",
+		"data:/api/v1/profile_albums*",
+	}
+	for _, id := range userIDs {
+		if id == "" {
+			continue
+		}
+		for _, prefix := range prefixes {
+			cache.InvalidateByPattern(h.redis, prefix+id+"*")
+		}
+	}
 }
 
 // publishBlockState pushes a block/unblock through every realtime surface that

@@ -385,18 +385,29 @@ const Profile = () => {
     }
   }, [profile, blockedByMe, blockPending, loadProfile]);
 
-  // A block can happen from the other side while this page is open: the server
-  // broadcasts a profile_updated for the changed user. Refetch so the page
-  // erases itself immediately instead of on the next navigation.
+  // A block can happen from the other side while this page is open. Two
+  // signals bring the change without a reload:
+  //   - profile_updated (feed room) — the profile really changed;
+  //   - messenger_refresh (personal room) — a block/unblock, which may arrive
+  //     before this client finished joining the feed room (fresh tab), so the
+  //     personal event is the reliable one.
   useEffect(() => {
     if (!profile?.id) return;
     const profileId = profile.id;
-    return wsService.on("profile_updated", (message) => {
-      const changed = (message.data as { user_id?: string } | undefined)?.user_id;
-      if (changed && changed !== profileId) return;
+    const reload = () => {
       dispatchProfileCacheInvalidate(profileId);
       void loadProfile();
+    };
+    const offProfile = wsService.on("profile_updated", (message) => {
+      const changed = (message.data as { user_id?: string } | undefined)?.user_id;
+      if (changed && changed !== profileId) return;
+      reload();
     });
+    const offRefresh = wsService.on("messenger_refresh", reload);
+    return () => {
+      offProfile();
+      offRefresh();
+    };
   }, [profile?.id, loadProfile]);
 
   // Tab-scoped data (achievements, threads, avatar gallery, gifts) + edit-mode

@@ -26,6 +26,7 @@ import (
 	"github.com/gomo6/backend/internal/push"
 	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 var htmlTagRegex = regexp.MustCompile(`(?i)</?[a-z][a-z0-9]*(?:\s[^>]*)?>`)
@@ -265,6 +266,10 @@ type MessengerHandler struct {
 	hub     *websocket.Hub
 	storage *storage.StorageClient
 	push    *push.Service
+	// redis backs the data-cache invalidation a block needs: profile/status
+	// responses are cached per viewer, and a block flips several of them at
+	// once. Nil disables invalidation (tests, Redis-less deployments).
+	redis *redis.Client
 }
 
 func NewMessengerHandler(db *sql.DB, hub *websocket.Hub) *MessengerHandler {
@@ -273,6 +278,7 @@ func NewMessengerHandler(db *sql.DB, hub *websocket.Hub) *MessengerHandler {
 
 func (h *MessengerHandler) SetStorage(s *storage.StorageClient) { h.storage = s }
 func (h *MessengerHandler) SetPushService(p *push.Service)      { h.push = p }
+func (h *MessengerHandler) SetRedis(r *redis.Client)            { h.redis = r }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

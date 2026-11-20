@@ -254,6 +254,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	sidebarTabsHandler := handlers.NewSidebarTabsHandler(db)
 	userSettingsHandler := handlers.NewUserSettingsHandler(db)
 	messengerHandler := messenger.NewMessengerHandler(db, wsHub)
+	messengerHandler.SetRedis(redis)
 	// Login alerts through the @gomo6 service thread (phase 1 notifications).
 	// Wired here because messengerHandler is created at this point.
 	// Best-effort: SendServiceNotification logs its own failures, never fatal.
