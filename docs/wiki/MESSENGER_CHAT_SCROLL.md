@@ -463,7 +463,8 @@ one independently reversible:
   `useState` shows the previous chat's text for a frame, which is long enough for
   the composer to mount with it and emit it back into the new chat), and the
   **composer is keyed by the conversation**, because it owns an editor instance,
-  an emoji sheet and a full-mode flag that must not survive into another chat.
+  an emoji sheet and a reply/edit staging state that must not survive into
+  another chat.
   `localStorage`, debounced ~a keystroke and flushed on `pagehide` /
   `visibilitychange`, so a PWA that is swiped closed keeps the text; the store is
   read synchronously at mount, or the box would flash empty and then fill in.
@@ -486,6 +487,15 @@ one independently reversible:
   `last_read_at` and the local read marker. The divider is deliberately not a
   `.message-item`, so the anchor compensation and the read-line search never see
   it as a row.
+* **The keyboard moves the panel, never the layout** (Phase 5). The mobile chat
+  panel has a constant layout height; `lib/mobileKeyboard.ts` publishes the
+  visual-viewport inset and CSS applies ONE compositor-only `translate`. The
+  `interactive-widget=resizes-content` hint is deliberately absent: with it,
+  Android shrank the layout viewport and re-laid out every mounted row on every
+  keyboard frame — the reported "not smooth on Android". The e2e check asserts
+  the invariant: setting `--kb-inset: 300px` changes the panel's `translate`
+  and the composer's screen position, while `main`, the panel and the message
+  area keep their exact heights (no reflow).
 * **The keyboard diagnostics strip is opt-in.** It used to be enabled by
   `import.meta.env.DEV`, i.e. on for every developer; now
   `localStorage.setItem("kb-diag", "1")` + reload.

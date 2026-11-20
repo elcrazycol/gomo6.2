@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Gift, Link2, MessageCircle, NotebookPen, Search, UserPlus, X } from "lucide-react";
+import { BellOff, Gift, Link2, MessageCircle, NotebookPen, Search, UserPlus } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -11,6 +11,7 @@ import { whisperRowVariants } from "@/lib/motion";
 import { formatConversationDate, formatPresence, getGroupInitials, getInitials } from "./utils";
 import { messengerConversationPreview } from "./messengerRichTextUtils";
 import { NewChatDialog } from "./NewChatDialog";
+import { useMessengerConnection } from "@/hooks/useMessengerConnection";
 import type { ConversationView } from "./types";
 
 interface Props {
@@ -108,6 +109,13 @@ const ConversationCard = memo(function ConversationCard({
               >
                 {peerRead || peerDelivered ? "✓✓" : "✓"}
               </span>
+            )}
+            {conversation.is_muted && (
+              <BellOff
+                size={12}
+                className="conversation-muted-icon"
+                aria-label="Уведомления выключены"
+              />
             )}
             <span className="conversation-time">
               {formatConversationDate(conversation.last_message_at)}
@@ -307,8 +315,7 @@ export const ConversationList = memo(function ConversationList({
   const myUserId = useMessengerStore((s) => s.me?.id ?? null);
   const selectedId = useMessengerStore((s) => s.selectedConversationId);
   const selectConversation = useMessengerStore((s) => s.selectConversation);
-  const error = useMessengerStore((s) => s.error);
-  const setError = useMessengerStore((s) => s.setError);
+  const connection = useMessengerConnection();
   const initLoading = useMessengerStore((s) => s.isInitialLoading);
   const prefersReducedMotion = useReducedMotion();
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -402,15 +409,6 @@ export const ConversationList = memo(function ConversationList({
 
       <NewChatDialog open={showNewChat} onClose={() => setShowNewChat(false)} />
 
-      {error && (
-        <div className="error-banner">
-          <span>{error}</span>
-          <button type="button" className="error-dismiss" onClick={() => setError(null)} aria-label="Закрыть">
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
       {initLoading && conversations.length === 0 ? (
         <ConversationListSkeleton isCollapsed={isCollapsed} />
       ) : (
@@ -465,6 +463,16 @@ export const ConversationList = memo(function ConversationList({
             myUserId={myUserId}
             motionEnabled={runInitialCascade}
           />
+        </div>
+      )}
+
+      {/* Telegram's chat-list footer: a quiet spinner while the socket is
+          reconnecting. It floats over the empty space at the bottom-left and
+          never moves the list. */}
+      {connection !== "connected" && (
+        <div className={`messenger-connection-pill is-${connection}`} role="status">
+          <span className="messenger-connection-spinner" aria-hidden="true" />
+          <span>{connection === "offline" ? "Нет сети" : "Соединение…"}</span>
         </div>
       )}
     </>

@@ -1,18 +1,21 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { X, Gift, ExternalLink, Search, UserPlus } from "lucide-react";
+import { Bell, BellOff, ExternalLink, FileText, Gift, Image as ImageIcon, Play, Search, ShieldOff, UserPlus, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
+import { UserAvatar } from "@/components/UserAvatar";
 import { storageUrl, giftImageUrl } from "@/utils/storage";
 import { formatPresence, getGroupInitials, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
-import { useLanguageStore } from "@/stores/languageStore";
-import { messengerApi } from "@/services/messengerApi";
+import { messengerApi, type SharedAttachment } from "@/services/messengerApi";
 import { apiClient } from "@/integrations/api/client";
-import type { GroupMember } from "./types";
+import { useAuthenticatedAttachmentUrl } from "./attachmentMedia";
+import { useMessengerStore } from "@/stores/messengerStore";
+import type { Attachment, GroupMember } from "./types";
 
 interface Props {
   open: boolean;
@@ -25,6 +28,9 @@ interface Props {
   avatarUrl?: string | null;
   isOnline?: boolean | null;
   lastSeenAt?: string | null;
+  isMuted?: boolean;
+  /** Jump to the message a shared attachment belongs to. */
+  onJumpToMessage?: (messageId: string) => void;
   // Group fields
   isGroup?: boolean;
   groupName?: string | null;
@@ -32,6 +38,17 @@ interface Props {
   memberCount?: number;
 }
 
+const SHARED_MEDIA_LIMIT = 9;
+const SHARED_FILE_LIMIT = 4;
+
+/**
+ * Telegram-style chat profile panel.
+ *
+ * A quiet card: who this is, two primary actions (profile / gift), the two
+ * switches people actually change here (notifications, block), and the media
+ * already exchanged in the conversation. Everything is loaded when the panel
+ * opens — the message history is never touched.
+ */
 export function UserInfoPanel({
   open,
   onClose,
@@ -42,13 +59,15 @@ export function UserInfoPanel({
   avatarUrl,
   isOnline,
   lastSeenAt,
+  isMuted = false,
+  onJumpToMessage,
   isGroup,
   groupName,
   groupAvatarUrl,
   memberCount,
 }: Props) {
-  const language = useLanguageStore((state) => state.language);
-  void language;
+  const setConversationMuted = useMessengerStore((s) => s.setConversationMuted);
+
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
   const [showCatalog, setShowCatalog] = useState(false);
   const [selectedGift, setSelectedGift] = useState<GiftCatalogItem | null>(null);
@@ -61,6 +80,19 @@ export function UserInfoPanel({
   const [addMemberQuery, setAddMemberQuery] = useState("");
   const [addMemberResults, setAddMemberResults] = useState<Array<{ id: string; username: string; display_name: string | null; avatar_url: string | null }>>([]);
 
+  const [muted, setMuted] = useState(isMuted);
+  const [muteBusy, setMuteBusy] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState(false);
+  const [media, setMedia] = useState<SharedAttachment[]>([]);
+  const [files, setFiles] = useState<SharedAttachment[]>([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
+
+  useEffect(() => {
+    setMuted(isMuted);
+  }, [isMuted, conversationId]);
+
   useEffect(() => {
     if (!open) return;
     apiClient
@@ -70,6 +102,43 @@ export function UserInfoPanel({
   }, [open]);
 
   useEffect(() => {
+    if (!open || isGroup || !userId) return;
+    let cancelled = false;
+    messengerApi
+      .listBlocks()
+      .then((blocks) => {
+        if (!cancelled) setBlocked(blocks.some((block) => block.user_id === userId));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, isGroup, userId]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setMediaLoading(true);
+    Promise.all([
+      messengerApi.listSharedAttachments(conversationId, ["image", "video"], SHARED_MEDIA_LIMIT),
+      messengerApi.listSharedAttachments(conversationId, ["file", "audio"], SHARED_FILE_LIMIT),
+    ])
+      .then(([mediaRows, fileRows]) => {
+        if (cancelled) return;
+        setMedia(mediaRows);
+        setFiles(fileRows);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMedia([]);
+          setFiles([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMediaLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [open, conversationId]);
+
+  useEffect(() => {
     if (!open || !isGroup || !conversationId) return;
     messengerApi.getGroupMembers(conversationId)
       .then((members) => setGroupMembers(members))
@@ -77,41 +146,69 @@ export function UserInfoPanel({
   }, [open, isGroup, conversationId]);
 
   useEffect(() => {
-    if (!showAddMember || !addMemberQuery.trim() || addMemberQuery.length < 1) {
+    if (!showAddMember || !addMemberQuery.trim()) {
       setAddMemberResults([]);
       return;
     }
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       apiClient
         .request<Array<{ id: string; username: string; display_name: string | null; avatar_url: string | null }>>(
-          `/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`,
+          `/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery.trim())}`,
         )
         .then((res) => setAddMemberResults((res.data ?? []) as typeof addMemberResults))
         .catch(() => setAddMemberResults([]));
-    }, 300);
-    return () => clearTimeout(timer);
+    }, 250);
+    return () => window.clearTimeout(timer);
   }, [showAddMember, addMemberQuery]);
 
-  const handleAddMember = useCallback(async (userId: string) => {
+  const handleAddMember = useCallback(async (memberId: string) => {
     if (!conversationId) return;
     try {
-      await messengerApi.addGroupMembers(conversationId, [userId]);
+      await messengerApi.addGroupMembers(conversationId, [memberId]);
       const members = await messengerApi.getGroupMembers(conversationId);
       setGroupMembers(members);
       setShowAddMember(false);
       setAddMemberQuery("");
     } catch (err) {
-      const { toast } = await import("sonner");
-      const msg = err instanceof Error ? err.message : "";
-      if (/friend/i.test(msg)) {
-        toast.error("Добавлять в группу можно только друзей");
-      } else if (/limit/i.test(msg)) {
-        toast.error("Достигнут лимит участников группы (100)");
-      } else {
-        toast.error("Не удалось добавить участника");
-      }
+      const text = err instanceof Error ? err.message : "";
+      if (/friend/i.test(text)) toast.error("Добавлять в группу можно только друзей");
+      else if (/limit/i.test(text)) toast.error("Достигнут лимит участников группы (100)");
+      else toast.error("Не удалось добавить участника");
     }
   }, [conversationId]);
+
+  const handleToggleMute = useCallback(async () => {
+    if (muteBusy) return;
+    const next = !muted;
+    setMuted(next);
+    setMuteBusy(true);
+    try {
+      await messengerApi.setMuted(conversationId, next);
+      setConversationMuted(conversationId, next);
+    } catch {
+      setMuted(!next);
+      toast.error("Не удалось изменить уведомления");
+    } finally {
+      setMuteBusy(false);
+    }
+  }, [muteBusy, muted, conversationId, setConversationMuted]);
+
+  const handleToggleBlock = useCallback(async () => {
+    if (!userId || blockBusy) return;
+    const next = !blocked;
+    setBlockBusy(true);
+    try {
+      if (next) await messengerApi.blockUser(userId);
+      else await messengerApi.unblockUser(userId);
+      setBlocked(next);
+      setConfirmBlock(false);
+      toast.success(next ? "Пользователь заблокирован" : "Пользователь разблокирован");
+    } catch {
+      toast.error(next ? "Не удалось заблокировать" : "Не удалось разблокировать");
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [userId, blocked, blockBusy]);
 
   const sendDialogImage = selectedGift ? giftImageUrl(selectedGift.image_url) : null;
 
@@ -128,33 +225,32 @@ export function UserInfoPanel({
           is_anonymous: isAnonymous,
         }),
       });
-
-      const { toast } = await import("sonner");
       toast.success(`Подарок «${selectedGift.name}» отправлен!`);
       setMessage("");
       setIsAnonymous(false);
       setShowSendDialog(false);
       setSelectedGift(null);
     } catch (error) {
-      const { toast } = await import("sonner");
-      // The client surfaces the server's message (e.g. "insufficient funds").
       toast.error(error instanceof Error && error.message ? error.message : "Не удалось отправить подарок");
     } finally {
       setSending(false);
     }
   };
 
+  const jumpTo = useCallback((messageId: string) => {
+    onJumpToMessage?.(messageId);
+    onClose();
+  }, [onJumpToMessage, onClose]);
+
   const avatarSrc = avatarUrl ? storageUrl("post-images", avatarUrl) || undefined : undefined;
 
   return (
     <>
-      {/* Backdrop */}
       {open && <div className="user-info-panel-backdrop" onClick={onClose} />}
 
-      {/* Panel */}
-      <div className={`user-info-panel ${open ? "is-open" : ""}`}>
+      <aside className={`user-info-panel ${open ? "is-open" : ""}`} aria-label="Информация о чате">
         <div className="user-info-panel-header">
-          <span>Информация</span>
+          <span>{isGroup ? "О группе" : "Профиль"}</span>
           <button type="button" className="user-info-panel-close" onClick={onClose} aria-label="Закрыть">
             <X size={18} />
           </button>
@@ -163,7 +259,6 @@ export function UserInfoPanel({
         <div className="user-info-panel-body">
           {isGroup ? (
             <>
-              {/* Group avatar */}
               <div className="user-info-avatar">
                 {groupAvatarUrl ? (
                   <img src={storageUrl("post-images", groupAvatarUrl) || undefined} alt={groupName || ""} />
@@ -172,169 +267,191 @@ export function UserInfoPanel({
                 )}
               </div>
 
-              {/* Group name */}
               <h3 className="user-info-name">{groupName || "Группа"}</h3>
-
-              {/* Member count */}
               <p className="user-info-presence">
-                {memberCount} участник{memberCount === 1 ? "" : memberCount < 5 ? "а" : "ов"}
+                {memberCount} участник{memberCount === 1 ? "" : memberCount && memberCount < 5 ? "а" : "ов"}
               </p>
 
-              {/* Members list */}
-              <div style={{ width: "100%", marginTop: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <p className="eyebrow" style={{ margin: 0 }}>Участники</p>
+              <div className="user-info-section">
+                <div className="user-info-section-head">
+                  <span>Участники</span>
                   <button
                     type="button"
-                    onClick={() => setShowAddMember(!showAddMember)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      border: "1px solid oklch(var(--border))",
-                      background: "oklch(var(--card))",
-                      color: "oklch(var(--foreground))",
-                      fontSize: 11,
-                      cursor: "pointer",
-                    }}
+                    className="user-info-inline-btn"
+                    onClick={() => setShowAddMember((value) => !value)}
                   >
-                    <UserPlus size={12} />
+                    <UserPlus size={13} />
                     Добавить
                   </button>
                 </div>
 
                 {showAddMember && (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ position: "relative" }}>
-                      <Search size={14} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "oklch(var(--muted-foreground))" }} />
+                  <div className="user-info-member-search">
+                    <div className="user-info-member-search-field">
+                      <Search size={14} aria-hidden="true" />
                       <input
                         type="text"
                         value={addMemberQuery}
-                        onChange={(e) => setAddMemberQuery(e.target.value)}
-                        placeholder="Найти пользователя..."
+                        onChange={(event) => setAddMemberQuery(event.target.value)}
+                        placeholder="Найти пользователя…"
                         autoFocus
-                        style={{
-                          width: "100%",
-                          padding: "6px 8px 6px 28px",
-                          borderRadius: 6,
-                          border: "1px solid oklch(var(--input))",
-                          background: "oklch(var(--background))",
-                          color: "oklch(var(--foreground))",
-                          fontSize: 12,
-                          outline: "none",
-                          boxSizing: "border-box",
-                        }}
                       />
                     </div>
                     {addMemberResults.map((user) => (
                       <button
                         key={user.id}
                         type="button"
-                        onClick={() => handleAddMember(user.id)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          width: "100%",
-                          padding: "6px 8px",
-                          border: "none",
-                          borderRadius: 6,
-                          background: "transparent",
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = "oklch(var(--thread-hover))"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                        className="user-info-member-row is-result"
+                        onClick={() => void handleAddMember(user.id)}
                       >
-                        <div className="avatar" style={{ width: 24, height: 24, fontSize: 9 }}>
+                        <span className="avatar small">
                           {user.avatar_url ? (
-                            <img src={storageUrl("post-images", user.avatar_url) || undefined} alt={user.username} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                            <img src={storageUrl("post-images", user.avatar_url) || undefined} alt={user.username} />
                           ) : (
                             <span>{getInitials(user.username)}</span>
                           )}
-                        </div>
-                        <span style={{ fontSize: 12 }}>{user.display_name || user.username}</span>
+                        </span>
+                        <span className="user-info-member-name">{user.display_name || user.username}</span>
+                        <UserPlus size={13} className="user-info-member-add" />
                       </button>
                     ))}
                   </div>
                 )}
 
-                {groupMembers.map((m) => (
-                  <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-                    <div className="avatar small" style={{ width: 28, height: 28, fontSize: 11 }}>
-                      {m.avatar_url ? (
-                        <img src={storageUrl("post-images", m.avatar_url) || undefined} alt={m.username} />
+                {groupMembers.map((member) => (
+                  <div key={member.user_id} className="user-info-member-row">
+                    <span className="avatar small">
+                      {member.avatar_url ? (
+                        <img src={storageUrl("post-images", member.avatar_url) || undefined} alt={member.username} />
                       ) : (
-                        <span>{getInitials(m.username)}</span>
+                        <span>{getInitials(member.username)}</span>
                       )}
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <span style={{ fontSize: 13, fontWeight: 500 }}>{m.display_name || m.username}</span>
-                      {m.nickname_emoji_id && <NicknameEmoji emojiId={m.nickname_emoji_id} />}
-                      {m.role === "admin" && <span style={{ fontSize: 11, color: "oklch(var(--primary))", marginLeft: 4 }}>admin</span>}
-                    </div>
-                    {m.is_online && <span className="online-dot" style={{ width: 8, height: 8 }} />}
+                    </span>
+                    <span className="user-info-member-name">
+                      {member.display_name || member.username}
+                      {member.nickname_emoji_id && <NicknameEmoji emojiId={member.nickname_emoji_id} />}
+                    </span>
+                    {member.role === "admin" && <span className="user-info-member-role">admin</span>}
+                    {member.is_online && <span className="online-dot" />}
                   </div>
                 ))}
               </div>
             </>
           ) : (
             <>
-              {/* 1:1 avatar */}
-              <div className="user-info-avatar">
-                {avatarSrc ? (
-                  <img src={avatarSrc} alt={username || ""} />
-                ) : (
-                  <span>{getInitials(username || "")}</span>
+              <div className="user-info-hero">
+                <div className="user-info-avatar">
+                  {avatarSrc ? (
+                    <UserAvatar src={avatarUrl || ""} userId={userId || ""} alt={username || ""} className="h-full w-full" />
+                  ) : (
+                    <span>{getInitials(username || "")}</span>
+                  )}
+                </div>
+                <h3 className="user-info-name">{displayName || username}</h3>
+                {userId && username && (
+                  <Link to={`/profile/${userId}`} className="user-info-username" onClick={onClose}>
+                    @{username}
+                    <ExternalLink size={11} />
+                  </Link>
                 )}
+                <p className="user-info-presence">{formatPresence(isOnline ?? null, lastSeenAt ?? null)}</p>
               </div>
 
-              {/* Name */}
-              <h3 className="user-info-name">{displayName || username}</h3>
-
-              {/* Username */}
-              {userId && username && (
-                <Link to={`/profile/${userId}`} className="user-info-username" onClick={onClose}>
-                  @{username}
-                  <ExternalLink size={12} />
-                </Link>
-              )}
-
-              {/* Presence */}
-              <p className="user-info-presence">
-                {formatPresence(isOnline ?? null, lastSeenAt ?? null)}
-              </p>
-
-              {/* Actions */}
               <div className="user-info-actions">
                 {userId && (
-                  <Link
-                    to={`/profile/${userId}`}
-                    className="user-info-action-btn"
-                    onClick={onClose}
-                  >
+                  <Link to={`/profile/${userId}`} className="user-info-action-btn" onClick={onClose}>
                     Профиль
                   </Link>
                 )}
                 {giftCatalog.length > 0 && (
-                  <button
-                    type="button"
-                    className="user-info-action-btn primary"
-                    onClick={() => setShowCatalog(true)}
-                  >
+                  <button type="button" className="user-info-action-btn primary" onClick={() => setShowCatalog(true)}>
                     <Gift size={14} />
                     Подарить
                   </button>
                 )}
               </div>
+
+              <div className="user-info-switches">
+                <button
+                  type="button"
+                  className="user-info-switch-row"
+                  onClick={() => void handleToggleMute()}
+                  aria-pressed={muted}
+                  disabled={muteBusy}
+                >
+                  <span className="user-info-switch-icon">
+                    {muted ? <BellOff size={16} /> : <Bell size={16} />}
+                  </span>
+                  <span className="user-info-switch-copy">
+                    <span>Уведомления</span>
+                    <small>{muted ? "Выключены" : "Включены"}</small>
+                  </span>
+                  <span className={`user-info-switch${muted ? " is-on" : ""}`} aria-hidden="true">
+                    <span />
+                  </span>
+                </button>
+
+                {userId && (
+                  <button
+                    type="button"
+                    className={`user-info-switch-row user-info-block-row${blocked ? " is-blocked" : ""}`}
+                    onClick={() => (blocked ? void handleToggleBlock() : setConfirmBlock(true))}
+                    disabled={blockBusy}
+                  >
+                    <span className="user-info-switch-icon"><ShieldOff size={16} /></span>
+                    <span className="user-info-switch-copy">
+                      <span>{blocked ? "Разблокировать" : "Заблокировать"}</span>
+                      <small>{blocked ? "Сообщения и звонки запрещены" : "Скрыть переписку и звонки"}</small>
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              <div className="user-info-section">
+                <div className="user-info-section-head">
+                  <span>Медиа</span>
+                  {media.length > 0 && <small>{media.length}</small>}
+                </div>
+                {mediaLoading ? (
+                  <div className="user-info-media-empty">Загружаем…</div>
+                ) : media.length > 0 ? (
+                  <div className="user-info-media-grid">
+                    {media.map((item) => (
+                      <SharedMediaTile key={item.id} item={item} onOpen={() => jumpTo(item.message_id)} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="user-info-media-empty">
+                    <ImageIcon size={16} />
+                    <span>Пока нет фото и видео</span>
+                  </div>
+                )}
+              </div>
+
+              {files.length > 0 && (
+                <div className="user-info-section">
+                  <div className="user-info-section-head">
+                    <span>Файлы</span>
+                    <small>{files.length}</small>
+                  </div>
+                  <div className="user-info-files">
+                    {files.map((item) => (
+                      <button key={item.id} type="button" className="user-info-file-row" onClick={() => jumpTo(item.message_id)}>
+                        <span className="user-info-file-icon"><FileText size={15} /></span>
+                        <span className="user-info-file-copy">
+                          <span>{item.name}</span>
+                          <small>{Math.max(1, Math.round(item.size / 1024))} КБ</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
-      </div>
+      </aside>
 
-      {/* Catalog picker dialog */}
       <Dialog open={showCatalog} onOpenChange={setShowCatalog}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader className="pr-10">
@@ -345,10 +462,11 @@ export function UserInfoPanel({
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">
             {giftCatalog.map((gift) => {
-              const catImg = giftImageUrl(gift.image_url);
+              const catalogImage = giftImageUrl(gift.image_url);
               return (
                 <button
                   key={gift.id}
+                  type="button"
                   onClick={() => {
                     setSelectedGift(gift);
                     setShowCatalog(false);
@@ -357,12 +475,8 @@ export function UserInfoPanel({
                   className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
                 >
                   <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
-                    {catImg ? (
-                      <img
-                        src={catImg}
-                        alt={gift.name}
-                        className="w-full h-full object-cover"
-                      />
+                    {catalogImage ? (
+                      <img src={catalogImage} alt={gift.name} className="w-full h-full object-cover" />
                     ) : (
                       <Gift className="w-8 h-8 text-muted-foreground" />
                     )}
@@ -378,7 +492,6 @@ export function UserInfoPanel({
         </DialogContent>
       </Dialog>
 
-      {/* Send gift dialog */}
       <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader className="pr-10">
@@ -410,8 +523,8 @@ export function UserInfoPanel({
                 <input
                   id="messenger-gift-msg"
                   value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Напишите что-нибудь..."
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="Напишите что-нибудь…"
                   maxLength={500}
                   className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 />
@@ -422,20 +535,86 @@ export function UserInfoPanel({
                   <p className="text-xs text-muted-foreground">Получатель не узнает от кого</p>
                 </div>
                 <button
-                  onClick={() => setIsAnonymous(!isAnonymous)}
+                  type="button"
+                  onClick={() => setIsAnonymous((value) => !value)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isAnonymous ? "bg-primary" : "bg-input"}`}
+                  aria-pressed={isAnonymous}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isAnonymous ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
               </div>
-              <Button onClick={handleSendGift} disabled={sending} className="w-full">
-                {sending ? "Отправка..." : `Отправить за ${selectedGift.price} ${formatDropsLabel(selectedGift.price)}`}
+              <Button onClick={() => void handleSendGift()} disabled={sending} className="w-full">
+                {sending ? "Отправка…" : `Отправить за ${selectedGift.price} ${formatDropsLabel(selectedGift.price)}`}
               </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
+      <Dialog open={confirmBlock} onOpenChange={setConfirmBlock}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Заблокировать @{username}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Вы больше не сможете обмениваться сообщениями. Разблокировать можно здесь же.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="user-info-action-btn" onClick={() => setConfirmBlock(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="user-info-action-btn is-danger"
+              onClick={() => void handleToggleBlock()}
+              disabled={blockBusy}
+            >
+              Заблокировать
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+/**
+ * One shared-media cell. The full image is fetched through the authenticated
+ * attachment cache (the storage bucket is private), and the tile itself links
+ * back to the message it came from instead of opening a separate viewer.
+ */
+function SharedMediaTile({ item, onOpen }: { item: SharedAttachment; onOpen: () => void }) {
+  const meta = useMemo(() => {
+    if (!item.meta) return {} as { preview_key?: string; thumb_hash?: string; lqip?: string };
+    try {
+      return JSON.parse(item.meta) as { preview_key?: string; thumb_hash?: string; lqip?: string };
+    } catch {
+      return {};
+    }
+  }, [item.meta]);
+
+  const attachment = useMemo<Attachment>(() => ({
+    id: item.id,
+    url: item.url,
+    type: item.type === "video" ? "video" : "image",
+    name: item.name,
+    size: item.size,
+    mime: item.mime,
+    meta: item.meta,
+  }), [item]);
+
+  const src = useAuthenticatedAttachmentUrl(attachment, meta.preview_key || item.url, true);
+
+  return (
+    <button type="button" className="user-info-media-tile" onClick={onOpen} title={item.name}>
+      {src ? (
+        <img src={src} alt={item.name} loading="lazy" decoding="async" />
+      ) : (
+        <span className="user-info-media-placeholder" aria-hidden="true" />
+      )}
+      {item.type === "video" && (
+        <span className="user-info-media-play" aria-hidden="true"><Play size={12} /></span>
+      )}
+    </button>
   );
 }

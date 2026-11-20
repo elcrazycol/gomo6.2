@@ -14,7 +14,7 @@ import {
   useMessengerStore,
 } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
-import { formatPresence, getGroupInitials, getInitials, getUserColorClass } from "./utils";
+import { formatPresence, formatTime, getGroupInitials, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
@@ -23,8 +23,9 @@ import { isVoiceUnheard } from "./voice";
 import { MessageList, type MessageListHandle, type MessageRenderExtras } from "./MessageList";
 import { NotesSettingsDialog } from "./NotesSettingsDialog";
 import { NotesOrganizeDialog } from "./NotesOrganizeDialog";
+import { NotesPinnedBanner } from "./NotesPinnedBanner";
+import { useMessengerConnection } from "@/hooks/useMessengerConnection";
 import { hasNotesKey } from "@/utils/notesCrypto";
-import { isConsecutive } from "./messageListUtils";
 import { chunkAttachments } from "./attachmentAlbum";
 import { uploadFilesAsAttachments } from "./attachmentUpload";
 import { useFileDrop } from "@/hooks/useFileDrop";
@@ -57,8 +58,7 @@ export const ChatView = memo(function ChatView({
   const isLoading = useMessengerStore((s) => s.isMessagesLoading);
   const isSending = useMessengerStore((s) => s.isSending);
   const me = useMessengerStore((s) => s.me);
-  const error = useMessengerStore((s) => s.error);
-  const setError = useMessengerStore((s) => s.setError);
+  const connection = useMessengerConnection();
 
   const sendMessage = useMessengerStore((s) => s.sendMessage);
   const editMessage = useMessengerStore((s) => s.editMessage);
@@ -173,14 +173,14 @@ export const ChatView = memo(function ChatView({
     );
   }, [isNotesChat, messages, pinnedNotesById]);
 
-  // The main list shows everything except pinned notes, optionally filtered by
-  // the active folder chip.
+  // Notes are a normal chronological list — pinned notes included, exactly like
+  // Telegram keeps a pinned message in its place in the history. The compact
+  // banner above the list is only a shortcut. The folder chip filters the list.
   const visibleMessages = useMemo(() => {
     if (!isNotesChat) return messages;
-    const unpinned = messages.filter((m) => !m.notesPinned);
-    if (notesFolderFilter === null) return unpinned;
-    if (notesFolderFilter === "none") return unpinned.filter((m) => !m.notesFolder);
-    return unpinned.filter((m) => m.notesFolder === notesFolderFilter);
+    if (notesFolderFilter === null) return messages;
+    if (notesFolderFilter === "none") return messages.filter((m) => !m.notesFolder);
+    return messages.filter((m) => m.notesFolder === notesFolderFilter);
   }, [isNotesChat, messages, notesFolderFilter]);
 
   // Reset notes organization UI when switching chats.
@@ -258,6 +258,14 @@ export const ChatView = memo(function ChatView({
   /** Tap on a quote: jump to the quoted message (the list flashes it). */
   const handleJumpToMessage = useCallback((messageId: string) => {
     messageListRef.current?.scrollToMessage(messageId);
+  }, []);
+
+  // A pinned note may live outside the active folder filter (the bar is
+  // independent of it): clear the filter first, then scroll on the next frame
+  // so the list already contains the target.
+  const handleJumpToPinnedNote = useCallback((messageId: string) => {
+    setNotesFolderFilter(null);
+    requestAnimationFrame(() => messageListRef.current?.scrollToMessage(messageId));
   }, []);
 
   const handleJumpToPinned = useCallback(() => {
@@ -452,22 +460,24 @@ export const ChatView = memo(function ChatView({
 
       if (giftData) {
         const imgSrc = giftImageUrl(giftData.imageUrl);
+        // A gift is a message, not a centered banner: it sits in the stream on
+        // the sender's side, in a bubble, with its own timestamp.
         return (
-          <div data-message-id={msg.id}>
+          <div
+            data-message-id={msg.id}
+            className={`bubble-row msg-gift-row${msg.sender_user_id === me.id ? " is-mine" : ""}`}
+          >
             {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}
-            <div className="msg-gift-standalone">
-              <div className="msg-gift-standalone-card">
-                <div className="msg-gift-standalone-img">
-                  {imgSrc ? (
-                    <img src={imgSrc} alt={giftData.giftName} />
-                  ) : (
-                    <Gift size={28} />
-                  )}
+            <div className="bubble-row-inner">
+              {conversation.is_group && !isGrouped && msg.sender_user_id !== me.id && msg.sender_username && (
+                <div className={`msg-sender-name ${getUserColorClass(msg.sender_user_id)}`} style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, marginLeft: 4 }}>
+                  {msg.sender_username}
                 </div>
-                <div className="msg-gift-standalone-name">{giftData.giftName}</div>
+              )}
+              <div className="message-bubble">
                 <button
                   type="button"
-                  className="msg-gift-standalone-btn"
+                  className="msg-gift-card"
                   onClick={() => {
                     setGiftDetailId(giftData.giftId);
                     setGiftDetailRecipientId(
@@ -475,8 +485,18 @@ export const ChatView = memo(function ChatView({
                     );
                   }}
                 >
-                  Подробнее
+                  <span className="msg-gift-card-media">
+                    {imgSrc ? <img src={imgSrc} alt={giftData.giftName} /> : <Gift size={26} />}
+                  </span>
+                  <span className="msg-gift-card-copy">
+                    <span className="msg-gift-card-eyebrow">Подарок</span>
+                    <span className="msg-gift-card-name">{giftData.giftName}</span>
+                    <span className="msg-gift-card-link">Посмотреть детали</span>
+                  </span>
                 </button>
+                <div className="message-meta">
+                  <span className="message-time">{formatTime(msg.sent_at)}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -622,7 +642,12 @@ export const ChatView = memo(function ChatView({
                 )}
               </div>
               <p className="presence-copy">
-                {conversation.is_notes
+                {connection !== "connected" && !conversation.is_notes ? (
+                  <span className={`presence-connection is-${connection}`}>
+                    <span className="presence-connection-dot" aria-hidden="true" />
+                    {connection === "offline" ? "Нет сети" : "Соединение…"}
+                  </span>
+                ) : conversation.is_notes
                   ? "Шифрование на устройстве"
                   : conversation.encryption_mode === "e2e"
                     ? "🔒 Сквозное шифрование"
@@ -652,49 +677,22 @@ export const ChatView = memo(function ChatView({
           </button>
         )}
 
+        {/* Pinned notes: ONE compact row (Telegram's pinned bar), never a
+            section that pushes the conversation down. */}
+        {conversation.is_notes && pinnedNotes.length > 0 && (
+          <NotesPinnedBanner notes={pinnedNotes} onJump={handleJumpToPinnedNote} />
+        )}
       </div>
 
       {/* Messages */}
       <div className="chat-messages-area">
-        {error && (
-          <div className="error-banner chat-error-banner">
-            <span>{error}</span>
-            <button type="button" className="error-dismiss" onClick={() => setError(null)}>×</button>
-          </div>
-        )}
         {conversation.is_notes && !hasNotesKey() && (messages.length > 0 || Boolean(conversation.last_message_at)) && (
           <div className="notes-key-banner">
-            <Lock size={14} />
-            <span>Ключ шифрования не найден на этом устройстве. Заметки можно прочитать, только восстановив ключ из резервной копии.</span>
+            <Lock size={13} />
+            <span>Ключ шифрования недоступен на этом устройстве</span>
             <button type="button" className="notes-key-banner-action" onClick={() => setShowNotesInfo(true)}>
-              Восстановить ключ
+              Ключ
             </button>
-          </div>
-        )}
-        {conversation.is_notes && pinnedNotes.length > 0 && (
-          <div className="notes-pinned-section">
-            <div className="notes-section-heading">
-              <Pin size={12} />
-              <span>Закреплённые</span>
-              <span className="notes-section-count">{pinnedNotes.length}</span>
-            </div>
-            <div className="notes-pinned-list">
-              {pinnedNotes.map((msg, index) => {
-                const prev = index > 0 ? pinnedNotes[index - 1] : null;
-                return (
-                  <div key={msg.id} className="notes-pinned-item">
-                    {renderMessage(msg, prev, {
-                      dateLabel: null,
-                      isConsecutive: isConsecutive(prev, msg),
-                      quoted: msg.parent_message_id
-                        ? messageById.get(msg.parent_message_id) ?? null
-                        : null,
-                      peerReceipt: null,
-                    })}
-                  </div>
-                );
-              })}
-            </div>
           </div>
         )}
         {conversation.is_notes && noteFolders.length > 0 && (
@@ -738,7 +736,7 @@ export const ChatView = memo(function ChatView({
             ) : (
               <div className="notes-filter-empty">
                 <Folder size={18} />
-                <span>{notesFolderFilter !== null ? "В этой папке пока нет заметок" : "Все заметки закреплены"}</span>
+                <span>В этой папке пока нет заметок</span>
               </div>
             )
           ) : (
@@ -810,6 +808,8 @@ export const ChatView = memo(function ChatView({
           avatarUrl={conversation.other_avatar_url}
           isOnline={conversation.other_is_online}
           lastSeenAt={conversation.other_last_seen_at}
+          isMuted={conversation.is_muted}
+          onJumpToMessage={handleJumpToMessage}
           isGroup={conversation.is_group}
           groupName={conversation.group_name}
           groupAvatarUrl={conversation.group_avatar_url}

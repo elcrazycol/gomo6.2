@@ -27,6 +27,9 @@ GET /conversations
 GET /conversations/:id/messages?limit=50
 GET /conversations/:id/messages?before=<messageId>&limit=50   # backward page
 GET /conversations/:id/messages?since_event_id=<cursor>       # delta sync (reconnect)
+GET /conversations/:id/messages?ids=<id>,<id>,…                # ≤50, chronological
+GET /conversations/:id/attachments?types=image,video&limit=9   # chat profile media
+GET /conversations/:id/attachments?types=file,audio&limit=4    # chat profile files
 ```
 
 Rules: `before` and `since_event_id` are mutually exclusive. Delta pages come
@@ -54,11 +57,16 @@ DELETE /conversations/:id/messages/:msgId
 POST /conversations/:id/read      {"message_id"}   # read line: marks the whole prefix
 POST /conversations/:id/delivered {"message_id"}   # delivery line (prefix)
 POST /conversations/:id/pin       {"message_id"}   # toggle
+PUT  /conversations/:id/mute      {"muted"}        # my own membership only
 DELETE /conversations/:id/leave
 POST /conversations/:id/encryption {"mode": "server"|"e2e"}  # 1:1 only
-PUT  /conversations/:id/messages/:msgId   {"content"}
-DELETE /conversations/:id/messages/:msgId
 ```
+
+`attachments` returns the newest media/files of the conversation (member-only,
+bounded to 60): `{id, message_id, url, type, name, size, mime, meta, created_at}`.
+The chat profile panel uses it instead of walking history. `mute` flips only the
+caller's `chat_members.is_muted` (it never affects the peer); the value also
+arrives as `is_muted` in `GET /conversations`.
 
 **Deleting is real.** The row's `content`, `payload`, `notes_meta` and the `enc`
 envelope are wiped, its attachments/reactions/voice-marks/receipts are removed,
@@ -93,11 +101,20 @@ so the server cannot list them, and the device asks for the handful of ids it
 knows instead of walking the whole history page by page.
 
 **Client reading model.** The messenger opens a chat on one page (the notes
-self-chat included) and paginates with `before`. The last five opened chats are
+self-chat included) and paginates with `before`. Pinned notes are NOT a separate
+section: they stay in the chronological list, and a single Telegram-style bar
+(one row, preview + `N/M` counter) jumps between them; its ids come from the
+device-local pin index plus the bounded `ids=` fetch. Transient failures are
+toasts and per-message `!` badges — never layout-shifting banners; a dropped
+socket replaces the peer's status with «Соединение…» and shows a small spinner
+at the bottom-left of the chat list. The last five opened chats are
 kept decrypted in an in-memory LRU, so switching back paints the messages in the
 same frame while the network refresh runs; hovering a row warms that LRU from
-IndexedDB without a request. Message timestamps are laid out by an invisible
-inline twin of the pill (reserving its exact width during normal line breaking),
+IndexedDB without a request. On the phone the chat panel keeps a constant
+layout height and rides the keyboard with one compositor-only `translate` (the
+visual-viewport inset); the message list is never re-laid out per keyboard
+frame. Message timestamps are laid out by an invisible inline twin of the pill
+(reserving its exact width during normal line breaking),
 not by measuring the DOM.
 
 **Membership is explicit.** Every messenger handler asks

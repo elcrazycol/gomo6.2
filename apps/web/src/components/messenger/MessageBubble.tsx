@@ -4,6 +4,7 @@ import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck, Clock } from "lucide-react";
 import { formatTime, formatReadAt } from "./utils";
 import { MessageContent } from "./MessageContent";
+import { MessageContentBoundary } from "./ErrorBoundary";
 import { messengerPlainPreview } from "./messengerRichTextUtils";
 import { MessageActionOverlay } from "./MessageActionOverlay";
 import type { MessageView } from "./types";
@@ -106,6 +107,9 @@ export const MessageBubble = memo(function MessageBubble({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const [isLongPressing, setIsLongPressing] = useState(false);
+  // A failed send is a property of ONE message. Its retry/delete menu must not
+  // open the full action panel or shift the bubble.
+  const [failedMenuOpen, setFailedMenuOpen] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const messageBubbleRef = useRef<HTMLDivElement | null>(null);
   const rowInnerRef = useRef<HTMLDivElement | null>(null);
@@ -457,6 +461,17 @@ export const MessageBubble = memo(function MessageBubble({
     if (floatTimerRef.current) clearTimeout(floatTimerRef.current);
   }, []);
 
+  useEffect(() => {
+    if (!failedMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".message-failed")) return;
+      setFailedMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [failedMenuOpen]);
+
   // The long-press panel applies a reaction and closes: the chip under the
   // message is the result, so the panel has nothing left to say.
   const handlePickReaction = useCallback((emoji: string) => {
@@ -603,29 +618,68 @@ export const MessageBubble = memo(function MessageBubble({
             );
           })()}
 
+          <MessageContentBoundary>
+            <MessageContent
+              content={message.content}
+              payload={message.payload}
+              attachments={message.attachments}
+              hasQuotedMessage={Boolean(quotedMessage)}
+              isMine={isMine}
+              onVoiceListen={onVoiceListen}
+              trailingMeta={canUseInlineMeta ? (
+                <span className="message-meta-reserve" aria-hidden="true">
+                  {metaChildren}
+                </span>
+              ) : undefined}
+            />
+          </MessageContentBoundary>
+
           {message.localStatus === "failed" && (
-            <div className="message-error-header">
-              <RefreshCw size={11} />
-              <span>Не отправлено</span>
-              <button type="button" className="retry-button" onClick={() => onRetry(message)} title="Повторить">
-                Повторить
+            <div className="message-failed">
+              <button
+                type="button"
+                className="message-failed-dot"
+                aria-label="Сообщение не отправлено"
+                aria-haspopup="menu"
+                aria-expanded={failedMenuOpen}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setFailedMenuOpen((open) => !open);
+                }}
+              >
+                !
               </button>
+              {failedMenuOpen && (
+                <div className="message-failed-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setFailedMenuOpen(false);
+                      onRetry(message);
+                    }}
+                  >
+                    <RefreshCw size={13} />
+                    Повторить
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="is-destructive"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setFailedMenuOpen(false);
+                      onDelete(message.id);
+                    }}
+                  >
+                    <Trash2 size={13} />
+                    Удалить
+                  </button>
+                </div>
+              )}
             </div>
           )}
-
-          <MessageContent
-            content={message.content}
-            payload={message.payload}
-            attachments={message.attachments}
-            hasQuotedMessage={Boolean(quotedMessage)}
-            isMine={isMine}
-            onVoiceListen={onVoiceListen}
-            trailingMeta={canUseInlineMeta ? (
-              <span className="message-meta-reserve" aria-hidden="true">
-                {metaChildren}
-              </span>
-            ) : undefined}
-          />
 
           <div className="message-meta">{metaChildren}</div>
 

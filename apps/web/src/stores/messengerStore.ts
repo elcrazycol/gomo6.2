@@ -809,6 +809,9 @@ type MessengerStore = {
    * so the sidebar dot and the chat header react instantly. */
   setUserPresence: (userId: string, online: boolean, lastSeen?: string | null) => void;
   updateConversationFromWs: (convId: string, updates: Partial<ConversationView>, incrementUnread?: boolean) => void;
+  /** Optimistic local mute state for a conversation (server is updated by the
+   *  caller through messengerApi.setMuted). */
+  setConversationMuted: (conversationId: string, muted: boolean) => void;
 };
 
 // ─── Store implementation ───────────────────────────────────────────────────
@@ -2265,6 +2268,14 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       });
       return { onlineUsers, conversations };
     });
+  },
+
+  setConversationMuted: (conversationId, muted) => {
+    set((s) => ({
+      conversations: s.conversations.map((conversation) =>
+        conversation.id === conversationId ? { ...conversation, is_muted: muted } : conversation,
+      ),
+    }));
   },
 
   updateConversationFromWs: (convId, updates, incrementUnread = false) => {

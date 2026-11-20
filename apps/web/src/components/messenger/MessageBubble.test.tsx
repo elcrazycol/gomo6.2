@@ -589,18 +589,31 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".is-pinned")).toBeInTheDocument();
   });
 
-  it("renders failed state with retry button", () => {
+  it("marks a failed send with a small ! that opens retry / delete", () => {
     const onRetry = vi.fn();
-    render(
+    const onDelete = vi.fn();
+    const { container } = render(
       <MessageBubble
         message={createMessage({ localStatus: "failed" })}
         {...defaultProps}
         isMine={true}
         onRetry={onRetry}
+        onDelete={onDelete}
       />,
     );
-    expect(screen.getByText("Не отправлено")).toBeInTheDocument();
-    expect(screen.getByText("Повторить")).toBeInTheDocument();
+
+    // No in-bubble error header: the failure is one quiet badge.
+    expect(container.querySelector(".message-error-header")).not.toBeInTheDocument();
+    const dot = screen.getByRole("button", { name: "Сообщение не отправлено" });
+    expect(dot).toHaveTextContent("!");
+
+    fireEvent.click(dot);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Повторить/ }));
+    expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ localStatus: "failed" }));
+
+    fireEvent.click(dot);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Удалить/ }));
+    expect(onDelete).toHaveBeenCalledWith("msg-1");
   });
 
   it("renders quoted message when provided", () => {

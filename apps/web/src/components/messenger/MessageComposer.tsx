@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Smile, Maximize2, Minimize2, Camera, ChevronUp, ChevronDown } from "lucide-react";
-import { GomoRichEditor, Toolbar, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Smile, Camera } from "lucide-react";
+import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { EmojiPicker } from "@/components/EmojiPicker";
 
 import { useEmojiKeyboardSwap } from "@/hooks/useEmojiKeyboardSwap";
@@ -164,38 +164,7 @@ export const MessageComposer = memo(function MessageComposer({
   const attachCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevActiveSheetRef = useRef(activeSheet);
 
-  const [fullMode, setFullMode] = useState(false);
-  // Wall-style fullscreen: the whole composer expands into a viewport overlay
-  // (reusing this very body, not a second editor). Desktop-oriented — the
-  // button is hidden on touch so the mobile keyboard machinery is untouched.
-  const [fullscreen, setFullscreen] = useState(false);
-  // Live tiptap instance, captured AFTER commit and tagged with the mode it
-  // belongs to. Fullscreen renders the editor through a portal (a fresh
-  // instance), so the formatting Toolbar must not be handed the previous,
-  // already-destroyed editor during the swap — hence the mode tag.
-  const [capturedEditor, setCapturedEditor] = useState<{
-    fullscreen: boolean;
-    editor: ReturnType<GomoRichEditorHandle["getEditor"]>;
-  }>({ fullscreen: false, editor: null });
-
-  // Fullscreen swaps the editor for a fresh portal instance — re-read the
-  // tiptap instance once the new one has committed (layout effect: before the
-  // browser paints, so the Toolbar appears with no flash).
-  useLayoutEffect(() => {
-    const instance = editorRef.current?.getEditor() ?? null;
-    setCapturedEditor({ fullscreen, editor: instance });
-    // Entering fullscreen mounts a fresh editor — focus it so typing starts
-    // right away.
-    if (fullscreen) editorRef.current?.focus();
-  }, [fullscreen]);
-  // While the formatting panel is closing it stays mounted (with the exit
-  // animation) and unmounts after a short delay — so closing reads as one
-  // smooth motion instead of a hard pop.
-  const [panelExiting, setPanelExiting] = useState(false);
-  const panelExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => () => {
-    if (panelExitTimerRef.current) clearTimeout(panelExitTimerRef.current);
     if (attachCloseTimerRef.current) clearTimeout(attachCloseTimerRef.current);
   }, []);
 
@@ -270,7 +239,6 @@ export const MessageComposer = memo(function MessageComposer({
       lastEditorDraftRef.current !== ""
     ) {
       setEditorResetKey((key) => key + 1);
-      setFullMode(false);
     }
   }, [draft]);
 
@@ -528,20 +496,6 @@ export const MessageComposer = memo(function MessageComposer({
     }
   }, [swap.open]);
 
-  // ── Full composer: the ▢ opens a full-width formatting panel above the
-  // input pill and relocates to its left edge; the bottom slot it vacated
-  // becomes the paperclip attach button. ─────────────────────────────────────
-  const openFullMode = useCallback(() => {
-    setFullMode(true);
-  }, []);
-
-  const closeFullMode = useCallback(() => {
-    setFullMode(false);
-    setPanelExiting(true);
-    if (panelExitTimerRef.current) clearTimeout(panelExitTimerRef.current);
-    panelExitTimerRef.current = setTimeout(() => setPanelExiting(false), 220);
-  }, []);
-
   // The window's FULL height with the keyboard dismissed — the max innerHeight
   // seen since mount. On engines that collapse innerHeight WITH the keyboard
   // (window-collapse engines, e.g. Firefox iOS: the vv-delta stays 0 there),
@@ -751,16 +705,6 @@ useEffect(() => {
     };
   }, [swap.open, activeSheet, handleSheetClose]);
 
-  // The formatting panel's Toolbar needs the live tiptap instance. Only use the
-  // one captured for the CURRENT mode, and never a destroyed instance — during
-  // the fullscreen swap the previous editor is momentarily still in state.
-  const toolbarEditor =
-    capturedEditor.fullscreen === fullscreen &&
-    capturedEditor.editor &&
-    !capturedEditor.editor.isDestroyed
-      ? capturedEditor.editor
-      : null;
-
   // Telegram's rule: an empty composer offers the microphone, typing swaps it
   // for send. Editing an existing message never records.
   const showVoiceRecorder = Boolean(onSendVoice)
@@ -840,7 +784,7 @@ useEffect(() => {
     </button>
   );
 
-  // Banners shared by the inline composer and the fullscreen shell.
+  // Banners shared by the inline composer.
   const composerBanners = (
     <>
       {replyToMessage && (
@@ -964,76 +908,6 @@ useEffect(() => {
       document.body,
     );
 
-  // ── Fullscreen shell — a wall-style full-viewport editor: header on top, the
-  // editor filling the middle, and ONE bottom bar holding the formatting
-  // toolbar plus every control (paperclip / emoji / send). Portalled so it
-  // really covers the viewport (the chat panel's framer transform traps
-  // position:fixed). The messages are intentionally not shown here.
-  if (fullscreen) {
-    return createPortal(
-      <div className="composer-fs-overlay">
-        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
-        <div
-          ref={rootRef}
-          onMouseDown={handleComposerMouseDown}
-          className={`composer-fs-dialog${isSending ? " is-sending" : ""}`}
-        >
-          <div className="composer-fs-header">
-            <button
-              type="button"
-              className="composer-fs-close"
-              onClick={() => setFullscreen(false)}
-              onMouseDown={(e) => e.preventDefault()}
-              aria-label="Закрыть полноэкранный режим"
-              title="Закрыть"
-            >
-              <X size={18} />
-            </button>
-            <span className="composer-fs-title">{isEditing ? "Редактирование" : "Сообщение"}</span>
-            <button
-              type="button"
-              className="composer-fs-minimize"
-              onClick={() => setFullscreen(false)}
-              onMouseDown={(e) => e.preventDefault()}
-              aria-label="Свернуть"
-              title="Свернуть"
-            >
-              <Minimize2 size={16} />
-            </button>
-          </div>
-
-          {composerBanners}
-
-          <div className="composer-fs-editor">
-            <GomoRichEditor
-              ref={handleEditorRef}
-              resetKey={editorResetKey}
-              maxLength={MAX_LENGTH}
-              contentJson={editorJson}
-              onChange={handleEditorChange}
-              onSubmit={handleSubmit}
-              placeholder={isEditing ? "" : placeholder ?? "Напиши сообщение..."}
-              minHeightClassName="min-h-[240px]"
-              maxHeightClassName="max-h-none"
-              showToolbar={false}
-            />
-          </div>
-
-          <div className="composer-fs-bar">
-            {toolbarEditor && <Toolbar editor={toolbarEditor} className="composer-toolbar-panel" />}
-            <div className="composer-fs-bar-spacer" />
-            {attachFileInput}
-            {attachButton}
-            {emojiPicker}
-            {sendButton}
-          </div>
-        </div>
-        {attachSheet}
-      </div>,
-      document.body,
-    );
-  }
-
   return (
     // The mousedown guard is not an interaction — it only cancels the
     // browser's default focus move on the chrome (see handleComposerMouseDown).
@@ -1041,30 +915,9 @@ useEffect(() => {
     <div
       ref={rootRef}
       onMouseDown={handleComposerMouseDown}
-      className={`composer${isSending ? " is-sending" : ""}${fullMode ? " is-full" : ""}${swap.open ? " is-sheet-open" : ""}`}
+      className={`composer${isSending ? " is-sending" : ""}${swap.open ? " is-sheet-open" : ""}`}
     >
       {composerBanners}
-
-      {/* Formatting toolbar — hugs its content (no more full-width row) and
-          sits above the input's right side. The fullscreen button is set a
-          little apart at its right edge. */}
-      {(fullMode || panelExiting) && (
-        <div className={`composer-panel-row${panelExiting ? " is-exiting" : ""}`}>
-          {toolbarEditor && <Toolbar editor={toolbarEditor} className="composer-toolbar-panel" />}
-          {!isTouch && (
-            <button
-              type="button"
-              className="composer-fullscreen-btn"
-              onClick={() => setFullscreen(true)}
-              onMouseDown={(e) => e.preventDefault()}
-              aria-label="На весь экран"
-              title="На весь экран"
-            >
-              <Maximize2 size={16} />
-            </button>
-          )}
-        </div>
-      )}
 
       <div className="composer-row">
         {/* Left of the input: the paperclip only. */}
@@ -1073,8 +926,7 @@ useEffect(() => {
           {attachButton}
         </div>
 
-        {/* The input pill — the formatting toggle and the emoji trigger live
-            inside it, on the right. */}
+        {/* The input pill — the emoji trigger lives inside it, on the right. */}
         <div className="composer-input-pill">
           <div className="composer-input-area" onPaste={handleEditorPaste}>
             <GomoRichEditor
@@ -1086,27 +938,11 @@ useEffect(() => {
               onSubmit={handleSubmit}
               placeholder={isEditing ? "" : placeholder ?? "Напиши сообщение..."}
               minHeightClassName="min-h-[20px]"
-              maxHeightClassName={
-                fullMode
-                  ? "max-h-[45vh] overflow-y-auto overscroll-contain"
-                  : "max-h-[140px] overflow-y-auto overscroll-contain"
-              }
+              maxHeightClassName="max-h-[128px] overflow-y-auto overscroll-contain"
               showToolbar={false}
+              showSelectionToolbar
             />
           </div>
-
-          {/* Formatting toggle — a chevron inside the pill, immediately left
-              of the emoji trigger. */}
-          <button
-            type="button"
-            className={`composer-toolbar-toggle${fullMode ? " is-open" : ""}`}
-            onClick={fullMode ? closeFullMode : openFullMode}
-            onMouseDown={(e) => e.preventDefault()}
-            aria-label={fullMode ? "Свернуть компоузер" : "Развернуть компоузер"}
-            title={fullMode ? "Скрыть форматирование" : "Форматирование"}
-          >
-            {fullMode ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-          </button>
 
           {emojiPicker}
 
@@ -1117,14 +953,19 @@ useEffect(() => {
           )}
         </div>
 
-        {showVoiceRecorder && onSendVoice ? (
-          <VoiceRecorder
-            onSend={onSendVoice}
-            onRowLockChange={setVoiceRowLocked}
-          />
-        ) : (
-          sendButton
-        )}
+        {/* Telegram's single round action button: microphone while the field is
+            empty, send as soon as there is something to send. One fixed slot,
+            so the swap is a quiet pop instead of a row reflow. */}
+        <div className="composer-action-slot">
+          {showVoiceRecorder && onSendVoice ? (
+            <VoiceRecorder
+              onSend={onSendVoice}
+              onRowLockChange={setVoiceRowLocked}
+            />
+          ) : (
+            sendButton
+          )}
+        </div>
       </div>
 
       {attachSheet}

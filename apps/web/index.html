@@ -36,11 +36,14 @@
       })();
     </script>
     <meta charset="UTF-8" />
-    <!-- interactive-widget=resizes-content (Chrome Android 108+, Firefox Android 132+):
-     shrink the layout viewport when the software keyboard opens so flex/grid
-     layouts keep fixed bars above the keyboard natively. iOS ignores it — the
-     JS keyboard layer (lib/mobileKeyboard.ts) handles iOS via visualViewport. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+    <!-- Deliberately NO interactive-widget=resizes-content. The messenger keeps
+     its layout height constant and lifts the chat panel with one compositor-only
+     translate driven by visualViewport (lib/mobileKeyboard.ts). Letting Android
+     resize the layout viewport made every list row re-layout on each keyboard
+     frame — the "not smooth on Android" report. The default resizes-visual keeps
+     the layout still and only shrinks the visual viewport, which is what the
+     inset reads. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>gomo6</title>
     <meta name="description" content="gomo6 — социальная сеть с мессенджером, досками и обсуждениями." />
     <meta name="author" content="gomo6" />

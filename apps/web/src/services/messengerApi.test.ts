@@ -99,6 +99,32 @@ describe("messengerApi", () => {
     });
   });
 
+  describe("chat panel", () => {
+    it("toggles mute with PUT on the caller's membership", async () => {
+      mockFetch({ muted: true });
+
+      await expect(messengerApi.setMuted("conv-1", true)).resolves.toEqual({ muted: true });
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/mute",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ muted: true }),
+        }),
+      );
+    });
+
+    it("lists shared media with an explicit type allow-list", async () => {
+      mockFetch([{ id: "a1", type: "image" }]);
+
+      await messengerApi.listSharedAttachments("conv-1", ["image", "video"], 9);
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/attachments?types=image%2Cvideo&limit=9",
+        expect.anything(),
+      );
+    });
+  });
+
   describe("getMessagesByIds", () => {
     it("requests exactly the given ids in one bounded call", async () => {
       mockFetch([]);

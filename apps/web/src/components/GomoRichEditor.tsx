@@ -1,6 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { InkBar, InkButton } from "@/components/ui/ink-bar";
-import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
+import { useEditor, EditorContent, useEditorState, type Editor as ReactEditor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor, Extensions } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
@@ -40,6 +41,10 @@ interface GomoRichEditorProps {
   maxHeightClassName?: string;
   /** Hide the formatting toolbar while a compact composer is idle. */
   showToolbar?: boolean;
+  /** Show the selection bubble (bold / italic / underline / strike / spoiler)
+   *  instead of a persistent toolbar. Used by the messenger composer: the
+   *  formatting lives where the text is, not in a row above the input. */
+  showSelectionToolbar?: boolean;
   /** Extra class on the formatting toolbar row (e.g. entrance animation). */
   toolbarClassName?: string;
   /** Focus the editor as soon as it is ready. */
@@ -302,6 +307,41 @@ export const Toolbar = ({ editor, className = "" }: { editor: Editor; className?
   );
 };
 
+/**
+ * Telegram-style selection bubble. It appears over a non-empty selection and
+ * applies a mark to exactly that selection. `onMouseDown` is prevented so the
+ * click never collapses the selection before the command runs.
+ */
+const SelectionToolbar = ({ editor }: { editor: ReactEditor }) => (
+  <BubbleMenu
+    editor={editor}
+    className="rich-selection-menu"
+    updateDelay={80}
+    shouldShow={({ editor: current, from, to }) => current.isEditable && from !== to}
+  >
+    {[
+      { title: "Жирный", icon: <Bold className="h-3.5 w-3.5" />, run: () => editor.chain().focus().toggleBold().run(), active: "bold" },
+      { title: "Курсив", icon: <Italic className="h-3.5 w-3.5" />, run: () => editor.chain().focus().toggleItalic().run(), active: "italic" },
+      { title: "Подчёркнутый", icon: <UnderlineIcon className="h-3.5 w-3.5" />, run: () => editor.chain().focus().toggleUnderline().run(), active: "underline" },
+      { title: "Зачёркнутый", icon: <Strikethrough className="h-3.5 w-3.5" />, run: () => editor.chain().focus().toggleStrike().run(), active: "strike" },
+      { title: "Спойлер", icon: <Eye className="h-3.5 w-3.5" />, run: () => editor.chain().focus().toggleSpoiler().run(), active: "spoiler" },
+    ].map((item) => (
+      <button
+        key={item.title}
+        type="button"
+        title={item.title}
+        aria-label={item.title}
+        aria-pressed={editor.isActive(item.active)}
+        className={`rich-selection-btn${editor.isActive(item.active) ? " is-active" : ""}`}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={item.run}
+      >
+        {item.icon}
+      </button>
+    ))}
+  </BubbleMenu>
+);
+
 export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorProps>(({
   contentJson,
   legacyContent,
@@ -311,6 +351,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   resetKey,
   maxLength,
   showToolbar = true,
+  showSelectionToolbar = false,
   toolbarClassName,
   autoFocus = false,
   extraExtensions,
@@ -649,6 +690,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   return (
     <div className="space-y-6">
       {showToolbar && <Toolbar editor={editor} className={toolbarClassName} />}
+      {showSelectionToolbar && <SelectionToolbar editor={editor} />}
       <div ref={editorContainerRef}>
         <EditorContent editor={editor} />
       </div>

@@ -5,6 +5,12 @@ import { ConversationList } from "./ConversationList";
 
 // ─── Mock dependencies ────────────────────────────────────────────────────────
 
+const mockConnection = { status: "connected" as "connected" | "connecting" | "offline" };
+
+vi.mock("@/hooks/useMessengerConnection", () => ({
+  useMessengerConnection: () => mockConnection.status,
+}));
+
 vi.mock("@/components/PentagramLoader", () => ({
   PentagramLoader: ({ size }: { size: string }) => <span data-testid={`loader-${size}`}>Loading...</span>,
 }));
@@ -77,6 +83,7 @@ describe("ConversationList", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConnection.status = "connected";
     mockStore.conversations = [];
     mockStore.selectedConversationId = null;
     mockStore.error = null;
@@ -97,19 +104,25 @@ describe("ConversationList", () => {
     });
   });
 
-  describe("error banner", () => {
-    it("renders error message", () => {
-      mockStore.error = "Что-то пошло не так";
+  describe("connection state", () => {
+    it("shows no banner and no pill while the socket is live", () => {
+      mockConnection.status = "connected";
       render(<ConversationList />);
-      expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(document.querySelector(".error-banner")).not.toBeInTheDocument();
     });
 
-    it("dismisses error on close button click", async () => {
-      mockStore.error = "Test error";
+    it("shows a quiet connecting pill instead of an error banner", () => {
+      mockConnection.status = "connecting";
       render(<ConversationList />);
-      const dismissBtn = screen.getByLabelText("Закрыть");
-      await userEvent.click(dismissBtn);
-      expect(mockSetError).toHaveBeenCalledWith(null);
+      expect(screen.getByRole("status")).toHaveTextContent("Соединение…");
+      expect(document.querySelector(".error-banner")).not.toBeInTheDocument();
+    });
+
+    it("distinguishes a missing network from a reconnecting socket", () => {
+      mockConnection.status = "offline";
+      render(<ConversationList />);
+      expect(screen.getByRole("status")).toHaveTextContent("Нет сети");
     });
   });
 

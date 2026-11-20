@@ -15,6 +15,8 @@ const { mockStore } = vi.hoisted(() => {
       typingUsers: {},
       conversations: [] as any[],
       me: null,
+      error: null as string | null,
+      setError: vi.fn(),
     },
   };
 });
@@ -41,6 +43,10 @@ vi.mock("@/stores/messengerStore", () => ({
   }),
   selectSelectedConversation: (s: any) =>
     s.conversations.find((c: any) => c.id === s.selectedConversationId) ?? null,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
 }));
 
 vi.mock("@/services/messengerWebSocket", () => ({
@@ -103,6 +109,7 @@ beforeEach(() => {
   mockStore.isInitialLoading = false;
   mockStore.selectedConversationId = null;
   mockStore.conversations = [];
+  mockStore.error = null;
   mockSearchParams.delete("conversation");
   mockSearchParams.delete("user");
   mockWs.connect.mockResolvedValue(undefined);
@@ -342,6 +349,17 @@ describe("MessengerView", () => {
       mockStore.conversations = [mockConversation()];
       render(<MessengerView />);
       expect(screen.getByTestId("chat-view")).toBeInTheDocument();
+    });
+  });
+
+  it("turns a messenger error into a toast and clears the slot", async () => {
+    const { toast } = await import("sonner");
+    mockStore.error = "Не удалось отправить сообщение";
+    render(<MessengerView />);
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Не удалось отправить сообщение");
+      expect(mockStore.setError).toHaveBeenCalledWith(null);
     });
   });
 });

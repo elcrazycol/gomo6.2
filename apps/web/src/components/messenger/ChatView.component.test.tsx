@@ -63,6 +63,12 @@ vi.mock("@/utils/storage", () => ({
   storageUrl: (_bucket: string, key?: string | null) => key || null,
 }));
 
+const mockConnection = vi.hoisted(() => ({ status: "connected" as "connected" | "connecting" | "offline" }));
+
+vi.mock("@/hooks/useMessengerConnection", () => ({
+  useMessengerConnection: () => mockConnection.status,
+}));
+
 vi.mock("@/hooks/useFileDrop", () => ({
   useFileDrop: () => ({ isDragging: false, dragHandlers: {} }),
 }));
@@ -74,7 +80,9 @@ vi.mock("@/utils/notesCrypto", () => ({
 vi.mock("./utils", () => ({
   formatPresence: (online: boolean | null, lastSeen: string | null) =>
     online ? "в сети" : lastSeen ? "был(а) недавно" : "не в сети",
+  formatTime: () => "12:00",
   getInitials: (name: string) => name.slice(0, 2).toUpperCase(),
+  getGroupInitials: (name: string | null) => (name || "GR").slice(0, 2).toUpperCase(),
   getUserColorClass: () => "color-user",
 }));
 
@@ -402,6 +410,19 @@ describe("ChatView", () => {
       expect(screen.getByText("в сети")).toBeInTheDocument();
     });
 
+    it("replaces the peer's presence with the connection state", () => {
+      mockConnection.status = "connecting";
+      const first = render(<ChatView {...defaultProps} />);
+      expect(screen.getByText("Соединение…")).toBeInTheDocument();
+      expect(screen.queryByText("в сети")).not.toBeInTheDocument();
+      first.unmount();
+
+      mockConnection.status = "offline";
+      render(<ChatView {...defaultProps} />);
+      expect(screen.getByText("Нет сети")).toBeInTheDocument();
+      mockConnection.status = "connected";
+    });
+
     it("shows typing indicator when the peer is typing", () => {
       render(<ChatView {...defaultProps} typingUsername="alice" />);
       expect(screen.getByText(/печатает/)).toBeInTheDocument();
@@ -432,12 +453,13 @@ describe("ChatView", () => {
       expect(screen.queryByRole("button", { name: "Перейти" })).not.toBeInTheDocument();
     });
 
-    it("renders the error banner and dismisses it", () => {
+    it("never renders a layout-shifting error banner", () => {
+      // Errors are transient: MessengerView turns the store slot into a toast.
+      // The chat itself must not reserve space for one.
       mockStore.error = "Ошибка сети";
-      render(<ChatView {...defaultProps} />);
-      expect(screen.getByText("Ошибка сети")).toBeInTheDocument();
-      fireEvent.click(screen.getByText("×"));
-      expect(mockStore.setError).toHaveBeenCalledWith(null);
+      const { container } = render(<ChatView {...defaultProps} />);
+      expect(container.querySelector(".error-banner")).not.toBeInTheDocument();
+      expect(screen.queryByText("Ошибка сети")).not.toBeInTheDocument();
     });
 
     it("opens the user info panel on header click", () => {
@@ -549,14 +571,20 @@ describe("ChatView", () => {
       expect(screen.getByText("Заметки")).toBeInTheDocument();
     });
 
-    it("renders pinned notes in a dedicated section", () => {
+    it("shows pinned notes as one compact bar, keeping them in the flow", () => {
       mockStore.messages = [
         mockMessage({ id: "n1", content: "Закреплённая заметка", notesPinned: true }),
         mockMessage({ id: "n2", content: "Обычная заметка", notesPinned: false }),
       ];
-      render(<ChatView {...defaultProps} />);
-      expect(screen.getByText("Закреплённые")).toBeInTheDocument();
-      expect(screen.getByText("Закреплённая заметка")).toBeInTheDocument();
+      const { container } = render(<ChatView {...defaultProps} />);
+      // The bar is one row with a counter, not a section of full messages.
+      expect(container.querySelector(".notes-pinned-banner")).toBeInTheDocument();
+      expect(screen.getByText("Закреплённые заметки")).toBeInTheDocument();
+      expect(screen.getByText("1/1")).toBeInTheDocument();
+      expect(container.querySelector(".notes-pinned-section")).not.toBeInTheDocument();
+      // Both notes stay in the chronological list (the pinned one also appears
+      // as the bar's preview).
+      expect(screen.getAllByText("Закреплённая заметка").length).toBeGreaterThanOrEqual(2);
       expect(screen.getByText("Обычная заметка")).toBeInTheDocument();
     });
 

@@ -12,6 +12,19 @@ import { apiClient } from "@/integrations/api/client";
 import { uploadFile } from "@/utils/storage";
 
 const BASE = "/api/v1/messenger";
+
+/** One row of the chat panel's shared-media grid. */
+export interface SharedAttachment {
+  id: string;
+  message_id: string;
+  url: string;
+  type: "image" | "video" | "audio" | "file";
+  name: string;
+  size: number;
+  mime: string;
+  meta: string | null;
+  created_at: string;
+}
 const TOKEN = () => apiClient.getToken() ?? "";
 
 async function tryRefreshToken(force = false): Promise<string | null> {
@@ -323,6 +336,25 @@ export const messengerApi = {
       method: "POST",
       body: JSON.stringify({}),
     });
+  },
+
+  /** Toggles my notification mute for one conversation. */
+  async setMuted(conversationId: string, muted: boolean): Promise<{ muted: boolean }> {
+    return req<{ muted: boolean }>(`/conversations/${conversationId}/mute`, {
+      method: "PUT",
+      body: JSON.stringify({ muted }),
+    });
+  },
+
+  /** Newest media/files of a conversation, scoped to the caller's membership. */
+  async listSharedAttachments(
+    conversationId: string,
+    types: Array<"image" | "video" | "audio" | "file"> = ["image", "video", "audio", "file"],
+    limit?: number,
+  ): Promise<SharedAttachment[]> {
+    const params = new URLSearchParams({ types: types.join(",") });
+    if (limit !== undefined) params.set("limit", String(limit));
+    return req<SharedAttachment[]>(`/conversations/${conversationId}/attachments?${params.toString()}`);
   },
 
   async getGroupMembers(groupId: string): Promise<GroupMember[]> {
