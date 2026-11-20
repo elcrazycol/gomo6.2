@@ -23,6 +23,7 @@ const wallChain = (rows: unknown[]) => {
     eq: () => chain,
     order: () => chain,
     limit: () => Promise.resolve({ data: rows, error: null }),
+    range: () => Promise.resolve({ data: rows, error: null }),
   };
   return chain;
 };
@@ -167,7 +168,7 @@ describe("ProfileAllTab", () => {
         const threadCalls = fetchMock.mock.calls
           .map(([url]) => String(url))
           .filter((url) => url.includes("/api/v1/threads"));
-        expect(threadCalls.some((url) => url.includes("limit=40"))).toBe(true);
+        expect(threadCalls.some((url) => url.includes("offset=20"))).toBe(true);
       });
     } finally {
       (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = original;

@@ -40,6 +40,9 @@ export function MobileBottomNav({ user, chromeHidden = false }: MobileBottomNavP
     startX: number;
     startY: number;
     didMove: boolean;
+    /** Rail geometry captured on pointer-down: per-move reads force layout. */
+    railLeft: number;
+    previewIndex: number;
   } | null>(null);
   const suppressClickRef = useRef(false);
   const [tabWidth, setTabWidth] = useState(0);
@@ -98,11 +101,16 @@ export function MobileBottomNav({ user, chromeHidden = false }: MobileBottomNavP
     const item = (event.target as HTMLElement).closest<HTMLElement>("[data-mobile-tab]");
     if (item?.dataset.mobileTab !== activeTab) return;
 
+    // Capture the rail geometry once: reading getBoundingClientRect on every
+    // move forces a layout in the middle of a 120Hz gesture.
+    const railLeft = railRef.current?.getBoundingClientRect().left ?? 0;
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       didMove: false,
+      railLeft,
+      previewIndex: activeIndex,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -120,16 +128,18 @@ export function MobileBottomNav({ user, chromeHidden = false }: MobileBottomNavP
     setDragging(true);
     event.preventDefault();
 
-    const rail = railRef.current;
-    if (!rail) return;
-    const rect = rail.getBoundingClientRect();
     const maxX = tabWidth * (items.length - 1);
-    const rawX = event.clientX - rect.left - 5 - tabWidth / 2;
+    const rawX = event.clientX - drag.railLeft - 5 - tabWidth / 2;
     const nextX = Math.max(0, Math.min(maxX, rawX));
     indicatorX.set(nextX);
 
     const index = Math.max(0, Math.min(items.length - 1, Math.round(nextX / tabWidth)));
-    setPreviewTab(items[index].id);
+    // One React render per tab crossed, not per pixel: the pill itself rides
+    // the motion value and never needs React.
+    if (index !== drag.previewIndex) {
+      drag.previewIndex = index;
+      setPreviewTab(items[index].id);
+    }
   };
 
   const finishDrag = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
@@ -159,13 +169,9 @@ export function MobileBottomNav({ user, chromeHidden = false }: MobileBottomNavP
       return;
     }
 
-    const rail = railRef.current;
-    if (rail) {
-      const rect = rail.getBoundingClientRect();
-      const maxX = tabWidth * (items.length - 1);
-      const releaseX = event.clientX - rect.left - 5 - tabWidth / 2;
-      indicatorX.set(Math.max(0, Math.min(maxX, releaseX)));
-    }
+    const maxX = tabWidth * (items.length - 1);
+    const releaseX = event.clientX - drag.railLeft - 5 - tabWidth / 2;
+    indicatorX.set(Math.max(0, Math.min(maxX, releaseX)));
 
     const index = Math.max(
       0,

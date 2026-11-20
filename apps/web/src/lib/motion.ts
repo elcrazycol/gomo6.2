@@ -184,15 +184,17 @@ export const streamRowVariants = (index: number): Variants => {
   };
 };
 
-/** Restrained card landing: lift + tiny scale settle, never a flat opacity-only reveal. */
+/** Card landing in streams: lift + fade on short expo tweens. Deliberately no
+ *  scale — scaling a full card re-rasters its text and photos every frame,
+ *  which is exactly the visible stutter. The cascade covers only the first
+ *  three cards and plays once per mount. */
 export const STREAM_ITEM_VARIANTS: Variants = {
-  hidden: { opacity: 0, y: SPATIAL_OFFSET.row, scale: 0.975 },
+  hidden: { opacity: 0, y: 20 },
   show: {
     opacity: 1,
     y: 0,
-    scale: 1,
     transition: {
-      ...SPRING.standard,
+      y: { duration: 0.25, ease: EASE_OUT_EXPO },
       opacity: { duration: 0.16, ease: EASE_OUT_EXPO },
     },
   },

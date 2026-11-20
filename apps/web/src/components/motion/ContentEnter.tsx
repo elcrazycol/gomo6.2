@@ -1,16 +1,17 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
-import { EASE_OUT_EXPO, springFor } from "@/lib/motion";
+import { EASE_OUT_EXPO } from "@/lib/motion";
 import { useTransitionStyle } from "@/hooks/useTransitionStyle";
 
-/** The shared entrance both components below play. */
-const ENTER_FROM = { opacity: 0, scale: 0.98, y: 10 } as const;
-const ENTER_TO = { opacity: 1, scale: 1, y: 0 } as const;
+/** The shared entrance both components below play. No scale: these wrappers
+ *  hold whole screens/lists, and scaling them re-rasters every card and photo
+ *  inside for the duration of the enter. */
+const ENTER_FROM = { opacity: 0, y: 10 } as const;
+const ENTER_TO = { opacity: 1, y: 0 } as const;
 
 const enterTransition = {
   opacity: { duration: 0.16, ease: EASE_OUT_EXPO },
-  scale: springFor("standard", false),
-  y: springFor("standard", false),
+  y: { duration: 0.2, ease: EASE_OUT_EXPO },
 };
 
 interface EnterProps {

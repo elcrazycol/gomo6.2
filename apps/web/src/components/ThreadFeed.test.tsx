@@ -212,7 +212,7 @@ describe("ThreadFeed", () => {
     expect(screen.getByText("Second Thread")).toBeInTheDocument();
   });
 
-  it("cascades the first six cards without animating the rest of a long page", async () => {
+  it("cascades the first three cards without animating the rest of a long page", async () => {
     const items = Array.from({ length: 8 }, (_, index) =>
       createMockThreadItem({ id: `thread-${index}`, title: `Thread ${index}` }),
     );
@@ -226,7 +226,7 @@ describe("ThreadFeed", () => {
     );
 
     await waitFor(() => expect(screen.getByText("Thread 7")).toBeInTheDocument());
-    expect(container.querySelectorAll('[data-motion="cascade-row"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[data-motion="cascade-row"]')).toHaveLength(3);
   });
 
   it("skips the cascade when the parent disables entrance motion", async () => {

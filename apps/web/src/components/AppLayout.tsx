@@ -46,6 +46,21 @@ interface AppLayoutProps {
 type AudioInstance = (HTMLMediaElement & { playing?: boolean; media?: HTMLMediaElement; on?: (event: string, handler: (...args: unknown[]) => void) => void }) | { play: () => Promise<void>; pause: () => void; media?: HTMLMediaElement; on?: (event: string, handler: (...args: unknown[]) => void) => void; muted?: boolean; paused?: boolean; ended?: boolean; currentTime?: number; duration?: number; volume?: number | (() => number) };
 type PlaylistEntry = { id: string; title: string; src?: string; index: number };
 
+/** Landing pages of the bottom tab bar: switches between them are instant
+ *  (native tab-bar feel), deeper pushes keep the page entrance. */
+const TAB_ROOT_PATHS = new Set([
+  "/",
+  "/feed",
+  "/mine",
+  "/history",
+  "/favorites",
+  "/g",
+  "/gomosubs",
+  "/messages",
+]);
+const isTabRoot = (path: string) =>
+  TAB_ROOT_PATHS.has(path) || /^\/profile\/[^/]+$/.test(path);
+
 type NowPlayingState = {
   id: string;
   title: string;
@@ -75,6 +90,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     // No entrance on the very first render, and none for feed↔раздел hops —
     // Index animates those itself.
     if (prev === location.pathname || (isFeedRoute(prev) && isFeedRoute(location.pathname))) return;
+    // Bottom-tab switches (лента/gomosubs/чаты/профиль) are instant like a
+    // native tab bar: the destination paints from cache/skeleton and a
+    // whole-page rise over 20 cards with images is exactly the switch jank.
+    // Any /profile/:id root counts (no user lookup: the hook order below must
+    // not move, and the effect must not depend on auth state).
+    if (isTabRoot(prev) && isTabRoot(location.pathname)) return;
     if (transitionStyle === "none" || reduceMotion) return;
     enterControls.set({ opacity: 0, y: 10 });
     void enterControls.start({

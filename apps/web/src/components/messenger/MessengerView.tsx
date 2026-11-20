@@ -64,6 +64,7 @@ export const MessengerView = () => {
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const resizeRafRef = useRef(0);
 
   const sidebarCollapsed = !isMobile && sidebarWidth === SIDEBAR_COLLAPSED_WIDTH;
 
@@ -159,16 +160,31 @@ export const MessengerView = () => {
           ? SIDEBAR_COLLAPSED_WIDTH
           : Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, targetWidth));
       sidebarWidthRef.current = nextWidth;
-      setSidebarWidth(nextWidth);
+      // One commit per frame: mousemove fires faster than the display and
+      // every commit re-renders the whole messenger.
+      if (resizeRafRef.current) return;
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = 0;
+        setSidebarWidth(sidebarWidthRef.current);
+      });
     };
 
     let cleanup = () => undefined;
     const handleMouseUp = () => {
+      if (resizeRafRef.current) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = 0;
+        setSidebarWidth(sidebarWidthRef.current);
+      }
       cleanup();
       resizeCleanupRef.current = null;
       saveSidebarWidth(sidebarWidthRef.current);
     };
     cleanup = () => {
+      if (resizeRafRef.current) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = 0;
+      }
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
       document.body.style.cursor = "";

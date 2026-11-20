@@ -3,7 +3,6 @@ import {
   CASCADE_VARIANTS,
   INSTANT,
   SPRING,
-  SPATIAL_OFFSET,
   STREAM_CASCADE_VARIANTS,
   STREAM_ITEM_VARIANTS,
   STAGGER,
@@ -39,21 +38,19 @@ describe("shared stream choreography", () => {
     });
   });
 
-  it("moves stream rows only a small distance and uses the standard spring", () => {
+  it("lands stream rows with lift and fade on expo tweens, no scale", () => {
     expect(STREAM_CASCADE_VARIANTS.show).toEqual({
       transition: { staggerChildren: 0.055, delayChildren: 0.02 },
     });
     expect(STREAM_ITEM_VARIANTS.hidden).toEqual({
       opacity: 0,
-      y: SPATIAL_OFFSET.row,
-      scale: 0.975,
+      y: 20,
     });
     expect(STREAM_ITEM_VARIANTS.show).toMatchObject({
       opacity: 1,
       y: 0,
-      scale: 1,
-      transition: SPRING.standard,
     });
+    expect(STREAM_ITEM_VARIANTS.show).not.toHaveProperty("scale");
   });
 });
 

@@ -62,7 +62,7 @@ const ProgressiveWallImage = ({
           src={lqip}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-contain blur-xl scale-105 transition-opacity duration-500"
+          className="absolute inset-0 h-full w-full object-contain scale-105 transition-opacity duration-300"
           style={{ opacity: previewLoaded ? 0 : 1 }}
         />
       )}
@@ -71,16 +71,8 @@ const ProgressiveWallImage = ({
         alt={alt}
         loading="lazy"
         decoding="async"
-        className={`${fill ? "absolute inset-0 h-full w-full" : "relative w-full max-h-[70vh]"} object-contain transition-[filter,opacity,transform] duration-500`}
-        style={
-          progressive
-            ? {
-                opacity: previewLoaded ? 1 : 0,
-                filter: previewLoaded ? "blur(0)" : "blur(8px)",
-                transform: previewLoaded ? "scale(1)" : "scale(1.02)",
-              }
-            : undefined
-        }
+        className={`${fill ? "absolute inset-0 h-full w-full" : "relative w-full max-h-[70vh]"} object-contain transition-opacity duration-300`}
+        style={progressive ? { opacity: previewLoaded ? 1 : 0 } : undefined}
         onLoad={progressive ? () => setPreviewLoaded(true) : undefined}
         // If the compressed preview is ever missing, fall back to the full
         // original so the photo never stays hidden behind the blurry LQIP.

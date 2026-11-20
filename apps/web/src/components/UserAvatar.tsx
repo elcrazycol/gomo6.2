@@ -66,7 +66,7 @@ export function UserAvatar({
   // still wins for callers that need an icon (e.g. system rows).
   const patternKey = userId || alt || "anon";
   const fallbackNode = fallback ?? (
-    <SeededPattern seedKey={patternKey} className="user-avatar-pattern" />
+    <SeededPattern seedKey={patternKey} className="user-avatar-pattern" simple />
   );
 
   if (!url) {

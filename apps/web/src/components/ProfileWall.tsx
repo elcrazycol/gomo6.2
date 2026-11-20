@@ -687,7 +687,6 @@ export const ProfileWall = ({
                 variants={CARD_ITEM}
                 transition={cardTransition}
                 style={morphOrigin({ y: 0 })}
-                layout="position"
               >
               <WallPostCard
                 post={post}

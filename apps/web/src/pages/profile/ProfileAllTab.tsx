@@ -83,7 +83,7 @@ export const ProfileAllTab = ({
 
   const [items, setItems] = useState<MergedItem[] | null>(null);
   const [likes, setLikes] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [gallery, setGallery] = useState<{ items: LightboxItem[]; index: number } | null>(null);
@@ -96,9 +96,16 @@ export const ProfileAllTab = ({
     hasMoreRef.current = hasMore;
   }, [hasMore]);
 
-  // Fetch both sources with the current window size and merge by date. Growing
-  // `limit` (infinite scroll) simply refetches a wider window from each source —
-  // cheap at profile scale and always correctly interleaved.
+  // Append-only pagination: each page fetches the next PAGE_SIZE slice with an
+  // offset instead of refetching the whole window. Long profiles no longer pay
+  // quadratic fetch + full-list rebuild on every scroll step.
+  useEffect(() => {
+    setItems(null);
+    setPage(0);
+    setHasMore(false);
+    setLikes(new Map());
+  }, [profileUserId, includeThreads, includeWall]);
+
   useEffect(() => {
     if (!profileUserId) {
       setItems([]);
@@ -107,13 +114,14 @@ export const ProfileAllTab = ({
     let cancelled = false;
     loadingRef.current = true;
     const { begin, end } = useLoadingBarStore.getState();
-    begin();
+    if (page === 0) begin();
 
     (async () => {
       try {
+        const offset = page * PAGE_SIZE;
         const threadsReq: Promise<{ data?: ThreadApiRow[] }> = includeThreads
           ? fetch(
-              `/api/v1/threads?user_id=eq.${profileUserId}&order=created_at.desc&order=id.desc&limit=${limit}`,
+              `/api/v1/threads?user_id=eq.${profileUserId}&order=created_at.desc&order=id.desc&limit=${PAGE_SIZE}&offset=${offset}`,
             ).then((r) => (r.ok ? r.json() : { data: [] }))
           : Promise.resolve({ data: [] });
 
@@ -123,7 +131,7 @@ export const ProfileAllTab = ({
               .select(WALL_POST_SELECT)
               .eq("user_id", profileUserId)
               .order("created_at", { ascending: false })
-              .limit(limit) as unknown as Promise<{ data?: Record<string, unknown>[] | null }>)
+              .range(offset, offset + PAGE_SIZE - 1) as unknown as Promise<{ data?: Record<string, unknown>[] | null }>)
           : Promise.resolve({ data: [] });
 
         const [threadsRes, wallRes] = await Promise.all([threadsReq, wallReq]);
@@ -143,11 +151,21 @@ export const ProfileAllTab = ({
           }),
         ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 
-        setItems(merged);
+        const keyOf = (m: MergedItem) => (m.kind === "thread" ? `thread-${m.thread.id}` : `wall-${m.post.id}`);
+        if (page === 0) {
+          setItems(merged);
+        } else {
+          setItems((prev) => {
+            if (!prev) return merged;
+            const seen = new Set(prev.map(keyOf));
+            const fresh = merged.filter((m) => !seen.has(keyOf(m)));
+            return [...prev, ...fresh].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+          });
+        }
         // A source has more only while it filled its whole page.
         setHasMore(
-          (includeThreads && threadRows.length === limit) ||
-            (includeWall && wallRows.length === limit),
+          (includeThreads && threadRows.length === PAGE_SIZE) ||
+            (includeWall && wallRows.length === PAGE_SIZE),
         );
 
         const threadLikes = await fetchThreadLikesBatch(
@@ -155,7 +173,7 @@ export const ProfileAllTab = ({
           currentUserId,
         );
         if (cancelled) return;
-        setLikes(threadLikes);
+        setLikes((prev) => new Map([...prev, ...threadLikes]));
       } catch (error) {
         if (cancelled) return;
         console.error("Error loading profile content:", error);
@@ -166,19 +184,19 @@ export const ProfileAllTab = ({
           loadingRef.current = false;
           setLoadingMore(false);
         }
-        end();
+        if (page === 0) end();
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [profileUserId, profileUsername, includeThreads, includeWall, currentUserId, limit]);
+  }, [profileUserId, profileUsername, includeThreads, includeWall, currentUserId, page]);
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || !hasMoreRef.current) return;
     setLoadingMore(true);
-    setLimit((prev) => prev + PAGE_SIZE);
+    setPage((prev) => prev + 1);
   }, []);
 
   // Next page when the sentinel nears the viewport.
@@ -230,7 +248,6 @@ export const ProfileAllTab = ({
           variants={CARD_ITEM}
           transition={cardTransition}
           style={morphOrigin({ y: 0 })}
-          layout="position"
         >
           {card}
         </motion.div>

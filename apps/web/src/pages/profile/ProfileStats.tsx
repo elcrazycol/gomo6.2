@@ -15,7 +15,7 @@ export interface ProfileStatsProps {
   onOpenWall: () => void;
 }
 
-const STAT_ITEM: Variants = morphVariants(0.88);
+const STAT_ITEM: Variants = morphVariants(0.88, 0);
 
 /** One clickable stat of the inline row — number + label, X-style. */
 function Stat({

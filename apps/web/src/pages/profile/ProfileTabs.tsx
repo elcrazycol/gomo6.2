@@ -322,6 +322,11 @@ export function ProfileTabs({
   const scrubMovedRef = useRef(false);
   const scrubStartXRef = useRef(0);
   const scrubInitialRef = useRef<{ x: number; w: number } | null>(null);
+  /** Tab centres captured on scrub start: per-move DOM reads force layout. */
+  const scrubCentersRef = useRef<{ key: ProfileTab; center: number }[]>([]);
+  const scrubRowLeftRef = useRef(0);
+  const scrubScrollerRef = useRef<HTMLElement | null>(null);
+  const scrubScrollLeftRef = useRef(0);
   const [scrubKey, setScrubKey] = useState<ProfileTab | null>(null);
 
   const startScrub = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -338,6 +343,20 @@ export function ProfileTabs({
     scrubActiveRef.current = true;
     scrubMovedRef.current = false;
     scrubKeyRef.current = key;
+    // Snapshot the tab geometry once: the move handler must not touch layout
+    // (scrollLeft reads are cheap — no reflow — and cover the row drifting
+    // under the finger while the overflow scroller moves).
+    const row = event.currentTarget;
+    scrubRowLeftRef.current = row.getBoundingClientRect().left;
+    const scroller = row.parentElement;
+    scrubScrollerRef.current = scroller;
+    scrubScrollLeftRef.current = scroller ? scroller.scrollLeft : 0;
+    scrubCentersRef.current = Array.from(row.querySelectorAll<HTMLElement>("[data-tab-key]"))
+      .map((el) => ({
+        key: el.dataset.tabKey as ProfileTab,
+        center: el.offsetLeft + el.offsetWidth / 2,
+      }))
+      .filter((t) => t.key);
     setScrubKey(key);
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -345,14 +364,14 @@ export function ProfileTabs({
   const moveScrub = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!scrubActiveRef.current) return;
     if (Math.abs(event.clientX - scrubStartXRef.current) > 4) scrubMovedRef.current = true;
-    const row = event.currentTarget;
-    const pointerX = event.clientX - row.getBoundingClientRect().left;
+    const pointerX =
+      event.clientX -
+      scrubRowLeftRef.current +
+      ((scrubScrollerRef.current?.scrollLeft ?? 0) - scrubScrollLeftRef.current);
     let bestKey: ProfileTab | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
-    for (const el of Array.from(row.querySelectorAll<HTMLElement>("[data-tab-key]"))) {
-      const key = el.dataset.tabKey as ProfileTab | undefined;
-      if (!key) continue;
-      const distance = Math.abs(pointerX - (el.offsetLeft + el.offsetWidth / 2));
+    for (const { key, center } of scrubCentersRef.current) {
+      const distance = Math.abs(pointerX - center);
       if (distance < bestDistance) {
         bestDistance = distance;
         bestKey = key;
@@ -487,29 +506,37 @@ export function ProfileTabs({
       }
     };
 
-    // No rAF throttling on purpose: rAF is paused in a background/occluded tab,
-    // which would leave the state stale exactly when content settles off-screen.
-    // The work is one cheap rect read plus a guarded state write, and scroll
-    // events already arrive at frame cadence.
+    // Scroll/resize are coalesced through rAF: at most one rect read per frame.
+    // visibilitychange runs synchronously (rAF is paused in a hidden tab and
+    // would leave the stuck state stale on return).
+    let rafId = 0;
+    const scheduleUpdate = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        update();
+      });
+    };
     update();
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
     // A tab that was hidden while the page settled can come back with the bar
     // already pinned; refresh once on the way in (no scroll event fires then).
     document.addEventListener("visibilitychange", update);
     // Content above the bar (bio, stats, async posts) can change height without
     // a scroll event, which would otherwise leave the state stale.
-    const ro = new ResizeObserver(update);
+    const ro = new ResizeObserver(scheduleUpdate);
     ro.observe(document.body);
     // The app header slides away on scroll and writes --app-header-pad frame by
     // frame; while the bar is pinned it must follow that edge even when no
-    // scroll events arrive.
-    const mo = new MutationObserver(update);
+    // scroll events arrive. Mutation bursts are coalesced into one update.
+    const mo = new MutationObserver(scheduleUpdate);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
 
     return () => {
-      window.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
       document.removeEventListener("visibilitychange", update);
       ro.disconnect();
       mo.disconnect();
@@ -645,17 +672,21 @@ export function ProfileTabs({
   }, [activeTab]);
 
   const bodyEnter = (() => {
-    // First paint comes from the page-level enter; a swap is a dimensional
-    // morph: the new body unfolds from the tab bar (origin at the top edge),
-    // travelling a hint in the direction the bar moved.
+    // First paint comes from the page-level enter; a swap is opacity + a hint
+    // of travel. No scale: scaling the whole tab body forces a re-raster of
+    // every card and photo inside it for the duration of the gesture.
     if (!hasPaintedRef.current || reduceMotion) {
-      return { initial: false as const, animate: { opacity: 1, x: 0, scale: 1 } };
+      return { initial: false as const, animate: { opacity: 1, x: 0 } };
     }
     return {
-      initial: { opacity: 0, x: bodyDirection * SPATIAL_OFFSET.tab, scale: 0.97 },
-      animate: { opacity: 1, x: 0, scale: 1 },
+      initial: { opacity: 0, x: bodyDirection * SPATIAL_OFFSET.tab },
+      animate: { opacity: 1, x: 0 },
     };
   })();
+  const bodyTransition = {
+    opacity: { duration: 0.16, ease: EASE_OUT_EXPO },
+    x: { duration: 0.2, ease: EASE_OUT_EXPO },
+  } as const;
 
   return (
     <>
@@ -869,7 +900,7 @@ export function ProfileTabs({
           key={bodyKey}
           initial={bodyEnter.initial}
           animate={bodyEnter.animate}
-          transition={morphTransition(reduceMotion)}
+          transition={bodyTransition}
           style={morphOrigin({ y: 0 })}
         >
         {activeTab === 'all' && allTabVisible && (

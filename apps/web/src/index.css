@@ -296,7 +296,9 @@ html {
     background-image: var(--bg-image, none);
     background-size: var(--bg-size, cover);
     background-repeat: var(--bg-repeat, no-repeat);
-    background-attachment: fixed;
+    /* scroll by default: fixed repaints the whole page backdrop on every
+       scroll frame on tiled mobile GPUs. Fixed only where it is cheap. */
+    background-attachment: scroll;
     width: 100%;
     max-width: 100%;
     margin: 0;
@@ -322,9 +324,13 @@ html {
     body {
       -webkit-overflow-scrolling: touch;
     }
+  }
 
-    * {
-      max-width: 100vw;
+  /* Desktop with a precise pointer: the fixed page backdrop is affordable
+     here and keeps the parallax look for custom backgrounds. */
+  @media (min-width: 1024px) and (pointer: fine) {
+    body {
+      background-attachment: fixed;
     }
   }
 
@@ -769,7 +775,7 @@ html.perf-lite .app-header-glass::before {
 }
 
 .profile-tabbar--stuck .profile-tabbar__bg {
-  --tabbar-glass-blur: 14px;
+  --tabbar-glass-blur: 8px;
   /* Extend the pane upward when pinned: while the swallowed part springs back
      out from under the header, the strip above the bar must read as the same
      surface, never as an empty gap. It sits behind the header when one is
@@ -796,11 +802,35 @@ html.perf-lite .app-header-glass::before {
   }
 }
 
-/* Weak hardware: same tier as the header (see utils/perfTier.ts). */
+@media (min-width: 768px) {
+  .profile-tabbar--stuck .profile-tabbar__bg {
+    --tabbar-glass-blur: 14px;
+  }
+}
+
+/* Weak hardware: same tier as the header (see utils/perfTier.ts). No live blur —
+   an opaque strip instead of frosted glass. */
 html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
-  --tabbar-glass-blur: 6px;
-  -webkit-backdrop-filter: blur(var(--tabbar-glass-blur));
-  backdrop-filter: blur(var(--tabbar-glass-blur));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background-color: oklch(var(--background));
+}
+
+/* Profile forum backdrop: rasterised once, never re-blurred per scroll frame.
+   24px on phones (was 40px full-viewport blur-2xl), 40px only on sm+ where the
+   GPU budget is larger. perf-lite drops the blurred layer entirely. */
+.profile-forum-bg-blur {
+  opacity: 0.4;
+  filter: blur(24px);
+}
+@media (min-width: 640px) {
+  .profile-forum-bg-blur {
+    opacity: 0.6;
+    filter: blur(40px);
+  }
+}
+html.perf-lite .profile-forum-bg-blur {
+  display: none;
 }
 
 /* Forum layout: the tab bar lives inside a surface panel, so it adopts that
@@ -834,10 +864,8 @@ html.perf-lite .profile-tabbar--stuck .profile-tabbar__bg {
   }
 }
 
-.gomo-overlay-surface {
-  will-change: transform, opacity;
-}
-
+/* Permanent will-change removed: it pinned a composited layer per overlay for
+   the whole session. Transform/opacity animations promote themselves. */
 .gomo-overlay-surface[data-state="closed"] {
   animation: gomo-overlay-out 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
