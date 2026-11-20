@@ -184,17 +184,20 @@ export const streamRowVariants = (index: number): Variants => {
   };
 };
 
-/** Card landing in streams: short lift + fade, never scale. A scale on a full
- *  card (text + photos) forces the GPU to re-raster it every frame of the
- *  entrance; six staggered springs on top is the feed-entry jank. */
+/** Card landing in streams: lift + fade + a breath of scale, all on short expo
+ *  tweens. The look of the old spring cascade, but deterministic: no spring
+ *  tail, no per-card physics — the re-raster window is ~0.2s per card and the
+ *  cascade only plays on cold start (cached pages paint instantly). */
 export const STREAM_ITEM_VARIANTS: Variants = {
-  hidden: { opacity: 0, y: 12 },
+  hidden: { opacity: 0, y: SPATIAL_OFFSET.row, scale: 0.98 },
   show: {
     opacity: 1,
     y: 0,
+    scale: 1,
     transition: {
       y: { duration: 0.22, ease: EASE_OUT_EXPO },
       opacity: { duration: 0.16, ease: EASE_OUT_EXPO },
+      scale: { duration: 0.22, ease: EASE_OUT_EXPO },
     },
   },
 };
