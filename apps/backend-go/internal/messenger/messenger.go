@@ -102,6 +102,15 @@ type ConversationResponse struct {
 	// lets the client show the real read status of my last message in the list.
 	OtherLastReadAt      *string `json:"other_last_read_at"`
 	OtherLastDeliveredAt *string `json:"other_last_delivered_at"`
+	// BlockedByMe tells the UI to replace the composer with Telegram's
+	// "unblock" panel. It is only ever true for the blocker: the blocked side
+	// gets no flag (and no hint) — its peer simply looks offline.
+	BlockedByMe bool `json:"blocked_by_me"`
+	// PresenceHidden is true for BOTH sides of a blocked 1:1 pair: the peer's
+	// presence is unavailable (it never leaks whether the block is mine or
+	// theirs). The client keeps the last-seen value the server returned and
+	// ignores live presence deltas for this chat.
+	PresenceHidden bool `json:"presence_hidden"`
 	// Group fields
 	IsGroup     bool    `json:"is_group"`
 	GroupName   *string `json:"group_name"`

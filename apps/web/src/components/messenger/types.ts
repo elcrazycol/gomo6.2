@@ -25,6 +25,12 @@ export type ConversationView = {
    */
   last_read_at?: string | null;
   is_muted: boolean;
+  /** The viewer blocked the peer (1:1 only). Drives the unblock panel instead
+   *  of the composer; the blocked side never receives this flag. */
+  blocked_by_me?: boolean;
+  /** A block exists between the pair (either direction): presence is hidden
+   *  and live online deltas must be ignored for this chat. */
+  presence_hidden?: boolean;
   // 1:1 fields (null for groups)
   other_user_id: string | null;
   other_username: string | null;

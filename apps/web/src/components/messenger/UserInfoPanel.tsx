@@ -67,6 +67,8 @@ export function UserInfoPanel({
   memberCount,
 }: Props) {
   const setConversationMuted = useMessengerStore((s) => s.setConversationMuted);
+  const setConversationBlockedByMe = useMessengerStore((s) => s.setConversationBlockedByMe);
+  const loadConversations = useMessengerStore((s) => s.loadConversations);
 
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
   const [showCatalog, setShowCatalog] = useState(false);
@@ -202,13 +204,17 @@ export function UserInfoPanel({
       else await messengerApi.unblockUser(userId);
       setBlocked(next);
       setConfirmBlock(false);
+      // The chat behind the panel swaps its composer for the unblock bar (and
+      // the peer's presence is hidden immediately, as the server does).
+      setConversationBlockedByMe(conversationId, next);
+      if (!next) void loadConversations({ force: true });
       toast.success(next ? "Пользователь заблокирован" : "Пользователь разблокирован");
     } catch {
       toast.error(next ? "Не удалось заблокировать" : "Не удалось разблокировать");
     } finally {
       setBlockBusy(false);
     }
-  }, [userId, blocked, blockBusy]);
+  }, [userId, blocked, blockBusy, conversationId, setConversationBlockedByMe, loadConversations]);
 
   const sendDialogImage = selectedGift ? giftImageUrl(selectedGift.image_url) : null;
 

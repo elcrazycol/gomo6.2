@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift, FileUp } from "lucide-react";
+import { ArrowLeft, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift, FileUp, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -24,6 +24,7 @@ import { MessageList, type MessageListHandle, type MessageRenderExtras } from ".
 import { NotesSettingsDialog } from "./NotesSettingsDialog";
 import { NotesOrganizeDialog } from "./NotesOrganizeDialog";
 import { NotesPinnedBanner } from "./NotesPinnedBanner";
+import { messengerApi } from "@/services/messengerApi";
 import { useMessengerConnection } from "@/hooks/useMessengerConnection";
 import { hasNotesKey } from "@/utils/notesCrypto";
 import { chunkAttachments } from "./attachmentAlbum";
@@ -67,6 +68,8 @@ export const ChatView = memo(function ChatView({
   const toggleReaction = useMessengerStore((s) => s.toggleReaction);
   const markVoiceListened = useMessengerStore((s) => s.markVoiceListened);
   const toggleNotesPin = useMessengerStore((s) => s.toggleNotesPin);
+  const setConversationBlockedByMe = useMessengerStore((s) => s.setConversationBlockedByMe);
+  const loadConversations = useMessengerStore((s) => s.loadConversations);
 
   const [pinnedText, setPinnedText] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -110,6 +113,7 @@ export const ChatView = memo(function ChatView({
   const [showNotesInfo, setShowNotesInfo] = useState(false);
   const [giftDetailId, setGiftDetailId] = useState<string | null>(null);
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
+  const [unblocking, setUnblocking] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -267,6 +271,26 @@ export const ChatView = memo(function ChatView({
     setNotesFolderFilter(null);
     requestAnimationFrame(() => messageListRef.current?.scrollToMessage(messageId));
   }, []);
+
+  // Telegram's unblock panel replaces the composer while I block the peer.
+  // Unblocking restores the composer and refreshes the list so the real
+  // presence comes back (the server hid it for both sides while blocked).
+  const handleUnblock = useCallback(async () => {
+    if (unblocking) return;
+    const peerId = conversation?.other_user_id;
+    if (!peerId) return;
+    setUnblocking(true);
+    try {
+      await messengerApi.unblockUser(peerId);
+      setConversationBlockedByMe(conversation.id, false);
+      toast.success("Пользователь разблокирован");
+      void loadConversations({ force: true });
+    } catch {
+      toast.error("Не удалось разблокировать");
+    } finally {
+      setUnblocking(false);
+    }
+  }, [unblocking, conversation, setConversationBlockedByMe, loadConversations]);
 
   const handleJumpToPinned = useCallback(() => {
     const pid = conversation?.pinned_message_id;
@@ -758,7 +782,27 @@ export const ChatView = memo(function ChatView({
         )}
       </div>
 
-      {/* Composer */}
+      {/* Composer — or Telegram's unblock panel while I blocked the peer. */}
+      {conversation.blocked_by_me ? (
+        <div className="chat-blocked-panel">
+          <span className="chat-blocked-icon"><ShieldOff size={17} /></span>
+          <span className="chat-blocked-copy">
+            <strong>
+              Вы заблокировали {conversation.other_display_name
+                || (conversation.other_username ? `@${conversation.other_username}` : "этого пользователя")}
+            </strong>
+            <span>Сообщения и звонки недоступны, пока пользователь заблокирован.</span>
+          </span>
+          <button
+            type="button"
+            className="chat-blocked-unblock"
+            onClick={() => void handleUnblock()}
+            disabled={unblocking}
+          >
+            {unblocking ? "Разблокируем…" : "Разблокировать"}
+          </button>
+        </div>
+      ) : (
       <MessageComposer
         // Keyed by conversation: the composer owns an editor instance, an emoji
         // sheet, a full-mode flag — state that must not survive into another
@@ -785,6 +829,7 @@ export const ChatView = memo(function ChatView({
         onAttachFiles={handleAttachFiles}
         placeholder={conversation.is_notes ? "Запиши мысль..." : undefined}
       />
+      )}
 
       {/* Notes security dialog (self-chat) */}
       <NotesSettingsDialog open={showNotesInfo} onOpenChange={setShowNotesInfo} conversationId={conversation.id} />

@@ -812,6 +812,9 @@ type MessengerStore = {
   /** Optimistic local mute state for a conversation (server is updated by the
    *  caller through messengerApi.setMuted). */
   setConversationMuted: (conversationId: string, muted: boolean) => void;
+  /** Optimistic block flag: flips the composer to the unblock panel (or back)
+   *  the moment the block API answers, without waiting for a list refetch. */
+  setConversationBlockedByMe: (conversationId: string, blocked: boolean) => void;
 };
 
 // ─── Store implementation ───────────────────────────────────────────────────
@@ -2252,6 +2255,13 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   setUserPresence: (userId, online, lastSeen) => {
     set((s) => {
+      // A blocked pair hides presence server-side. An online delta for such a
+      // peer is stale by definition: ignore it completely (not even the
+      // global online set).
+      const presenceHidden = s.conversations.some(
+        (c) => !c.is_group && !c.is_notes && c.other_user_id === userId && c.presence_hidden,
+      );
+      if (presenceHidden && online) return s;
       const onlineUsers = new Set(s.onlineUsers);
       if (online) onlineUsers.add(userId);
       else onlineUsers.delete(userId);
@@ -2260,6 +2270,9 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // the REST-loaded conversation) instead of stamping the arrival time.
       const conversations = s.conversations.map((c) => {
         if (c.is_group || c.is_notes || c.other_user_id !== userId) return c;
+        // A blocked pair hides presence on the server; a live "online" delta
+        // must not resurrect the dot or the header status.
+        if (c.presence_hidden && online) return c;
         return {
           ...c,
           other_is_online: online,
@@ -2274,6 +2287,29 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     set((s) => ({
       conversations: s.conversations.map((conversation) =>
         conversation.id === conversationId ? { ...conversation, is_muted: muted } : conversation,
+      ),
+    }));
+  },
+
+  setConversationBlockedByMe: (conversationId, blocked) => {
+    set((s) => ({
+      conversations: s.conversations.map((conversation) =>
+        conversation.id === conversationId
+          ? {
+              ...conversation,
+              blocked_by_me: blocked,
+              presence_hidden: blocked,
+              // The server hides the peer while a block exists; mirror that
+              // immediately so the header switches to "был(а) давно" without
+              // waiting for the next list refresh.
+              ...(blocked
+                ? {
+                    other_is_online: false,
+                    other_last_seen_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+                  }
+                : {}),
+            }
+          : conversation,
       ),
     }));
   },

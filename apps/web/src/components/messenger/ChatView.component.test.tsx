@@ -35,6 +35,8 @@ const { mockStore } = vi.hoisted(() => {
       deleteMessage: vi.fn().mockResolvedValue(undefined),
       togglePin: vi.fn().mockResolvedValue(undefined),
       toggleNotesPin: vi.fn().mockResolvedValue(undefined),
+      setConversationBlockedByMe: vi.fn(),
+      loadConversations: vi.fn().mockResolvedValue([]),
     },
   };
 });
@@ -64,6 +66,14 @@ vi.mock("@/utils/storage", () => ({
 }));
 
 const mockConnection = vi.hoisted(() => ({ status: "connected" as "connected" | "connecting" | "offline" }));
+
+const { mockUnblockUser } = vi.hoisted(() => ({ mockUnblockUser: vi.fn().mockResolvedValue({ blocked: false }) }));
+
+vi.mock("@/services/messengerApi", () => ({
+  messengerApi: { unblockUser: mockUnblockUser },
+}));
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock("@/hooks/useMessengerConnection", () => ({
   useMessengerConnection: () => mockConnection.status,
@@ -460,6 +470,29 @@ describe("ChatView", () => {
       const { container } = render(<ChatView {...defaultProps} />);
       expect(container.querySelector(".error-banner")).not.toBeInTheDocument();
       expect(screen.queryByText("Ошибка сети")).not.toBeInTheDocument();
+    });
+
+    it("replaces the composer with an unblock panel when I blocked the peer", async () => {
+      mockStore.conversations = [mockConversation({ blocked_by_me: true, other_user_id: "other-1", other_username: "alice" })];
+      render(<ChatView {...defaultProps} />);
+
+      expect(screen.queryByTestId("composer")).not.toBeInTheDocument();
+      expect(screen.getByText("Вы заблокировали @alice")).toBeInTheDocument();
+      expect(screen.getByText(/Сообщения и звонки недоступны/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Разблокировать" }));
+
+      await waitFor(() => expect(mockUnblockUser).toHaveBeenCalledWith("other-1"));
+      expect(mockStore.setConversationBlockedByMe).toHaveBeenCalledWith("conv-1", false);
+    });
+
+    it("keeps the composer when the peer blocked me (no disclosure)", () => {
+      // The blocked side gets no flag at all: the composer stays, only the
+      // peer's presence is hidden by the server.
+      mockStore.conversations = [mockConversation({ blocked_by_me: false })];
+      render(<ChatView {...defaultProps} />);
+      expect(screen.getByTestId("composer")).toBeInTheDocument();
+      expect(screen.queryByText(/Вы заблокировали/)).not.toBeInTheDocument();
     });
 
     it("opens the user info panel on header click", () => {

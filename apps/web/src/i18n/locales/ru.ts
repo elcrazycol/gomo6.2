@@ -513,6 +513,7 @@ const ru: LocaleResources = {
     offline: "не в сети",
     wasOnline: "был(а) в сети {{time}}",
     wasOnlineJustNow: "был(а) только что",
+    wasOnlineLongAgo: "был(а) давно",
     today: "сегодня",
     yesterday: "вчера",
     yesterdayTitle: "Вчера",

@@ -1424,6 +1424,36 @@ describe("messengerStore", () => {
       expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(false);
     });
 
+    it("ignores a live online delta for a blocked pair (presence hidden)", () => {
+      useMessengerStore.setState({
+        conversations: [
+          mockConv({ id: "conv-1", other_user_id: "u2", other_is_online: false, presence_hidden: true }),
+        ],
+      });
+
+      useMessengerStore.getState().setUserPresence("u2", true, "2026-01-01T00:00:00Z");
+
+      const conv = useMessengerStore.getState().conversations.find((c) => c.id === "conv-1")!;
+      // The peer must keep looking offline: the server hid the presence, and a
+      // stray WS delta cannot undock it.
+      expect(conv.other_is_online).toBe(false);
+      expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(false);
+    });
+
+    it("blocking flips the composer flag and hides the peer instantly", () => {
+      useMessengerStore.setState({
+        conversations: [mockConv({ id: "conv-1", other_user_id: "u2", other_is_online: true, blocked_by_me: false })],
+      });
+
+      useMessengerStore.getState().setConversationBlockedByMe("conv-1", true);
+
+      const conv = useMessengerStore.getState().conversations.find((c) => c.id === "conv-1")!;
+      expect(conv.blocked_by_me).toBe(true);
+      expect(conv.presence_hidden).toBe(true);
+      expect(conv.other_is_online).toBe(false);
+      expect(Date.parse(conv.other_last_seen_at ?? "")).toBeLessThan(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    });
+
     it("updateConversationFromWs updates conversation fields", () => {
       useMessengerStore.setState({ conversations: [mockConv({ id: "conv-1", unread_count: 0 })] });
 

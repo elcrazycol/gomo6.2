@@ -503,6 +503,7 @@ const en: LocaleResources = {
     offline: "offline",
     wasOnline: "was online {{time}}",
     wasOnlineJustNow: "was online just now",
+    wasOnlineLongAgo: "last seen a long time ago",
     today: "today",
     yesterday: "yesterday",
     yesterdayTitle: "Yesterday",

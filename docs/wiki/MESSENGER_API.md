@@ -96,6 +96,16 @@ A block never deletes history on either side and never tells the blocked user
 that it happened (the send simply fails with a generic reason). Read paths
 (history, receipts) stay available, as in Telegram.
 
+Conversation rows carry the block state without disclosing whose block it is:
+
+* `blocked_by_me` — true only for the blocker. The client replaces the composer
+  with Telegram's «Вы заблокировали …» / «Разблокировать» panel; unblocking is
+  the same `DELETE /messenger/blocks/:userId` and restores the composer.
+* `presence_hidden` — true for **both** sides of a blocked pair. The peer is
+  returned offline with a last-seen older than a week (the UI renders
+  «был(а) давно»), and the client ignores live presence deltas for that chat.
+  The blocked side gets no flag and no hint that it was blocked.
+
 `ids=` exists for the notes pinned strip: pins live in client-encrypted metadata,
 so the server cannot list them, and the device asks for the handful of ids it
 knows instead of walking the whole history page by page.

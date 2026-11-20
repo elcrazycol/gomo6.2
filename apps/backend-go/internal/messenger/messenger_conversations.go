@@ -68,6 +68,19 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			c.id, c.last_message_at, c.last_message_preview,
 			c.last_message_sender_id, c.pinned_message_id, c.updated_at,
 			cm.unread_count, cm.is_muted,
+			-- A block between the two 1:1 participants. The blocker sees
+			-- blocked_by_me (composer → unblock panel); both sides see the peer
+			-- as offline with an old last-seen, so the blocked user learns
+			-- nothing. Groups are never affected.
+			(CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE b.blocker_id = $1 AND b.blocked_id = cm2.user_id
+			) THEN true ELSE false END) AS blocked_by_me,
+			(CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE (b.blocker_id = $1 AND b.blocked_id = cm2.user_id)
+				   OR (b.blocker_id = cm2.user_id AND b.blocked_id = $1)
+			) THEN true ELSE false END) AS presence_hidden,
 			c.is_group, c.group_name, c.group_avatar_url, c.is_notes,
 			COALESCE(c.encryption_mode, 'server') AS encryption_mode,
 			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
@@ -75,7 +88,16 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
 			ou.nickname_emoji_id AS other_nickname_emoji_id,
 			ou.avatar_url AS other_avatar_url, ou.account_number AS other_account_number,
-			ou.is_online AS other_is_online, ou.last_seen_at AS other_last_seen_at,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE (b.blocker_id = $1 AND b.blocked_id = cm2.user_id)
+				   OR (b.blocker_id = cm2.user_id AND b.blocked_id = $1)
+			) THEN false ELSE ou.is_online END AS other_is_online,
+			CASE WHEN NOT c.is_group AND EXISTS (
+				SELECT 1 FROM user_blocks b
+				WHERE (b.blocker_id = $1 AND b.blocked_id = cm2.user_id)
+				   OR (b.blocker_id = cm2.user_id AND b.blocked_id = $1)
+			) THEN (now() - interval '30 days') ELSE ou.last_seen_at END AS other_last_seen_at,
 			cm2.last_read_at AS other_last_read_at,
 			-- MY read line: where the unread messages begin. The client needs it
 			-- to place the "Unread messages" marker and to open a chat there
@@ -109,6 +131,8 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&conv.ID, &lastMsgAt, &preview,
 			&lastMsgSender, &pinnedMsg, &conv.UpdatedAt,
 			&conv.UnreadCount, &conv.IsMuted,
+			&conv.BlockedByMe,
+			&conv.PresenceHidden,
 			&conv.IsGroup, &groupName, &groupAvatar, &conv.IsNotes,
 			&encryptionMode,
 			&conv.MemberCount,

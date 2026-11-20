@@ -13,7 +13,11 @@ const { api, apiClient, store } = vi.hoisted(() => ({
     addGroupMembers: vi.fn().mockResolvedValue({ added: 1 }),
   },
   apiClient: { request: vi.fn().mockResolvedValue({ success: true, data: [] }) },
-  store: { setConversationMuted: vi.fn() },
+  store: {
+    setConversationMuted: vi.fn(),
+    setConversationBlockedByMe: vi.fn(),
+    loadConversations: vi.fn().mockResolvedValue([]),
+  },
 }));
 
 vi.mock("@/services/messengerApi", () => ({ messengerApi: api }));
@@ -149,6 +153,7 @@ describe("UserInfoPanel", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Заблокировать" }));
     await waitFor(() => expect(api.blockUser).toHaveBeenCalledWith("user-1"));
+    expect(store.setConversationBlockedByMe).toHaveBeenCalledWith("conv-1", true);
   });
 
   it("offers unblocking for an already blocked user", async () => {
@@ -160,5 +165,7 @@ describe("UserInfoPanel", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Разблокировать/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Разблокировать/ }));
     await waitFor(() => expect(api.unblockUser).toHaveBeenCalledWith("user-1"));
+    expect(store.setConversationBlockedByMe).toHaveBeenCalledWith("conv-1", false);
+    expect(store.loadConversations).toHaveBeenCalledWith({ force: true });
   });
 });
