@@ -129,8 +129,8 @@ viewer is served as an identity-only shell (`content_hidden: true`) — avatar,
 background, theme, bio, counters, presence all stripped, `last_seen` older than
 a week. Every content read for that user is gated too (threads and the single
 thread endpoint, walls, pinned threads, achievements, gifts, subscribers,
-avatar history, customization), so the direct API cannot restore what the page
-hides. `blocked_by_me` on the profile row drives «Заблокировать» /
+avatar history, customization, stories — both the per-row audience predicate
+and the realtime room), so the direct API cannot restore what the page hides. `blocked_by_me` on the profile row drives «Заблокировать» /
 «Разблокировать» in the actions menu; blocking from the profile or the
 messenger is the same endpoint.
 
