@@ -188,10 +188,6 @@ export const ThreadFeed = ({
     }
   }, [seenKey]);
 
-  const feedToThread = (item: FeedItem): FeedThread => feedItemToThread(item);
-
-  const feedToWallPost = (item: FeedItem): WallPost => feedItemToWallPost(item);
-
   const handleImageClick = useCallback((items: LightboxItem[], idx: number) => {
     setGalleryItems(items);
     setGalleryIndex(idx);
