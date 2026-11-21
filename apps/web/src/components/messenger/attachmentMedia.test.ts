@@ -53,20 +53,26 @@ describe("getAttachmentDisplayStyle", () => {
   it("reserves a box at the image's own ratio", () => {
     // 2:1 photo — width caps at 640, height follows the ratio.
     const style = getAttachmentDisplayStyle(2);
-    expect(style.width).toBe("min(100%, 640px)");
+    // A PIXEL width, not `min(100%, …)`: the media bubble is `fit-content`, and
+    // a percentage-only width contributes zero to intrinsic sizing — the whole
+    // photo bubble collapsed to 0×0 on mobile.
+    expect(style.width).toBe("640px");
+    expect(style.maxWidth).toBe("100%");
     expect(style.aspectRatio).toBe(2);
   });
 
   it("caps very tall images via their width, never their height (ratio stays exact)", () => {
     // 1:2 portrait — maxHeight 480 caps the box at 240px wide / 480px tall.
     const style = getAttachmentDisplayStyle(0.5);
-    expect(style.width).toBe("min(100%, 240px)");
+    expect(style.width).toBe("240px");
+    expect(style.maxWidth).toBe("100%");
     expect(style.aspectRatio).toBe(0.5);
   });
 
   it("uses the provided maxWidth for mixed text+image bubbles", () => {
     const style = getAttachmentDisplayStyle(1.5, { maxWidth: 420 });
-    expect(style.width).toBe("min(100%, 420px)");
+    expect(style.width).toBe("420px");
+    expect(style.maxWidth).toBe("100%");
     expect(style.aspectRatio).toBe(1.5);
   });
 });

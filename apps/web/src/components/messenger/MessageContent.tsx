@@ -296,10 +296,11 @@ export const MessageContent = memo(function MessageContent({
     [attachments],
   );
   const mediaBatches = useMemo(() => chunkAttachments(visualAttachments), [visualAttachments]);
-  // Link previews must sit in the text stack below the media, never inside a
-  // flush image bubble — formatting alone does not break the media layout.
+  // A caption is part of the photo message: even when it contains a bare link
+  // or formatting, an all-visual message keeps Telegram's media layout (photo
+  // first, caption under it). Previously `hasLinks` pushed it into the text
+  // stack, where the photo shrank below the text like an attachment stub.
   const isMediaMessage = !hasQuotedMessage
-    && !hasLinks
     && visualAttachments.length > 0
     && visualAttachments.length === attachments?.length;
 

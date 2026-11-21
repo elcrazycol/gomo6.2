@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Ban, Bell, BellOff, ExternalLink, FileText, Gift, Image as ImageIcon, Play, Search, ShieldCheck, UserPlus, X } from "lucide-react";
+import { Ban, Bell, BellOff, ExternalLink, FileText, Gift, Image as ImageIcon, Play, Search, Unlock, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -405,7 +405,7 @@ export function UserInfoPanel({
                     disabled={blockBusy}
                   >
                     <span className="user-info-switch-icon">
-                      {blocked ? <ShieldCheck size={16} /> : <Ban size={16} />}
+                      {blocked ? <Unlock size={16} /> : <Ban size={16} />}
                     </span>
                     <span className="user-info-switch-copy">
                       <span>{blocked ? "Разблокировать" : "Заблокировать"}</span>

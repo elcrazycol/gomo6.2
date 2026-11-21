@@ -446,6 +446,55 @@ describe("MessageBubble", () => {
     expect(caption?.previousElementSibling).toBe(container.querySelector(".msg-attachments"));
   });
 
+  it("renders a photo with no text at all as a media bubble (never a zero-size row)", () => {
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({
+          content: "",
+          attachments: [{
+            id: "att-1",
+            url: "user-1/messenger/photo.jpg",
+            type: "image",
+            name: "photo.jpg",
+            size: 1200,
+            mime: "image/jpeg",
+            meta: JSON.stringify({ width: 1200, height: 800 }),
+          }],
+        })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
+    expect(container.querySelector(".message-bubble.is-media-bubble.has-caption")).not.toBeInTheDocument();
+    const media = container.querySelector(".msg-attachment-image") as HTMLElement;
+    expect(media).toBeInTheDocument();
+    // Pixel width + max-width: the box can hug the photo without collapsing.
+    expect(media.style.width).toBe("640px");
+    expect(media.style.maxWidth).toBe("100%");
+  });
+
+  it("marks multi-photo messages as albums and keeps photo+link captions inside the media bubble", () => {
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({
+          content: "смотри https://gomo6.local",
+          attachments: [
+            { id: "a1", url: "u/1.jpg", type: "image", name: "1.jpg", size: 1, mime: "image/jpeg" },
+            { id: "a2", url: "u/2.jpg", type: "image", name: "2.jpg", size: 1, mime: "image/jpeg" },
+          ],
+        })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.is-media-bubble.is-media-album")).toBeInTheDocument();
+    expect(container.querySelector(".message-media-caption")).toHaveTextContent("смотри");
+    expect(container.querySelector(".msg-media-mosaic")).toBeInTheDocument();
+  });
+
   it("uses the remembered aspect ratio for legacy photos without metadata", () => {
     rememberAttachmentAspectRatio("user-1/messenger/legacy.jpg", 9 / 16);
     const { container } = render(

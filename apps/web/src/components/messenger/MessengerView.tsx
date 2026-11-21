@@ -104,6 +104,11 @@ export const MessengerView = () => {
     const targetUser = searchParams.get("user");
     if (reqConv) {
       selectConversation(reqConv);
+      // A deep link to a specific chat must land ON that chat on mobile too.
+      // The panel only slides in while the sidebar is closed, and the sidebar
+      // starts open — so a `?conversation=` URL used to show the list (push
+      // notifications and shared chat links looked broken).
+      setSidebarOpen(false);
     } else if (targetUser && targetUser !== "null") {
       // eslint-disable-next-line @typescript-eslint/no-use-before-define
       handleStartChat(targetUser);

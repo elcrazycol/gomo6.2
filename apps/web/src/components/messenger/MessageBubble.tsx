@@ -580,7 +580,7 @@ export const MessageBubble = memo(function MessageBubble({
             in the overlay below. */}
         <div
           ref={messageBubbleRef}
-          className={`message-bubble${isMine ? " is-mine" : ""}${isVoiceBubble ? " is-voice-bubble" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isShareMessage ? " is-share-bubble" : ""}${menuOpen ? " is-menu-hidden" : ""}`}
+          className={`message-bubble${isMine ? " is-mine" : ""}${isVoiceBubble ? " is-voice-bubble" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isMediaBubble && (message.attachments?.length ?? 0) > 1 ? " is-media-album" : ""}${isMediaBubble && message.content.trim() ? " has-caption" : ""}${isShareMessage ? " is-share-bubble" : ""}${menuOpen ? " is-menu-hidden" : ""}`}
           data-message-id={message.id}
           onContextMenu={(e) => { e.preventDefault(); openMenu(); }}
         >

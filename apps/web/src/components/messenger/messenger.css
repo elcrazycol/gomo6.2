@@ -1220,7 +1220,10 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
    section, never painted over the image. */
 .message-bubble.is-media-bubble {
   box-sizing: border-box;
-  width: min(70%, 640px);
+  /* Hug the photo/mosaic (their boxes carry an intrinsic pixel width); the
+     cap keeps a huge image inside the message column. The old fixed 70% left
+     empty space around small photos and, on mobile, collapsed to 0. */
+  width: fit-content;
   max-width: min(70%, 640px);
   min-width: 0;
   padding: 0;
@@ -1250,7 +1253,21 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   align-items: stretch;
 }
 
+/* Readability scrim under the overlaid time/status — a white photo otherwise
+   swallows the white text. Caption bubbles carry the meta on the caption, so
+   they are excluded. */
+.message-bubble.is-media-bubble:not(.has-caption)::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 46px;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.42), transparent);
+}
+
 .message-bubble.is-media-bubble .message-meta {
+  z-index: 1;
   right: 9px;
   bottom: 8px;
   padding: 2px 0 2px 5px;
@@ -3263,7 +3280,9 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  width: min(100%, 640px);
+  /* Pixel width for intrinsic sizing, clamped by max-width — see the media
+     bubble note (a `min(100%, …)` width contributes 0 and collapses). */
+  width: 640px;
   max-width: 100%;
 }
 
@@ -3296,11 +3315,11 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
 .msg-media-mosaic {
   position: relative;
   display: grid;
-  width: min(100%, 640px);
+  width: 640px;
   max-width: 100%;
   min-height: 160px;
   aspect-ratio: var(--mosaic-ratio, 4 / 3);
-  gap: 3px;
+  gap: 2px;
   overflow: hidden;
   border-radius: 0;
   background: oklch(var(--muted) / 0.28);
@@ -3339,16 +3358,25 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   grid-template-rows: repeat(3, 1fr);
 }
 .msg-media-mosaic.mosaic-count-4 .tile-1 { grid-row: 1 / -1; }
-.msg-media-mosaic.mosaic-count-5,
+/* 5/6: Telegram's two-row gallery. Six fills 3×2; five fills the top row
+   with three and the bottom with two wider tiles (fractional 6-track grid). */
 .msg-media-mosaic.mosaic-count-6 {
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: 0.72fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
 }
-.msg-media-mosaic.mosaic-count-5 .tile-1 { grid-row: 1 / 3; }
-.msg-media-mosaic.mosaic-count-5 .tile-2 { grid-row: 1 / 2; }
-.msg-media-mosaic.mosaic-count-5 .tile-3 { grid-row: 2 / 3; }
-.msg-media-mosaic.mosaic-count-5 .tile-4 { grid-row: 3 / 4; }
-.msg-media-mosaic.mosaic-count-5 .tile-5 { grid-row: 3 / 4; }
+.msg-media-mosaic.mosaic-count-5 {
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+.msg-media-mosaic.mosaic-count-5 .tile-1,
+.msg-media-mosaic.mosaic-count-5 .tile-2,
+.msg-media-mosaic.mosaic-count-5 .tile-3 {
+  grid-column: span 2;
+}
+.msg-media-mosaic.mosaic-count-5 .tile-4,
+.msg-media-mosaic.mosaic-count-5 .tile-5 {
+  grid-column: span 3;
+}
 
 .msg-media-mosaic-tile .msg-media-mosaic-image,
 .msg-media-mosaic-tile .msg-attachment-lqip,
@@ -3358,7 +3386,9 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  /* Albums crop to fill their tile (Telegram does the same); letterboxing
+     inside a mosaic reads as a broken/empty stub. */
+  object-fit: cover;
   background: oklch(var(--muted) / 0.18);
   transition: opacity 260ms ease, filter 260ms ease, transform 260ms ease;
 }
@@ -4260,6 +4290,12 @@ body:not(.is-scrolling-messages) .chat-sticky-date {
     width: fit-content;
     max-width: 88%;
     padding: 0;
+  }
+
+  /* An album is a fixed-ratio block, not a hugging photo: keep its width
+     definite so the mosaic grid has a real box to fill. */
+  .message-bubble.is-media-bubble.is-media-album {
+    width: min(88%, 640px);
   }
 
   .message-content-media .msg-attachment-image {
