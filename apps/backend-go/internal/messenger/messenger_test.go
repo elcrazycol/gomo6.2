@@ -389,3 +389,35 @@ func TestEncryptDecrypt_NoKey(t *testing.T) {
 		t.Error("crypto.Decrypt without key should return error")
 	}
 }
+
+func TestAttachmentPreviewLabel(t *testing.T) {
+	image := AttachmentInput{Type: "image", URL: "u/a.jpg", Name: "a.jpg"}
+	image2 := AttachmentInput{Type: "image", URL: "u/b.jpg", Name: "b.jpg"}
+	video := AttachmentInput{Type: "video", URL: "u/a.mp4", Name: "a.mp4"}
+	voiceMeta := `{"voice":true,"duration":3}`
+	voice := AttachmentInput{Type: "audio", URL: "u/v.weba", Name: "v.weba", Meta: &voiceMeta}
+	audio := AttachmentInput{Type: "audio", URL: "u/a.mp3", Name: "a.mp3"}
+	file := AttachmentInput{Type: "file", URL: "u/a.pdf", Name: "a.pdf"}
+
+	cases := []struct {
+		name        string
+		attachments []AttachmentInput
+		want        string
+	}{
+		{"empty", nil, ""},
+		{"single photo", []AttachmentInput{image}, "📷 Фото"},
+		{"photo album", []AttachmentInput{image, image2}, "📷 2 фото"},
+		{"video", []AttachmentInput{video}, "🎬 Видео"},
+		{"voice", []AttachmentInput{voice}, "Голосовое сообщение"},
+		{"audio", []AttachmentInput{audio}, "🎵 Аудио"},
+		{"file", []AttachmentInput{file}, "📎 Файл"},
+		{"mixed", []AttachmentInput{image, file}, "📎 2 файла"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := attachmentPreviewLabel(tc.attachments); got != tc.want {
+				t.Fatalf("attachmentPreviewLabel() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

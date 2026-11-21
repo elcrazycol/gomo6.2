@@ -551,19 +551,61 @@ func (h *MessengerHandler) FindOrCreateConversation(c *gin.Context, user1, user2
 // voicePreviewLabel returns the conversation-list label for a message that
 // carries only a voice note: its content is blank, and a blank preview in the
 // chat list reads like a bug.
-func voicePreviewLabel(attachments []AttachmentInput) string {
+// attachmentPreviewLabel is the chat-list preview for a message whose only
+// content is its files (a caption, when present, wins). Without it an
+// image-only message set the conversation preview to an empty string, so the
+// chat list looked as if nothing had been sent.
+func attachmentPreviewLabel(attachments []AttachmentInput) string {
+	if len(attachments) == 0 {
+		return ""
+	}
+	images, videos := 0, 0
+	hasVoice, hasAudio, hasFile := false, false, false
 	for _, att := range attachments {
-		if att.Type != "audio" || att.Meta == nil {
-			continue
-		}
-		var meta struct {
-			Voice bool `json:"voice"`
-		}
-		if json.Unmarshal([]byte(*att.Meta), &meta) == nil && meta.Voice {
-			return "Голосовое сообщение"
+		switch att.Type {
+		case "image":
+			images++
+		case "video":
+			videos++
+		case "audio":
+			isVoice := false
+			if att.Meta != nil {
+				var meta struct {
+					Voice bool `json:"voice"`
+				}
+				if json.Unmarshal([]byte(*att.Meta), &meta) == nil && meta.Voice {
+					isVoice = true
+				}
+			}
+			if isVoice {
+				hasVoice = true
+			} else {
+				hasAudio = true
+			}
+		default:
+			hasFile = true
 		}
 	}
-	return ""
+	switch {
+	case images == len(attachments):
+		if images == 1 {
+			return "📷 Фото"
+		}
+		return fmt.Sprintf("📷 %d фото", images)
+	case videos == len(attachments):
+		if videos == 1 {
+			return "🎬 Видео"
+		}
+		return fmt.Sprintf("🎬 %d видео", videos)
+	case hasVoice && len(attachments) == 1:
+		return "Голосовое сообщение"
+	case hasAudio && len(attachments) == 1:
+		return "🎵 Аудио"
+	case hasFile && len(attachments) == 1:
+		return "📎 Файл"
+	default:
+		return fmt.Sprintf("📎 %d файла", len(attachments))
+	}
 }
 
 // truncatePreview truncates message content to 80 chars for conversation preview.

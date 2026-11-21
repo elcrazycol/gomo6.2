@@ -22,6 +22,7 @@ import {
 } from "@/utils/messengerCrypto";
 import type { NotesMeta } from "@/utils/notesCrypto";
 import { messengerPlainPreview, messengerTextToPlain, stripDanglingTagFragment } from "@/components/messenger/messengerRichTextUtils";
+import { attachmentPreviewText } from "@/components/messenger/attachmentPreview";
 import { appendMessages, mergeMessages, prependOlder, sortBySentAt } from "@/components/messenger/core/messageModel";
 import {
   deleteOutbox,
@@ -1217,7 +1218,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const previewText = content.trim()
         ? messengerPlainPreview(content, 80)
         : attachments && attachments.length > 0
-          ? `📎 ${attachments.length > 1 ? `${attachments.length} файлов` : attachments[0].name}`
+          ? attachmentPreviewText(attachments)
           : "";
       const conversations = target
         ? [
@@ -1301,7 +1302,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
             const previewText = content.trim()
               ? messengerPlainPreview(content, 80)
               : attachments && attachments.length > 0
-                ? `📎 ${attachments.length > 1 ? `${attachments.length} файлов` : attachments[0].name}`
+                ? attachmentPreviewText(attachments)
                 : "";
             const updated = {
               ...target,
@@ -1441,7 +1442,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
               const previewText = entry.content.trim()
                 ? messengerPlainPreview(entry.content, 80)
                 : entry.attachments.length > 0
-                  ? `📎 ${entry.attachments.length > 1 ? `${entry.attachments.length} файлов` : entry.attachments[0].name}`
+                  ? attachmentPreviewText(entry.attachments)
                   : "";
               conversations = [
                 {

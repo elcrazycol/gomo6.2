@@ -600,11 +600,12 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 	normalizeMessageEnvelope(&msg)
 
-	// A message that is only a voice note has blank content: preview it
-	// as the voice message it is instead of leaving the chat list empty.
+	// A message whose only content is its files has blank text: preview the
+	// media kind («📷 Фото», «🎬 Видео», «Голосовое сообщение»…) instead of
+	// leaving the chat list looking empty, as if the send never happened.
 	previewBody := cleanContent
 	if strings.TrimSpace(previewBody) == "" {
-		if label := voicePreviewLabel(req.Attachments); label != "" {
+		if label := attachmentPreviewLabel(req.Attachments); label != "" {
 			previewBody = label
 		}
 	}
