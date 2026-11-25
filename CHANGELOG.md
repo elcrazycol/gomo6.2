@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.44.0](https://github.com/elcrazycol/gomo6.2/compare/v2.43.0...v2.44.0) (2026-11-25)
+
+
+### Features
+
+* **messenger:** довести мессенджер до уровня Telegram — E2E, блокировки, медиа, удаление без следа ([#616](https://github.com/elcrazycol/gomo6.2/issues/616)) ([6fe7f81](https://github.com/elcrazycol/gomo6.2/commit/6fe7f8196f7f6c3bb45b7bef129cbdb79a8d309d))
+
+
+### Bug Fixes
+
+* **composer:** no double keyboard lift on Android, native resizes-content rules ([#614](https://github.com/elcrazycol/gomo6.2/issues/614)) ([a71404d](https://github.com/elcrazycol/gomo6.2/commit/a71404d2ff1a741a2cb83a6cd5e754ed1d9321ee))
+* enforce private_hide_avatar on every surface ([#612](https://github.com/elcrazycol/gomo6.2/issues/612)) ([4ef4978](https://github.com/elcrazycol/gomo6.2/commit/4ef49782c56060c78ba37e5d28c60d062750575e))
+
+
+### Performance
+
+* **web:** плавность 120 Гц — профиль, лента, табы, свайпы, глобалка ([#615](https://github.com/elcrazycol/gomo6.2/issues/615)) ([e98dee2](https://github.com/elcrazycol/gomo6.2/commit/e98dee2b466ff16043ce7e634004ddf02b56e694))
+
 ## [2.43.0](https://github.com/elcrazycol/gomo6.2/compare/v2.42.0...v2.43.0) (2026-11-16)
 
 
