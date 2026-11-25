@@ -2,6 +2,15 @@ import { memo, useCallback, useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags, CheckCheck, Clock } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { formatTime, formatReadAt } from "./utils";
 import { MessageContent } from "./MessageContent";
 import { MessageContentBoundary } from "./ErrorBoundary";
@@ -110,6 +119,10 @@ export const MessageBubble = memo(function MessageBubble({
   // A failed send is a property of ONE message. Its retry/delete menu must not
   // open the full action panel or shift the bubble.
   const [failedMenuOpen, setFailedMenuOpen] = useState(false);
+  // Deleting is the one irreversible action in the panel: it asks once, in a
+  // compact dialog. Radix focuses «Отмена» (the least destructive action), so
+  // Esc or Enter both cancel and only an explicit «Удалить» erases.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const messageBubbleRef = useRef<HTMLDivElement | null>(null);
   const rowInnerRef = useRef<HTMLDivElement | null>(null);
@@ -536,17 +549,11 @@ export const MessageBubble = memo(function MessageBubble({
   const hostBubbleEl = menuOpen ? messageBubbleRef.current : null;
 
   if (message.is_deleted) {
-    return (
-      <div
-        className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
-        onDoubleClick={handleRowDoubleClick}
-        onPointerUp={handleRowPointerUp}
-      >
-        <div className="message-bubble deleted-bubble">
-          <em>Сообщение удалено</em>
-        </div>
-      </div>
-    );
+    // Deleted messages never reach the list (the store drops them and the
+    // server only returns them to delta sync as contentless tombstones), so
+    // there is nothing to render — a «Сообщение удалено» plate would be a
+    // trace of something the reader asked to erase.
+    return null;
   }
 
   return (
@@ -592,11 +599,9 @@ export const MessageBubble = memo(function MessageBubble({
                   {quotedMessage.sender_user_id === message.sender_user_id ? "Вы" : "Собеседник"}
                 </span>
                 <span className="quoted-text">
-                  {quotedMessage.is_deleted
-                    ? "Сообщение удалено"
-                    : quotedMessage.attachments?.some((attachment) => isVoiceAttachment(attachment))
-                      ? "Голосовое сообщение"
-                      : messengerPlainPreview(quotedMessage.content)}
+                  {quotedMessage.attachments?.some((attachment) => isVoiceAttachment(attachment))
+                    ? "Голосовое сообщение"
+                    : messengerPlainPreview(quotedMessage.content)}
                 </span>
               </>
             );
@@ -784,7 +789,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <button type="button" role="menuitem" className="msg-action-item" onClick={() => { dismissMenu(); onEdit(message.id, message.content); }}>
                   <Pencil size={15} /><span>Редактировать</span>
                 </button>
-                <button type="button" role="menuitem" className="msg-action-item msg-action-item-danger" onClick={() => { dismissMenu(); onDelete(message.id); }}>
+                <button type="button" role="menuitem" className="msg-action-item msg-action-item-danger" onClick={() => { dismissMenu(); setConfirmDeleteOpen(true); }}>
                   <Trash2 size={15} /><span>Удалить</span>
                 </button>
                 <div className="msg-action-sep" role="separator" />
@@ -816,6 +821,41 @@ export const MessageBubble = memo(function MessageBubble({
         </MessageActionOverlay>,
         chatPanelEl,
       )}
+
+      {/* One compact confirmation, no checkbox theatre: this is a 1:1 chat, so a
+          delete is always for both sides. Focus starts on «Отмена» — the action
+          that erases must be chosen on purpose. */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent
+          className="z-[150] gap-4 rounded-2xl p-5 sm:max-w-[360px]"
+          overlayClassName="z-[149]"
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive">
+              <Trash2 className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <AlertDialogTitle className="text-[15px] font-semibold">
+                Удалить сообщение?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="mt-1 text-[13px] leading-5">
+                Оно исчезнет у вас и у собеседника. Восстановить не получится.
+              </AlertDialogDescription>
+            </div>
+          </div>
+          <AlertDialogFooter className="flex-row justify-end gap-2">
+            <AlertDialogCancel className="mt-0 rounded-full">
+              Отмена
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-full bg-destructive px-4 text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onDelete(message.id)}
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 });

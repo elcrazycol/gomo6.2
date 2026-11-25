@@ -43,6 +43,8 @@ const { mockStore } = vi.hoisted(() => {
 
 vi.mock("@/stores/messengerStore", () => ({
     getConversationReadThrough: () => mockReadThrough.value,
+  isMessageDeleted: () => false,
+  useDeletedMessagesVersion: () => 0,
   useMessengerStore: (selector: any) => selector(mockStore),
   selectSelectedConversation: (s: any) =>
     s.conversations.find((c: any) => c.id === s.selectedConversationId) ?? null,

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StrictMode } from "react";
 import type { ReactElement } from "react";
@@ -404,15 +404,16 @@ describe("MessageBubble", () => {
     expect(row?.className).toContain("is-consecutive");
   });
 
-  it("renders deleted message UI", () => {
+  it("renders nothing for a deleted message (no «Сообщение удалено» plate)", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage({ is_deleted: true, content: "" })}
         {...defaultProps}
       />,
     );
-    expect(container.querySelector(".deleted-bubble")).toBeInTheDocument();
-    expect(screen.getByText("Сообщение удалено")).toBeInTheDocument();
+    expect(container.querySelector(".bubble-row")).not.toBeInTheDocument();
+    expect(container.querySelector(".deleted-bubble")).not.toBeInTheDocument();
+    expect(screen.queryByText("Сообщение удалено")).not.toBeInTheDocument();
   });
 
   it("renders media messages with a separate caption section and source aspect ratio", () => {
@@ -744,6 +745,62 @@ describe("MessageBubble", () => {
     await screen.findByText("Ответить");
     expect(screen.queryByText("Редактировать")).not.toBeInTheDocument();
     expect(screen.queryByText("Удалить")).not.toBeInTheDocument();
+  });
+
+  it("asks before deleting: the panel opens a compact confirmation", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+
+    expect(await screen.findByText("Удалить сообщение?")).toBeInTheDocument();
+    expect(screen.getByText(/исчезнет у вас и у собеседника/i)).toBeInTheDocument();
+    // Nothing is deleted until the reader confirms.
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("cancelling the confirmation keeps the message", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+    fireEvent.click(await screen.findByRole("button", { name: "Отмена" }));
+
+    await waitFor(() => expect(screen.queryByText("Удалить сообщение?")).not.toBeInTheDocument());
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("confirming deletes the message", async () => {
+    const onDelete = vi.fn();
+    renderInChat(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    fireEvent.click(await screen.findByText("Удалить"));
+    // The panel's item is a menuitem; the dialog's action is the only button
+    // named «Удалить» at this point.
+    fireEvent.click(await screen.findByRole("button", { name: "Удалить" }));
+
+    expect(onDelete).toHaveBeenCalledWith("msg-1");
   });
 
   // A chat-panel harness so the scrim/host classes and dismissal wiring can be

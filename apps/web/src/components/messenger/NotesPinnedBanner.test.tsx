@@ -72,14 +72,31 @@ describe("NotesPinnedBanner", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("never renders a deleted preview", () => {
-    render(
+  it("never renders a deleted note", () => {
+    const { container } = render(
       <NotesPinnedBanner
         notes={[note({ content: "секрет", is_deleted: true })]}
         onJump={vi.fn()}
       />,
     );
-    expect(screen.getByText("Удалено")).toBeInTheDocument();
+    // A deleted note leaves no trace at all — not even a «Удалено» row.
+    expect(container).toBeEmptyDOMElement();
     expect(screen.queryByText("секрет")).not.toBeInTheDocument();
+    expect(screen.queryByText("Удалено")).not.toBeInTheDocument();
+  });
+
+  it("skips a deleted note but keeps the live ones", () => {
+    render(
+      <NotesPinnedBanner
+        notes={[
+          note({ id: "n1", content: "первая", is_deleted: true }),
+          note({ id: "n2", content: "вторая" }),
+        ]}
+        onJump={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("вторая")).toBeInTheDocument();
+    expect(screen.getByText("1/1")).toBeInTheDocument();
+    expect(screen.queryByText("первая")).not.toBeInTheDocument();
   });
 });

@@ -23,22 +23,27 @@ export function NotesPinnedBanner({ notes, onJump }: Props) {
   const [index, setIndex] = useState(0);
   const [listOpen, setListOpen] = useState(false);
 
+  // A deleted note has no preview to show and nothing to jump to: it must not
+  // appear in the bar at all (the store already drops deleted ids, this keeps a
+  // stale prop from leaking a «Удалено» row).
+  const pins = useMemo(() => notes.filter((note) => !note.is_deleted), [notes]);
+
   // Pins can be added/removed while the bar is visible: keep the cursor in
   // range instead of pointing at a note that no longer exists.
   useEffect(() => {
-    if (index >= notes.length) setIndex(0);
-  }, [notes.length, index]);
+    if (index >= pins.length) setIndex(0);
+  }, [pins.length, index]);
 
-  const current = notes[index] ?? notes[0] ?? null;
-  const preview = useMemo(() => {
-    if (!current) return "";
-    return current.is_deleted ? "Удалено" : messengerPlainPreview(current.content, 120);
-  }, [current]);
+  const current = pins[index] ?? pins[0] ?? null;
+  const preview = useMemo(
+    () => (current ? messengerPlainPreview(current.content, 120) : ""),
+    [current],
+  );
 
   if (!current) return null;
 
   const jumpTo = (target: number) => {
-    const note = notes[target];
+    const note = pins[target];
     if (!note) return;
     setIndex(target);
     setListOpen(false);
@@ -50,7 +55,7 @@ export function NotesPinnedBanner({ notes, onJump }: Props) {
       <button
         type="button"
         className="notes-pinned-main"
-        onClick={() => jumpTo((index + 1) % notes.length)}
+        onClick={() => jumpTo((index + 1) % pins.length)}
         title="Перейти к закреплённой заметке"
       >
         <span className="notes-pinned-icon"><Pin size={12} /></span>
@@ -59,7 +64,7 @@ export function NotesPinnedBanner({ notes, onJump }: Props) {
           <span className="notes-pinned-text">{preview}</span>
         </span>
         <span className="notes-pinned-count">
-          {index + 1}/{notes.length}
+          {index + 1}/{pins.length}
         </span>
       </button>
 
@@ -75,9 +80,9 @@ export function NotesPinnedBanner({ notes, onJump }: Props) {
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" className="notes-pinned-popover w-80 p-1">
-          <div className="notes-pinned-popover-head">Закреплённые · {notes.length}</div>
+          <div className="notes-pinned-popover-head">Закреплённые · {pins.length}</div>
           <div className="notes-pinned-popover-list">
-            {notes.map((note, noteIndex) => (
+            {pins.map((note, noteIndex) => (
               <button
                 key={note.id}
                 type="button"

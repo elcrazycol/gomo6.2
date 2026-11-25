@@ -161,6 +161,10 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 	var err error
 	switch {
 	case delta:
+		// A deleted message is a tombstone, not history: its content is wiped,
+		// the row only keeps the id so a reconnecting device learns to drop it.
+		// Delta sync therefore DOES return tombstones (that is the whole point of
+		// bumping their event_id on delete); every other page hides them.
 		rows, err = h.dbFor(c).Query(`
 			`+selectColumns+`
 			FROM chat_messages m
@@ -170,11 +174,14 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 			LIMIT $3
 		`, conversationID, sinceEventID, limit)
 	case before != "":
+		// The cursor subquery is deliberately unfiltered: the anchor may itself
+		// be a tombstone (the reader deleted the message they were paging from),
+		// and its sent_at is still the correct keyset.
 		rows, err = h.dbFor(c).Query(`
 			`+selectColumns+`
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
-			WHERE m.conversation_id = $1 AND m.sent_at < (
+			WHERE m.conversation_id = $1 AND m.is_deleted = false AND m.sent_at < (
 				SELECT sent_at FROM chat_messages WHERE id = $2
 			)
 			ORDER BY m.sent_at DESC, m.event_id DESC
@@ -185,7 +192,7 @@ func (h *MessengerHandler) fetchMessagePage(c *gin.Context, conversationID strin
 			`+selectColumns+`
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
-			WHERE m.conversation_id = $1
+			WHERE m.conversation_id = $1 AND m.is_deleted = false
 			ORDER BY m.sent_at DESC, m.event_id DESC
 			LIMIT $2
 		`, conversationID, limit)
@@ -1322,8 +1329,10 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 	storageKeys := attachmentStorageKeys(attachments)
 
 	// Soft-delete + wipe every recoverable payload. The opaque ciphertext, the
-	// structured payload and the notes metadata all go; the row keeps only its
-	// identity so clients can render "message deleted".
+	// structured payload, the notes metadata and even the type/reply hints all
+	// go; the row keeps nothing but its identity and the new event_id that
+	// tells reconnecting devices to drop the message. No client ever renders a
+	// tombstone — history pages filter these rows out entirely.
 	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
 		SET is_deleted = true,
@@ -1332,6 +1341,10 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 		    enc_v = 0,
 		    enc_alg = NULL,
 		    payload = NULL,
+		    type = 'text',
+		    is_edited = false,
+		    edited_at = NULL,
+		    parent_message_id = NULL,
 		    event_id = nextval('chat_messages_event_id_seq')
 		WHERE id = $1
 		  AND sender_user_id = $2

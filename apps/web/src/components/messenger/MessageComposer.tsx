@@ -792,7 +792,7 @@ useEffect(() => {
           <CornerDownRight size={14} style={{ color: "oklch(var(--primary))", flexShrink: 0 }} />
           <span className="reply-label">{replySenderLabel}</span>
           <span className="reply-text">
-            {replyToMessage.is_deleted ? "Удалено" : messengerPlainPreview(replyToMessage.content, 120)}
+            {messengerPlainPreview(replyToMessage.content, 120)}
           </span>
           {/* The ✕ must NOT steal focus from the editor: the browser's mousedown
               default would blur it (dismissing the iOS keyboard) and leave a

@@ -9,8 +9,10 @@ import { giftImageUrl, storageUrl } from "@/utils/storage";
 import { toViewportRect } from "@/utils/domRect";
 import {
   getConversationReadThrough,
+  isMessageDeleted,
   queueMarkDelivered,
   selectSelectedConversation,
+  useDeletedMessagesVersion,
   useMessengerStore,
 } from "@/stores/messengerStore";
 import { useLanguageStore } from "@/stores/languageStore";
@@ -74,6 +76,9 @@ export const ChatView = memo(function ChatView({
   const [pinnedText, setPinnedText] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState<string>("");
+  // Erasures are journaled outside React state; this tick re-runs the banner
+  // cleanup below the moment one lands.
+  const deletedMessagesVersion = useDeletedMessagesVersion();
 
   // The draft belongs to the open conversation, and the state says WHICH
   // conversation it belongs to. That is what makes a switch a single consistent
@@ -232,6 +237,21 @@ export const ChatView = memo(function ChatView({
     setPendingAttachments([]);
   }, [activeConversationId]);
 
+  // A message that disappears (deleted here or on another device) must not stay
+  // quoted in the composer or open in the editor: the banner would point at
+  // something that no longer exists. The journal is the authority — a message
+  // missing from `messages` merely because it is outside the loaded window is
+  // still a valid reply target.
+  useEffect(() => {
+    if (replyToMessage && isMessageDeleted(replyToMessage.id)) {
+      setReplyToMessage(null);
+    }
+    if (editingMessageId && isMessageDeleted(editingMessageId)) {
+      setEditingMessageId(null);
+      setEditingContent("");
+    }
+  }, [deletedMessagesVersion, replyToMessage, editingMessageId]);
+
   // Mark the last received message delivered when new messages arrive. Read
   // marking is handled by MessageList's visibility tracking (a message is read
   // only while it is actually on screen).
@@ -249,13 +269,17 @@ export const ChatView = memo(function ChatView({
   useEffect(() => {
     const pid = conversation?.pinned_message_id;
     if (!pid) { setPinnedText(null); return; }
+    // A deleted pin has no text to show: hide the bar instead of a placeholder
+    // (the server clears pinned_message_id on its side; this covers the frame
+    // before the refreshed conversation lands).
+    if (isMessageDeleted(pid)) { setPinnedText(null); return; }
     const found = messageById.get(pid);
     if (found) {
-      setPinnedText(found.is_deleted ? "[Удалено]" : messengerPlainPreview(found.content));
+      setPinnedText(messengerPlainPreview(found.content));
     } else {
       setPinnedText("[Нажмите чтобы открыть]");
     }
-  }, [conversation?.pinned_message_id, messageById]);
+  }, [conversation?.pinned_message_id, messageById, deletedMessagesVersion]);
 
   // Jump to the pinned message. The list pages older history on demand, so a
   // pin outside the loaded window still resolves.

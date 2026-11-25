@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { destroyMessenger, queueMarkRead, useMessengerStore, __resetConversationCacheForTests, __resetRecentMessagesForTests } from "./messengerStore";
+import { destroyMessenger, isMessageDeleted, queueMarkRead, useMessengerStore, __resetConversationCacheForTests, __resetDeletedMessageJournalForTests, __resetRecentMessagesForTests } from "./messengerStore";
 import { messengerApi } from "@/services/messengerApi";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import { listOutbox, outboxKey, putOutbox, __resetOutboxForTests } from "@/components/messenger/core/outbox";
@@ -91,6 +91,7 @@ describe("messengerStore", () => {
     destroyMessenger();
     __resetConversationCacheForTests();
     __resetRecentMessagesForTests();
+    __resetDeletedMessageJournalForTests();
     localStorage.clear();
     vi.mocked(loadCachedMessages).mockResolvedValue(null);
     vi.mocked(saveCachedMessages).mockResolvedValue(undefined);
@@ -267,6 +268,40 @@ describe("messengerStore", () => {
       expect(loadCachedMessages).toHaveBeenCalledWith("u1", "conv-1");
       expect(useMessengerStore.getState().messages[0].id).toBe("fresh-1");
       expect(saveCachedMessages).toHaveBeenCalledWith("u1", "conv-1", expect.any(Array));
+    });
+
+    it("never paints a cached copy of a message deleted on this device", async () => {
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      // The chat cache still holds the message; the journal already knows it is
+      // gone (this device deleted it, or another device told us so).
+      useMessengerStore.getState().removeMessage("cached-1");
+      vi.mocked(loadCachedMessages).mockResolvedValue([mockMsg({ id: "cached-1", content: "секрет" })]);
+      let release: (messages: MessageView[]) => void = () => {};
+      vi.mocked(messengerApi.getMessages).mockImplementation(
+        () => new Promise<MessageView[]>((resolve) => { release = resolve; }) as never,
+      );
+
+      const pending = useMessengerStore.getState().loadMessages("conv-1");
+      // The network request starts AFTER the warm cache paint, so at this point
+      // the deleted message must already be filtered out of the frame.
+      await vi.waitFor(() => expect(messengerApi.getMessages).toHaveBeenCalled());
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+
+      release([]);
+      await pending;
+    });
+
+    it("filters tombstones out of a server page", async () => {
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "alive", content: "ok" }),
+        mockMsg({ id: "gone", is_deleted: true, content: "" }),
+      ]);
+
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      await useMessengerStore.getState().loadMessages("conv-1");
+
+      // A deletion marker is not history: nothing renders it.
+      expect(useMessengerStore.getState().messages.map((m) => m.id)).toEqual(["alive"]);
     });
 
     it("loads messages and sets loading state", async () => {
@@ -653,18 +688,143 @@ describe("messengerStore", () => {
   });
 
   describe("deleteMessage", () => {
-    it("marks message as deleted", async () => {
+    it("updates the chat list line to the surviving message", async () => {
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", last_message_preview: "второе", last_message_sender_id: "u1" })],
+        messages: [
+          mockMsg({ id: "m1", content: "первое", sent_at: "2025-06-01T12:00:00Z", sender_user_id: "u1" }),
+          mockMsg({ id: "m2", content: "второе", sent_at: "2025-06-01T12:01:00Z", sender_user_id: "u1" }),
+        ],
+      });
+
+      await useMessengerStore.getState().deleteMessage("m2");
+
+      // No wait for the server broadcast: the list already shows «первое».
+      const conversation = useMessengerStore.getState().conversations[0];
+      expect(conversation.last_message_preview).toBe("первое");
+      expect(conversation.last_message_at).toBe("2025-06-01T12:00:00Z");
+    });
+
+    it("clears the chat list line when the chat becomes empty", async () => {
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1" })],
+        messages: [mockMsg({ id: "only", content: "последнее" })],
+      });
+
+      await useMessengerStore.getState().deleteMessage("only");
+
+      const conversation = useMessengerStore.getState().conversations[0];
+      expect(conversation.last_message_preview).toBeNull();
+      expect(conversation.last_message_at).toBeNull();
+      expect(conversation.last_message_sender_id).toBeNull();
+    });
+
+    it("removes the message immediately and only then confirms with the server", async () => {
       useMessengerStore.setState({
         selectedConversationId: "conv-1",
         messages: [mockMsg({ id: "msg-1", content: "Hello" })],
       });
-      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+      let release: (value: unknown) => void = () => {};
+      vi.mocked(messengerApi.deleteMessage).mockImplementation(
+        () => new Promise((resolve) => { release = resolve as (value: unknown) => void; }) as never,
+      );
+
+      const pending = useMessengerStore.getState().deleteMessage("msg-1");
+
+      // Gone in the same frame — the reader never waits for the round trip.
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+      expect(messengerApi.deleteMessage).toHaveBeenCalledWith("conv-1", "msg-1");
+
+      release({ deleted: true });
+      await pending;
+
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+      expect(isMessageDeleted("msg-1")).toBe(true);
+    });
+
+    it("puts the message back when the delete fails", async () => {
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        messages: [mockMsg({ id: "msg-1", content: "Hello" })],
+      });
+      vi.mocked(messengerApi.deleteMessage).mockRejectedValue(new Error("offline"));
 
       await useMessengerStore.getState().deleteMessage("msg-1");
 
-      const msg = useMessengerStore.getState().messages[0];
-      expect(msg.is_deleted).toBe(true);
-      expect(msg.content).toBe("");
+      const messages = useMessengerStore.getState().messages;
+      expect(messages).toHaveLength(1);
+      expect(messages[0].id).toBe("msg-1");
+      expect(messages[0].content).toBe("Hello");
+      // A failed delete is not remembered as a deletion.
+      expect(isMessageDeleted("msg-1")).toBe(false);
+      expect(useMessengerStore.getState().error).toBe("Не удалось удалить сообщение");
+    });
+
+    it("deleting a bubble whose send is still in flight erases the row the server creates", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+      });
+      let release: (message: MessageView) => void = () => {};
+      vi.mocked(messengerApi.sendMessage).mockImplementation(
+        () => new Promise<MessageView>((resolve) => { release = resolve; }) as never,
+      );
+      vi.mocked(messengerApi.deleteMessage).mockResolvedValue({ deleted: true });
+
+      const sending = useMessengerStore.getState().sendMessage("исчезни", "client-gone");
+      // The bubble is optimistic, but the request starts after the outbox write:
+      // wait for the send to be genuinely in flight before deleting it.
+      await vi.waitFor(() => expect(messengerApi.sendMessage).toHaveBeenCalled());
+
+      await useMessengerStore.getState().deleteMessage("temp_client-gone");
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+
+      // The request was already on the wire: the row it creates is deleted, and
+      // the bubble never flashes back.
+      release(mockMsg({ id: "server-gone", client_id: "client-gone", content: "исчезни" }));
+      const msgId = await sending;
+
+      expect(msgId).toBe("server-gone");
+      expect(messengerApi.deleteMessage).toHaveBeenCalledWith("conv-1", "server-gone");
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+      expect(await listOutbox("u1")).toHaveLength(0);
+    });
+  });
+
+  describe("removeMessage (realtime deletion)", () => {
+    it("drops the message, its pin and its list line", () => {
+      useMessengerStore.setState({
+        selectedConversationId: "conv-1",
+        conversations: [mockConv({ id: "conv-1", last_message_preview: "исчезнет" })],
+        pinnedNotes: [mockMsg({ id: "m1", notesPinned: true, content: "пин" })],
+        messages: [
+          mockMsg({ id: "m0", content: "первое", sent_at: "2025-06-01T11:00:00Z" }),
+          mockMsg({ id: "m1", content: "исчезнет", sent_at: "2025-06-01T12:00:00Z" }),
+        ],
+      });
+
+      useMessengerStore.getState().removeMessage("m1");
+
+      const state = useMessengerStore.getState();
+      expect(state.messages.map((m) => m.id)).toEqual(["m0"]);
+      expect(state.pinnedNotes).toHaveLength(0);
+      expect(state.conversations[0].last_message_preview).toBe("первое");
+      // Journaled: a cache read (warm first frame, offline open) cannot bring it
+      // back.
+      expect(isMessageDeleted("m1")).toBe(true);
+    });
+
+    it("never resurrects the message from a late echo", () => {
+      useMessengerStore.setState({ selectedConversationId: "conv-1", messages: [] });
+
+      useMessengerStore.getState().removeMessage("m1");
+      useMessengerStore.getState().addMessage(mockMsg({ id: "m1", content: "исчезнет" }));
+
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
     });
   });
 
@@ -1372,13 +1532,14 @@ describe("messengerStore", () => {
       expect(msg.is_edited).toBe(true);
     });
 
-    it("removeMessage marks as deleted", () => {
+    it("removeMessage drops the message for good (no tombstone)", () => {
       useMessengerStore.setState({ messages: [mockMsg({ id: "msg-1" })] });
 
       useMessengerStore.getState().removeMessage("msg-1");
 
-      const msg = useMessengerStore.getState().messages[0];
-      expect(msg.is_deleted).toBe(true);
+      expect(useMessengerStore.getState().messages).toHaveLength(0);
+      // The id is journaled, so no cache read can bring the bubble back.
+      expect(isMessageDeleted("msg-1")).toBe(true);
     });
 
     it("setTyping adds and removes typing users", () => {

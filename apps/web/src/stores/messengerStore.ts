@@ -270,6 +270,110 @@ function persistMessages(ownerId: string | null, conversationId: string, message
   void saveCachedMessages(ownerId, conversationId, messages);
 }
 
+// ─── Deleted-message journal (device-local) ─────────────────────────────────
+// A deleted message must not survive anywhere the device can read from. The
+// server keeps only a contentless tombstone (its id is the sync marker), so a
+// cached copy in the LRU / IndexedDB would resurrect the message — a warm chat
+// would paint it for a frame, and an offline open would keep it for good. The
+// journal remembers the ids this device has seen deleted and filters every
+// list read, so the message is gone even before the authoritative page lands.
+const DELETED_MESSAGES_KEY = "gomo6:deleted-messages:v1";
+/** Bounded: ids are UUIDs, and the server never returns them again anyway. */
+const DELETED_MESSAGES_LIMIT = 500;
+
+let deletedMessageIds: Set<string> | null = null;
+
+/**
+ * The journal itself is not reactive (it is read from caches on hot paths), so
+ * a component that must react to an erasure—the reply banner pointing at a
+ * message that just vanished—subscribes to this tick instead.
+ */
+const useDeletedJournal = create<{ version: number }>(() => ({ version: 0 }));
+
+/** Bumps every time this device learns about another deleted message. */
+export function useDeletedMessagesVersion(): number {
+  return useDeletedJournal((s) => s.version);
+}
+
+function deletedJournal(): Set<string> {
+  if (deletedMessageIds) return deletedMessageIds;
+  deletedMessageIds = new Set<string>();
+  try {
+    const raw = localStorage.getItem(DELETED_MESSAGES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    if (Array.isArray(parsed)) {
+      for (const id of parsed) if (typeof id === "string") deletedMessageIds.add(id);
+    }
+  } catch {
+    // Storage may be unavailable (private mode): the journal still works in-session.
+  }
+  return deletedMessageIds;
+}
+
+function rememberDeletedMessage(messageId: string): void {
+  const journal = deletedJournal();
+  if (journal.has(messageId)) return;
+  journal.add(messageId);
+  // Subscribers (the reply banner, the editor) drop the target in this frame.
+  useDeletedJournal.setState((s) => ({ version: s.version + 1 }));
+  try {
+    // Keep the newest ids: Set iteration order is insertion order.
+    const ids = [...journal];
+    const kept = ids.slice(Math.max(0, ids.length - DELETED_MESSAGES_LIMIT));
+    if (kept.length !== ids.length) {
+      deletedMessageIds = new Set(kept);
+      localStorage.setItem(DELETED_MESSAGES_KEY, JSON.stringify(kept));
+    } else {
+      localStorage.setItem(DELETED_MESSAGES_KEY, JSON.stringify(ids));
+    }
+  } catch {
+    // A failed persist only costs a resurrected frame after a reload.
+  }
+}
+
+/** Drops messages this device knows are deleted (see the journal above). */
+function withoutDeletedMessages(messages: MessageView[]): MessageView[] {
+  if (messages.length === 0) return messages;
+  const journal = deletedJournal();
+  const kept = messages.filter((message) => !message.is_deleted && !journal.has(message.id));
+  return kept.length === messages.length ? messages : kept;
+}
+
+/** True when this device knows the message was deleted (see the journal above). */
+export function isMessageDeleted(messageId: string): boolean {
+  return deletedJournal().has(messageId);
+}
+
+/**
+ * Client ids the reader deleted while their send was still in flight. The
+ * server may still have created the row, so the send response must delete it
+ * instead of re-adding a bubble (and the realtime echo of it is ignored).
+ */
+const cancelledSends = new Set<string>();
+
+/** Test-only reset for the deleted-message journal. */
+export function __resetDeletedMessageJournalForTests(): void {
+  deletedMessageIds = new Set<string>();
+  cancelledSends.clear();
+  useDeletedJournal.setState({ version: 0 });
+}
+
+/**
+ * Best-effort removal of a row the server created after the reader had already
+ * deleted its pending bubble. The local journal keeps it out of this device
+ * either way; the delete makes the peer's copy disappear too.
+ */
+async function discardSentMessage(conversationId: string, messageId: string, outboxEntryKey: string): Promise<void> {
+  await deleteOutbox(outboxEntryKey);
+  try {
+    await messengerApi.deleteMessage(conversationId, messageId);
+    rememberDeletedMessage(messageId);
+  } catch {
+    // A failed cleanup only leaves a row this device never shows.
+  }
+}
+
+
 // ─── Notes (client-side E2E self-chat) helpers ───────────────────────────────
 
 function notesConversationExists(conversationId: string | null | undefined): boolean {
@@ -482,6 +586,29 @@ function normalizeConversationUnread(conversation: ConversationView, selectedId:
     return { ...conversation, unread_count: 0 };
   }
   return conversation;
+}
+
+/** The chat-list line a conversation shows after `messages` (the open chat's
+ *  list, already chronological). Deleting the newest message must update the
+ *  list in the same frame instead of waiting for the server broadcast. */
+function previewAfterRemoval(messages: MessageView[]): Pick<
+  ConversationView,
+  "last_message_at" | "last_message_preview" | "last_message_sender_id"
+> {
+  const last = messages[messages.length - 1] ?? null;
+  if (!last) {
+    return { last_message_at: null, last_message_preview: null, last_message_sender_id: null };
+  }
+  const preview = last.content.trim()
+    ? messengerPlainPreview(last.content, 80)
+    : last.attachments && last.attachments.length > 0
+      ? attachmentPreviewText(last.attachments)
+      : "";
+  return {
+    last_message_at: last.sent_at,
+    last_message_preview: preview,
+    last_message_sender_id: last.sender_user_id,
+  };
 }
 
 
@@ -963,7 +1090,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     try {
       const cached = ownerId ? await loadCachedMessages(ownerId, conversationId) : null;
       const cachedNotes = cached ? await decryptNotesMessages(conversationId, cached) : null;
-      const cachedView = cachedNotes ? await decryptE2EMessages(conversationId, cachedNotes) : null;
+      const cachedDecrypted = cachedNotes ? await decryptE2EMessages(conversationId, cachedNotes) : null;
+      // A cache written before a delete still holds the message: the journal
+      // drops it so a warm chat never flashes a bubble that no longer exists.
+      const cachedView = cachedDecrypted ? withoutDeletedMessages(cachedDecrypted) : null;
       if (cachedView && cachedView.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
         hasCachedMessages = true;
         const queued = ownerId ? await listOutbox(ownerId) : [];
@@ -983,7 +1113,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // opening notes no longer downloads up to 200 pages of history.
       const raw = await messengerApi.getMessages(conversationId);
       const rawMsgsNotes = await decryptNotesMessages(conversationId, raw);
-      const rawMsgs = await decryptE2EMessages(conversationId, rawMsgsNotes);
+      const rawDecrypted = await decryptE2EMessages(conversationId, rawMsgsNotes);
+      // History pages never carry tombstones (the backend filters them), but a
+      // delta/legacy page might: a deleted message is not history.
+      const rawMsgs = withoutDeletedMessages(rawDecrypted);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
       const queued = ownerId ? await listOutbox(ownerId) : [];
       const msgs = ownerId
@@ -1056,14 +1189,21 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     try {
       const raw = await messengerApi.getMessages(conversationId, undefined, sinceEventId);
       const deltaNotes = await decryptNotesMessages(conversationId, raw);
-      const delta = await decryptE2EMessages(conversationId, deltaNotes);
+      const deltaDecrypted = await decryptE2EMessages(conversationId, deltaNotes);
       if (get().selectedConversationId !== conversationId || get().me?.id !== ownerId) return;
-      if (delta.length === 0) return;
+      if (deltaDecrypted.length === 0) return;
+      // A tombstone in the delta is a deletion instruction, not history: the
+      // row carries no content, only the id the device must forget.
+      for (const message of deltaDecrypted) {
+        if (message.is_deleted) rememberDeletedMessage(message.id);
+      }
+      const delta = withoutDeletedMessages(deltaDecrypted);
       set((s) => {
-        const messages = mergeMessages(s.messages, delta);
+        const messages = withoutDeletedMessages(mergeMessages(s.messages, delta));
         cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
-        rememberLatestEventId(conversationId, delta);
-        cacheCurrentMessages(ownerId, conversationId, messages);
+        // The cursor advances over the tombstone too — otherwise every
+        // reconnect would replay the same deletion.
+        rememberLatestEventId(conversationId, deltaDecrypted);
         return { messages };
       });
     } catch {
@@ -1272,6 +1412,13 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           parentMessageId,
           attachments,
         );
+        if (cancelledSends.delete(clientId)) {
+          // The reader deleted the bubble while this request was in flight: the
+          // server created the row anyway, so it goes too. No state update — the
+          // message must not flash back into the chat or the list preview.
+          await discardSentMessage(convId, msg.id, outboxEntry.key);
+          return msg.id;
+        }
         const sentAt = msg.sent_at;
         // For opaque conversations the server echoes the client ciphertext;
         // decrypt it back to plaintext so the store only ever holds readable
@@ -1412,6 +1559,12 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
             entry.parentMessageId,
             entry.attachments.length > 0 ? entry.attachments : undefined,
           );
+          if (cancelledSends.delete(entry.clientId)) {
+            // Deleted while this retry was in flight: drop the row the server
+            // just created and never materialize the bubble.
+            await discardSentMessage(entry.conversationId, msg.id, entry.key);
+            continue;
+          }
           let displayContent = msg.content;
           if (isNotes) {
             displayContent = (await decryptNote(msg.content, entry.conversationId)) ?? entry.content;
@@ -1564,6 +1717,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   deleteMessage: async (messageId: string) => {
     const { selectedConversationId, me } = get();
     if (!selectedConversationId) return;
+    const conversationId = selectedConversationId;
 
     // A queued message has no server row yet: deleting it must drop it from the
     // outbox, otherwise the retry would resurrect it after the bubble is gone.
@@ -1572,25 +1726,54 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     );
     if (local?.client_id) {
       if (me) void deleteOutbox(outboxKey(me.id, local.conversation_id, local.client_id));
+      // The request may already be on the wire: the send response will delete
+      // the row the server just created instead of showing it again.
+      cancelledSends.add(local.client_id);
       set((s) => ({ messages: s.messages.filter((m) => m.id !== messageId) }));
       return;
     }
 
+    const removed = get().messages.find((m) => m.id === messageId) ?? null;
+
+    // Telegram-fast: the bubble, the chat-list line and the pinned strip go in
+    // the same frame, before the request leaves. The server stays authoritative
+    // (and its broadcast reaches the other devices) — the reader just never
+    // waits to watch the message leave.
+    setNotePinnedLocally(conversationId, messageId, false);
+    set((s) => {
+      const messages = s.messages.filter((m) => m.id !== messageId);
+      cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
+      return {
+        messages,
+        pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
+        conversations: s.conversations.map((c) =>
+          c.id === conversationId ? { ...c, ...previewAfterRemoval(messages) } : c,
+        ),
+      };
+    });
+
     try {
-      await messengerApi.deleteMessage(selectedConversationId, messageId);
-      setNotePinnedLocally(selectedConversationId, messageId, false);
-      set((s) => {
-        const messages = s.messages.map((m) =>
-          m.id === messageId ? { ...m, is_deleted: true, content: "" } : m,
-        );
-        // The recent-chat snapshot must not resurrect the content either.
-        cacheCurrentMessages(s.me?.id ?? null, selectedConversationId, messages);
-        return {
-          messages,
-          pinnedNotes: s.pinnedNotes.filter((m) => m.id !== messageId),
-        };
-      });
+      await messengerApi.deleteMessage(conversationId, messageId);
+      // Only a confirmed delete is remembered: a failure must be able to bring
+      // the message back (the journal would otherwise hide it forever).
+      rememberDeletedMessage(messageId);
     } catch {
+      // A failed delete must never eat the message: put it back exactly where
+      // it was and say why. (If the realtime event already confirmed the delete
+      // — a lost response — the journal knows, and the message stays gone.)
+      if (get().selectedConversationId === conversationId && removed && !deletedJournal().has(messageId)) {
+        if (removed.notesPinned) setNotePinnedLocally(conversationId, messageId, true);
+        set((s) => {
+          const messages = sortBySentAt([...s.messages, removed]);
+          cacheCurrentMessages(s.me?.id ?? null, conversationId, messages);
+          return {
+            messages,
+            conversations: s.conversations.map((c) =>
+              c.id === conversationId ? { ...c, ...previewAfterRemoval(messages) } : c,
+            ),
+          };
+        });
+      }
       set({ error: "Не удалось удалить сообщение" });
     }
   },
@@ -2112,6 +2295,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   setError: (error) => set({ error }),
 
   addMessage: (message) => {
+    // A deleted message must never come back: not from a stale cache, not from
+    // an echo that was already in flight when the reader deleted it.
+    if (message.is_deleted || deletedJournal().has(message.id)) return;
+    if (message.client_id && cancelledSends.has(message.client_id)) return;
     const apply = (finalMessage: MessageView) => {
       set((s) => {
         // Dedup
@@ -2222,11 +2409,25 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   },
 
   removeMessage: (id) => {
+    // A message deleted anywhere is deleted everywhere: the id is journaled so
+    // no local cache (LRU or IndexedDB) can paint it again, and the open chat
+    // loses the row in this frame.
+    rememberDeletedMessage(id);
     set((s) => {
-      const messages = s.messages.map((m) => (m.id === id ? { ...m, is_deleted: true, content: "" } : m));
-      const changed = messages.some((m, index) => m !== s.messages[index]);
-      if (changed && s.selectedConversationId) cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
-      return { messages };
+      const present = s.messages.some((m) => m.id === id);
+      const messages = present ? s.messages.filter((m) => m.id !== id) : s.messages;
+      if (present && s.selectedConversationId) {
+        cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
+      }
+      return {
+        messages,
+        pinnedNotes: s.pinnedNotes.filter((m) => m.id !== id),
+        conversations: present
+          ? s.conversations.map((c) =>
+              c.id === s.selectedConversationId ? { ...c, ...previewAfterRemoval(messages) } : c,
+            )
+          : s.conversations,
+      };
     });
   },
 

@@ -106,7 +106,9 @@ func TestGetMessages_WithBefore(t *testing.T) {
 
 	// Conversation access: membership + kind + encryption mode in one query.
 	expectConversationAccess(mock, testConv1, testUser1, "", false, false, false, "server")
-	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1 AND m.sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY m.sent_at DESC.*LIMIT \$3`).
+	// History never carries tombstones: a deleted message is not history (only
+	// the delta-sync query returns them, as contentless deletion markers).
+	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1 AND m.is_deleted = false AND m.sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY m.sent_at DESC.*LIMIT \$3`).
 		WithArgs(testConv1, testMsg5, 10).
 		WillReturnRows(msgRows)
 
@@ -504,8 +506,9 @@ func TestDeleteMessage_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"url", "meta"}).
 			AddRow(testUser1+"/messenger/a.jpg", `{"preview_key":"`+testUser1+`/messenger/a.jpg.preview.jpg"}`))
 
-	// The row is wiped: no content, no payload, no envelope.
-	mock.ExpectExec(`UPDATE chat_messages\s+SET is_deleted = true,`).
+	// The row is wiped down to a deletion marker: no content, no payload, no
+	// envelope, and not even the type/reply hints survive.
+	mock.ExpectExec(`(?s)UPDATE chat_messages\s+SET is_deleted = true,\s+content = '',\s+notes_meta = NULL,.*payload = NULL,\s+type = 'text',\s+is_edited = false,\s+edited_at = NULL,\s+parent_message_id = NULL,\s+event_id = nextval`).
 		WithArgs(testMsg1, testUser1, testConv1).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
